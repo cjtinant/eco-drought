@@ -32,9 +32,12 @@ Sometimes the data will need some cleaning and every dataset has its unique quir
 6.0  Follow up questions 
 -->
 
-## General questions addressed with this code chunk:
-What is the drought history of the Pine Ridge Reservation?
+## Broad questions:
+What is the drought history of the Pine Ridge Reservation?  
 Does the drought extent differ across the study area?
+
+## Narrower questions:
+What is are precipitation trends?  
 
 ## Analysis Steps:
 1. Data read in from NOAA website  
@@ -57,6 +60,7 @@ _transZ       final df - after cleaning
 
 ## Results: 
 The results generally show rainshadow effects from the Black Hills and southeast to northwest aridity trend at the annual scale.
+1900s were a very wet decade for the southern Black Hills.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
@@ -103,9 +107,9 @@ library('deldir') # for Vorononi tesselation - Theissen polygons
 # Creates points for maps. No need to evaluate.  
 # The output files have been created. 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# 'station' is a variable for NOAA weather station locations 
+# 'station' is a variable for NOAA weather station locations  
 # 'gage' is a variable for USGS stream gages 
-# 'site' is a variable for OST monitoring stationsn
+# 'site' is a variable for OST monitoring stations 
 
 # 'station' 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
@@ -302,7 +306,7 @@ rm(site_id, eco)
 
 ```{r voroni-diagram-initial, message=FALSE}
 # import location data 
-sta_meta <- import("data/sta_meta_orig.csv")
+sta_meta <- import("data/sta_meta_orig.csv") 
 sta_meta <- sta_meta %>%
   filter(id != "GHCND:US1SDCS0027") # filters out hermosa (short rec.)
 
@@ -346,14 +350,27 @@ ggplot(data = sta_meta, aes(x = lon, y = lat)) +
 #                width = 6, height = 6, units = "in")
 ```
 
-
+## Original Stations and reason for removal, if removed
+GHCND:US1SDCS0027 HERMOSA 10.3 ESE, SD US - short record  
+GHCND:USC00253615 HARRISON, NE US - outside region  
+GHCND:USC00396212 OELRICHS, SD US    
+GHCND:US1SDFR0001 HOT SPRINGS 0.5 SSW, SD US - close to Oelrichs  
+GHCND:USC00396304 ORAL, SD US    
+GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US    
+GHCND:USC00394184 INTERIOR 3 NE, SD US    
+GHCND:USC00391972 COTTONWOOD 2 E, SD US   
+GHCND:USC00394983 LONG VALLEY, SD US                  
+GHCND:US1SDJK0006 KADOKA 0.3 N, SD US - short period of record   
+GHCND:USC00395891 MURDO, SD US - outside region   
+GHCND:USC00395638 MISSION 14 S, SD US    
+GHCND:USC00250050 AINSWORTH, NE US 
 
 ```{r download-precip, eval=FALSE}
 # DL Global Historical Climatology Network (GHCN) Daily Data   
 # Note: to flatten a list use: Reduce(rbind, list)  
 
-# load metadata
-sta_meta <- import("data/sta_meta_orig.csv")
+# load metadata 
+sta_meta <- import("data/sta_meta_orig.csv") 
 
 # make a table for manual import
 # sta <- as.tibble(select(station_meta, 1:2))
@@ -492,15 +509,6 @@ rm(sta_mur, merge_sta1, merge_sta2, merge_sta3, merge_sta4,
 
 # export(sta, file = "data/stations.csv") 
 ```
-
-# Fixing NA values  
-NAs are caused in part by different start dates  
-OEL - OELRICHS    1893 - 2018  -fixed with Murdo  
-COT - COTTONWOOD  1909 - 2018  -fixed with Interior & Murdo  
-RAP - RAPID CITY  1948 - 2018  -fixed with Interior    
-ORA - ORAL        1971 - 2018  -fixed with Oelrichs & Harrison  
-LON - LONG VALLEY 1927 - 2012  - Removed from further analysis  
-MIS - MISSION     1951 - 2018  - Removed from further analysis   
 
 ```{r munge-precip-data-oral, eval=FALSE}
 # General Purpose: fill NA prior to upscaling to monthly data 
@@ -1520,67 +1528,211 @@ lm_glance <- as.tibble(lm_glance) %>%
 lm_glance
 ```
 
-```{r modeling-results-2, eval = FALSE}
-# continued from above
-# result: drop the long valley data and use Interior for southeast
-# remove not-needed stations from metadata
-sta_meta <- sta_meta %>%
-  filter(name != "LONG VALLEY, SD US")
+```{r modeling-results-2}
+# continued from above 
+# result: drop the long valley data and use Interior for southeast 
+# remove not-needed stations from metadata 
+sta_meta <- sta_meta %>% 
+  filter(name != "LONG VALLEY, SD US") 
 
 # export(sta_meta, file = "data/sta_meta_fin3.csv")
 ```
 
-```{r daily2monthly-precip, eval = FALSE}
+## Fixing NA values  
+These are the stations that NA values were fixed
+NAs are caused in part by different start dates  
+OEL - OELRICHS    1893 - 2018  - fixed with Murdo  
+COT - COTTONWOOD  1909 - 2018  - fixed with Interior & Murdo  
+RAP - RAPID CITY  1948 - 2018  - fixed with Interior    
+INT - INTERIOR    1949 - 2018  - fixed with Cottonwood & Murdo    
+ORA - ORAL        1971 - 2018  - fixed with Oelrichs & Harrison  
+
+```{r voroni-diagram-inter}
+# import site location data and filter out:
+#   hermosa, ainsworth, harrison, hot springs
+
+sta_meta <- import("data/sta_meta_orig.csv")
+sta_meta <- sta_meta %>%
+  filter(id != "GHCND:US1SDCS0027") %>% # very short length - HER
+  filter(id != "GHCND:USC00250050") %>% # outside region - AIN
+  filter(id != "GHCND:USC00253615") %>% # outside region - HAR
+  filter(id != "GHCND:US1SDFR0001") %>% # close to oral - HOT
+  filter(id != "GHCND:USC00395891") %>% # outside range - MUR
+  filter(id != "GHCND:USC00394983") %>% # love - but stopped 2012 - LON
+  filter(id != "GHCND:US1SDJK0006") 
+
+# import gage location data
+gage_meta <- import("data/gage_meta.csv")
+  
+# define the study area using data from the 'maps' package
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# import polygon data - counties
+counties <- map_data("county") 
+counties <- subset(counties, region %in% 
+   c("south dakota", "nebraska"))
+prr <- subset(counties, subregion %in% 
+   c("shannon", "jackson", "bennett"))
+
+# create voroni line segments
+voronoi <- deldir(sta_meta$lon, sta_meta$lat)
+
+#Plot the points, voronoi lines, and annotate
+p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
+  geom_point(
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    pch = 21,
+    size = 4,
+    color = "#333333") +   
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2),
+    size = 2,
+    data = voronoi$dirsgs,
+    linetype = 1,
+    color = "#FFB958") +
+  geom_polygon(data = prr, aes(x = long, y = lat, group = group), 
+              color = "black", linetype = "dashed", fill = "NA") +
+  theme_bw() +
+  geom_text(data = sta_meta, aes(label = name), size = 2.5) +
+  ggtitle("Final Theissen Polygon Map")
+  
+p_site +
+  geom_point(data = gage_meta, aes(x = dec_long_va, 
+                                   y = dec_lat_va),
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
+  
+
+#sta_meta <- as.tibble(sta_meta)
+# final list of stations
+# id                name                              
+#  <chr>             <chr>                             
+# 1 GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US
+# 2 GHCND:USC00396212 OELRICHS, SD US                   
+# 3 GHCND:USC00394184 INTERIOR 3 NE, SD US              
+# 4 GHCND:USC00391972 COTTONWOOD 2 E, SD US             
+# 5 GHCND:USC00395638 MISSION 14 S, SD US               
+# 6 GHCND:USC00396304 ORAL, SD US   
+
+#ggplot2::ggsave(filename = "theissen_fin.png", 
+#                width = 6, height = 6, units = "in")
+# export(sta_meta, file = "index/data/sta_meta_fin.csv")
+```
+### Note: Mission is kept on the map to extend the INT - COT line 
+
+```{r voroni-diagram-final, eval=FALSE}
+# import site location data and filter out:
+#   hermosa, ainsworth, harrison, hot springs
+sta_meta <- import("data/sta_meta_fin3.csv")
+
+# import gage location data
+gage_meta <- import("data/gage_meta.csv")
+  
+# define the study area using data from the 'maps' package
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# import polygon data - counties
+counties <- map_data("county") 
+counties <- subset(counties, region %in% 
+   c("south dakota", "nebraska"))
+prr <- subset(counties, subregion %in% 
+   c("shannon", "jackson", "bennett"))
+
+# create voroni line segments
+voronoi <- deldir(sta_meta$lon, sta_meta$lat)
+
+#Plot the points, voronoi lines, and annotate
+p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
+  geom_point(
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    pch = 21,
+    size = 4,
+    color = "#333333") +   
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2),
+    size = 2,
+    data = voronoi$dirsgs,
+    linetype = 1,
+    color = "#FFB958") +
+  geom_polygon(data = prr, aes(x = long, y = lat, group = group), 
+              color = "black", linetype = "dashed", fill = "NA") +
+  theme_bw() +
+  geom_text(data = sta_meta, aes(label = name), size = 2.5) +
+  ggtitle("Final Theissen Polygon Map")
+  
+p_site +
+  geom_point(data = gage_meta, aes(x = dec_long_va, 
+                                   y = dec_lat_va),
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
+  
+
+#sta_meta <- as.tibble(sta_meta)
+# final list of stations
+# id                name                              
+#  <chr>             <chr>                             
+# 1 GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US
+# 2 GHCND:USC00396212 OELRICHS, SD US                   
+# 3 GHCND:USC00394184 INTERIOR 3 NE, SD US              
+# 4 GHCND:USC00391972 COTTONWOOD 2 E, SD US             
+# 5 GHCND:USC00395638 MISSION 14 S, SD US               
+# 6 GHCND:USC00396304 ORAL, SD US   
+
+#ggplot2::ggsave(filename = "theissen_fin.png", 
+#                width = 6, height = 6, units = "in")
+# export(sta_meta, file = "index/data/sta_meta_fin.csv")
+```
+ 
+```{r daily2monthly-precip}
 # continued from above 
 # General Purpose: prepare data for drought index 
 # Specific purpose: convert daily precip to monthly precip  
 
 # load metadata & data 
-sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv"))
-sta_day   <- as.tibble(import("data/stations_final2.csv"))
+sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
+sta_day   <- as.tibble(import("data/stations_final2.csv")) 
 
-# remove Murdo, Mission, Long Valley - see above
-#sta_day   <- sta_day %>%
-#  select(-c(lon, mur, mis))
-#export(sta_day, file = "data/stations_final2.csv") 
+# remove Murdo, Mission, Long Valley - see above 
+#sta_day   <- sta_day %>% 
+#  select(-c(lon, mur, mis)) 
+#export(sta_day, file = "data/stations_final2.csv")  
 
-# fix date & add year and month
-sta_day <- sta_day %>%
-  mutate(date = ymd(date)) %>%
-  arrange(desc(date)) %>%
-  mutate(year = year(date)) %>%
-  mutate(month = month(date)) %>%
-  select(date, year, month, everything())
+# fix date & add year and month 
+sta_day <- sta_day %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date)) %>% 
+  mutate(year = year(date)) %>% 
+  mutate(month = month(date)) %>% 
+  select(date, year, month, everything()) 
 
-# gather daily values
+# gather daily values 
 sta_gath <- gather(sta_day, key = "station", value = "prcp", -date, 
                    -year, -month, factor_key = TRUE)
 
-# create groups
-sta_group <- sta_gath %>%
-  group_by(year, month, station)
+# create groups 
+sta_group <- sta_gath %>% 
+  group_by(year, month, station) 
 
-# sum daily precip over a month
-sta_gath_mon <- sta_group %>%
-  summarize(prcp_tenths = sum(prcp)) %>%
-  mutate(prcp_mm = prcp_tenths/10) %>%
-  select(-prcp_tenths)
+# sum daily precip over a month 
+sta_gath_mon <- sta_group %>% 
+  summarize(prcp_tenths = sum(prcp)) %>% 
+  mutate(prcp_mm = prcp_tenths/10) %>% 
+  select(-prcp_tenths) 
 
-# spread result - now in months 
-#   ...and take a bow, because this is MAGIC!  Thnx Tidyverse.
-sta_mon <- sta_gath_mon %>%
-  spread(station, prcp_mm) %>%
-  mutate(day = 1) %>%
-  mutate(date = make_date(year = year, month = month, day = day)) %>%
-  select(date, year, month, everything()) %>%
-  select(-day) %>%
+# spread result - now in months  
+#   ...and take a bow, because this is MAGIC!  Thnx Tidyverse. 
+sta_mon <- sta_gath_mon %>% 
+  spread(station, prcp_mm) %>% 
+  mutate(day = 1) %>% 
+  mutate(date = make_date(year = year, month = month, day = day)) %>% 
+  select(date, year, month, everything()) %>% 
+  select(-day) %>% 
   ungroup()
 
-rm(sta_day, sta_gath, sta_gath_mon, sta_group)
+rm(sta_day, sta_gath, sta_gath_mon, sta_group) 
 # export(sta_mon, file = "data/stations_monthly.csv") 
 ```
 
-```{r eval-precip-data-ora, eval = FALSE}
+# Deciding to keep Oral
+```{r eval-precip-data-ora}
 # General Purpose: check a short-term record: Oral 
 
 # Variable naming convention - see munge-precip-data-oral code chunk  
@@ -1613,7 +1765,7 @@ ggplot(sta_test, aes(ora, oel)) +
 # it's ok, keep Oral...
 ```
 
-```{r ggplot_monthly, eval= FALSE}
+```{r ggplot_monthly}
 # General Purpose: prepare data for drought index 
 # Specific purpose: graphical EDA 
  
@@ -1645,7 +1797,7 @@ ggplot(sta_gath_mon, aes(date, prcp)) +
 #                width = 6, height = 6, units = "in")
 ```
 
-```{r monthly2yearly-precip, eval = FALSE}
+```{r monthly2yearly-precip}
 # General Purpose: prepare data for drought index   
 # Specific purpose: convert monthly precip to yearly prcp  
  
@@ -1682,7 +1834,7 @@ rm(sta_mon, sta_gath, sta_gath_yr, sta_group)
 # export(sta_yr, file = "data/stations_yearly.csv") 
 ```
 
-```{r ggplot_yearly, eval= FALSE}
+```{r ggplot_yearly}
 # General Purpose: prepare data for drought index 
 # Specific purpose: graphical EDA - yearly 
 
@@ -1709,7 +1861,8 @@ ggplot(sta_gath, aes(year, prcp)) +
 #                width = 6, height = 6, units = "in")
 ```
 
-```{r yearly_summaries, eval = FALSE}
+# Annual Summaries
+```{r yearly_summaries}
 # General Purpose: prepare data for drought index  
 # Specific purpose: create summaries of data 
 sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
@@ -1733,7 +1886,8 @@ sta_summary_yr
 # export(sta_summary_yr, file = "data/sta_summary_yr.csv") 
 ```
 
-```{r  monthly_summaries, eval = FALSE}
+# Monthly Summaries
+```{r  monthly_summaries}
 
 # General Purpose: prepare data for drought index  
 # Specific purpose: create summaries of data 
@@ -1764,7 +1918,7 @@ sta_summary_mon
 # export(sta_summary_mon, file = "data/sta_summary_mon.csv") 
 ```
 
-```{r ggplot_monthly_boxplots, eval= FALSE}
+```{r ggplot_monthly_boxplots}
 # General Purpose: prepare data for drought index  
 # Specific purpose: graphical EDA  
 sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
@@ -1792,7 +1946,8 @@ ggplot(sta_gath_mon, aes(month, prcp, group = month)) +
 #                width = 6, height = 6, units = "in")
 ```
 
-```{r correlation, eval = FALSE}
+# Correlation Plots with Pearson Coefficients
+```{r correlation}
 # General Purpose: prepare data for drought index
 # Specific purpose: graphical EDA - correlation plot
 
