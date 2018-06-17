@@ -4,14 +4,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r library, include=FALSE, message=FALSE}
 # Sets up the library of packages 
-library("tidyverse")
-library("here") # identifies where to save work
-library("rio") # more robust I/O - to import and clean data
-library("janitor") # tools for examining and cleaning dirty data
-library("DataExplorer")
-library("rnoaa") #  R wrapper for NOAA data inc. NCDC
-library("lubridate")
+library("lmomco") # lmoments to find distribution
+library("beanplot") # used in lmomco example
 
+library("tidyverse")
+library("magrittr")
+#library("here") # identifies where to save work
+#library("DataExplorer")
+#library("rio") # more robust I/O - to import and clean data
+#library("janitor") # tools for examining and cleaning dirty data
+#library("rnoaa") #  R wrapper for NOAA data inc. NCDC
+#library("lubridate")
 # library("dataRetrieval") # USGS data import
 # library("RColorBrewer") - there is a better one?
 # library("workflowr") # creates a research website
@@ -22,8 +25,230 @@ library("lubridate")
 
 # a useful description of commits:
 # http://r-pkgs.had.co.nz/git.html
+
+#lmomco <- citation("lmomco")
+#toBibtex(lmomco)
 ```
 
+```{r test-data}
+data(amarilloprecip) 
+data(canyonprecip) 
+data(claudeprecip) 
+data(herefordprecip) 
+data(tuliaprecip)
+data(tulia6Eprecip)
+data(vegaprecip)
+
+AMAR <- sort(amarilloprecip$DEPTH)
+CANY <- sort(canyonprecip$DEPTH)
+CLAU <- sort(claudeprecip$DEPTH)
+HERF <- sort(herefordprecip$DEPTH)
+TULA <- sort(tuliaprecip$DEPTH)
+TUL6 <- sort(tulia6Eprecip$DEPTH)
+VEGA <- sort(vegaprecip$DEPTH)
+
+rm(amarilloprecip, canyonprecip, claudeprecip, herefordprecip,
+   tuliaprecip, tulia6Eprecip, vegaprecip)
+
+```
+
+```{r test-boxplot}
+# combine all into short variable name
+x <- list(AMAR = AMAR, CANY = CANY, CLAU = CLAU, HERF = HERF, 
+          TULA = TULA, TUL6 = TUL6,VEGA = VEGA) 
+
+# w will be used in a later example
+w <- sapply(x,length) 
+
+print(w) 
+
+# show the lengths of the individual records
+boxplot(x, ylab="7-DAY ANNUAL MAX RAINFALL, IN INCHES", range=0)
+```
+
+```{r tidyverse-data}
+# from lmomco book 
+data(amarilloprecip) # from lmomco package  
+data(canyonprecip)  # .. ditto ..  
+data(claudeprecip) # .. ditto .. 
+data(herefordprecip) # .. ditto .. 
+data(tuliaprecip)  # .. ditto ..  
+data(tulia6Eprecip)  # .. ditto ..  
+data(vegaprecip) # .. ditto .. 
+
+# put the data together into a single dataframe 
+int1 <- full_join(amarilloprecip, canyonprecip, by = "YEAR") %>% 
+  rename(AMAR = DEPTH.x) %>% 
+  rename(CANY = DEPTH.y) 
+
+int2 <- full_join(int1, claudeprecip, by = "YEAR") %>% 
+  rename(CLAU = DEPTH) 
+
+int3 <- full_join(int2, herefordprecip, by = "YEAR") %>% 
+  rename(HERF = DEPTH)  
+
+int4 <- full_join(int3, tuliaprecip, by = "YEAR") %>% 
+  rename(TULA = DEPTH) 
+
+int5 <- full_join(int4, tulia6Eprecip, by = "YEAR") %>% 
+  rename(TUL6 = DEPTH) 
+
+prcp <- full_join(int5, vegaprecip, by = "YEAR") %>%
+  rename(VEGA = DEPTH)
+
+rm(amarilloprecip, canyonprecip, claudeprecip, herefordprecip,
+   tuliaprecip, tulia6Eprecip, vegaprecip, 
+   int1, int2, int3, int4, int5)
+
+# make the wide data long and remove NA vals
+prcp_grp <- prcp %>%
+  gather(key = "station", value = "depth", -YEAR) %>% 
+  drop_na(depth)  
+
+# get the lenths of the datasets
+prcp_count <- prcp_grp %>%
+  count(station) 
+ 
+# plot the data
+ggplot(prcp_grp, aes(as.factor(station), depth)) +
+  geom_violin() +
+  geom_boxplot() +
+  xlab("") +
+  ylab("7-day annual max rainfall, inches") +
+  theme_bw()
+```
+
+```{r plotting_postion}
+# find the plotting position: using Weibull; a = 0
+prcp_grp <- prcp_grp %>% 
+  group_by(station) %>% 
+  arrange(depth) %>% 
+  mutate(pos = pp(depth)) %>% 
+  ungroup() 
+
+# plot the depths as a function of plotting position
+ggplot(prcp_grp, aes(pos, depth)) + 
+  facet_grid(.~station) + 
+  geom_point() + 
+  theme_bw() 
+
+```
+
+```{r lmoments}
+# This is a long bit of code that takes things out of a list
+lmom <- prcp_grp %>%
+  split(.$station) %>%
+  map(~ lmoms(.$depth)) %>%
+  transpose() %>%
+  as_tibble() %>%
+  select(lambdas, ratios) %>%
+    mutate(lambdas = map(lambdas, ~as_tibble(t(.x))))  %>%
+    mutate(lambdas = map(lambdas, 
+                         ~set_names(.x, c("L1", "L2", "L3", 
+                                          "L4", "L5")))) %>%
+      mutate(ratios = map(ratios, ~as_tibble(t(.x))))  %>%
+    mutate(ratios = map(ratios, 
+                         ~set_names(.x, c("T1", "T2", "T3", 
+                                          "T4", "T5")))) %>% 
+  unnest(lambdas) %>%
+  unnest(ratios) %>%
+  mutate(station = c("AMAR", "CANY", "CLAU", 
+         "HERF", "TULA", "TUL6", "VEGA")) %>%
+  select(-T1) %>%
+  rename(L_CV = T2) %>% 
+  rename(L_skew = T3) %>%
+  rename(L_kurtosis = T4) %>%
+  select(station, L1, L_CV, L_skew, L_kurtosis)
+
+# Note that we might consider Weiss 1964 value of 1.018
+
+# join the number of years to the station
+lmom <- left_join(lmom, prcp_count, by = "station")
+
+rm(prcp_count)
+
+lmrdia <- lmrdia()
+```
+
+
+```{r}
+
+ggplot(lmom, aes(group = station, L_skew, L_kurtosis)) +
+  geom_point() +
+  theme_classic()
+```
+
+
+```{r test-boxplot, eval=FALSE}
+# combine all into short variable name
+x <- list(AMAR = AMAR, CANY = CANY, CLAU = CLAU, 
+          HERF = HERF,  TULA = TULA, TUL6 = TUL6,VEGA = VEGA) 
+
+# w will be used in a later example
+w <- sapply(x,length) 
+
+print(w) 
+
+# show the lengths of the individual records
+boxplot(x, ylab="7-DAY ANNUAL MAX RAINFALL, IN INCHES", range=0)
+```
+
+```{r bean-plot, eval=FALSE}
+rng <- sapply(x, range) # x from previous example
+ylim <- c(min(rng[1,]), max(rng[2,]))
+par(mfrow=c(2,1), mai=c(0.5,1,0.5,0.5) )
+beanplot(x, ll=0.04, main="BEAN PLOT: beanplot()", log="",
+ ylim=ylim, ylab="7-DAY ANNUAL MAX RAINFALL,\n IN INCHES",
+overallline="median")
+```
+
+
+```{r weibull_lmoment}
+AMAR.pp <- pp(AMAR);  CANY.pp <- pp(CANY)
+CLAU.pp <- pp(CLAU);  HERF.pp <- pp(HERF)
+TULA.pp <- pp(TULA);  TUL6.pp <- pp(TUL6)
+VEGA.pp <- pp(VEGA)
+
+AMAR.lmr <- lmoms(AMAR);  CANY.lmr <- lmoms(CANY)
+CLAU.lmr <- lmoms(CLAU);  HERF.lmr <- lmoms(HERF)
+TULA.lmr <- lmoms(TULA);  TUL6.lmr <- lmoms(TUL6)
+VEGA.lmr <- lmoms(VEGA)
+
+```
+
+```{r}
+"afunc" <- function(r) {
+  return(c(AMAR.lmr$ratios[r], CANY.lmr$ratios[r],
+           CLAU.lmr$ratios[r], HERF.lmr$ratios[r],
+           TULA.lmr$ratios[r], TUL6.lmr$ratios[r],
+           VEGA.lmr$ratios[r]))
+}
+L1 <- c(AMAR.lmr$lambdas[1], CANY.lmr$lambdas[1],
+CLAU.lmr$lambdas[1], HERF.lmr$lambdas[1], TULA.lmr$lambdas[1], TUL6.lmr$lambdas[1], VEGA.lmr$lambdas[1])*1.018; 
+
+print(L1)
+# bias correction factor Weiss (1964)
+T2 <- afunc(2); T3 <- afunc(3); T4 <- afunc(4)
+
+reg.L1  <- weighted.mean(L1, w);  reg.T2  <- weighted.mean(T2, w)
+reg.T3  <- weighted.mean(T3, w);  reg.T4  <- weighted.mean(T4, w)
+
+reg.lmr <- vec2lmom(c(reg.L1, reg.L1*reg.T2, reg.T3, reg.T4)) 
+reg.kap <- parkap(reg.lmr) # parameters of the Kappa distribution
+str(reg.lmr) # output the regional L-moments List of 9
+
+print(reg.kap) # output the regional Kappa distribution $type
+```
+
+```{r}
+lmrdia <- lmrdia()
+plotlmrdia(lmrdia,autolegend=TRUE, nopoints=TRUE,
+           nolimits=TRUE, xlim=c(0,0.3), ylim=c(-0.1,0.4),
+           xleg=0.05, yleg=0.3)
+points(T3,T4)
+points(reg.T3,reg.T4, pch=16, cex=2)
+plotlmrdia(lmrdia()) # simplest of all uses
+```
 
 ## Overview
 <!--This is the chapter 2 hydrologic drought.  
@@ -44,4 +269,10 @@ I used 'dplyr' to create monthly vals from daily vals.
 I removed short records: Oral & Long Valley after checking for 
 covariance.
 
+<!-- 
+Work on finishing describing methods for EDA.
+-->
 
+## Results
+<!--
+Work on describing results of EDA.
