@@ -9,6 +9,7 @@ library("beanplot") # used in lmomco example
 
 library("tidyverse")
 library("magrittr")
+
 #library("here") # identifies where to save work
 #library("DataExplorer")
 #library("rio") # more robust I/O - to import and clean data
@@ -104,10 +105,6 @@ rm(amarilloprecip, canyonprecip, claudeprecip, herefordprecip,
 prcp_grp <- prcp %>%
   gather(key = "station", value = "depth", -YEAR) %>% 
   drop_na(depth)  
-
-# get the lenths of the datasets
-prcp_count <- prcp_grp %>%
-  count(station) 
  
 # plot the data
 ggplot(prcp_grp, aes(as.factor(station), depth)) +
@@ -131,7 +128,6 @@ ggplot(prcp_grp, aes(pos, depth)) +
   facet_grid(.~station) + 
   geom_point() + 
   theme_bw() 
-
 ```
 
 ```{r lmoments}
@@ -160,22 +156,86 @@ lmom <- prcp_grp %>%
   rename(L_kurtosis = T4) %>%
   select(station, L1, L_CV, L_skew, L_kurtosis)
 
-# Note that we might consider Weiss 1964 value of 1.018
+# Note that we might consider Weiss 1964 bias value of 1.018 for L1
+
+# get the lenths of the datasets
+prcp_count <- prcp_grp %>%
+  count(station)  
 
 # join the number of years to the station
 lmom <- left_join(lmom, prcp_count, by = "station")
-
 rm(prcp_count)
 
-lmrdia <- lmrdia()
+# calculate weighted means
+L1  <- weighted.mean(lmom$L1, lmom$n)
+L_CV  <- weighted.mean(lmom$L_CV, lmom$n)
+L_skew  <- weighted.mean(lmom$L_skew, lmom$n)
+L_kurtosis  <- weighted.mean(lmom$L_kurtosis, lmom$n)
+n       <- sum(lmom$n)
+
+# combine
+int1     <- cbind(L1, L_CV)
+int2     <- cbind(int1, L_skew)
+int3     <- cbind(int2, L_kurtosis)
+lmom_reg <- cbind(int3, n)
+
+rm(L1, L_CV, L_skew, L_kurtosis, n, int1, int2, int3)
+
+lmom_reg <- as.tibble(lmom_reg) %>%
+  mutate(station = "WtMean") %>%
+  select(station, everything())
+
+lmom <- bind_rows(lmom, lmom_reg)
 ```
 
+```{r extract_lmoment_diagram_ratios}
+# extract elements from the lmrdia list to plot in ggplot2
+lmrdia <- lmrdia()
 
-```{r}
+aep4 <- lmrdia %>%
+  extract2(2) %>%
+  as.tibble()
 
-ggplot(lmom, aes(group = station, L_skew, L_kurtosis)) +
-  geom_point() +
-  theme_classic()
+gev <- lmrdia %>%
+  extract2(5) %>%
+  as.tibble()
+
+glo <- lmrdia %>%
+  extract2(6) %>%
+  as.tibble()
+
+gpa <- lmrdia %>%
+  extract2(7) %>%
+  as.tibble()
+
+gno <- lmrdia %>%
+  extract2(9) %>%
+  as.tibble()
+
+gov <- lmrdia %>%
+  extract2(10) %>%
+  as.tibble()
+
+pe3 <- lmrdia %>%
+  extract2(12) %>%
+  as.tibble()
+```
+
+```{r plot-lmoment-diagram}
+
+ggplot() +
+  geom_line(data = aep4, aes(V1, V2)) + 
+  geom_line(data = gev, aes(V1, V2)) + 
+  geom_line(data = glo, aes(V1, V2)) + 
+  geom_line(data = gpa, aes(V1, V2)) + 
+  geom_line(data = gno, aes(V1, V2)) + 
+  geom_line(data = gov, aes(V1, V2)) + 
+  geom_line(data = pe3, aes(V1, V2)) + 
+  geom_point(data = lmom, aes(L_skew, L_kurtosis)) +
+  geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, size = 3)) +
+  theme_bw() +
+  xlim(0, 0.3) +
+  ylim(-0.1, 0.4)
 ```
 
 
