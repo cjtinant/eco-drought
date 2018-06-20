@@ -5,66 +5,271 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r library, include=FALSE, message=FALSE}
 # Sets up the library of packages 
 library("lmomco") # lmoments to find distribution
-library("beanplot") # used in lmomco example
-
 library("tidyverse")
-library("magrittr")
-
-#library("here") # identifies where to save work
-#library("DataExplorer")
-#library("rio") # more robust I/O - to import and clean data
-#library("janitor") # tools for examining and cleaning dirty data
-#library("rnoaa") #  R wrapper for NOAA data inc. NCDC
-#library("lubridate")
-# library("dataRetrieval") # USGS data import
-# library("RColorBrewer") - there is a better one?
-# library("workflowr") # creates a research website
-# library("colorspace")
-# library("bookdown") # 
-# library(unpivotr) # fix nasty Excel files
-# library("friendlyeval")
-
-# a useful description of commits:
-# http://r-pkgs.had.co.nz/git.html
+library("magrittr") # contains easier ways to say things about lists
+library("here") # identifies where to save work
+library("rio") # more robust I/O - to import and clean data
+library("lubridate")
 
 #lmomco <- citation("lmomco")
 #toBibtex(lmomco)
 ```
 
-```{r test-data}
-data(amarilloprecip) 
-data(canyonprecip) 
-data(claudeprecip) 
-data(herefordprecip) 
-data(tuliaprecip)
-data(tulia6Eprecip)
-data(vegaprecip)
+<!--
+Exploratory Data Analysis Checklist by Roger Peng 
+https://leanpub.com/exdata  
 
-AMAR <- sort(amarilloprecip$DEPTH)
-CANY <- sort(canyonprecip$DEPTH)
-CLAU <- sort(claudeprecip$DEPTH)
-HERF <- sort(herefordprecip$DEPTH)
-TULA <- sort(tuliaprecip$DEPTH)
-TUL6 <- sort(tulia6Eprecip$DEPTH)
-VEGA <- sort(vegaprecip$DEPTH)
+1.0  Formulate your question  
+Spend a few minutes to figure out the question you’re really interested in, and narrow it down to be as specific as possible (without becoming uninteresting).
 
-rm(amarilloprecip, canyonprecip, claudeprecip, herefordprecip,
-   tuliaprecip, tulia6Eprecip, vegaprecip)
+General question:
+Are air pollution levels higher on the east coast than on the west coast?
+More specific question:
+Are hourly ozone levels on average higher in New York City than they are in Los Angeles?
 
+2.0   Read in your data  
+Sometimes the data will need some cleaning and every dataset has its unique quirks. The dataset is a comma-separated value (CSV) file, where each row of the file contains one daily measurement of precipation depth.  The readr package can rewrite column names to remove spaces.
+> names(ozone) <- make.names(names(ozone))
+
+3.0  Check the dataset 
+3.1  Check the number of rows and columns.
+3.2  Check the types of data
+3.3  Look at the top and the bottom of your data 
+3.4  Check your “n”s & NAs 
+3.5  Validate with at least one external data source  
+4.0  Try the easy solution first to answer question
+5.0  Challenge your solution 
+6.0  Follow up questions 
+-->
+
+## Broad questions:
+What is the drought history of the Pine Ridge Reservation?  
+Does the drought extent differ across the study area?
+
+## Narrower question:
+What is the underlying distribution of precipitation data?  
+
+## Analysis Steps:
+1. Recreated analysis from the lmomco text ch 12 (author?) in Tidyverse
+2. Imported cleaned precipitation data (see 04_prcp-data_munging)   
+3. Applied a sqrt transform to reduce skew
+4. 
+5. 
+6. 
+
+## Variable naming convention:   
+sta          precipitation station  
+_meta        metadata  
+_mon         monthly precipitation depths  
+_grp         wide data changed to long data
+_notzero     non-zero precip values
+_zero        precip values equal to zero
+_log         log10 of monthly precipitation depths
+_count       number of months in a given record
+
+lmom_sta     L-moments for stations
+lmom_reg     Weighted mean of L-moments for stations
+
+min          minimum non-zero value
+L1           first L-moment, similiar to mean
+L_CV         first L-moment ratio, similiar to coefficient of var
+L_skew       second L-moment ratio, similiar to skewness 
+L_kurtosis   third L-moment ratio, similiar to kurtosis
+n            number of months in a given record
+int#         intermediate variable used to bind rows; # = 1, 2, ...
+
+# Used in the L-moment diagram
+aep4         4-Parameter Asymmetric Exponential Power Distribution 
+gev          Generalized Extreme Value Distribution
+glo          Generalized Logistic Distribution
+gpa          Generalized Pareto Distribution
+####gno      Generalized Logistic Distribution
+gov          Govindarajulu Distribution
+pe3          Pearson Type III Distribution
+
+
+## Thoughts - the orig depth vs plotting vals look j-shaped.  
+## Sqrt transform vs plotting vals looks sinusoidal
+## Log-tranfrom
+## Results: 
+
+
+```{r import-data}
+# General Purpose: prepare data for drought index  
+# Specific purpose: graphical EDA  
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
+
+# fix date & add year and month  
+sta_mon <- sta_mon %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date)) 
+
+# make the wide data long, remove NA vals, sqrt transform
+sta_grp <- sta_mon %>%
+  gather(key = "station", value = "depth", -date, -year, -month) %>%
+  drop_na(depth) %>% 
+  mutate(sqrt_depth = sqrt(depth)) 
+
+# Check on log transformation
+sta_notzero <- sta_grp %>%
+  filter(depth != 0)
+
+min <- min(sta_notzero$depth)
+
+sta_zero <- sta_grp %>%
+  filter(depth == 0) %>%
+  mutate(depth = depth + min/2)
+
+sta_log <- bind_rows(sta_zero, sta_notzero)
+sta_log <- sta_log %>%
+  mutate(log_depth = log10(depth))
+
+rm(min)
+
+# plot the data
+ggplot(sta_log, aes(as.factor(station), log_depth)) +
+  geom_violin() +
+  geom_boxplot() +
+  xlab("") +
+#  ylab("Sqrt of monthly rainfall depths, originally in mm") +
+#  scale_y_sqrt() +
+  scale_y_log10() +
+  theme_bw()
 ```
 
-```{r test-boxplot}
-# combine all into short variable name
-x <- list(AMAR = AMAR, CANY = CANY, CLAU = CLAU, HERF = HERF, 
-          TULA = TULA, TUL6 = TUL6,VEGA = VEGA) 
+```{r station_plotting_postion}
+# find the plotting position: using Weibull; a = 0
+sta_grp <- sta_grp %>% 
+  group_by(station) %>% 
+  arrange(log_depth) %>% 
+  mutate(position = pp(log_depth)) %>% 
+  ungroup() 
 
-# w will be used in a later example
-w <- sapply(x,length) 
+# find the plotting position: using Weibull; a = 0
+sta_log <- sta_log %>% 
+  group_by(station) %>% 
+  arrange(log_depth) %>% 
+  mutate(position = pp(log_depth)) %>% 
+  ungroup() 
 
-print(w) 
 
-# show the lengths of the individual records
-boxplot(x, ylab="7-DAY ANNUAL MAX RAINFALL, IN INCHES", range=0)
+# plot the depths as a function of plotting position
+ggplot(sta_log, aes(position, log_depth)) + 
+  facet_grid(.~station) + 
+  geom_point() + 
+  theme_bw() 
+```
+
+```{r lmoments}
+# This is a long bit of code that takes things out of a list
+
+lmom_sta <- sta_log %>%
+  split(.$station) %>%
+  map(~ lmoms(.$log_depth)) %>%
+  transpose() %>%
+  as_tibble() %>%
+  select(lambdas, ratios) %>%
+    mutate(lambdas = map(lambdas, ~as_tibble(t(.x))))  %>%
+    mutate(lambdas = map(lambdas, 
+                         ~set_names(.x, c("L1", "L2", "L3", 
+                                          "L4", "L5")))) %>%
+      mutate(ratios = map(ratios, ~as_tibble(t(.x))))  %>%
+    mutate(ratios = map(ratios, 
+                         ~set_names(.x, c("T1", "T2", "T3", 
+                                          "T4", "T5")))) %>% 
+  unnest(lambdas) %>%
+  unnest(ratios) %>%
+  mutate(station = c("oel", "cot", "rap", 
+         "int", "ora")) %>%
+  select(-T1) %>%
+  rename(L_CV = T2) %>% 
+  rename(L_skew = T3) %>%
+  rename(L_kurtosis = T4) %>%
+  select(station, L1, L_CV, L_skew, L_kurtosis)
+
+# Note that we might consider Weiss 1964 bias value of 1.018 for L1
+
+# get the lenths of the datasets
+sta_count <- sta_log %>%
+  count(station)  
+
+# join the number of years to the station
+lmom_sta <- left_join(lmom_sta, sta_count, by = "station")
+rm(prcp_count)
+
+# calculate weighted means
+L1  <- weighted.mean(lmom_sta$L1, lmom_sta$n)
+L_CV  <- weighted.mean(lmom_sta$L_CV, lmom_sta$n)
+L_skew  <- weighted.mean(lmom_sta$L_skew, lmom_sta$n)
+L_kurtosis  <- weighted.mean(lmom_sta$L_kurtosis, lmom_sta$n)
+n       <- sum(lmom_sta$n)
+
+# combine
+int1     <- cbind(L1, L_CV)
+int2     <- cbind(int1, L_skew)
+int3     <- cbind(int2, L_kurtosis)
+lmom_reg <- cbind(int3, n)
+
+rm(L1, L_CV, L_skew, L_kurtosis, n, int1, int2, int3)
+
+lmom_reg <- as.tibble(lmom_reg) %>%
+  mutate(station = "WtMean") %>%
+  select(station, everything())
+
+# lmom_sta <- bind_rows(lmom_sta, lmom_reg)
+```
+
+```{r elmoment_diagram_ratios}
+# extract elements from the lmrdia list to plot in ggplot2 
+lmrdia <- lmrdia()
+
+aep4 <- lmrdia %>%
+  extract2(2) %>%
+  as.tibble()
+
+gev <- lmrdia %>%
+  extract2(5) %>%
+  as.tibble()
+
+glo <- lmrdia %>%
+  extract2(6) %>%
+  as.tibble()
+
+gpa <- lmrdia %>%
+  extract2(7) %>%
+  as.tibble()
+
+gno <- lmrdia %>%
+  extract2(9) %>%
+  as.tibble()
+
+gov <- lmrdia %>%
+  extract2(10) %>%
+  as.tibble()
+
+pe3 <- lmrdia %>%
+  extract2(12) %>%
+  as.tibble()
+```
+
+```{r plot-lmoment-diagram}
+
+ggplot() +
+  geom_line(data = aep4, aes(V1, V2, color = "red")) + 
+  geom_line(data = gev, aes(V1, V2, color = "blue")) + 
+  geom_line(data = glo, aes(V1, V2, color = "orange")) + 
+  geom_line(data = gpa, aes(V1, V2, color = "violet")) + 
+  geom_line(data = gno, aes(V1, V2, color = "green")) + 
+  geom_line(data = gov, aes(V1, V2, color = "brown")) + 
+  geom_line(data = pe3, aes(V1, V2)) + 
+  geom_point(data = lmom_sta, aes(L_skew, L_kurtosis)) +
+  geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, size = 3)) +
+  theme_bw() +
+  xlim(-0.3, 0) +
+  ylim(0, 0.3)
+
+# ggsave()
 ```
 
 ```{r tidyverse-data}
@@ -189,7 +394,7 @@ lmom <- bind_rows(lmom, lmom_reg)
 ```
 
 ```{r extract_lmoment_diagram_ratios}
-# extract elements from the lmrdia list to plot in ggplot2
+# extract elements from the lmrdia list to plot in ggplot2 
 lmrdia <- lmrdia()
 
 aep4 <- lmrdia %>%
