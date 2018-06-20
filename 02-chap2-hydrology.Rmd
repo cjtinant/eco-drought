@@ -25,9 +25,10 @@ What is the underlying distribution of precipitation data?
 1. Recreated analysis from the lmomco text ch 12 (author?) in Tidyverse
 2. Imported cleaned precipitation data (see 04_prcp-data_munging)   
 3. Applied sqrt & log10 transform to explore effects on skew 
-4. 
-5. 
-6. 
+4. Explored the data with box plots, violin plot.
+5. Applied Weibull plotting position and graphed the data on sqrt plot
+6. Calculated L-moments and L-moment ratios
+7. Plotted the 
 
 ## Variable naming convention:   
 sta          precipitation station  
@@ -63,6 +64,7 @@ pe3          Pearson Type III Distribution
 ## Thoughts - the orig depth vs plotting vals look j-shaped.  
 ## Sqrt trans vs plotting vals look slightly sinusoidal; nice boxplots
 ## Log-tranformation looks like the mirror of orig depth vs plotting
+
 ## Results: Fits a PE3 distribution
 -->
 
@@ -70,11 +72,6 @@ pe3          Pearson Type III Distribution
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# https://stackoverflow.com/questions/8161836/how-do-i-replace-na-values-with-zeros-in-an-r-dataframe
-tidyr_replace_na   <- function(x) {
-  replace_na(x, as.list(setNames(rep(0, 10), 
-                                 as.list(c(paste0("var", 1:10)))))) 
-  }
 ```
 
 ```{r library, include=FALSE, message=FALSE}
@@ -202,14 +199,14 @@ sta_count <- sta_grp %>%
 lmom_sta <- left_join(lmom_sta, sta_count, by = "station")
 rm(prcp_count)
 
-# calculate weighted means
+# calculate weighted means for regional L-moments 
 L1  <- weighted.mean(lmom_sta$L1, lmom_sta$n)
 L_CV  <- weighted.mean(lmom_sta$L_CV, lmom_sta$n)
 L_skew  <- weighted.mean(lmom_sta$L_skew, lmom_sta$n)
 L_kurtosis  <- weighted.mean(lmom_sta$L_kurtosis, lmom_sta$n)
 n       <- sum(lmom_sta$n)
 
-# combine
+# combine the output into a single weighted mean
 int1     <- cbind(L1, L_CV)
 int2     <- cbind(int1, L_skew)
 int3     <- cbind(int2, L_kurtosis)
@@ -217,48 +214,43 @@ lmom_reg <- cbind(int3, n)
 
 rm(L1, L_CV, L_skew, L_kurtosis, n, int1, int2, int3, sta_count)
 
+# finalize the regional L-moment
 lmom_reg <- as.tibble(lmom_reg) %>%
   mutate(station = "WtMean") %>%
   select(station, everything())
 ```
 
-```{r elmoment_diagram_ratios}
+```{r Lmoment_diagram_ratios}
 # extract elements from the lmrdia list to plot in ggplot2 
 #   the x-value is the L-skewness and y-value is L-kurtosis 
 
 # get vals from the lmrdia list
 lmrdia <- lmrdia() 
 
-# extract L-skew & L-kurtosis from list
+# extract L-skew & L-kurtosis values for several distributions
 aep4 <- lmrdia %>%
   extract2(2) %>%
   as.tibble()
 
 gev <- lmrdia %>%
-  extract2(5) %>%
-  as.tibble()
+  extract2(5) %>% as.tibble()
 
 glo <- lmrdia %>%
-  extract2(6) %>%
-  as.tibble()
+  extract2(6) %>% as.tibble()
 
 gpa <- lmrdia %>%
-  extract2(7) %>%
-  as.tibble()
+  extract2(7) %>% as.tibble()
 
 gno <- lmrdia %>%
-  extract2(9) %>%
-  as.tibble()
+  extract2(9) %>% as.tibble()
 
 gov <- lmrdia %>%
-  extract2(10) %>%
-  as.tibble()
+  extract2(10) %>% as.tibble()
 
 pe3 <- lmrdia %>%
-  extract2(12) %>%
-  as.tibble()
+  extract2(12) %>% as.tibble()
 
-# combine and rename columns
+# combine and rename columns as distribution types
 int1      <- full_join(aep4, gev, by = "V1")  
 int1      <- int1 %>% 
                rename(AEP4 = V2.x) %>% 
@@ -281,7 +273,7 @@ lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>%
   rename(L_skew = V1) %>% 
   arrange(L_skew)
 
-# prepare for plotting
+# prepare theoretical distributions for plotting
 lmom_theo <- lmom_theo %>%
   gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
   drop_na(L_kurtosis) %>%
@@ -292,7 +284,7 @@ rm(aep4, gev, int1, glo, int2, gpa,int3, gno, int4, gov,
 ```
 
 ```{r plot-lmoment-diagram}
-
+# plots the theo distributions, the sample vals, and regional mean
 ggplot() +
   geom_line(data = lmom_theo, aes(L_skew, L_kurtosis, 
                                   group = distribution, 
