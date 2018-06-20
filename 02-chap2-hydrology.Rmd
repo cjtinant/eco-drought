@@ -1,36 +1,9 @@
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-```{r library, include=FALSE, message=FALSE}
-# Sets up the library of packages 
-library("lmomco") # lmoments to find distribution
-library("tidyverse")
-library("magrittr") # contains easier ways to say things about lists
-library("here") # identifies where to save work
-library("rio") # more robust I/O - to import and clean data
-library("lubridate")
-
-#lmomco <- citation("lmomco")
-#toBibtex(lmomco)
-```
-
 <!--
 Exploratory Data Analysis Checklist by Roger Peng 
 https://leanpub.com/exdata  
 
 1.0  Formulate your question  
-Spend a few minutes to figure out the question you’re really interested in, and narrow it down to be as specific as possible (without becoming uninteresting).
-
-General question:
-Are air pollution levels higher on the east coast than on the west coast?
-More specific question:
-Are hourly ozone levels on average higher in New York City than they are in Los Angeles?
-
 2.0   Read in your data  
-Sometimes the data will need some cleaning and every dataset has its unique quirks. The dataset is a comma-separated value (CSV) file, where each row of the file contains one daily measurement of precipation depth.  The readr package can rewrite column names to remove spaces.
-> names(ozone) <- make.names(names(ozone))
-
 3.0  Check the dataset 
 3.1  Check the number of rows and columns.
 3.2  Check the types of data
@@ -40,7 +13,6 @@ Sometimes the data will need some cleaning and every dataset has its unique quir
 4.0  Try the easy solution first to answer question
 5.0  Challenge your solution 
 6.0  Follow up questions 
--->
 
 ## Broad questions:
 What is the drought history of the Pine Ridge Reservation?  
@@ -52,7 +24,7 @@ What is the underlying distribution of precipitation data?
 ## Analysis Steps:
 1. Recreated analysis from the lmomco text ch 12 (author?) in Tidyverse
 2. Imported cleaned precipitation data (see 04_prcp-data_munging)   
-3. Applied a sqrt transform to reduce skew
+3. Applied sqrt & log10 transform to explore effects on skew 
 4. 
 5. 
 6. 
@@ -83,16 +55,40 @@ aep4         4-Parameter Asymmetric Exponential Power Distribution
 gev          Generalized Extreme Value Distribution
 glo          Generalized Logistic Distribution
 gpa          Generalized Pareto Distribution
-####gno      Generalized Logistic Distribution
+####gno      Generalized Logistic Distribution #need to fix as GLO
 gov          Govindarajulu Distribution
 pe3          Pearson Type III Distribution
 
 
 ## Thoughts - the orig depth vs plotting vals look j-shaped.  
-## Sqrt transform vs plotting vals looks sinusoidal
-## Log-tranfrom
-## Results: 
+## Sqrt trans vs plotting vals look slightly sinusoidal; nice boxplots
+## Log-tranformation looks like the mirror of orig depth vs plotting
+## Results: Fits a PE3 distribution
+-->
 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# https://stackoverflow.com/questions/8161836/how-do-i-replace-na-values-with-zeros-in-an-r-dataframe
+tidyr_replace_na   <- function(x) {
+  replace_na(x, as.list(setNames(rep(0, 10), 
+                                 as.list(c(paste0("var", 1:10)))))) 
+  }
+```
+
+```{r library, include=FALSE, message=FALSE}
+# Sets up the library of packages 
+library("lmomco") # lmoments to find distribution
+library("tidyverse")
+library("magrittr") # contains easier ways to say things about lists
+library("here") # identifies where to save work
+library("rio") # more robust I/O - to import and clean data
+library("lubridate")
+
+#lmomco <- citation("lmomco")
+#toBibtex(lmomco)
+```
 
 ```{r import-data}
 # General Purpose: prepare data for drought index  
@@ -108,65 +104,73 @@ sta_mon <- sta_mon %>%
 # make the wide data long, remove NA vals, sqrt transform
 sta_grp <- sta_mon %>%
   gather(key = "station", value = "depth", -date, -year, -month) %>%
-  drop_na(depth) %>% 
-  mutate(sqrt_depth = sqrt(depth)) 
+  drop_na(depth)  # %>% 
+#  mutate(sqrt_depth = sqrt(depth)) 
 
 # Check on log transformation
-sta_notzero <- sta_grp %>%
-  filter(depth != 0)
+#sta_notzero <- sta_grp %>%
+#  filter(depth != 0)
 
-min <- min(sta_notzero$depth)
+#min <- min(sta_notzero$depth)
 
-sta_zero <- sta_grp %>%
-  filter(depth == 0) %>%
-  mutate(depth = depth + min/2)
+#sta_zero <- sta_grp %>%
+#  filter(depth == 0) %>%
+#  mutate(depth = depth + min/2)
 
-sta_log <- bind_rows(sta_zero, sta_notzero)
-sta_log <- sta_log %>%
-  mutate(log_depth = log10(depth))
+#sta_log <- bind_rows(sta_zero, sta_notzero)
+#sta_log <- sta_log %>%
+#  mutate(log_depth = log10(depth))
 
-rm(min)
+#rm(min)
 
 # plot the data
-ggplot(sta_log, aes(as.factor(station), log_depth)) +
+ggplot(sta_grp, aes(as.factor(station), depth)) +
   geom_violin() +
   geom_boxplot() +
-  xlab("") +
-#  ylab("Sqrt of monthly rainfall depths, originally in mm") +
 #  scale_y_sqrt() +
-  scale_y_log10() +
-  theme_bw()
+#  scale_y_log10() +
+  theme_bw() +
+  ggtitle("Weather stations near Pine Ridge Reservation, SD", 
+          subtitle = "1909-2018") +
+  xlab("") +
+  ylab("Monthly depth in mm")
 ```
 
 ```{r station_plotting_postion}
 # find the plotting position: using Weibull; a = 0
 sta_grp <- sta_grp %>% 
   group_by(station) %>% 
-  arrange(log_depth) %>% 
-  mutate(position = pp(log_depth)) %>% 
+  arrange(depth) %>% 
+  mutate(position = pp(depth)) %>% 
   ungroup() 
 
-# find the plotting position: using Weibull; a = 0
-sta_log <- sta_log %>% 
-  group_by(station) %>% 
-  arrange(log_depth) %>% 
-  mutate(position = pp(log_depth)) %>% 
-  ungroup() 
-
+# find the plotting position for log-data: using Weibull; a = 0
+#sta_log <- sta_log %>% 
+#  group_by(station) %>% 
+# arrange(log_depth) %>% 
+#  mutate(position = pp(log_depth)) %>% 
+#  ungroup() 
 
 # plot the depths as a function of plotting position
-ggplot(sta_log, aes(position, log_depth)) + 
+ggplot(sta_grp, aes(position, depth)) + 
   facet_grid(.~station) + 
   geom_point() + 
-  theme_bw() 
+  geom_smooth(method = "lm") +
+  theme_bw() +
+ggtitle("Weather stations near Pine Ridge Reservation, SD", 
+          subtitle = "1909-2018") + 
+  xlab("Frequency of occurrance") +
+  ylab("Monthly depth in mm") +
+  scale_y_sqrt() +
+  ylab("Depth in mm")
 ```
 
 ```{r lmoments}
 # This is a long bit of code that takes things out of a list
 
-lmom_sta <- sta_log %>%
+lmom_sta <- sta_grp %>%
   split(.$station) %>%
-  map(~ lmoms(.$log_depth)) %>%
+  map(~ lmoms(.$depth)) %>%
   transpose() %>%
   as_tibble() %>%
   select(lambdas, ratios) %>%
@@ -191,7 +195,7 @@ lmom_sta <- sta_log %>%
 # Note that we might consider Weiss 1964 bias value of 1.018 for L1
 
 # get the lenths of the datasets
-sta_count <- sta_log %>%
+sta_count <- sta_grp %>%
   count(station)  
 
 # join the number of years to the station
@@ -211,19 +215,21 @@ int2     <- cbind(int1, L_skew)
 int3     <- cbind(int2, L_kurtosis)
 lmom_reg <- cbind(int3, n)
 
-rm(L1, L_CV, L_skew, L_kurtosis, n, int1, int2, int3)
+rm(L1, L_CV, L_skew, L_kurtosis, n, int1, int2, int3, sta_count)
 
 lmom_reg <- as.tibble(lmom_reg) %>%
   mutate(station = "WtMean") %>%
   select(station, everything())
-
-# lmom_sta <- bind_rows(lmom_sta, lmom_reg)
 ```
 
 ```{r elmoment_diagram_ratios}
 # extract elements from the lmrdia list to plot in ggplot2 
-lmrdia <- lmrdia()
+#   the x-value is the L-skewness and y-value is L-kurtosis 
 
+# get vals from the lmrdia list
+lmrdia <- lmrdia() 
+
+# extract L-skew & L-kurtosis from list
 aep4 <- lmrdia %>%
   extract2(2) %>%
   as.tibble()
@@ -251,268 +257,54 @@ gov <- lmrdia %>%
 pe3 <- lmrdia %>%
   extract2(12) %>%
   as.tibble()
+
+# combine and rename columns
+int1      <- full_join(aep4, gev, by = "V1")  
+int1      <- int1 %>% 
+               rename(AEP4 = V2.x) %>% 
+               rename(GEV = V2.y) 
+
+int2      <- full_join(int1, glo, by = "V1") 
+int2      <- int2 %>% rename(GLO = V2) 
+
+int3      <- full_join(int2, gpa, by = "V1") 
+int3      <- int3 %>% rename(GPA = V2) 
+
+int4      <- full_join(int3, gno, by = "V1") 
+int4      <- int4 %>% rename(GNO = V2) 
+
+int5      <- full_join(int4, gov, by = "V1") 
+int5      <- int5 %>% rename(GOV = V2) 
+
+lmom_theo <- full_join(int5, pe3, by = "V1")
+lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>% 
+  rename(L_skew = V1) %>% 
+  arrange(L_skew)
+
+# prepare for plotting
+lmom_theo <- lmom_theo %>%
+  gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
+  drop_na(L_kurtosis) %>%
+  select(distribution, everything()) 
+
+rm(aep4, gev, int1, glo, int2, gpa,int3, gno, int4, gov, 
+   int5, pe3, lmrdia)
 ```
 
 ```{r plot-lmoment-diagram}
 
 ggplot() +
-  geom_line(data = aep4, aes(V1, V2, color = "red")) + 
-  geom_line(data = gev, aes(V1, V2, color = "blue")) + 
-  geom_line(data = glo, aes(V1, V2, color = "orange")) + 
-  geom_line(data = gpa, aes(V1, V2, color = "violet")) + 
-  geom_line(data = gno, aes(V1, V2, color = "green")) + 
-  geom_line(data = gov, aes(V1, V2, color = "brown")) + 
-  geom_line(data = pe3, aes(V1, V2)) + 
+  geom_line(data = lmom_theo, aes(L_skew, L_kurtosis, 
+                                  group = distribution, 
+                                  linetype = distribution)) +
   geom_point(data = lmom_sta, aes(L_skew, L_kurtosis)) +
-  geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, size = 3)) +
+  geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, 
+                                  size = 3, show.legend = NA)) +
   theme_bw() +
-  xlim(-0.3, 0) +
-  ylim(0, 0.3)
+  xlim(0.25, 0.5) +
+  ylim(0, 0.25) +
+  ggtitle("L-moment diagram")
 
-# ggsave()
-```
-
-```{r tidyverse-data}
-# from lmomco book 
-data(amarilloprecip) # from lmomco package  
-data(canyonprecip)  # .. ditto ..  
-data(claudeprecip) # .. ditto .. 
-data(herefordprecip) # .. ditto .. 
-data(tuliaprecip)  # .. ditto ..  
-data(tulia6Eprecip)  # .. ditto ..  
-data(vegaprecip) # .. ditto .. 
-
-# put the data together into a single dataframe 
-int1 <- full_join(amarilloprecip, canyonprecip, by = "YEAR") %>% 
-  rename(AMAR = DEPTH.x) %>% 
-  rename(CANY = DEPTH.y) 
-
-int2 <- full_join(int1, claudeprecip, by = "YEAR") %>% 
-  rename(CLAU = DEPTH) 
-
-int3 <- full_join(int2, herefordprecip, by = "YEAR") %>% 
-  rename(HERF = DEPTH)  
-
-int4 <- full_join(int3, tuliaprecip, by = "YEAR") %>% 
-  rename(TULA = DEPTH) 
-
-int5 <- full_join(int4, tulia6Eprecip, by = "YEAR") %>% 
-  rename(TUL6 = DEPTH) 
-
-prcp <- full_join(int5, vegaprecip, by = "YEAR") %>%
-  rename(VEGA = DEPTH)
-
-rm(amarilloprecip, canyonprecip, claudeprecip, herefordprecip,
-   tuliaprecip, tulia6Eprecip, vegaprecip, 
-   int1, int2, int3, int4, int5)
-
-# make the wide data long and remove NA vals
-prcp_grp <- prcp %>%
-  gather(key = "station", value = "depth", -YEAR) %>% 
-  drop_na(depth)  
- 
-# plot the data
-ggplot(prcp_grp, aes(as.factor(station), depth)) +
-  geom_violin() +
-  geom_boxplot() +
-  xlab("") +
-  ylab("7-day annual max rainfall, inches") +
-  theme_bw()
-```
-
-```{r plotting_postion}
-# find the plotting position: using Weibull; a = 0
-prcp_grp <- prcp_grp %>% 
-  group_by(station) %>% 
-  arrange(depth) %>% 
-  mutate(pos = pp(depth)) %>% 
-  ungroup() 
-
-# plot the depths as a function of plotting position
-ggplot(prcp_grp, aes(pos, depth)) + 
-  facet_grid(.~station) + 
-  geom_point() + 
-  theme_bw() 
-```
-
-```{r lmoments}
-# This is a long bit of code that takes things out of a list
-lmom <- prcp_grp %>%
-  split(.$station) %>%
-  map(~ lmoms(.$depth)) %>%
-  transpose() %>%
-  as_tibble() %>%
-  select(lambdas, ratios) %>%
-    mutate(lambdas = map(lambdas, ~as_tibble(t(.x))))  %>%
-    mutate(lambdas = map(lambdas, 
-                         ~set_names(.x, c("L1", "L2", "L3", 
-                                          "L4", "L5")))) %>%
-      mutate(ratios = map(ratios, ~as_tibble(t(.x))))  %>%
-    mutate(ratios = map(ratios, 
-                         ~set_names(.x, c("T1", "T2", "T3", 
-                                          "T4", "T5")))) %>% 
-  unnest(lambdas) %>%
-  unnest(ratios) %>%
-  mutate(station = c("AMAR", "CANY", "CLAU", 
-         "HERF", "TULA", "TUL6", "VEGA")) %>%
-  select(-T1) %>%
-  rename(L_CV = T2) %>% 
-  rename(L_skew = T3) %>%
-  rename(L_kurtosis = T4) %>%
-  select(station, L1, L_CV, L_skew, L_kurtosis)
-
-# Note that we might consider Weiss 1964 bias value of 1.018 for L1
-
-# get the lenths of the datasets
-prcp_count <- prcp_grp %>%
-  count(station)  
-
-# join the number of years to the station
-lmom <- left_join(lmom, prcp_count, by = "station")
-rm(prcp_count)
-
-# calculate weighted means
-L1  <- weighted.mean(lmom$L1, lmom$n)
-L_CV  <- weighted.mean(lmom$L_CV, lmom$n)
-L_skew  <- weighted.mean(lmom$L_skew, lmom$n)
-L_kurtosis  <- weighted.mean(lmom$L_kurtosis, lmom$n)
-n       <- sum(lmom$n)
-
-# combine
-int1     <- cbind(L1, L_CV)
-int2     <- cbind(int1, L_skew)
-int3     <- cbind(int2, L_kurtosis)
-lmom_reg <- cbind(int3, n)
-
-rm(L1, L_CV, L_skew, L_kurtosis, n, int1, int2, int3)
-
-lmom_reg <- as.tibble(lmom_reg) %>%
-  mutate(station = "WtMean") %>%
-  select(station, everything())
-
-lmom <- bind_rows(lmom, lmom_reg)
-```
-
-```{r extract_lmoment_diagram_ratios}
-# extract elements from the lmrdia list to plot in ggplot2 
-lmrdia <- lmrdia()
-
-aep4 <- lmrdia %>%
-  extract2(2) %>%
-  as.tibble()
-
-gev <- lmrdia %>%
-  extract2(5) %>%
-  as.tibble()
-
-glo <- lmrdia %>%
-  extract2(6) %>%
-  as.tibble()
-
-gpa <- lmrdia %>%
-  extract2(7) %>%
-  as.tibble()
-
-gno <- lmrdia %>%
-  extract2(9) %>%
-  as.tibble()
-
-gov <- lmrdia %>%
-  extract2(10) %>%
-  as.tibble()
-
-pe3 <- lmrdia %>%
-  extract2(12) %>%
-  as.tibble()
-```
-
-```{r plot-lmoment-diagram}
-
-ggplot() +
-  geom_line(data = aep4, aes(V1, V2, color = "red")) + 
-  geom_line(data = gev, aes(V1, V2, color = "blue")) + 
-  geom_line(data = glo, aes(V1, V2, color = "orange")) + 
-  geom_line(data = gpa, aes(V1, V2, color = "violet")) + 
-  geom_line(data = gno, aes(V1, V2, color = "green")) + 
-  geom_line(data = gov, aes(V1, V2, color = "brown")) + 
-  geom_line(data = pe3, aes(V1, V2)) + 
-  geom_point(data = lmom, aes(L_skew, L_kurtosis)) +
-  geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, size = 3)) +
-  theme_bw() +
-  xlim(0, 0.3) +
-  ylim(-0.1, 0.4)
-```
-
-
-```{r test-boxplot, eval=FALSE}
-# combine all into short variable name
-x <- list(AMAR = AMAR, CANY = CANY, CLAU = CLAU, 
-          HERF = HERF,  TULA = TULA, TUL6 = TUL6,VEGA = VEGA) 
-
-# w will be used in a later example
-w <- sapply(x,length) 
-
-print(w) 
-
-# show the lengths of the individual records
-boxplot(x, ylab="7-DAY ANNUAL MAX RAINFALL, IN INCHES", range=0)
-```
-
-```{r bean-plot, eval=FALSE}
-rng <- sapply(x, range) # x from previous example
-ylim <- c(min(rng[1,]), max(rng[2,]))
-par(mfrow=c(2,1), mai=c(0.5,1,0.5,0.5) )
-beanplot(x, ll=0.04, main="BEAN PLOT: beanplot()", log="",
- ylim=ylim, ylab="7-DAY ANNUAL MAX RAINFALL,\n IN INCHES",
-overallline="median")
-```
-
-
-```{r weibull_lmoment}
-AMAR.pp <- pp(AMAR);  CANY.pp <- pp(CANY)
-CLAU.pp <- pp(CLAU);  HERF.pp <- pp(HERF)
-TULA.pp <- pp(TULA);  TUL6.pp <- pp(TUL6)
-VEGA.pp <- pp(VEGA)
-
-AMAR.lmr <- lmoms(AMAR);  CANY.lmr <- lmoms(CANY)
-CLAU.lmr <- lmoms(CLAU);  HERF.lmr <- lmoms(HERF)
-TULA.lmr <- lmoms(TULA);  TUL6.lmr <- lmoms(TUL6)
-VEGA.lmr <- lmoms(VEGA)
-
-```
-
-```{r}
-"afunc" <- function(r) {
-  return(c(AMAR.lmr$ratios[r], CANY.lmr$ratios[r],
-           CLAU.lmr$ratios[r], HERF.lmr$ratios[r],
-           TULA.lmr$ratios[r], TUL6.lmr$ratios[r],
-           VEGA.lmr$ratios[r]))
-}
-L1 <- c(AMAR.lmr$lambdas[1], CANY.lmr$lambdas[1],
-CLAU.lmr$lambdas[1], HERF.lmr$lambdas[1], TULA.lmr$lambdas[1], TUL6.lmr$lambdas[1], VEGA.lmr$lambdas[1])*1.018; 
-
-print(L1)
-# bias correction factor Weiss (1964)
-T2 <- afunc(2); T3 <- afunc(3); T4 <- afunc(4)
-
-reg.L1  <- weighted.mean(L1, w);  reg.T2  <- weighted.mean(T2, w)
-reg.T3  <- weighted.mean(T3, w);  reg.T4  <- weighted.mean(T4, w)
-
-reg.lmr <- vec2lmom(c(reg.L1, reg.L1*reg.T2, reg.T3, reg.T4)) 
-reg.kap <- parkap(reg.lmr) # parameters of the Kappa distribution
-str(reg.lmr) # output the regional L-moments List of 9
-
-print(reg.kap) # output the regional Kappa distribution $type
-```
-
-```{r}
-lmrdia <- lmrdia()
-plotlmrdia(lmrdia,autolegend=TRUE, nopoints=TRUE,
-           nolimits=TRUE, xlim=c(0,0.3), ylim=c(-0.1,0.4),
-           xleg=0.05, yleg=0.3)
-points(T3,T4)
-points(reg.T3,reg.T4, pch=16, cex=2)
-plotlmrdia(lmrdia()) # simplest of all uses
 ```
 
 ## Overview
