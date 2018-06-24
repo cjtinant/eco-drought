@@ -103,6 +103,12 @@ sta_mon <- sta_mon %>%
   mutate(date = ymd(date)) %>% 
   arrange(desc(date)) 
 
+# add a small value to zeros to solve a downstream issue
+sta_mon <- sta_mon %>% 
+  gather(key = "station", value = "depth", -date, -year, -month) %>%
+  mutate(depth = replace(depth, depth == 0.0, 0.01)) %>%
+  spread(station, depth)
+
 # make the wide data long, remove NA vals, sqrt transform
 sta_grp <- sta_mon %>%
   gather(key = "station", value = "depth", -date, -year, -month) %>%
@@ -157,8 +163,8 @@ ggplot(sta_big, aes(month)) +
 #   leading to greater chance for convection.
 ```
 
-```{r station_plotting_postion}
-# find the plotting position: using Weibull; a = 0 
+```{r station_plotting_postion} 
+# find the plotting position: using Weibull; a = 0  
 sta_grp <- sta_grp %>% 
   group_by(station) %>% 
   arrange(depth) %>% 
@@ -191,9 +197,9 @@ ggtitle("Weather stations near Pine Ridge Reservation, SD",
 ```
 
 ```{r lmoments}
-# This is a long bit of code that takes things out of a list
+# This is a long bit of code that takes things out of a list 
 
-lmom_sta <- sta_grp %>%
+lmom_sta <- sta_grp %>% 
   split(.$station) %>%
   map(~ lmoms(.$depth)) %>%
   transpose() %>%
@@ -248,11 +254,11 @@ lmom_reg <- as.tibble(lmom_reg) %>%
 ```
 
 ```{r Lmoment_diagram_ratios}
-# extract elements from the lmrdia list to plot in ggplot2 
-#   the x-value is the L-skewness and y-value is L-kurtosis 
+# extract elements from the lmrdia list to plot in ggplot2  
+#   the x-value is the L-skewness and y-value is L-kurtosis  
 
-# get vals from the lmrdia list
-# note that as gamma distribution is a 2-parameter dist, it is not shown
+# get vals from the lmrdia list 
+# note that as gamma distribution is a 2-parameter dist, it is not shown 
 lmrdia <- lmrdia() 
 
 # extract L-skew & L-kurtosis values for several distributions
@@ -260,7 +266,7 @@ lmrdia <- lmrdia()
 #  extract2(2) %>%
 #  as.tibble()
 
-gev <- lmrdia %>%
+gev <- lmrdia %>% 
   extract2(5) %>% as.tibble()
 
 glo <- lmrdia %>%
@@ -317,14 +323,14 @@ rm(gev, int1, glo, int2, gpa,int3, gno, int4, gov, pe3, lmrdia)
 ```
 
 ```{r plot-lmoment-diagram}
-# plots the theo distributions, the sample vals, and regional mean
-ggplot() +
+# plots the theo distributions, the sample vals, and regional mean 
+ggplot() + 
   geom_line(data = lmom_theo, aes(L_skew, L_kurtosis, 
                                   group = distribution, 
                                   linetype = distribution)) +
   geom_point(data = lmom_sta, aes(L_skew, L_kurtosis)) +
   geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, 
-                                  size = 3, show.legend = NA)) +
+                                  size = 2, show.legend = NA)) +
   theme_bw() + 
  # xlim(0.25, 0.5) +
  # ylim(0, 0.25) +
@@ -626,7 +632,7 @@ udf %>%
 #   Commons License.
 ```
 
-```{r SPI-reservation}
+```{r SPI-1month}
 rm(lmom_reg, lmom_sta, lmom_theo)
 
 # Arrange data and calculate SPI
@@ -663,19 +669,181 @@ rm(spi_1mon_list, dates)
 spi_1mon_grp <- spi_1mon %>%
   gather(key = "station", value = "value", -date, -year, -month) %>%
   drop_na(value)
-```
 
-
-```{r}
 ggplot(spi_1mon_grp, aes(date, value)) +
   geom_line() +
   facet_grid(station~.) +
   theme_classic() + 
-  labs(title = "Monthly precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
-       xlab("Date") +
-       ylab("Depth, mm")
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "One-month duration; Pine Ridge Reservation, SD") +
+       xlab("") +
+       ylab("SPI-value")
 ```
+
+```{r SPI-2month}
+# clean up
+rm(spi_1mon, spi_1mon_grp) 
+
+# Arrange data and calculate SPI
+sta_mon <- sta_mon %>% 
+  arrange(date)
+
+spi_2mon_list <- sta_mon %>% 
+  select(-(date:month)) %>%
+  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
+
+# Look at the list 
+# jsonedit(spi_2mon, mode = "view", elementId = "call")
+
+# extract the fitted data
+spi_2mon <- as.data.frame(spi_2mon_list["fitted"]) # this works.  
+# But, not sure how to do do the same in a Tidyverse way.  Moving fwd.
+
+# clean up the dataframe
+# grab cols from sta_mon
+dates <- sta_mon %>%
+  select(1:3)
+
+# note - I would really prefer to use a map function of some sort
+spi_2mon <- spi_2mon %>%
+  rename(oel = fitted.oel) %>% 
+  rename(cot = fitted.cot) %>% 
+  rename(rap = fitted.rap) %>%
+  rename(int = fitted.int) %>% 
+  rename(ora = fitted.ora)
+
+spi_2mon <- bind_cols(dates, spi_2mon)
+rm(spi_2mon_list, dates)
+
+spi_2mon_grp <- spi_2mon %>%
+  gather(key = "station", value = "value", -date, -year, -month) %>%
+  drop_na(value)
+
+ggplot(spi_2mon_grp, aes(date, value)) + 
+  geom_line() +
+  facet_grid(station~.) +
+  theme_classic() + 
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "Two-month duration; Pine Ridge Reservation, SD") +
+       xlab("") +
+       ylab("SPI-value")
+```
+
+```{r ggplot_2month_SPI}
+ggplot(spi_2mon_grp, aes(date, value)) +
+  geom_line() +
+  facet_grid(station~.) +
+  theme_classic() + 
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "One-month duration; Pine Ridge Reservation, SD") +
+       xlab("") +
+       ylab("SPI-value")
+```
+
+```{r SPI-3month}
+# clean up
+rm(spi_2mon, spi_2mon_grp)
+
+# Arrange data and calculate SPI
+sta_mon <- sta_mon %>% 
+  arrange(date)
+
+spi_3mon_list <- sta_mon %>% 
+  select(-(date:month)) %>%
+  spi(distribution = 'PearsonIII', scale = 1, na.rm = TRUE) 
+
+# Look at the list 
+# jsonedit(spi_3mon, mode = "view", elementId = "call")
+
+# extract the fitted data
+spi_3mon <- as.data.frame(spi_3mon_list["fitted"]) # this works.  
+# But, not sure how to do do the same in a Tidyverse way.  Moving fwd.
+
+# clean up the dataframe
+# grab cols from sta_mon
+dates <- sta_mon %>%
+  select(1:3)
+
+# note - I would really prefer to use a map function of some sort
+spi_3mon <- spi_3mon %>%
+  rename(oel = fitted.oel) %>% 
+  rename(cot = fitted.cot) %>% 
+  rename(rap = fitted.rap) %>%
+  rename(int = fitted.int) %>% 
+  rename(ora = fitted.ora)
+
+spi_3mon <- bind_cols(dates, spi_3mon)
+rm(spi_2mon_list, dates)
+
+spi_3mon_grp <- spi_3mon %>%
+  gather(key = "station", value = "value", -date, -year, -month) %>%
+  drop_na(value)
+```
+
+```{r ggplot_3month_SPI}
+ggplot(spi_3mon_grp, aes(date, value)) +
+  geom_line() +
+  facet_grid(station~.) +
+  theme_classic() + 
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "Three-month duration; Pine Ridge Reservation, SD") +
+       xlab("") +
+       ylab("SPI-value")
+```
+
+```{r SPI-4month}
+# clean up
+rm(spi_3mon, spi_3mon_grp)
+
+# Arrange data and calculate SPI
+sta_mon <- sta_mon %>% 
+  arrange(date)
+
+spi_4mon_list <- sta_mon %>% 
+  select(-(date:month)) %>%
+  spi(distribution = 'PearsonIII', scale = 1, na.rm = TRUE) 
+
+# Look at the list 
+# jsonedit(spi_3mon, mode = "view", elementId = "call")
+
+# extract the fitted data
+spi_4mon <- as.data.frame(spi_4mon_list["fitted"]) # this works.  
+# But, not sure how to do do the same in a Tidyverse way.  Moving fwd.
+
+# clean up the dataframe
+# grab cols from sta_mon
+dates <- sta_mon %>%
+  select(1:3)
+
+# note - I would really prefer to use a map function of some sort
+spi_4mon <- spi_4mon %>%
+  rename(oel = fitted.oel) %>% 
+  rename(cot = fitted.cot) %>% 
+  rename(rap = fitted.rap) %>%
+  rename(int = fitted.int) %>% 
+  rename(ora = fitted.ora)
+
+spi_4mon <- bind_cols(dates, spi_4mon)
+rm(spi_4mon_list, dates)
+
+spi_4mon_grp <- spi_4mon %>%
+  gather(key = "station", value = "value", -date, -year, -month) %>%
+  drop_na(value)
+```
+
+
+```{r ggplot_2month_SPI}
+ggplot(spi_2mon_grp, aes(date, value)) +
+  geom_line() +
+  facet_grid(station~.) +
+  theme_classic() + 
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "One-month duration; Pine Ridge Reservation, SD") +
+       xlab("") +
+       ylab("SPI-value")
+```
+
+
 
 ```{r boxplots_1month}
 ggplot(spi_1mon_grp, aes(month, value, group = month)) +
