@@ -27,18 +27,14 @@ What is the underlying distribution of precipitation data?
 3. Applied sqrt & log10 transform to explore effects on skew 
 4. Explored the data with box plots, violin plot.
 5. Applied Weibull plotting position and graphed the data on sqrt plot
-6. Calculated L-moments and L-moment ratios
+6. Calculated L-moments and L-moment ratios 
+7. Calculated SPI for "cot" dataset
+
 
 ## Issues: SPI calculations not as expected; -Inf for 2 mo
 ## Next Steps: 
-1. I turned off the L-moments calculations
-2. Working with SPEI package and 'Wichita' dataset
-3. Following vignette to see how it is working
-4. Check how 'Wichita' works with my code.
-5. Run one PRR station through vignette code.
-
-# Idea - I am using 'Date' class rather than 'ts' call - 
-#  this might be the reason that I am getting not good values.
+1. Clean up code leading up to SPI
+2. Map the variable as a function
 
 Other:
 1. figure out how to reference stuff 
@@ -88,7 +84,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r library, include=FALSE, message=FALSE} 
 # Sets up the library of packages 
-library("lmomco") # lmoments to find distribution
+library("lmomco") # lmoments to find distribution 
 library("tidyverse")
 library("magrittr") # contains easier ways to say things about lists
 library("here") # identifies where to save work 
@@ -108,7 +104,7 @@ a_session <- devtools::session_info()
 
 ```
 
-```{r import-data}
+```{r import-data} 
 # General Purpose: prepare data for drought index   
 # Specific purpose: graphical EDA  
 sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
@@ -119,11 +115,12 @@ sta_mon <- sta_mon %>%
   mutate(date = ymd(date)) %>% 
   arrange(desc(date)) 
 
-# add a small value to zeros to solve a downstream issue
-sta_mon <- sta_mon %>% 
-  gather(key = "station", value = "depth", -date, -year, -month) %>%
-  mutate(depth = replace(depth, depth == 0.0, 0.15)) %>%
-  spread(station, depth)
+# add a small value to zeros to solve a downstream issue 
+# maybe have this fixed now using ts rather than date class
+#sta_mon <- sta_mon %>% 
+#  gather(key = "station", value = "depth", -date, -year, -month) %>%
+#  mutate(depth = replace(depth, depth == 0.0, 0.15)) %>%
+#  spread(station, depth)
 
 # make the wide data long, remove NA vals, sqrt transform
 sta_grp <- sta_mon %>%
@@ -158,7 +155,6 @@ ggplot(sta_grp, aes(as.factor(station), depth)) +
   ggtitle("Weather stations near Pine Ridge Reservation, SD", 
           subtitle = "1909-2018") +
   xlab("") + 
-    
   ylab("Monthly depth in mm")
 
 #ggplot2::ggsave(filename = "rf_boxplot.png", 
@@ -648,6 +644,257 @@ udf %>%
 #   Commons License.
 ```
 
+```{r spi-algorithm-coeff-cot, include=FALSE, eval=FALSE} 
+# clean up environment 
+rm(lmom_reg, lmom_sta, lmom_theo) 
+
+# This code chunk calculates SPI coefficients for 
+# 1, 2, 3, 4, 5, 6, 9, 12, 24 months.  
+# Code is mostly following the SPI vignette. 
+
+# Add Cottonwoods dataset and change to time series 
+sta_cot <- sta_mon %>% 
+  select(year, month, cot) %>% 
+  ts(end = c(2018, 05), frequency = 12)
+
+# Calculate Cottonwood SPI 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi_1cot  <- spi(sta_cot[,'cot'], 1) 
+spi_2cot  <- spi(sta_cot[,'cot'], 2) 
+spi_3cot  <- spi(sta_cot[,'cot'], 3) 
+spi_4cot  <- spi(sta_cot[,'cot'], 4) 
+spi_5cot  <- spi(sta_cot[,'cot'], 5) 
+spi_6cot  <- spi(sta_cot[,'cot'], 6) 
+spi_9cot  <- spi(sta_cot[,'cot'], 9) 
+spi_12cot <- spi(sta_cot[,'cot'], 12)  
+spi_18cot <- spi(sta_cot[,'cot'], 18) 
+spi_24cot <- spi(sta_cot[,'cot'], 24) 
+
+# save coefficients 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi_1cot_coeff <- as.tibble(spi_1cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_2cot_coeff <- as.tibble(spi_2cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_3cot_coeff <- as.tibble(spi_3cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_4cot_coeff <- as.tibble(spi_4cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_5cot_coeff <- as.tibble(spi_5cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_6cot_coeff <- as.tibble(spi_6cot$coefficients) %>% 
+  t() %>%
+  as.tibble() 
+
+spi_9cot_coeff <- as.tibble(spi_9cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_12cot_coeff <- as.tibble(spi_12cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_18cot_coeff <- as.tibble(spi_18cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_24cot_coeff <- as.tibble(spi_24cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+# Rename coefficients 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi_1cot_coeff <- spi_1cot_coeff %>% 
+  rename(cot1_alpha = alpha) %>%
+   rename(cot1_beta = beta) 
+
+spi_2cot_coeff <- spi_2cot_coeff %>% 
+  rename(cot2_alpha = alpha) %>%
+   rename(cot2_beta = beta) 
+
+spi_3cot_coeff <- spi_3cot_coeff %>% 
+  rename(cot3_alpha = alpha) %>%
+   rename(cot3_beta = beta) 
+
+spi_4cot_coeff <- spi_4cot_coeff %>% 
+  rename(cot3_alpha = alpha) %>%
+   rename(cot4_beta = beta) 
+
+spi_5cot_coeff <- spi_5cot_coeff %>% 
+  rename(cot5_alpha = alpha) %>%
+   rename(cot5_beta = beta) 
+
+spi_6cot_coeff <- spi_6cot_coeff %>% 
+  rename(cot6_alpha = alpha) %>%
+   rename(cot6_beta = beta) 
+
+spi_9cot_coeff <- spi_9cot_coeff %>% 
+  rename(cot9_alpha = alpha) %>%
+   rename(cot9_beta = beta) 
+
+spi_12cot_coeff <- spi_12cot_coeff %>% 
+  rename(cot12_alpha = alpha) %>%
+   rename(cot12_beta = beta) 
+
+spi_18cot_coeff <- spi_18cot_coeff %>% 
+  rename(cot18_alpha = alpha) %>%
+   rename(cot18_beta = beta) 
+
+spi_24cot_coeff <- spi_24cot_coeff %>% 
+  rename(cot24_alpha = alpha) %>%
+   rename(cot24_beta = beta) 
+
+# Join the values 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+int1 <- bind_cols(spi_1cot_coeff, spi_2cot_coeff) 
+rm(spi_1cot_coeff, spi_2cot_coeff) 
+
+int2 <- bind_cols(int1, spi_3cot_coeff) 
+rm(int1, spi_3cot_coeff) 
+
+int3 <- bind_cols(int2, spi_4cot_coeff) 
+rm(int2, spi_4cot_coeff) 
+
+int4 <- bind_cols(int3, spi_5cot_coeff) 
+rm(int3, spi_5cot_coeff) 
+
+int5 <- bind_cols(int4, spi_6cot_coeff) 
+rm(int4, spi_6cot_coeff) 
+
+int6 <- bind_cols(int5, spi_9cot_coeff) 
+rm(int5, spi_9cot_coeff) 
+
+int7 <- bind_cols(int6, spi_12cot_coeff) 
+rm(int6, spi_12cot_coeff) 
+
+int8 <- bind_cols(int7, spi_18cot_coeff) 
+rm(int7, spi_18cot_coeff) 
+
+spi_coeff_cot <- bind_cols(int8, spi_24cot_coeff) 
+rm(int8, spi_24cot_coeff) 
+
+# export(spi_coeff_cot, "data/spi_coeff_cot.csv") 
+rm(spi_coeff_cot)
+```
+
+```{r spi-algorithm-fit-cot}
+# clean up environment 
+rm(lmom_reg, lmom_sta, lmom_theo) 
+
+# This code chunk calculates SPI coefficients for 
+# 1, 2, 3, 4, 5, 6, 9, 12, 24 months.  
+# Code is mostly following the SPI vignette. 
+
+# Add Cottonwoods dataset and change to time series 
+sta_cot <- sta_mon %>% 
+  select(year, month, cot) %>% 
+  ts(end = c(2018, 05), frequency = 12)
+
+# Calculate Cottonwood SPI 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi_1cot  <- spi(sta_cot[,'cot'], 1) 
+spi_2cot  <- spi(sta_cot[,'cot'], 2) 
+spi_3cot  <- spi(sta_cot[,'cot'], 3) 
+spi_4cot  <- spi(sta_cot[,'cot'], 4) 
+spi_5cot  <- spi(sta_cot[,'cot'], 5) 
+spi_6cot  <- spi(sta_cot[,'cot'], 6) 
+spi_9cot  <- spi(sta_cot[,'cot'], 9) 
+spi_12cot <- spi(sta_cot[,'cot'], 12)  
+spi_18cot <- spi(sta_cot[,'cot'], 18) 
+spi_24cot <- spi(sta_cot[,'cot'], 24) 
+
+# save SPI values
+spi_1cot <- as.tibble(spi_1cot$fitted) %>% 
+  mutate(duration = 1)
+
+spi_2cot <- as.tibble(spi_2cot$fitted) %>% 
+  mutate(duration = 2)
+
+spi_3cot <- as.tibble(spi_3cot$fitted) %>% 
+  rename(cot_3 = "Series 1") %>% 
+  mutate(duration = 3) 
+
+spi_4cot <- as.tibble(spi_4cot$fitted) %>% 
+  rename(cot_4 = "Series 1") %>% 
+  mutate(duration = 4) 
+
+spi_5cot <- as.tibble(spi_5cot$fitted) %>% 
+  rename(cot_5 = "Series 1") %>% 
+  mutate(duration = 5) 
+
+spi_6cot <- as.tibble(spi_6cot$fitted) %>% 
+  rename(cot_6 = "Series 1") %>% 
+  mutate(duration = 6) 
+
+spi_9cot <- as.tibble(spi_9cot$fitted) %>% 
+  rename(cot_9 = "Series 1") %>% 
+  mutate(duration = 9)
+
+spi_12cot <- as.tibble(spi_12cot$fitted) %>% 
+  rename(cot_12 = "Series 1") %>% 
+  mutate(duration = 12) 
+
+spi_18cot <- as.tibble(spi_18cot$fitted) %>% 
+  rename(cot_18 = "Series 1") %>% 
+  mutate(duration = 18) 
+
+spi_24cot <- as.tibble(spi_24cot$fitted) %>% 
+  rename(cot_24 = "Series 1") %>% 
+  mutate(duration = 24) 
+# export(site, "data/site_meta.csv")
+
+
+
+# this does not work!  Starts the shorter value series at 1909
+# sta_in <- ts(sta_in[,-c(1,2)], end = c(2018, 05), frequency = 12)
+
+
+
+
+# Add Cottonwoods dataset and change to time series 
+sta_cot <- sta_mon %>% 
+  select(year, month, cot) 
+
+sta_cot <- ts(sta_cot[,-c(1,2)], end = c(2018, 05), frequency = 12)
+# plot(sta_cot)
+
+# Calculate 1-, 2-, 3-, 4-, 5-, 6-, 9-, 12-, 24-month SPI 
+# check on using 'map' to do this.
+
+spi_1cot <- spi(sta_cot[,'cot'], 1) 
+#spi_2cot <- spi(sta_cot[,'cot'], 2) 
+#spi_3cot <- spi(sta_cot[,'cot'], 3) 
+#spi_4cot <- spi(sta_cot[,'cot'], 4) 
+#spi_5cot <- spi(sta_cot[,'cot'], 5) 
+#spi_6cot <- spi(sta_cot[,'cot'], 6) 
+#spi_9cot <- spi(sta_cot[,'cot'], 9) 
+spi_12cot <- spi(sta_cot[,'cot'], 12) 
+#spi_18cot <- spi(sta_cot[,'cot'], 18) 
+#spi_24cot <- spi(sta_cot[,'cot'], 24) 
+
+#  Extract information from spei object: summary, 
+#         call function, fitted values, and coefficients
+
+spi_names <- as.tibble(names(spi_1cot))
+# spi_call <- as.list(spi_1cot$call)
+spi_1cot_fitted <- as.tibble(spi_1cot$fitted)
+spi_1cot_coeff <- as.tibble(spi_1cot$coefficients) 
+
+spi_12cot_names <- as.tibble(names(spi_12cot))
+spi_12cot_call <- as.list(spi_12cot$call)
+spi_12cot_fitted <- as.tibble(spi_12cot$fitted)
+spi_12cot_coeff <- as.tibble(spi_12cot$coefficients)
+
+# Next steps
+# Computing several time series at a time
+# Dataset balance contains time series of the climatic water balance at 12 locations
+#data(balance)
+#head(balance)
+#bal_spei12 <- spei(balance, 12)
+# plot(bal_spei12)
+```
+
 ```{r check-spi-algorithm}
 # This code chunk checks the SPI algorithm because I am
 # having some difficulties with SPI for 2 months, getting -Inf vals.
@@ -762,11 +1009,8 @@ dim(coe)
 spei(wichita[,'BAL'], 1, params=coe)
 ```
 
-
-
 ```{r SPI-1month}
-# clean up environment
-rm(lmom_reg, lmom_sta, lmom_theo) 
+
 
 # Arrange data and calculate tidy-SPI 
 sta_mon <- sta_mon %>% 
@@ -882,7 +1126,6 @@ coe <- spei1$coefficients
 dim(coe)
 spei(wichita[,'BAL'], 1, params=coe)
 ```
-
 
 ```{r SPI-2month}
 # clean up 
