@@ -21,14 +21,28 @@ Does the drought extent differ across the study area?
 ## Narrower question:
 What is the underlying distribution of precipitation data?  
 
-## Analysis Steps:
+## Analysis Steps & progress
 1. Recreated analysis from the lmomco text ch 12 (author?) in Tidyverse
 2. Imported cleaned precipitation data (see 04_prcp-data_munging)   
 3. Applied sqrt & log10 transform to explore effects on skew 
 4. Explored the data with box plots, violin plot.
 5. Applied Weibull plotting position and graphed the data on sqrt plot
 6. Calculated L-moments and L-moment ratios
-7. Plotted the 
+
+## Issues: SPI calculations not as expected; -Inf for 2 mo
+## Next Steps: 
+1. I turned off the L-moments calculations
+2. Working with SPEI package and 'Wichita' dataset
+3. Following vignette to see how it is working
+4. Check how 'Wichita' works with my code.
+5. Run one PRR station through vignette code.
+
+# Idea - I am using 'Date' class rather than 'ts' call - 
+#  this might be the reason that I am getting not good values.
+
+Other:
+1. figure out how to reference stuff 
+-->
 
 ## Variable naming convention:   
 sta          precipitation station  
@@ -72,7 +86,7 @@ pe3          Pearson Type III Distribution
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r library, include=FALSE, message=FALSE}
+```{r library, include=FALSE, message=FALSE} 
 # Sets up the library of packages 
 library("lmomco") # lmoments to find distribution
 library("tidyverse")
@@ -84,12 +98,14 @@ library("SPEI") # Calculates SPI-index
 library("jsonlite") # Convert between JSON data and R objects
 library("curl") # Drop-in replacement for base url
 library("listviewer") # htmlwidget for interactive views of R lists
+library("janitor") # tools to clean dirty data 
 
 #lmomco <- citation("lmomco")
 #toBibtex(lmomco)
 
 # Session Info
-session <- devtools::session_info()
+a_session <- devtools::session_info()
+
 ```
 
 ```{r import-data}
@@ -106,7 +122,7 @@ sta_mon <- sta_mon %>%
 # add a small value to zeros to solve a downstream issue
 sta_mon <- sta_mon %>% 
   gather(key = "station", value = "depth", -date, -year, -month) %>%
-  mutate(depth = replace(depth, depth == 0.0, 0.01)) %>%
+  mutate(depth = replace(depth, depth == 0.0, 0.15)) %>%
   spread(station, depth)
 
 # make the wide data long, remove NA vals, sqrt transform
@@ -163,7 +179,7 @@ ggplot(sta_big, aes(month)) +
 #   leading to greater chance for convection.
 ```
 
-```{r station_plotting_postion} 
+```{r station_plotting_postion, include=FALSE, eval=FALSE} 
 # find the plotting position: using Weibull; a = 0  
 sta_grp <- sta_grp %>% 
   group_by(station) %>% 
@@ -196,7 +212,7 @@ ggtitle("Weather stations near Pine Ridge Reservation, SD",
 
 ```
 
-```{r lmoments}
+```{r lmoments, include=FALSE, eval=FALSE}
 # This is a long bit of code that takes things out of a list 
 
 lmom_sta <- sta_grp %>% 
@@ -253,7 +269,7 @@ lmom_reg <- as.tibble(lmom_reg) %>%
   select(station, everything())
 ```
 
-```{r Lmoment_diagram_ratios}
+```{r Lmoment_diagram_ratios, include=FALSE, eval=FALSE}
 # extract elements from the lmrdia list to plot in ggplot2  
 #   the x-value is the L-skewness and y-value is L-kurtosis  
 
@@ -322,7 +338,7 @@ lmom_theo <- lmom_theo %>%
 rm(gev, int1, glo, int2, gpa,int3, gno, int4, gov, pe3, lmrdia)
 ```
 
-```{r plot-lmoment-diagram}
+```{r plot-lmoment-diagram, include=FALSE, eval=FALSE}
 # plots the theo distributions, the sample vals, and regional mean 
 ggplot() + 
   geom_line(data = lmom_theo, aes(L_skew, L_kurtosis, 
@@ -367,8 +383,8 @@ With an index vector, we can retrieve a slice with multiple members. Here a slic
 ```
 
 ```{r example-on-tidy-lists, include=FALSE, eval=FALSE}
-
-# Simplifying lists with purrr
+ 
+# Simplifying lists with purrr 
 library(jsonlite) # Convert between JSON data and R objects.
 library(curl) # Drop-in replacement for base url
 library(repurrrsive) # Recursive lists for teaching & examples. 
@@ -632,10 +648,127 @@ udf %>%
 #   Commons License.
 ```
 
-```{r SPI-1month}
-rm(lmom_reg, lmom_sta, lmom_theo)
+```{r check-spi-algorithm}
+# This code chunk checks the SPI algorithm because I am
+# having some difficulties with SPI for 2 months, getting -Inf vals.
 
-# Arrange data and calculate SPI
+# 1.0 This is from the vignette
+# 1.1 add Wichita dataset, clean names changes to time series, 
+data(wichita) 
+wichita <- wichita %>% 
+  clean_names()
+
+wichita <- ts(wichita[,-c(1,2)], end = c(2011, 10), frequency = 12)
+plot(wichita)
+
+# 1.2 - Calculate one and twelve-month SPI with Wichita dataset
+spi_1 <- spi(wichita[,'prcp'], 1)
+spi_12 <- spi(wichita[,'prcp'], 12) 
+
+# 1.3 - Extract information from spei object: summary, 
+#         call function, fitted values, and coefficients
+
+# spi_1_sum <- summary(spi_1) # this does not save!
+spi_1_names <- as.tibble(names(spi_1))
+spi_1_call <- as.list(spi_1$call)
+spi_1_fitted <- as.tibble(spi_1$fitted)
+spi_1_coeff <- as.tibble(spi_1$coefficients)
+
+# 1.3 - Plot
+plot(spi_1, 'Wichita, SPI-1')
+plot(spi_12, 'Wichita, SPI-12')
+
+# 2.0 - same approach using PRR data
+# 2.1 add Cottonwoods dataset, change to time series, 
+sta_cot <- sta_mon %>% 
+  select(year, month, cot) 
+
+sta_cot <- ts(sta_cot[,-c(1,2)], end = c(2018, 05), frequency = 12)
+plot(sta_cot)
+
+# 2.2 - Calculate one and twelve-month SPI with Wichita dataset
+spi_1cot <- spi(sta_cot[,'cot'], 1)
+spi_12cot <- spi(sta_cot[,'cot'], 12) 
+
+# 1.3 - Extract information from spei object: summary, 
+#         call function, fitted values, and coefficients
+
+# spi_1_sum <- summary(spi_1) # this does not save!
+spi_1cot_names <- as.tibble(names(spi_1cot))
+spi_1cot_call <- as.list(spi_1cot$call)
+spi_1cot_fitted <- as.tibble(spi_1cot$fitted)
+spi_1cot_coeff <- as.tibble(spi_1cot$coefficients)
+
+spi_12cot_names <- as.tibble(names(spi_12cot))
+spi_12cot_call <- as.list(spi_12cot$call)
+spi_12cot_fitted <- as.tibble(spi_12cot$fitted)
+spi_12cot_coeff <- as.tibble(spi_12cot$coefficients)
+
+
+
+# 1.3 - Plot
+plot(spi_1cot, 'test, SPI-1')
+plot(spi_12cot, 'test, SPI-12')
+
+
+
+# Compute potential evapotranspiration (PET) and climatic water balance (BAL)
+#wichita$PET <- thornthwaite(wichita$TMED, 37.6475)
+#wichita$BAL <- wichita$PRCP-wichita$PET
+
+# Convert to a ts (time series) object for convenience
+#wichita <- ts(wichita[,-c(1,2)], end = c(2011, 10), frequency = 12)
+#plot(wichita)
+
+# One and twelve-month SPEI
+#spei1 <- spei(wichita[,'BAL'], 1)
+#spei12 <- spei(wichita[,'BAL'], 12)
+#class(spei1)
+
+
+#spi(data, scale, kernel = list(type = 'rectangular', shift = 0),
+#	distribution = 'PersonIII', fit = 'ub-pwm', na.rm = FALSE,
+#	ref.start=NULL, ref.end=NULL, x=FALSE, params=NULL, ...)
+
+
+
+
+
+# Time series not starting in January
+par(mfrow=c(1,1))
+plot(spei(ts(wichita[,'BAL'], freq=12, start=c(1980,6)), 12))
+
+# Using a particular reference period (1980-2000) for computing the parameters
+plot(spei(ts(wichita[,'BAL'], freq=12, start=c(1980,6)), 12,
+	ref.start=c(1980,1), ref.end=c(2000,1)))
+
+# Using different kernels
+spei24 <- spei(wichita[,'BAL'],24)
+spei24_gau <- spei(wichita[,'BAL'], 24, kernel=list(type='gaussian', shift=0))
+par(mfrow=c(2,1))
+plot(spei24, main='SPEI-24 with rectangular kernel')
+plot(spei24_gau, main='SPEI-24 with gaussian kernel')
+
+# Computing several time series at a time
+# Dataset balance contains time series of the climatic water balance at 12 locations
+data(balance)
+head(balance)
+bal_spei12 <- spei(balance, 12)
+plot(bal_spei12)
+
+# Using custom (user provided) parameters
+coe <- spei1$coefficients
+dim(coe)
+spei(wichita[,'BAL'], 1, params=coe)
+```
+
+
+
+```{r SPI-1month}
+# clean up environment
+rm(lmom_reg, lmom_sta, lmom_theo) 
+
+# Arrange data and calculate tidy-SPI 
 sta_mon <- sta_mon %>% 
   arrange(date)
 
@@ -652,7 +785,7 @@ spi_1mon <- as.data.frame(spi_1mon_list["fitted"]) # this works.
 
 # clean up the dataframe
 # grab cols from sta_mon
-dates <- sta_mon %>%
+dates <- sta_mon %>% 
   select(1:3)
 
 # note - I would really prefer to use a map function of some sort
@@ -664,7 +797,7 @@ spi_1mon <- spi_1mon %>%
   rename(ora = fitted.ora)
 
 spi_1mon <- bind_cols(dates, spi_1mon)
-rm(spi_1mon_list, dates)
+rm(spi_1mon_list)
 
 spi_1mon_grp <- spi_1mon %>%
   gather(key = "station", value = "value", -date, -year, -month) %>%
@@ -678,187 +811,10 @@ ggplot(spi_1mon_grp, aes(date, value)) +
        subtitle = "One-month duration; Pine Ridge Reservation, SD") +
        xlab("") +
        ylab("SPI-value")
-```
-
-```{r SPI-2month}
-# clean up
-rm(spi_1mon, spi_1mon_grp) 
-
-# Arrange data and calculate SPI
-sta_mon <- sta_mon %>% 
-  arrange(date)
-
-spi_2mon_list <- sta_mon %>% 
-  select(-(date:month)) %>%
-  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
-
-# Look at the list 
-# jsonedit(spi_2mon, mode = "view", elementId = "call")
-
-# extract the fitted data
-spi_2mon <- as.data.frame(spi_2mon_list["fitted"]) # this works.  
-# But, not sure how to do do the same in a Tidyverse way.  Moving fwd.
-
-# clean up the dataframe
-# grab cols from sta_mon
-dates <- sta_mon %>%
-  select(1:3)
-
-# note - I would really prefer to use a map function of some sort
-spi_2mon <- spi_2mon %>%
-  rename(oel = fitted.oel) %>% 
-  rename(cot = fitted.cot) %>% 
-  rename(rap = fitted.rap) %>%
-  rename(int = fitted.int) %>% 
-  rename(ora = fitted.ora)
-
-spi_2mon <- bind_cols(dates, spi_2mon)
-rm(spi_2mon_list, dates)
-
-spi_2mon_grp <- spi_2mon %>%
-  gather(key = "station", value = "value", -date, -year, -month) %>%
-  drop_na(value)
-
-ggplot(spi_2mon_grp, aes(date, value)) + 
-  geom_line() +
-  facet_grid(station~.) +
-  theme_classic() + 
-  labs(title = "Standardized Precipitation Index (SPI)",
-       subtitle = "Two-month duration; Pine Ridge Reservation, SD") +
-       xlab("") +
-       ylab("SPI-value")
-```
-
-```{r ggplot_2month_SPI}
-ggplot(spi_2mon_grp, aes(date, value)) +
-  geom_line() +
-  facet_grid(station~.) +
-  theme_classic() + 
-  labs(title = "Standardized Precipitation Index (SPI)",
-       subtitle = "One-month duration; Pine Ridge Reservation, SD") +
-       xlab("") +
-       ylab("SPI-value")
-```
-
-```{r SPI-3month}
-# clean up
-rm(spi_2mon, spi_2mon_grp)
-
-# Arrange data and calculate SPI
-sta_mon <- sta_mon %>% 
-  arrange(date)
-
-spi_3mon_list <- sta_mon %>% 
-  select(-(date:month)) %>%
-  spi(distribution = 'PearsonIII', scale = 1, na.rm = TRUE) 
-
-# Look at the list 
-# jsonedit(spi_3mon, mode = "view", elementId = "call")
-
-# extract the fitted data
-spi_3mon <- as.data.frame(spi_3mon_list["fitted"]) # this works.  
-# But, not sure how to do do the same in a Tidyverse way.  Moving fwd.
-
-# clean up the dataframe
-# grab cols from sta_mon
-dates <- sta_mon %>%
-  select(1:3)
-
-# note - I would really prefer to use a map function of some sort
-spi_3mon <- spi_3mon %>%
-  rename(oel = fitted.oel) %>% 
-  rename(cot = fitted.cot) %>% 
-  rename(rap = fitted.rap) %>%
-  rename(int = fitted.int) %>% 
-  rename(ora = fitted.ora)
-
-spi_3mon <- bind_cols(dates, spi_3mon)
-rm(spi_2mon_list, dates)
-
-spi_3mon_grp <- spi_3mon %>%
-  gather(key = "station", value = "value", -date, -year, -month) %>%
-  drop_na(value)
-```
-
-```{r ggplot_3month_SPI}
-ggplot(spi_3mon_grp, aes(date, value)) +
-  geom_line() +
-  facet_grid(station~.) +
-  theme_classic() + 
-  labs(title = "Standardized Precipitation Index (SPI)",
-       subtitle = "Three-month duration; Pine Ridge Reservation, SD") +
-       xlab("") +
-       ylab("SPI-value")
-```
-
-```{r SPI-4month}
-# clean up
-rm(spi_3mon, spi_3mon_grp)
-
-# Arrange data and calculate SPI
-sta_mon <- sta_mon %>% 
-  arrange(date)
-
-spi_4mon_list <- sta_mon %>% 
-  select(-(date:month)) %>%
-  spi(distribution = 'PearsonIII', scale = 1, na.rm = TRUE) 
-
-# Look at the list 
-# jsonedit(spi_3mon, mode = "view", elementId = "call")
-
-# extract the fitted data
-spi_4mon <- as.data.frame(spi_4mon_list["fitted"]) # this works.  
-# But, not sure how to do do the same in a Tidyverse way.  Moving fwd.
-
-# clean up the dataframe
-# grab cols from sta_mon
-dates <- sta_mon %>%
-  select(1:3)
-
-# note - I would really prefer to use a map function of some sort
-spi_4mon <- spi_4mon %>%
-  rename(oel = fitted.oel) %>% 
-  rename(cot = fitted.cot) %>% 
-  rename(rap = fitted.rap) %>%
-  rename(int = fitted.int) %>% 
-  rename(ora = fitted.ora)
-
-spi_4mon <- bind_cols(dates, spi_4mon)
-rm(spi_4mon_list, dates)
-
-spi_4mon_grp <- spi_4mon %>%
-  gather(key = "station", value = "value", -date, -year, -month) %>%
-  drop_na(value)
-```
-
-
-```{r ggplot_2month_SPI}
-ggplot(spi_2mon_grp, aes(date, value)) +
-  geom_line() +
-  facet_grid(station~.) +
-  theme_classic() + 
-  labs(title = "Standardized Precipitation Index (SPI)",
-       subtitle = "One-month duration; Pine Ridge Reservation, SD") +
-       xlab("") +
-       ylab("SPI-value")
-```
 
 
 
-```{r boxplots_1month}
-ggplot(spi_1mon_grp, aes(month, value, group = month)) +
-  geom_boxplot() +
-  facet_wrap(~station) +
-  theme_classic() + 
-  labs(title = "Monthly precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
-       xlab("Date") +
-       ylab("Depth, mm")
-```
 
-
-
-```{r}
 
 # Compute potential evapotranspiration (PET) and climatic water balance (BAL)
 wichita$PET <- thornthwaite(wichita$TMED, 37.6475)
@@ -927,6 +883,175 @@ dim(coe)
 spei(wichita[,'BAL'], 1, params=coe)
 ```
 
+
+```{r SPI-2month}
+# clean up 
+rm(spi_1mon, spi_1mon_grp) 
+
+# the approach above did not work for 2 month data.  Getting -Inf vals
+
+# try on individual parts of the dataset
+#sta <- as.tibble(names(sta_mon)) %>%
+#  slice(-(1:3))
+
+sta_cot <- sta_mon %>% 
+  select(date, cot) 
+
+sta_int <- sta_mon %>% 
+  select(date, int) 
+
+sta_oel <- sta_mon %>% 
+  select(date, oel) 
+
+sta_ora <- sta_mon %>% 
+  select(date, ora) 
+
+sta_rap <- sta_mon %>% 
+  select(date, rap) 
+
+# calculate the SPI vals for each
+spi_2cot_list <- sta_cot %>% 
+  select(-date) %>%
+  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
+
+spi_2int_list <- sta_int %>% 
+  select(-date) %>%
+  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
+
+spi_2oel_list <- sta_oel %>% 
+  select(-date) %>%
+  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
+
+spi_2ora_list <- sta_ora %>% 
+  select(-date) %>%
+  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
+
+spi_2rap_list <- sta_rap %>% 
+  select(-date) %>%
+  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
+
+
+# extract the fitted data
+spi_2cot <- as.data.frame(spi_2cot_list["fitted"]) # this works.
+spi_2cot <- spi_2cot %>%
+  rename(spi_cot = cot) 
+spi_2cot <- bind_cols(sta_mon, spi_2cot)
+
+spi_2int <- as.data.frame(spi_2int_list["fitted"]) # this works.
+spi_2int <- spi_2int %>%
+  rename(spi_int = int) 
+spi_2int <- bind_cols(sta_mon, spi_2int) 
+
+spi_2oel <- as.data.frame(spi_2oel_list["fitted"]) # this works.
+spi_2oel <- spi_2oel %>%
+  rename(spi_oel = oel) 
+spi_2oel <- bind_cols(sta_mon, spi_2oel)
+
+spi_2ora <- as.data.frame(spi_2ora_list["fitted"]) # this works.
+spi_2ora <- spi_2ora %>%
+  rename(spi_ora = ora) 
+spi_2ora <- bind_cols(sta_mon, spi_2ora)
+
+spi_2rap <- as.data.frame(spi_2rap_list["fitted"]) # this works.
+spi_2rap <- spi_2rap %>%
+  rename(spi_rap = rap) 
+spi_2rap <- bind_cols(sta_mon, spi_2rap)
+
+rm(spi_2cot_list, spi_2int_list,spi_2oel_list,
+   spi_2ora_list, spi_2rap_list)
+
+summary(spi_2int$spi_int)
+
+ggplot(spi_2int, aes(spi_int, int)) +
+  geom_point()
+
+
+
+
+
+# this is new code...
+# Arrange data and calculate SPI
+#sta_mon_nest <- sta_grp %>% 
+#  mutate(station = as_factor(station)) %>%
+#  group_by(station) %>% 
+#  nest()
+
+#(sta_mon_nest <- sta_mon_nest %>% 
+#   mutate(fit = map(data, le_vs_yr)))
+
+# this was recopied above
+spi_2mon_list <- sta_mon %>% 
+  select(-(date:month)) %>%
+  spi(distribution = 'PearsonIII', scale = 2, na.rm = TRUE) 
+
+spi_2mon <- as.data.frame(spi_2mon_list["fitted"]) # this works.  
+test <- bind_cols(sta_mon, spi_2mon)
+
+
+# Look at the list 
+# jsonedit(spi_2mon, mode = "view", elementId = "call")
+
+# extract the fitted data
+spi_2mon <- as.data.frame(spi_2mon_list["fitted"]) # this works.  
+# But, not sure how to do do the same in a Tidyverse way.  Moving fwd.
+
+# clean up the dataframe
+# grab cols from sta_mon
+dates <- sta_mon %>%
+  select(1:3)
+
+# note - I would really prefer to use a map function of some sort
+spi_2mon <- spi_2mon %>%
+  rename(oel = fitted.oel) %>% 
+  rename(cot = fitted.cot) %>% 
+  rename(rap = fitted.rap) %>%
+  rename(int = fitted.int) %>% 
+  rename(ora = fitted.ora)
+
+spi_2mon <- bind_cols(dates, spi_2mon)
+rm(spi_2mon_list, dates)
+
+spi_2mon_grp <- spi_2mon %>%
+  gather(key = "station", value = "value", -date, -year, -month) %>%
+  drop_na(value)
+
+ggplot(spi_2mon_grp, aes(date, value)) + 
+  geom_line() +
+  facet_grid(station~.) +
+  theme_classic() + 
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "Two-month duration; Pine Ridge Reservation, SD") +
+       xlab("") +
+       ylab("SPI-value")
+```
+
+```{r ggplot_2month_SPI}
+ggplot(spi_2mon_grp, aes(date, value)) +
+  geom_line() +
+  facet_grid(station~.) +
+  theme_classic() + 
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "One-month duration; Pine Ridge Reservation, SD") +
+       xlab("") +
+       ylab("SPI-value")
+```
+
+
+```{r boxplots_1month}
+ggplot(spi_1mon_grp, aes(month, value, group = month)) +
+  geom_boxplot() +
+  facet_wrap(~station) +
+  theme_classic() + 
+  labs(title = "Monthly precipitation depths",
+       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
+       xlab("Date") +
+       ylab("Depth, mm")
+```
+
+
+
+
+
 ```{r SPI-example}
 # Load data 
 data(wichita) 
@@ -993,13 +1118,7 @@ spei(wichita[,'BAL'], 1, params=coe)
 ```
 
 
-## Overview
-<!--This is the chapter 2 hydrologic drought.  
-Next Steps:
-1. Methods.
-2. Find the ramblings I wrote about scope and purpose
-3. figure out how to reference stuff 
--->
+
 
 ## Introduction
 
