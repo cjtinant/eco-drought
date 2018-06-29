@@ -10,6 +10,9 @@ Big Picture Steps
 2.6   Delineate watersheds
 2.7   Cluster ungaged stations
 2.7.1 learn 'rf' function
+2.8   Disseminate results
+2.8.1 Identify journal
+
 
 ## Broad questions:
 What is the drought history of the Pine Ridge Reservation?  
@@ -193,12 +196,14 @@ library("rio")
 library("SPEI")
 
 sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
-sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
-
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  arrange(date)
+  
 # prepare to rejoin date
 Date <- sta_mon %>% 
   select(date) %>%
-  mutate(date = ymd(date)) 
+  mutate(date = ymd(date)) %>%
+  arrange(date)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Use a single station - cot
@@ -216,7 +221,7 @@ spi1_cot_ts <- as.tibble(spi_list$fitted)
 spi1_cot_ts <- bind_cols(Date, spi1_cot_ts) 
 
 # Results
-# as.tibble(summary(spi1_cot))
+as.tibble(summary(spi1_cot_ts))
 #   Var1  Var2        n                     
 #   <chr> <chr>       <fct>                 
 # 1 ""    "     date" "Min.   :1909-06-01  "
@@ -236,17 +241,35 @@ spi1_cot_ts <- bind_cols(Date, spi1_cot_ts)
 ```{r testing-lubridate, include=FALSE, eval=FALSE}
 # Use lubridate-created object for date
 # results are as above
+
+library("tidyverse") 
+library("lubridate")
+library("rio") 
+library("SPEI")
+
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  arrange(date)
+
+# prepare to rejoin date
+Date <- sta_mon %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+# prepare data 
 sta_cot_lub <- sta_mon %>% 
   select(cot) 
 
 spi_list  <- spi(sta_cot_lub, 1, 
                  distribution = 'PearsonIII', na.rm = TRUE) 
-
+ 
 spi1_coeff_cot_lub <- as.tibble(spi_list$coefficients) %>% 
   t() %>% as.tibble() 
 
 spi1_cot_lub <- as.tibble(spi_list$fitted) 
 spi1_cot_lub <- bind_cols(Date, spi1_cot_lub) 
+rm(sta_cot_lub)
 
 # Results
 as.tibble(summary(spi1_cot_lub))
@@ -264,18 +287,33 @@ as.tibble(summary(spi1_cot_lub))
 # 9 ""    "     cot"  "Median : 0.02341  "  
 #10 ""    "     cot"  "Mean   : 0.01383  "  
 #11 ""    "     cot"  "3rd Qu.: 0.68317  "  
-#12 ""    "     cot"  "Max.   : 3.30822  "  
+#12 ""    "     cot"  "Max.   : 3.30822  "   
 ```
 
 ```{r testing-batch, include=FALSE, eval=FALSE}
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Use lubridate-created object for date 
+# Use lubridate-created object for date for a batch process
 # results are as above for 'cot' but have -Inf for 'rap' 
-sta_all <- sta_mon %>% 
-  select(-c(date, year, month)) 
 
-spi_list  <- spi(sta_all, 1, 
+library("tidyverse") 
+library("lubridate")
+library("rio") 
+library("SPEI")
+
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  arrange(date)
+
+# prepare to rejoin date
+Date <- sta_mon %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+# prepare data 
+sta_all <- sta_mon %>% 
+  select(-c(date, year, month))  
+ 
+spi_list  <- spi(sta_all, 1,  
                  distribution = 'PearsonIII', na.rm = TRUE) 
 
 spi1_coeff_all <- as.tibble(spi_list$coefficients) %>% 
@@ -297,10 +335,30 @@ summary(spi1_all$rap)
 #   -Inf -0.6472  0.0022    -Inf  0.6657  2.9000     467 
 ```
 
-```{r testing-rap, include=FALSE, eval=FALSE}
+```{r testing-rap, include=FALSE, eval=FALSE} 
 # Use only 'rap' with NA vals 
 # Summary: It looks like the "bug" is in handling the na.rm?
 # Work around: Split, apply combine.
+
+# Use lubridate-created object for date for a batch process
+# results are as above for 'cot' but have -Inf for 'rap' 
+
+library("tidyverse") 
+library("lubridate")
+library("rio") 
+library("SPEI")
+
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  arrange(date)
+
+# prepare to rejoin date
+Date <- sta_mon %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+# prepare data 
 sta_rap <- sta_mon %>% 
   select(rap) 
 
@@ -308,7 +366,7 @@ spi_list  <- spi(sta_rap, 1,
                  distribution = 'PearsonIII', na.rm = TRUE) 
 
 spi1_coeff_rap <- as.tibble(spi_list$coefficients) %>% 
-  t() %>% as.tibble() 
+  t() %>% as.tibble()  
 
 spi1_rap <- as.tibble(spi_list$fitted) 
 spi1_rap <- bind_cols(Date, spi1_rap) 
@@ -319,7 +377,7 @@ as.tibble(summary(spi1_rap))
 #   Var1  Var2        n                     
 #   <chr> <chr>       <fct>                 
 # 1 ""    "     date" "Min.   :1909-06-01  "
-# 2 ""    "     date" "1st Qu.:1936-08-24  "
+# 2 ""    "     date" "1st Qu.:1936-08-24  " 
 # 3 ""    "     date" "Median :1963-11-16  "
 # 4 ""    "     date" "Mean   :1963-11-16  "
 # 5 ""    "     date" "3rd Qu.:1991-02-08  "
@@ -334,130 +392,37 @@ as.tibble(summary(spi1_rap))
 #14 ""    "     rap"  "NA's   :467  "       
 ```
 
+```{r testing-purrr}
+# Want to run the SPI after removing NA vals
+# data is from import-data code chunk above
 
+# Split into pieces
+by_sta <- sta_grp %>% 
+  select(station, depth) %>% 
+    split(.$station) %>%
+  transpose() 
 
+by_sta <- by_sta$depth
 
-
-# Selected Results
-summary(spi1_all$rap)
-#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
-#   -Inf -0.6472  0.0022    -Inf  0.6657  2.9000     467 
-
-summary(spi1_all$date)
-# Min.      1st Qu.       Median     Mean      3rd Qu.       Max.
-# "1909-06-01" "36-08-24" "63-11-16" "63-11-16" "91-02-08" "2018-05-01" 
-summary(spi1_all$rap)
-#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
-#   -Inf -0.6472  0.0022    -Inf  0.6657  2.9000     467 
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Use lubridate-created object for date 
-# results are as above for 'cot' but have -Inf for 'rap' 
-sta_all <- sta_mon %>% 
-  select(-c(date, year, month)) 
-
-spi_list  <- spi(sta_all, 1, 
-                 distribution = 'PearsonIII', na.rm = TRUE) 
-
-spi1_coeff_all <- as.tibble(spi_list$coefficients) %>% 
-  t() %>% as.tibble() 
-
-spi1_all <- as.tibble(spi_list$fitted) 
-spi1_all <- bind_cols(Date, spi1_all) 
-
-# Selected Results
-summary(spi1_all$cot)
-#     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-# -2.40240 -0.69324  0.02341  0.01383  0.68317  3.30822 
-
-summary(spi1_all$date)
-# Min.         1st Qu.       Median     Mean      3rd Qu.    Max.
-#"1909-06-01" "36-08-24" "63-11-16" "63-11-16" "91-02-08" "2018-05-01" 
-summary(spi1_all$rap)
-#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
-#   -Inf -0.6472  0.0022    -Inf  0.6657  2.9000     467 
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Use only 'rap'
-# results 
-sta_rap <- sta_mon %>% 
-  select(rap)
-
-spi_list  <- spi(sta_rap, 1, 
-                 distribution = 'PearsonIII', na.rm = TRUE) 
-
-spi1_coeff_rap <- as.tibble(spi_list$coefficients) %>% 
-  t() %>% as.tibble() 
-
-spi1_rap <- as.tibble(spi_list$fitted) 
-spi1_rap <- bind_cols(Date, spi1_rap) 
-
-# Selected Results
-summary(spi1_all$cot)
-#     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-# -2.40240 -0.69324  0.02341  0.01383  0.68317  3.30822 
-
-summary(spi1_all$date)
-# Min.      1st Qu.       Median     Mean      3rd Qu.       Max.
-# "1909-06-01" "36-08-24" "63-11-16" "63-11-16" "91-02-08" "2018-05-01" 
-summary(spi1_all$rap)
-#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
-#   -Inf -0.6472  0.0022    -Inf  0.6657  2.9000     467 
-
-
-
-
-
-
-
-
-
-
-# Change to time series for input
-# This creates -Inf values in data for 'rap', 'int', 'ora' 
-sta_ts <- sta_mon %>% 
-  select(-c(year, month, date)) %>%
-  ts(end = c(2018, 05), frequency = 12)
-
-spi_list  <- spi(sta_ts, 1, 
-                 distribution = 'PearsonIII', na.rm = TRUE) 
-
-spi1_coeff <- as.tibble(spi_list$coefficients) %>% 
-  t() %>% as.tibble() 
-
-spi1_ts <- as.tibble(spi_list$fitted) 
-spi1_ts <- bind_cols(Date, spi1_ts) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Use only stations with long record
-# This creates same -Inf values in data for 'rap', 'int', 'ora'  
-sta_ts_long <- sta_mon %>% 
-  select(cot, oel) 
-
-spi_list  <- spi(sta_ts_long, 1, 
-                 distribution = 'PearsonIII', na.rm = TRUE) 
-
-spi1_coeff <- as.tibble(spi_list$coefficients) %>% 
-  t() %>% as.tibble() 
-
-spi1 <- as.tibble(spi_list$fitted) 
-spi_1 <- bind_cols(Date, spi_1) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# visual check of output for cottonwood SPI
-ggplot(spi_test, aes(date, cot)) + 
-  geom_line() +
-  theme_classic() + 
-  labs(title = "Standardized Precipitation Index (SPI)",
-       subtitle = "Cottonwood, SD") +
-       xlab("") + 
-       ylab("SPI-value") +
-  NULL 
 
 
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
