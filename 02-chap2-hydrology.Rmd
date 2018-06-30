@@ -48,27 +48,12 @@ _zero        precip values equal to zero
 _log         log10 of monthly precipitation depths
 _count       number of months in a given record
 
-lmom_sta     L-moments for stations
-lmom_reg     Weighted mean of L-moments for stations
-
 min          minimum non-zero value
-L1           first L-moment, similiar to mean
-L_CV         first L-moment ratio, similiar to coefficient of var
-L_skew       second L-moment ratio, similiar to skewness 
-L_kurtosis   third L-moment ratio, similiar to kurtosis
 n            number of months in a given record
+
 int#         intermediate variable used to bind rows; # = 1, 2, ...
 intc#        intermediate variable used to bind cols; # = 1, 2, ...
 intr#        intermediate variable used to bind rows; # = 1, 2, ...
-
-# Used in the L-moment diagram
-aep4         4-Parameter Asymmetric Exponential Power Distribution 
-gev          Generalized Extreme Value Distribution
-glo          Generalized Logistic Distribution
-gpa          Generalized Pareto Distribution
-gno          Generalized Logistic Distribution 
-gov          Govindarajulu Distribution
-pe3          Pearson Type III Distribution
 
 # SPI Outputs
 spi          Standardized Precipitation Index vals for a station 
@@ -92,24 +77,27 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r library, include=FALSE, message=FALSE} 
 # Sets up the library of packages 
-library("lmomco") # lmoments to find distribution 
-library("tidyverse")
 library("magrittr") # contains easier ways to say things about lists
 library("here") # identifies where to save work 
 library("rio") # more robust I/O - to import and clean data
 library("lubridate") # fixes dates 
+library("tidyverse") 
+
 library("SPEI") # Calculates SPI-index
-library("jsonlite") # Convert between JSON data and R objects
-library("curl") # Drop-in replacement for base url
-library("listviewer") # htmlwidget for interactive views of R lists
-library("janitor") # tools to clean dirty data 
+
+#library("lintr")
+#library("test_that")
+#library("jsonlite") # Convert between JSON data and R objects
+#library("curl") # Drop-in replacement for base url
+#library("listviewer") # htmlwidget for interactive views of R lists
+# library("broom")
+#library("janitor") # tools to clean dirty data 
 
 #lmomco <- citation("lmomco")
 #toBibtex(lmomco)
 
 # Session Info
 a_session <- devtools::session_info()
-
 ```
 
 ```{r import-data} 
@@ -392,76 +380,7 @@ as.tibble(summary(spi1_rap))
 #14 ""    "     rap"  "NA's   :467  "       
 ```
 
-```{r testing-purrr}
-# Want to run the SPI after removing NA vals
-# data is from import-data code chunk above
-
-# Split into pieces
-by_sta <- sta_grp %>% 
-  select(station, depth) %>% 
-    split(.$station) %>%
-  transpose() 
-
-by_sta <- by_sta$depth
-
-
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-```{r SPI-1month}
-
-test <- as.tibble(import("data/stations_monthly.csv")) %>% 
-  select(date, cot)
-
-Date <- test %>% 
-  select(date) %>%
-  mutate(date = ymd(date)) 
-
-test <- test %>%
-  ts(end = c(2018, 05), frequency = 12)
-
-spi_list  <- spi(test[,'cot'], 1, 
-                 distribution = 'PearsonIII', na.rm = TRUE) 
-
-test_coeff <- as.tibble(spi_list$coefficients) %>% 
-  t() %>% as.tibble() 
-
-spi_test <- as.tibble(spi_list$fitted) %>%
-  rename(cot = "Series 1")
-spi_test <- bind_cols(Date, spi_test) 
-
-# visual check of output for cottonwood SPI
-ggplot(spi_test, aes(date, cot)) + 
-  geom_line() +
-  theme_classic() + 
-  labs(title = "Standardized Precipitation Index (SPI)",
-       subtitle = "Cottonwood, SD") +
-       xlab("") + 
-       ylab("SPI-value") +
-  NULL 
-
-
-```
-
-```{r spi-algorithm-coeff-cot} 
+```{r spi-cot} 
 # This code chunk calculates SPI coefficients for 
 # 1, 2, 3, 4, 5, 6, 9, 12, 24 months for Cottonwood, SD. 
 # Code is mostly following the SPI vignette. 
@@ -469,8 +388,7 @@ ggplot(spi_test, aes(date, cot)) +
 # Add Cottonwoods dataset and change to time series 
 sta_cot <- sta_mon %>% 
   select(date, cot) %>% 
-  arrange(date) %>% 
-  ts(end = c(2018, 05), frequency = 12)
+  arrange(date) 
 
 # Calculate Cottonwood SPI 
 # THIS CODE COULD BE DONE MUCH BETTER! 
@@ -599,19 +517,15 @@ rm(int7, spi_18cot_coeff)
 spi_coeff_cot <- bind_cols(int8, spi_24cot_coeff) 
 rm(int8, spi_24cot_coeff, sta_cot) 
 
+spi_coeff_cot <- rownames_to_column(spi_coeff_cot, "month")
+
 # export(spi_coeff_cot, "data/spi_coeff_cot.csv") 
 # rm(spi_coeff_cot)
-```
 
-```{r spi-algorithm-fit-cot}
-# This code chunk calculates SPI fitted values for 
-# 1, 2, 3, 4, 5, 6, 9, 12, 24 months for Cottonwood, SD.
-# Code follows the SPI vignette for using time series.
-# Data follows from above 
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # save SPI values
 spi_1cot <- as.tibble(spi_1cot$fitted) %>% 
-  mutate(duration = 1)
+  mutate(duration = 1) 
 
 spi_2cot <- as.tibble(spi_2cot$fitted) %>% 
   mutate(duration = 2)
@@ -661,93 +575,91 @@ spi_24cot <-  bind_cols(date, spi_24cot)
 # 1- & 2-month
 intr1 <- bind_rows(spi_1cot, spi_2cot) 
 
-intc1 <- bind_cols(spi_1cot, spi_2cot) 
-intc1 <- intc1 %>%
-  select(-c(date1, duration, duration1)) %>%
-  rename(cot_1 = "Series 1") %>%
-  rename(cot_2 = "Series 11")
+#intc1 <- bind_cols(spi_1cot, spi_2cot) 
+#intc1 <- intc1 %>%
+#  select(-c(date1, duration, duration1)) %>%
+#  rename(cot_1 = "Series 1") %>%
+#  rename(cot_2 = "Series 11")
 rm(spi_1cot, spi_2cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 3-month
 intr2 <- bind_rows(intr1, spi_3cot) 
 
-intc2 <- bind_cols(intc1, spi_3cot) 
-intc2 <- intc2 %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_3 = "Series 1") 
+#intc2 <- bind_cols(intc1, spi_3cot) 
+#intc2 <- intc2 %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_3 = "Series 1") 
 rm(intr1, intc1, spi_3cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 4-month
 intr3 <- bind_rows(intr2, spi_4cot) 
 
-intc3 <- bind_cols(intc2, spi_4cot) 
-intc3 <- intc3 %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_4 = "Series 1") 
+#intc3 <- bind_cols(intc2, spi_4cot) 
+#intc3 <- intc3 %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_4 = "Series 1") 
 rm(intr2, intc2, spi_4cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 5-month
 intr4 <- bind_rows(intr3, spi_5cot) 
 
-intc4 <- bind_cols(intc3, spi_5cot) 
-intc4 <- intc4 %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_5 = "Series 1") 
+#intc4 <- bind_cols(intc3, spi_5cot) 
+#intc4 <- intc4 %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_5 = "Series 1") 
 rm(intr3, intc3, spi_5cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 6-month
 intr5 <- bind_rows(intr4, spi_6cot) 
 
-intc5 <- bind_cols(intc4, spi_6cot) 
-intc5 <- intc5 %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_6 = "Series 1") 
+#intc5 <- bind_cols(intc4, spi_6cot) 
+#intc5 <- intc5 %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_6 = "Series 1") 
 rm(intr4, intc4, spi_6cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 9-month
 intr6 <- bind_rows(intr5, spi_9cot) 
 
-intc6 <- bind_cols(intc5, spi_9cot) 
-intc6 <- intc6 %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_9 = "Series 1") 
+#intc6 <- bind_cols(intc5, spi_9cot) 
+#intc6 <- intc6 %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_9 = "Series 1") 
 rm(intr5, intc5, spi_9cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 12-month
 intr7 <- bind_rows(intr6, spi_12cot) 
 
-intc7 <- bind_cols(intc6, spi_12cot) 
-intc7 <- intc7 %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_12 = "Series 1") 
+#intc7 <- bind_cols(intc6, spi_12cot) 
+#intc7 <- intc7 %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_12 = "Series 1") 
 rm(intr6, intc6, spi_12cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 18-month
 intr8 <- bind_rows(intr7, spi_18cot) 
 
-intc8 <- bind_cols(intc7, spi_18cot) 
-intc8 <- intc8 %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_18 = "Series 1") 
+#intc8 <- bind_cols(intc7, spi_18cot) 
+#intc8 <- intc8 %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_18 = "Series 1") 
 rm(intr7, intc7, spi_18cot) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 24-month
-spi_cot_gath <- bind_rows(intr8, spi_24cot) 
-spi_cot_gath <- spi_cot_gath %>%
-  rename(spi_cot = "Series 1")
+spi_cot <- bind_rows(intr8, spi_24cot) 
 
-spi_cot <- bind_cols(intc8, spi_24cot) 
-spi_cot <- spi_cot %>%
-  select(-c(date1, duration)) %>%
-  rename(cot_24 = "Series 1") 
+#spi_cot <- bind_cols(intc8, spi_24cot) 
+#spi_cot <- spi_cot %>%
+#  select(-c(date1, duration)) %>%
+#  rename(cot_24 = "Series 1") 
 
 # clean up
 rm(intr8, intc8, spi_24cot)  
@@ -1044,6 +956,101 @@ rm(intr8, intc8, spi_24oel, sta_oel)
 # Next steps:
 # distribution = 'PersonIII',
 ```
+
+
+
+
+
+
+
+
+
+
+```{r working-on} 
+# This code chunk applies the SPI function across list of stations
+# There seems to be an error with zeros and NA vals in 'SPEI'
+# The sta_grp data from import-data code chunk above has NA removed
+
+# Change the data into a simple list 
+by_sta <- sta_grp %>% 
+  select(station, depth, date) %>% 
+    split(.$station) %>%
+  transpose() # invert the list
+by_sta <- by_sta$depth # drop the unneeded character elements
+
+# Apply SPI to the list
+spi_list  <- by_sta %>% 
+  purrr::map(~spi(data = ., 1,  
+                 distribution = 'PearsonIII', na.rm = TRUE)) %>%
+  transpose()
+spi_fit <- as.array(spi_list$fitted, make.names = TRUE)
+
+test <- as.tibble(unlist(spi_fit))
+
+cot <- as.tibble(spi_fit$cot)
+
+
+
+```
+
+
+
+
+
+# Next Steps - work with dates to join the lists???
+by_sta_date <- sta_grp %>% 
+  select(station, date) %>% 
+    split(.$station) %>%
+  transpose() # invert the list
+multi_join <- function(list_of_loaded_data, join_func, ...){
+    require("dplyr")
+    output <- Reduce(function(x, y) {join_func(x, y, ...)}, list_of_loaded_data)
+    return(output)
+}
+merged_data <- multi_join(spi_list, full_join)
+
+by_sta_date <- by_sta_date$date # drop the unneeded character elements
+
+
+
+
+```{r SPI-1month}
+
+test <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  select(date, cot)
+
+Date <- test %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) 
+
+test <- test %>%
+  ts(end = c(2018, 05), frequency = 12)
+
+spi_list  <- spi(test[,'cot'], 1, 
+                 distribution = 'PearsonIII', na.rm = TRUE) 
+
+test_coeff <- as.tibble(spi_list$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_test <- as.tibble(spi_list$fitted) %>%
+  rename(cot = "Series 1")
+spi_test <- bind_cols(Date, spi_test) 
+
+# visual check of output for cottonwood SPI
+ggplot(spi_test, aes(date, cot)) + 
+  geom_line() +
+  theme_classic() + 
+  labs(title = "Standardized Precipitation Index (SPI)",
+       subtitle = "Cottonwood, SD") +
+       xlab("") + 
+       ylab("SPI-value") +
+  NULL 
+
+
+```
+
+
+
 
 ```{r spi-algorithm-coeff-rap} 
 # This code chunk calculates SPI coefficients for 
@@ -2016,7 +2023,149 @@ ggplot(spi_ora_gath, aes(date, spi_ora)) +
        ylab("SPI-value") 
 # Next steps : how to remove NA from all of the facets  
 ```
+```{r spi-algorithm-coeff-cot-DEPR} 
+# This code chunk calculates SPI coefficients for 
+# 1, 2, 3, 4, 5, 6, 9, 12, 24 months for Cottonwood, SD. 
+# Code is mostly following the SPI vignette. 
 
+# Add Cottonwoods dataset and change to time series 
+sta_cot <- sta_mon %>% 
+  select(date, cot) %>% 
+  arrange(date) 
+
+
+
+
+# Calculate Cottonwood SPI 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi_1cot  <- spi(sta_cot[,'cot'], 1, distribution = 'PearsonIII') 
+spi_2cot  <- spi(sta_cot[,'cot'], 2, distribution = 'PearsonIII') 
+spi_3cot  <- spi(sta_cot[,'cot'], 3, distribution = 'PearsonIII') 
+spi_4cot  <- spi(sta_cot[,'cot'], 4, distribution = 'PearsonIII') 
+spi_5cot  <- spi(sta_cot[,'cot'], 5, distribution = 'PearsonIII') 
+spi_6cot  <- spi(sta_cot[,'cot'], 6, distribution = 'PearsonIII') 
+spi_9cot  <- spi(sta_cot[,'cot'], 9, distribution = 'PearsonIII') 
+spi_12cot <- spi(sta_cot[,'cot'], 12, distribution = 'PearsonIII')  
+spi_18cot <- spi(sta_cot[,'cot'], 18, distribution = 'PearsonIII') 
+spi_24cot <- spi(sta_cot[,'cot'], 24, distribution = 'PearsonIII') 
+
+# save coefficients 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi_1cot_coeff <- as.tibble(spi_1cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_2cot_coeff <- as.tibble(spi_2cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_3cot_coeff <- as.tibble(spi_3cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_4cot_coeff <- as.tibble(spi_4cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_5cot_coeff <- as.tibble(spi_5cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_6cot_coeff <- as.tibble(spi_6cot$coefficients) %>% 
+  t() %>%
+  as.tibble() 
+
+spi_9cot_coeff <- as.tibble(spi_9cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_12cot_coeff <- as.tibble(spi_12cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_18cot_coeff <- as.tibble(spi_18cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi_24cot_coeff <- as.tibble(spi_24cot$coefficients) %>% 
+  t() %>% as.tibble() 
+
+# Rename coefficients 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi_1cot_coeff <- spi_1cot_coeff %>% 
+  rename(mu_1 = mu) %>%
+   rename(sigma_1 = sigma) %>% 
+   rename(gamma_1 = gamma)
+  
+spi_2cot_coeff <- spi_2cot_coeff %>% 
+  rename(mu_2 = mu) %>%
+   rename(sigma_2 = sigma) %>% 
+   rename(gamma_2 = gamma) 
+
+spi_3cot_coeff <- spi_3cot_coeff %>% 
+  rename(mu_3 = mu) %>%
+   rename(sigma_3 = sigma) %>% 
+   rename(gamma_3 = gamma) 
+
+spi_4cot_coeff <- spi_4cot_coeff %>% 
+  rename(mu_4 = mu) %>%
+   rename(sigma_4 = sigma) %>% 
+   rename(gamma_4 = gamma) 
+
+spi_5cot_coeff <- spi_5cot_coeff %>% 
+  rename(mu_5 = mu) %>%
+   rename(sigma_5 = sigma) %>% 
+   rename(gamma_5 = gamma) 
+
+spi_6cot_coeff <- spi_6cot_coeff %>% 
+  rename(mu_6 = mu) %>%
+   rename(sigma_6 = sigma) %>% 
+   rename(gamma_6 = gamma) 
+
+spi_9cot_coeff <- spi_9cot_coeff %>% 
+  rename(mu_9 = mu) %>%
+   rename(sigma_9 = sigma) %>% 
+   rename(gamma_9 = gamma) 
+
+spi_12cot_coeff <- spi_12cot_coeff %>% 
+  rename(mu_12 = mu) %>%
+   rename(sigma_12 = sigma)  %>% 
+   rename(gamma_12 = gamma) 
+
+spi_18cot_coeff <- spi_18cot_coeff %>% 
+  rename(mu_18 = mu) %>%
+   rename(sigma_18 = sigma) %>% 
+   rename(gamma_18 = gamma) 
+
+spi_24cot_coeff <- spi_24cot_coeff %>% 
+  rename(mu_24 = mu) %>%
+   rename(sigma_24 = sigma) %>% 
+   rename(gamma_24 = gamma) 
+
+# Join the values 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+int1 <- bind_cols(spi_1cot_coeff, spi_2cot_coeff) 
+rm(spi_1cot_coeff, spi_2cot_coeff) 
+
+int2 <- bind_cols(int1, spi_3cot_coeff) 
+rm(int1, spi_3cot_coeff) 
+
+int3 <- bind_cols(int2, spi_4cot_coeff) 
+rm(int2, spi_4cot_coeff) 
+
+int4 <- bind_cols(int3, spi_5cot_coeff) 
+rm(int3, spi_5cot_coeff) 
+
+int5 <- bind_cols(int4, spi_6cot_coeff) 
+rm(int4, spi_6cot_coeff) 
+
+int6 <- bind_cols(int5, spi_9cot_coeff) 
+rm(int5, spi_9cot_coeff) 
+
+int7 <- bind_cols(int6, spi_12cot_coeff) 
+rm(int6, spi_12cot_coeff) 
+
+int8 <- bind_cols(int7, spi_18cot_coeff) 
+rm(int7, spi_18cot_coeff) 
+
+spi_coeff_cot <- bind_cols(int8, spi_24cot_coeff) 
+rm(int8, spi_24cot_coeff, sta_cot) 
+
+# export(spi_coeff_cot, "data/spi_coeff_cot.csv") 
+# rm(spi_coeff_cot)
+```
 
 ```{r combine-spi-coeff}   
 # prepare for combining
