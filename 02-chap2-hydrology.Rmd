@@ -118,6 +118,23 @@ sta_grp <- sta_mon %>%
 #  mutate(sqrt_depth = sqrt(depth)) 
 ```
 
+```{r check data}
+sta_rap <- sta_mon %>% 
+  select(date, rap) %>%
+  arrange(date) %>%
+  filter(rap != is.na(rap))
+
+sta_rap2 <- sta_mon %>%
+  select(date, rap) %>%
+  arrange(date) %>%
+  slice(468:1308)
+
+rap_na <- sta_rap2 %>%
+  filter(rap == is.na(rap))
+# Zero values are flagged as NA????
+```
+
+
 ```{r precip-boxplot, include=FALSE, eval=FALSE} 
 
 sta_sum <- as.tibble(summary(sta_mon))
@@ -160,7 +177,7 @@ library("tidyverse")
 library("lubridate") 
 library("rio") 
 library("SPEI")
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # load data
 sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
 sta_mon     <- as.tibble(import("data/stations_monthly.csv")) %>% 
@@ -171,7 +188,6 @@ Date <- sta_mon %>%
   select(date) %>%
   mutate(date = ymd(date)) %>%
   arrange(date)
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Use a single station - cot
 sta_cot_ts <- sta_mon %>% 
@@ -235,7 +251,6 @@ as.tibble(summary(spi1_cot_lub))
 #10 ""    "     cot"  "Mean   : 0.01383  "  
 #11 ""    "     cot"  "3rd Qu.: 0.68317  "  
 #12 ""    "     cot"  "Max.   : 3.30822  "   
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Use lubridate-created object for date for a batch process
 # results are as above for 'cot' but have -Inf for 'rap' 
@@ -264,12 +279,10 @@ summary(spi1_all$date)
 summary(spi1_all$rap)
 #  Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
 #   -Inf -0.6472  0.0022    -Inf  0.6657  2.9000     467 
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Use only 'rap' with NA vals 
+# Use only 'rap' including NA vals 
 # Summary: It looks like the "bug" is in handling the na.rm?
-# Work around: Split, apply combine.
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare data for 'rap' only
 sta_rap <- sta_mon %>% 
   select(rap) 
@@ -301,7 +314,162 @@ as.tibble(summary(spi1_rap))
 #11 ""    "     rap"  "Mean   :   -Inf  "   
 #12 ""    "     rap"  "3rd Qu.: 0.6657  "   
 #13 ""    "     rap"  "Max.   : 2.9000  "   
-#14 ""    "     rap"  "NA's   :467  "       
+#14 ""    "     rap"  "NA's   :467  "  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Use only 'rap' without NA vals 
+# Summary: I'm confused about the bug!
+
+# prepare data for 'rap' without NA only
+sta_rap <- sta_mon %>% 
+  select(rap, date) %>%
+  filter(rap != is.na(rap))
+
+# update date for joining later
+Date_rap <- sta_rap %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+# drop date
+sta_rap <- sta_rap %>% select(-date)
+
+spi_list  <- spi(sta_rap, 1, 
+                 distribution = 'PearsonIII', na.rm = TRUE) 
+
+spi1_coeff_rap <- as.tibble(spi_list$coefficients) %>% 
+  t() %>% as.tibble()  
+
+spi1_rap <- as.tibble(spi_list$fitted) 
+spi1_rap <- bind_cols(Date_rap, spi1_rap) 
+
+spi1_rap <- spi1_rap %>%
+  rename(spi1 = rap) %>%
+  arrange(spi1)
+
+spi1_rap <- bind_cols(sta_rap, spi1_rap) 
+spi_rap_test <- spi1_rap
+```
+
+```{r testing2}
+# this is a new test to check on why differences between two ways of 
+# calculating code
+
+sta_rap3 <- sta_mon %>%
+  arrange(date) %>%
+  slice(468:1308) %>%
+  select(date, rap)
+
+spi_list  <- spi(sta_rap3[, 'rap'], 1, 
+                 distribution = 'PearsonIII') 
+
+spi1_rap3 <- as.tibble(spi_list$fitted) 
+
+spi1_rap3 <- bind_cols(spi1_rap3, sta_rap3)
+
+ggplot(spi1_rap3, aes(rap, rap1)) +
+  geom_point()
+
+
+# prepare data for 'rap' without NA only
+sta_rap1 <- sta_mon %>% 
+  select(rap, date) %>%
+  filter(rap != is.na(rap)) %>%
+  arrange(date) # This might be the issue!
+
+# update date for joining later
+Date_rap1 <- sta_rap1 %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+# drop date
+#sta_rap1 <- sta_rap1 %>% select(-date)
+
+# calculate SPI
+spi_list  <- spi(sta_rap1[, 'rap'], 1, 
+                 distribution = 'PearsonIII') 
+
+#spi1_coeff_rap <- as.tibble(spi_list$coefficients) %>% 
+#  t() %>% as.tibble()  
+
+spi1_rap1 <- as.tibble(spi_list$fitted) 
+spi1_rap1 <- bind_cols(Date_rap1, spi1_rap1) 
+
+spi1_rap1 <- spi1_rap1 %>%
+  rename(spi1 = rap) %>%
+  arrange(spi1)
+
+spi1_rap1 <- bind_cols(sta_rap1, spi1_rap1) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Second approach 
+sta_trans <- sta_mon %>% 
+  select(date, year, month, rap) %>% 
+  arrange(date) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# Pull apart the NA and non-NA vals
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#   1. Split the raw data into two parts at 1948-05-01
+  sta_ge49      <- sta_trans %>% filter(year >= 1949) # yr above
+  sta_48m05     <- sta_trans %>% filter(year == 1948 & month >= 5)
+sta_rap2         <- bind_rows(sta_ge49, sta_48m05) # this is active
+  rm(sta_ge49, sta_48m05)
+# remove year and month
+sta_rap2 <- sta_rap2 %>%
+  select(date, rap)
+#  2. Save NA observations  
+  sta_lt48      <- sta_trans %>% filter(year < 1948)
+  sta_48m01_m05 <- sta_trans %>% filter(year == 1948 & month < 5)
+sta_NA          <- bind_rows(sta_lt48, sta_48m01_m05) # this is not
+  rm(sta_lt48, sta_48m01_m05, sta_trans)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# Calculate Rapid City SPI 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi1_rap2  <- spi(sta_rap2[,'rap'],  1, distribution = 'PearsonIII') 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# save & rename coefficients 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+#spi_1rap_coeff <- as.tibble(spi_1rap$coefficients) %>% 
+ # t() %>% as.tibble() 
+
+#spi_1rap_coeff <- rownames_to_column(spi_1rap_coeff, "month")
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# save SPI values as a Tibble
+spi1_rap2 <- as.tibble(spi1_rap2$fitted) %>% 
+  mutate(duration = 1)
+
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+
+# Why does sta_rap1 have 839 $ sta_rap2 have 841???
+
+
+
+
+summary(sta_rap1$date)
+#  Min.      1st Qu.       Median         Mean      3rd Qu. 
+#"1948-05-01" "1965-11-16" "1983-05-01" "1983-05-03" "2000-10-16" 
+#        Max. 
+#"2018-05-01" 
+summary(sta_rap2$date)
+#        Min.      1st Qu.       Median         Mean      3rd Qu. 
+#"1948-05-01" "1965-11-01" "1983-05-01" "1983-05-02" "2000-11-01" 
+#        Max. 
+#"2018-05-01" 
+sta_rap1_a <- sta_rap1 %>% 
+  arrange(date) %>%
+  slice(131:150)
+sta_rap2_a <- sta_rap2 %>%
+  arrange(date) %>%
+  slice(131:150)
+
+test_a <- full_join(sta_rap1_a, sta_rap2_a, by = "date")
+test_a <- test_a %>%
+  mutate(dif = rap.y - rap.x)
+
 ```
 
 ```{r spi-cot} 
@@ -497,28 +665,28 @@ intr1 <- bind_rows(spi_1cot, spi_2cot)
 rm(spi_1cot, spi_2cot) 
 
 intr2 <- bind_rows(intr1, spi_3cot) 
-rm(intr1, intc1, spi_3cot) 
+rm(intr1, spi_3cot) 
 
 intr3 <- bind_rows(intr2, spi_4cot) 
-rm(intr2, intc2, spi_4cot) 
+rm(intr2, spi_4cot) 
 
 intr4 <- bind_rows(intr3, spi_5cot) 
 rm(intr3, intc3, spi_5cot) 
 
 intr5 <- bind_rows(intr4, spi_6cot) 
-rm(intr4, intc4, spi_6cot) 
+rm(intr4, spi_6cot) 
 
 intr6 <- bind_rows(intr5, spi_9cot) 
-rm(intr5, intc5, spi_9cot) 
+rm(intr5, spi_9cot) 
 
 intr7 <- bind_rows(intr6, spi_12cot) 
-rm(intr6, intc6, spi_12cot) 
+rm(intr6, spi_12cot) 
 
 intr8 <- bind_rows(intr7, spi_18cot) 
-rm(intr7, intc7, spi_18cot) 
+rm(intr7, spi_18cot) 
 
 spi_cot <- bind_rows(intr8, spi_24cot) 
-rm(intr8, intc8, spi_24cot)  
+rm(intr8, spi_24cot)  
 
 # export(spi_cot, "data/spi_cot.csv") 
 # rm(spi_cot)
@@ -716,28 +884,28 @@ intr1 <- bind_rows(spi_1oel, spi_2oel)
 rm(spi_1oel, spi_2oel) 
 
 intr2 <- bind_rows(intr1, spi_3oel) 
-rm(intr1, intc1, spi_3oel) 
+rm(intr1, spi_3oel) 
 
 intr3 <- bind_rows(intr2, spi_4oel) 
-rm(intr2, intc2, spi_4oel) 
+rm(intr2, spi_4oel) 
 
 intr4 <- bind_rows(intr3, spi_5oel) 
-rm(intr3, intc3, spi_5oel) 
+rm(intr3, spi_5oel) 
 
 intr5 <- bind_rows(intr4, spi_6oel) 
 rm(intr4, intc4, spi_6oel) 
 
 intr6 <- bind_rows(intr5, spi_9oel) 
-rm(intr5, intc5, spi_9oel) 
+rm(intr5, spi_9oel) 
 
 intr7 <- bind_rows(intr6, spi_12oel) 
-rm(intr6, intc6, spi_12oel) 
+rm(intr6, spi_12oel) 
 
 intr8 <- bind_rows(intr7, spi_18oel) 
-rm(intr7, intc7, spi_18oel) 
+rm(intr7, spi_18oel) 
 
 spi_oel <- bind_rows(intr8, spi_24oel) 
-rm(intr8, intc8, spi_24oel, sta_oel) 
+rm(intr8, spi_24oel, sta_oel) 
 
 # export(spi_oel, "data/spi_oel.csv") 
 # rm(spi_oel)
@@ -763,35 +931,28 @@ sta_trans <- sta_mon %>%
   sta_48m05     <- sta_trans %>% filter(year == 1948 & month >= 5)
 sta_rap         <- bind_rows(sta_ge49, sta_48m05) # this is active
   rm(sta_ge49, sta_48m05)
-
+# remove year and month
+sta_rap <- sta_rap %>%
+  select(date, rap)
+#  2. Save NA observations  
   sta_lt48      <- sta_trans %>% filter(year < 1948)
   sta_48m01_m05 <- sta_trans %>% filter(year == 1948 & month < 5)
 sta_NA          <- bind_rows(sta_lt48, sta_48m01_m05) # this is not
-  rm(sta_lt48, sta_48m01_m05)
+  rm(sta_lt48, sta_48m01_m05, sta_trans)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # Calculate Rapid City SPI 
 # THIS CODE COULD BE DONE MUCH BETTER! 
-# Added na.rm = TRUE to handle the missing vals
-spi_1rap  <- spi(sta_rap[,'rap'], 1, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_2rap  <- spi(sta_rap[,'rap'], 2, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_3rap  <- spi(sta_rap[,'rap'], 3, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_4rap  <- spi(sta_rap[,'rap'], 4, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_5rap  <- spi(sta_rap[,'rap'], 5, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_6rap  <- spi(sta_rap[,'rap'], 6, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_9rap  <- spi(sta_rap[,'rap'], 9, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_12rap <- spi(sta_rap[,'rap'], 12, na.rm = TRUE, 
-                 distribution = 'PearsonIII')  
-spi_18rap <- spi(sta_rap[,'rap'], 18, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
-spi_24rap <- spi(sta_rap[,'rap'], 24, na.rm = TRUE, 
-                 distribution = 'PearsonIII') 
+# Added na.rm = TRUE to handle the missing vals, but didn't work!
+spi_1rap  <- spi(sta_rap[,'rap'],  1, distribution = 'PearsonIII') 
+spi_2rap  <- spi(sta_rap[,'rap'],  2, distribution = 'PearsonIII') 
+spi_3rap  <- spi(sta_rap[,'rap'],  3, distribution = 'PearsonIII') 
+spi_4rap  <- spi(sta_rap[,'rap'],  4, distribution = 'PearsonIII') 
+spi_5rap  <- spi(sta_rap[,'rap'],  5, distribution = 'PearsonIII') 
+spi_6rap  <- spi(sta_rap[,'rap'],  6, distribution = 'PearsonIII') 
+spi_9rap  <- spi(sta_rap[,'rap'],  9, distribution = 'PearsonIII') 
+spi_12rap <- spi(sta_rap[,'rap'], 12, distribution = 'PearsonIII')  
+spi_18rap <- spi(sta_rap[,'rap'], 18, distribution = 'PearsonIII') 
+spi_24rap <- spi(sta_rap[,'rap'], 24, distribution = 'PearsonIII') 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # save coefficients 
 # THIS CODE COULD BE DONE MUCH BETTER! 
@@ -905,7 +1066,7 @@ int8 <- bind_cols(int7, spi_18rap_coeff)
 rm(int7, spi_18rap_coeff) 
 
 spi_coeff_rap <- bind_cols(int8, spi_24rap_coeff) 
-rm(int8, spi_24rap_coeff, sta_rap) 
+rm(int8, spi_24rap_coeff) 
 
 spi_coeff_rap <- rownames_to_column(spi_coeff_rap, "month")
 # export(spi_coeff_rap, "data/spi_coeff_rap.csv") 
@@ -941,12 +1102,13 @@ spi_18rap <- as.tibble(spi_18rap$fitted) %>%
 
 spi_24rap <- as.tibble(spi_24rap$fitted) %>% 
   mutate(duration = 24) 
-
-# add date to the SPI data
-date <- sta_mon %>%
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# add date to the SPI data & bind cols
+date <- sta_rap %>%
   select(date) %>%
   arrange(date)
-
+#rm(sta_rap)
+# ~~~~~~~~~~~~~~~
 spi_1rap  <-  bind_cols(date, spi_1rap) 
 spi_2rap  <-  bind_cols(date, spi_2rap) 
 spi_3rap  <-  bind_cols(date, spi_3rap) 
@@ -963,28 +1125,44 @@ intr1 <- bind_rows(spi_1rap, spi_2rap)
 rm(spi_1rap, spi_2rap) 
 
 intr2 <- bind_rows(intr1, spi_3rap) 
-rm(intr1, intc1, spi_3rap) 
+rm(intr1, spi_3rap) 
 
 intr3 <- bind_rows(intr2, spi_4rap) 
-rm(intr2, intc2, spi_4rap) 
+rm(intr2, spi_4rap) 
 
 intr4 <- bind_rows(intr3, spi_5rap) 
-rm(intr3, intc3, spi_5rap) 
+rm(intr3, spi_5rap) 
 
-intr5 <- bind_rows(intr4, spi_6rap) 
-rm(intr4, intc4, spi_6rap) 
+intr5 <- bind_rows(intr4, spi_6rap)  
+rm(intr4, spi_6rap) 
 
 intr6 <- bind_rows(intr5, spi_9rap) 
-rm(intr5, intc5, spi_9rap) 
+rm(intr5, spi_9rap) 
 
 intr7 <- bind_rows(intr6, spi_12rap) 
-rm(intr6, intc6, spi_12rap) 
+rm(intr6, spi_12rap) 
 
 intr8 <- bind_rows(intr7, spi_18rap) 
-rm(intr7, intc7, spi_18rap) 
+rm(intr7, spi_18rap) 
 
 spi_rap <- bind_rows(intr8, spi_24rap) 
-rm(intr8, intc8, spi_24rap) 
+rm(intr8, spi_24rap) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# check on the -Inf vals
+spi_1rap <- spi_rap %>%
+  filter(duration == 1)
+# ~~~~~~~~~~~~~~~~~~~~~~
+# join data and rename
+sta_rap <- full_join(sta_rap, spi_1rap, by = "date") 
+sta_rap <- sta_rap %>%
+  rename(depth = rap.x) %>%
+  rename(spi1 = rap.y) %>%
+  arrange(spi1)
+
+broken_rap <- sta_rap %>%
+  filter(spi1 < -5)
+
+ 
 ```
 
 ```{r spi-algorithm-coeff-int}  
