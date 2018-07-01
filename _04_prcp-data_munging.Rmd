@@ -151,16 +151,10 @@ station <- station %>%
 # export(station, "data/sta_meta_orig.csv")
 ```
 
-```{r import_streamflow}
-# 'gage' 
+```{r import_streamflow, eval=FALSE}
+# 'gage' is a USGS stream gage
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # get gage ids by USGS watermapper
-# iterate across a list of gage ids by purrr::map_dfr 
-# to get gage metadata using dataRetrieval::readNWISsite
-# reorder and rename columns by dplyr
-# save the station df by rio
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 gage_id <- data.frame(name = c("WHITE R NR NE-SD STATE LINE", 
                               "WHITE R NEAR OGLALA SD", 
                               "WHITE CLAY CR NEAR OGLALA SD", 
@@ -180,13 +174,42 @@ gage_id <- data.frame(name = c("WHITE R NR NE-SD STATE LINE",
                             '06449000',  '06449100', '06440200',
                             '06441000'),
                      stringsAsFactors = FALSE)
-
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Iterate across a list of gage ids by purrr::map_dfr 
+# Get gage metadata using dataRetrieval::readNWISsite
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 gage <- map_dfr(gage_id$id, readNWISsite) 
+# reorder and rename columns by dplyr
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 gage <- gage %>%
   select(site_no, station_nm, dec_lat_va, dec_long_va, everything())
 rm(gage_id)
+# save the station df by rio
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~
 # export(gage, "data/gage_meta.csv") 
+```
+
+```{r import_streamflow2}
+gage_meta <- import("data/gage_meta.csv")
+
+# Turn the site data into a character vector
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# not sure why this didn't work!
+#siteNumbers <- gage_meta %>%
+#  select(site_no) %>%
+#  mutate(site_no = as.character(site_no)) %>%
+#  as.vector()
+# Note that dataRetrieval::zeroPad pads with leading zeros
+
+siteNumbers <- c("06445685", "06446000", "06445980", "06446500", 
+                 "06446100", "06446700",  "06447000", "06447230",
+                 "06447500", "06449000", "06449100", "06440200",
+                 "06441000")
+parameterCd <- '00060' # '00060' should be parameter for discharge
+
+# read in the mean daily flow; statCd = "00003"
+gage <- readNWISdv(siteNumbers, parameterCd, startDate = "", 
+                   endDate = "", statCd = "00003") 
 
 
 ```
