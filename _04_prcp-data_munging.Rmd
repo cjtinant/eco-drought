@@ -195,8 +195,7 @@ rm(gage_id)
 
 # export and import station df by rio
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# export(gage, "data/gage_meta.csv") 
-# gage_meta <- import("data/gage_meta.csv")
+# export(gage_meta, "data/gage_meta.csv") 
 
 # Turn the site data into a character vector
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -205,10 +204,10 @@ rm(gage_id)
 #  select(site_no) %>%
 #  mutate(site_no = as.character(site_no)) %>%
 #  as.vector()
-# Note that dataRetrieval::zeroPad pads with leading zeros
+
+
 
 # not sure about this red line - seems like an artifact...
-
 
 siteNumbers <- c("06445685", "06446000", "06445980", "06446500", 
                  "06446100", "06446700",  "06447000", "06447230",
@@ -218,23 +217,26 @@ siteNumbers <- c("06445685", "06446000", "06445980", "06446500",
 # read in the mean daily flow; statCd = "00003"
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 parameterCd <- '00060' # '00060' should be parameter for discharge 
-gage <- readNWISdv(siteNumbers, parameterCd, startDate = "", 
+#gage_raw <- readNWISdv(siteNumbers, parameterCd, startDate = "", 
                    endDate = "", statCd = "00003") 
 rm(siteNumbers, parameterCd) 
 
 # convert attribute data to json by jsonlite & readr
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_list <- list(attributes(gage))
+gage_list <- list(attributes(gage_raw))
 gage_json <- serializeJSON(gage_list, digits = 8, pretty = FALSE)
 # write_lines(gage_json, "data/gage_list.json")
 # rm(gage_json)
+# export(gage_raw, "data/gage_raw.csv") 
 ```
 
 ```{r munge_streamflow}
+gage_meta <- import("data/gage_meta.csv")
+gage_raw <- import("data/gage_raw.csv")
 
 # rename gage vars
 # ~~~~~~~~~~~~~~~~~~~
-gage_int <- gage %>% 
+gage_int <- gage_raw %>% 
   rename(discharge = "X_00060_00003") %>%
   rename(code = "X_00060_00003_cd") %>% 
   rename(date = Date) %>%
@@ -272,14 +274,13 @@ filter(month != 12)
 
 gage_fin <- bind_rows(gage_prior, gage_2017) %>%
   arrange(desc(date)) 
-rm(gage_2017, gage_int, gage_list, gage_prior, ice, provis)  
-
+rm(gage_2017, gage_int, gage_list, gage_prior, ice, provis, gage_raw)  
 # simplify the naming convention for gages 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 gage_fin <- gage_fin %>% 
   select(site_no, date, discharge, code)
 
-names <- gage_meta %>% 
+station_nm <- gage_meta %>% 
   select(site_no, station_nm) %>% 
   as.tibble()
 
@@ -289,24 +290,28 @@ abrev <- c("wrr_sta", "wrr_ogl", "wcc_ogl", "wrr_int", "wcc_wok",
   as.tibble() %>%
   rename(sta = value)
 
-names <- bind_cols(abrev, names)
+abrev <- bind_cols(abrev, station_nm) 
 
-gage_fin <- full_join(names, gage_fin, by = "site_no")
-rm(names, abrev)
+gage_fin <- full_join(abrev, gage_fin, by = "site_no")
+gage_meta <- full_join(abrev, gage_meta, by = "site_no")
+rm(station_nm, abrev)
+
+# export and import station df by rio
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# export(gage_fin, "data/gage_gath.csv") 
+# export(gage_meta, "data/gage_gath.csv") 
 
 # Split and spread data
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-discharge <- gage_fin %>%
-  select(site_no, date, discharge)
+discharge <- gage_fin %>% 
+  select(sta, date, discharge)
 
 discharge <- discharge %>% 
-  spread(key = site_no, value = discharge) 
+  spread(key = sta, value = discharge) 
 
-code <- gage_fin %>%
-    select(site_no, date, code) 
-
-code <- code %>% 
-  spread(key = site_no, value = code) 
+# export discharge vals
+# ~~~~~~~~~~~~~~~~~~~~~
+# export(discharge, "data/gage_discharge.csv") 
 ```
 
 ```{r import_site-data, eval=FALSE}
