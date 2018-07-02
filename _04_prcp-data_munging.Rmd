@@ -43,6 +43,10 @@ What is streamflow variation across the Pine Ridge Reservation?
 1.5. Cross-validated monthly data 
 1.6. Created plots 
 
+# Issues
+an intermediate variable called names needs to be changed
+
+
 ## Variable naming convention:   
 sta          precipitation station  
 _meta        metadata  
@@ -78,7 +82,8 @@ library("tidyverse")
 library("janitor") # tools for examining and cleaning dirty data 
 library("DataExplorer") # quick look at NA vals
 library('deldir') # for Vorononi tesselation - Theissen polygons
-library('jsonlite') # tools for working with lists
+library('jsonlite') # tools for working with lists 
+library("magrittr") # provides aliases for easier reading
 
 #library("corrplot") # correlation plots
 #library("broom") # tidies linear models
@@ -179,18 +184,20 @@ gage_id <- data.frame(name = c("WHITE R NR NE-SD STATE LINE",
 # Iterate across a list of gage ids by purrr::map_dfr 
 # Get gage metadata using dataRetrieval::readNWISsite
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage <- map_dfr(gage_id$id, readNWISsite) 
+gage_meta <- map_dfr(gage_id$id, readNWISsite) 
 # reorder and rename columns by dplyr
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage <- gage %>%
-  select(site_no, station_nm, dec_lat_va, dec_long_va, everything())
+gage_meta <- gage_meta %>%
+  select(site_no, station_nm, dec_lat_va, dec_long_va, 
+         everything()) %>% 
+  mutate(site_no = as.character(site_no))
 rm(gage_id)
 
 # export and import station df by rio
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # export(gage, "data/gage_meta.csv") 
 # gage_meta <- import("data/gage_meta.csv")
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 # Turn the site data into a character vector
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # not sure why this didn't work!
@@ -200,23 +207,23 @@ rm(gage_id)
 #  as.vector()
 # Note that dataRetrieval::zeroPad pads with leading zeros
 
+# not sure about this red line - seems like an artifact...
+
+
 siteNumbers <- c("06445685", "06446000", "06445980", "06446500", 
                  "06446100", "06446700",  "06447000", "06447230",
                  "06447500", "06449000", "06449100", "06440200",
-                 "06441000")
-parameterCd <- '00060' # '00060' should be parameter for discharge
+                 "06441000") 
 
 # read in the mean daily flow; statCd = "00003"
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+parameterCd <- '00060' # '00060' should be parameter for discharge 
 gage <- readNWISdv(siteNumbers, parameterCd, startDate = "", 
                    endDate = "", statCd = "00003") 
 rm(siteNumbers, parameterCd) 
 
-# clean up the data
-gage <- gage %>%
-  rename(discharge = "X_00060_00003") %>%
-  rename(code = "X_00060_00003_cd") 
-
 # convert attribute data to json by jsonlite & readr
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 gage_list <- list(attributes(gage))
 gage_json <- serializeJSON(gage_list, digits = 8, pretty = FALSE)
 # write_lines(gage_json, "data/gage_list.json")
@@ -224,34 +231,82 @@ gage_json <- serializeJSON(gage_list, digits = 8, pretty = FALSE)
 ```
 
 ```{r munge_streamflow}
-# remove ice - starts 2017-10-23
-gage <- gage %>%
-  filter(code != "P Ice")
 
-# remove provisional values 
-gage <- gage %>%
-  filter(code != "P") # starts 2016-10-26
+# rename gage vars
+# ~~~~~~~~~~~~~~~~~~~
+gage_int <- gage %>% 
+  rename(discharge = "X_00060_00003") %>%
+  rename(code = "X_00060_00003_cd") %>% 
+  rename(date = Date) %>%
+  mutate(year = year(date)) %>%
+  mutate(month = month(date)) %>%
+  arrange(desc(date))
 
-gage <- gage %>%
-  filter(code != "P e") # starts 2016-10-05
-  
-gage <- gage %>%
-  filter(code != "P <") # starts 2016-10-05
+# check ice - starts 2017-10-23 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ice <- gage_int %>%
+  filter(code == "P Ice") %>% 
+  arrange(date) 
 
-code <- gage %>% 
-  distinct(code)
+# check provisional values 
+# ~~~~~~~~~~~~~~~~~~~~~~~~
+provis <- gage_int %>%
+  filter(code == "P" | code == "P e" | code == "P <") %>%
+  arrange(date) # starts 2016-10-05
 
-gage <- gage %>%
-  arrange(desc(Date)) # need to remove abo
+# remove data after 2017-10-01
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_int <- gage_int %>%
+  filter(year != 2018)
 
+gage_2017 <- gage_int %>%
+  filter(year == 2017)
 
+gage_prior <- gage_int %>%
+  filter(year < 2017) 
 
+gage_2017 <- gage_2017 %>%
+  filter(month != 10) %>% 
+  filter(month != 11) %>%
+filter(month != 12)
 
-discharge <- gage %>%
-  select(site_no, Date, discharge)
+gage_fin <- bind_rows(gage_prior, gage_2017) %>%
+  arrange(desc(date)) 
+rm(gage_2017, gage_int, gage_list, gage_prior, ice, provis)  
 
-test <- gage_split1 %>% 
-  spread(key = site_no, value = discharge)
+# simplify the naming convention for gages 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+gage_fin <- gage_fin %>% 
+  select(site_no, date, discharge, code)
+
+names <- gage_meta %>% 
+  select(site_no, station_nm) %>% 
+  as.tibble()
+
+abrev <- c("wrr_sta", "wrr_ogl", "wcc_ogl", "wrr_int", "wcc_wok", 
+           "blc_wan", "wrr_kad", "blp_bel", "lwr_mar", "lcr_tut", 
+           "lcr_vet", "brsf_co", "bad_mid") %>%
+  as.tibble() %>%
+  rename(sta = value)
+
+names <- bind_cols(abrev, names)
+
+gage_fin <- full_join(names, gage_fin, by = "site_no")
+rm(names, abrev)
+
+# Split and spread data
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+discharge <- gage_fin %>%
+  select(site_no, date, discharge)
+
+discharge <- discharge %>% 
+  spread(key = site_no, value = discharge) 
+
+code <- gage_fin %>%
+    select(site_no, date, code) 
+
+code <- code %>% 
+  spread(key = site_no, value = code) 
 ```
 
 ```{r import_site-data, eval=FALSE}
