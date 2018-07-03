@@ -42,10 +42,13 @@ What is streamflow variation across the Pine Ridge Reservation?
 1.4. Changed daily data into monthly and annual data 
 1.5. Cross-validated monthly data 
 1.6. Created plots 
+2.1  Data read in from USGS website by dataRetrieval (cfs)
+2.2  Data saved as array (.JSON), and flat format (.csv) 
 
-# Issues
-an intermediate variable called names needs to be changed
-
+# Next STEPS
+1. Update variable names
+2. Check on next steps from Chapter 2 list 
+3. Describe the precipitation seasonality
 
 ## Variable naming convention:   
 sta          precipitation station  
@@ -56,11 +59,13 @@ _geXXmYY     data greater than or equal to year XX and month YY
 _ltXXmYY     data less than year XX and month YY   
 _clean       intermediate df - clean part of NA split ;-}  
 _dirty       intermediate df - NA part of NA split ;-}  
-_transZ       final df - after cleaning  
+_trans       final df - after cleaning  
+
+gage         USGS streamgage station
+
 
 ## Results: 
-The results generally show rainshadow effects from the Black Hills and southeast to northwest aridity trend at the annual scale.
-1900s were a very wet decade for the southern Black Hills.
+The results from the precipitation analysis indicate: 1) an annual trend of increasing aridity across the project area that trends from northwest to southeast that may be a result of the Black Hills rainshadow, 2) the 1900s were the wettest time in regions recorded history.  ??? what about the seasonal trend?
 -->
 
 ```{r setup, include=FALSE}
@@ -155,163 +160,6 @@ station <- station %>%
   select(id, name, lat, lon, everything())
 
 # export(station, "data/sta_meta_orig.csv")
-```
-
-```{r import_streamflow, eval=FALSE}
-# 'gage' is a USGS stream gage
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# get gage ids by USGS watermapper
-gage_id <- data.frame(name = c("WHITE R NR NE-SD STATE LINE", 
-                              "WHITE R NEAR OGLALA SD", 
-                              "WHITE CLAY CR NEAR OGLALA SD", 
-                              "WHITE R NEAR INTERIOR SD", 
-                              "WOUNDED KNEE CREEK AT WOUNDED KNEE SD",
-                              "BEAR IN THE LODGE CR NEAR WANBLEE SD", 
-                              "WHITE R NEAR KADOKA SD", 
-                              "BLACK PIPE CREEK NR BELVIDERE SD", 
-                              "LITTLE WHITE R NEAR MARTIN SD", 
-                              "LAKE CR BELOW REFUGE NEAR TUTHILL SD", 
-                              "LITTLE WHITE R NEAR VETAL SD", 
-                              "SOUTH FORK BAD R NEAR COTTONWOOD SD", 
-                              "BAD R NEAR MIDLAND SD"),
-                     id = c('06445685', '06446000', '06445980', 
-                            '06446500', '06446100', '06446700', 
-                            '06447000', '06447230', '06447500', 
-                            '06449000',  '06449100', '06440200',
-                            '06441000'),
-                     stringsAsFactors = FALSE)
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Iterate across a list of gage ids by purrr::map_dfr 
-# Get gage metadata using dataRetrieval::readNWISsite
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_meta <- map_dfr(gage_id$id, readNWISsite) 
-# reorder and rename columns by dplyr
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_meta <- gage_meta %>%
-  select(site_no, station_nm, dec_lat_va, dec_long_va, 
-         everything()) %>% 
-  mutate(site_no = as.character(site_no))
-rm(gage_id)
-
-# export and import station df by rio
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# export(gage_meta, "data/gage_meta.csv") 
-
-# Turn the site data into a character vector
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# not sure why this didn't work!
-#siteNumbers <- gage_meta %>%
-#  select(site_no) %>%
-#  mutate(site_no = as.character(site_no)) %>%
-#  as.vector()
-
-
-
-# not sure about this red line - seems like an artifact...
-
-siteNumbers <- c("06445685", "06446000", "06445980", "06446500", 
-                 "06446100", "06446700",  "06447000", "06447230",
-                 "06447500", "06449000", "06449100", "06440200",
-                 "06441000") 
-
-# read in the mean daily flow; statCd = "00003"
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-parameterCd <- '00060' # '00060' should be parameter for discharge 
-#gage_raw <- readNWISdv(siteNumbers, parameterCd, startDate = "", 
-                   endDate = "", statCd = "00003") 
-rm(siteNumbers, parameterCd) 
-
-# convert attribute data to json by jsonlite & readr
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_list <- list(attributes(gage_raw))
-gage_json <- serializeJSON(gage_list, digits = 8, pretty = FALSE)
-# write_lines(gage_json, "data/gage_list.json")
-# rm(gage_json)
-# export(gage_raw, "data/gage_raw.csv") 
-```
-
-```{r munge_streamflow}
-gage_meta <- import("data/gage_meta.csv")
-gage_raw <- import("data/gage_raw.csv")
-
-# rename gage vars
-# ~~~~~~~~~~~~~~~~~~~
-gage_int <- gage_raw %>% 
-  rename(discharge = "X_00060_00003") %>%
-  rename(code = "X_00060_00003_cd") %>% 
-  rename(date = Date) %>%
-  mutate(year = year(date)) %>%
-  mutate(month = month(date)) %>%
-  arrange(desc(date))
-
-# check ice - starts 2017-10-23 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-ice <- gage_int %>%
-  filter(code == "P Ice") %>% 
-  arrange(date) 
-
-# check provisional values 
-# ~~~~~~~~~~~~~~~~~~~~~~~~
-provis <- gage_int %>%
-  filter(code == "P" | code == "P e" | code == "P <") %>%
-  arrange(date) # starts 2016-10-05
-
-# remove data after 2017-10-01
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_int <- gage_int %>%
-  filter(year != 2018)
-
-gage_2017 <- gage_int %>%
-  filter(year == 2017)
-
-gage_prior <- gage_int %>%
-  filter(year < 2017) 
-
-gage_2017 <- gage_2017 %>%
-  filter(month != 10) %>% 
-  filter(month != 11) %>%
-filter(month != 12)
-
-gage_fin <- bind_rows(gage_prior, gage_2017) %>%
-  arrange(desc(date)) 
-rm(gage_2017, gage_int, gage_list, gage_prior, ice, provis, gage_raw)  
-# simplify the naming convention for gages 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_fin <- gage_fin %>% 
-  select(site_no, date, discharge, code)
-
-station_nm <- gage_meta %>% 
-  select(site_no, station_nm) %>% 
-  as.tibble()
-
-abrev <- c("wrr_sta", "wrr_ogl", "wcc_ogl", "wrr_int", "wcc_wok", 
-           "blc_wan", "wrr_kad", "blp_bel", "lwr_mar", "lcr_tut", 
-           "lcr_vet", "brsf_co", "bad_mid") %>%
-  as.tibble() %>%
-  rename(sta = value)
-
-abrev <- bind_cols(abrev, station_nm) 
-
-gage_fin <- full_join(abrev, gage_fin, by = "site_no")
-gage_meta <- full_join(abrev, gage_meta, by = "site_no")
-rm(station_nm, abrev)
-
-# export and import station df by rio
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# export(gage_fin, "data/gage_gath.csv") 
-# export(gage_meta, "data/gage_gath.csv") 
-
-# Split and spread data
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-discharge <- gage_fin %>% 
-  select(sta, date, discharge)
-
-discharge <- discharge %>% 
-  spread(key = sta, value = discharge) 
-
-# export discharge vals
-# ~~~~~~~~~~~~~~~~~~~~~
-# export(discharge, "data/gage_discharge.csv") 
 ```
 
 ```{r import_site-data, eval=FALSE}
