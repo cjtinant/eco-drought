@@ -56,7 +56,12 @@ _dirty       intermediate df - NA part of NA split ;-}
 _trans       final df - after cleaning  
 
 gage         USGS streamgage station
-
+_meta        metadata  
+_raw         the "mostly" raw dataset  
+_list        gage data as a list
+_json        gage data as a list in JSON format 
+_imp         gage data in imperial units in long format
+_dis_imp     gage discharge in imperial units in wide format
 
 ## Results: 
 The results from the precipitation analysis indicate: 1) an annual trend of increasing aridity across the project area that trends from northwest to southeast that may be a result of the Black Hills rainshadow, 2) the 1900s were the wettest time in regions recorded history.  ??? what about the seasonal trend?
@@ -70,25 +75,14 @@ knitr::opts_chunk$set(echo = FALSE)
 # Sets up the library of packages  
 library("here") # identifies where to save work
 library("dataRetrieval") # USGS data import
+library("EGRET") # Exploration and Graphics for RivEr Trends
 library("rio") # more robust I/O - to import and clean data 
 library("lubridate") # easier dates
 library("tidyverse")
 library("janitor") # tools for examining and cleaning dirty data 
-library("DataExplorer") # quick look at NA vals
-library('deldir') # for Vorononi tesselation - Theissen polygons
-library('jsonlite') # tools for working with lists 
-library("magrittr") # provides aliases for easier reading
-
-#library("corrplot") # correlation plots
-#library("broom") # tidies linear models
-#library("maps") # outlines of continents, countries, states & counties
-#library("mapdata") # higher-resolution outlines
-#library('ggmap')
-# library("RColorBrewer") - there is a better one?
-# library("workflowr") # creates a research website
-# library("colorspace")
-# library("bookdown") # 
-# library(unpivotr) # fix nasty Excel files
+#library("DataExplorer") # quick look at NA vals
+#library('jsonlite') # tools for working with lists 
+#library("magrittr") # provides aliases for easier reading
 # library("friendlyeval")
 
 # a useful description of commits:
@@ -96,6 +90,9 @@ library("magrittr") # provides aliases for easier reading
 ```
 
 ```{r import_streamflow, eval=FALSE}
+# this code chunk uses dataRetreval to get discharge in cfs 
+# removes provisional values and ice and saves the data as a csv.
+
 # 'gage' is a USGS stream gage
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # get gage ids by USGS watermapper
@@ -143,10 +140,6 @@ rm(gage_id)
 #  mutate(site_no = as.character(site_no)) %>%
 #  as.vector()
 
-
-
-# not sure about this red line - seems like an artifact...
-
 siteNumbers <- c("06445685", "06446000", "06445980", "06446500", 
                  "06446100", "06446700",  "06447000", "06447230",
                  "06447500", "06449000", "06449100", "06440200",
@@ -166,11 +159,6 @@ gage_json <- serializeJSON(gage_list, digits = 8, pretty = FALSE)
 # write_lines(gage_json, "data/gage_list.json")
 # rm(gage_json)
 # export(gage_raw, "data/gage_raw.csv") 
-```
-
-```{r munge_streamflow}
-gage_meta <- import("data/gage_meta.csv")
-gage_raw <- import("data/gage_raw.csv")
 
 # rename gage vars
 # ~~~~~~~~~~~~~~~~~~~
@@ -210,12 +198,12 @@ gage_2017 <- gage_2017 %>%
   filter(month != 11) %>%
 filter(month != 12)
 
-gage_fin <- bind_rows(gage_prior, gage_2017) %>%
+gage_imp <- bind_rows(gage_prior, gage_2017) %>%
   arrange(desc(date)) 
 rm(gage_2017, gage_int, gage_list, gage_prior, ice, provis, gage_raw)  
 # simplify the naming convention for gages 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_fin <- gage_fin %>% 
+gage_imp <- gage_imp %>% 
   select(site_no, date, discharge, code)
 
 station_nm <- gage_meta %>% 
@@ -230,28 +218,29 @@ abrev <- c("wrr_sta", "wrr_ogl", "wcc_ogl", "wrr_int", "wcc_wok",
 
 abrev <- bind_cols(abrev, station_nm) 
 
-gage_fin <- full_join(abrev, gage_fin, by = "site_no")
+gage_imp <- full_join(abrev, gage_imp, by = "site_no")
 gage_meta <- full_join(abrev, gage_meta, by = "site_no")
 rm(station_nm, abrev)
 
 # export and import station df by rio
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# export(gage_fin, "data/gage_gath.csv") 
+export(gage_imp, "data/gage_imperial.csv") 
 # export(gage_meta, "data/gage_gath.csv") 
 
 # Split and spread data
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-discharge <- gage_fin %>% 
+gage_dis_imp <- gage_imp %>% 
   select(sta, date, discharge)
 
-discharge <- discharge %>% 
+gage_dis_imp <- gage_dis_imp %>% 
   spread(key = sta, value = discharge) 
 
 # export discharge vals
 # ~~~~~~~~~~~~~~~~~~~~~
-# export(discharge, "data/gage_discharge.csv") 
+# export(gage_dis_imp, "data/gage_discharge_imp.csv") 
 ```
- 
+
+
 ```{r daily2monthly-precip}
 # continued from above 
 # General Purpose: prepare data for drought index 
