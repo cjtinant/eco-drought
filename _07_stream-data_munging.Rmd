@@ -90,13 +90,11 @@ library("janitor") # tools for examining and cleaning dirty data
 # http://r-pkgs.had.co.nz/git.html
 ```
 
-```{r import_streamflow, eval=FALSE}
-# this code chunk uses dataRetreval to get discharge in cfs 
-# removes provisional values and ice and saves the data as a csv.
-
+```{r import_metadata, eval=FALSE}
 # 'gage' is a USGS stream gage
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # get gage ids by USGS watermapper
+# This is a mixed list of current and discontinued sites
 gage_id <- data.frame(name = c("WHITE R NR NE-SD STATE LINE", 
                               "WHITE R NEAR OGLALA SD", 
                               "WHITE CLAY CR NEAR OGLALA SD", 
@@ -109,149 +107,85 @@ gage_id <- data.frame(name = c("WHITE R NR NE-SD STATE LINE",
                               "LAKE CR BELOW REFUGE NEAR TUTHILL SD", 
                               "LITTLE WHITE R NEAR VETAL SD", 
                               "SOUTH FORK BAD R NEAR COTTONWOOD SD", 
-                              "BAD R NEAR MIDLAND SD"),
-                     id = c('06445685', '06446000', '06445980', 
-                            '06446500', '06446100', '06446700', 
-                            '06447000', '06447230', '06447500', 
-                            '06449000',  '06449100', '06440200',
-                            '06441000'),
+                              "BAD R NEAR MIDLAND SD", 
+                              "BATTLE CR BELOW HERMOSA,SD", 
+                              "BEAVER CR NEAR BUFFALO GAP,SD", 
+                              "BEAVER CREEK NEAR PRINGLE, SD",
+                              "CHEYENNE R NEAR BUFFALO GAP SD", 
+                              "CHEYENNE RIVER AT RED SHIRT, SD", 
+                              "CHEYENNE RIVER NEAR SCENIC, SD", 
+                              "CHEYENNE RIVER NEAR WASTA, SD", 
+                              "HAT CR NEAR EDGEMONT,SD",
+                              "HORSEHEAD CR AT OELRICHS,SD", 
+                              "LITTLE WHITE R NEAR ROSEBUD SD", 
+                              "LITTLE WHITE R BELOW WHITE RIVER,SD", 
+                              "RAPID CR NEAR FARMINGDALE,SD", 
+                              "WHITE RIVER NEAR WHITE RIVER, SD"), 
+                     id = c("06445685", "06446000", "06445980", 
+                            "06446500", "06446100", "06446700", 
+                            "06447000", "06447230", "06447500", 
+                            "06449000", "06449100", "06440200",
+                            "06441000", "06406500", "06402500", 
+                            "06402430", "06402600", "06403700", 
+                            "06408650", "06423500", "06400000", 
+                            "06400875", "06449500", "06450500", 
+                            "06421500", "06447450"),
                      stringsAsFactors = FALSE)
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Iterate across a list of gage ids by purrr::map_dfr 
 # Get gage metadata using dataRetrieval::readNWISsite
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_meta <- map_dfr(gage_id$id, readNWISsite) 
-# reorder and rename columns by dplyr
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_meta <- gage_meta %>%
-  select(site_no, station_nm, dec_lat_va, dec_long_va, 
-         everything()) %>% 
-  mutate(site_no = as.character(site_no))
-rm(gage_id)
 
-# Turn the site data into a character vector
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# not sure why this didn't work!
-#siteNumbers <- gage_meta %>%
-#  select(site_no) %>%
-#  mutate(site_no = as.character(site_no)) %>%
-#  as.vector()
-
-siteNumbers <- c("06445685", "06446000", "06445980", "06446500", 
-                 "06446100", "06446700",  "06447000", "06447230",
-                 "06447500", "06449000", "06449100", "06440200",
-                 "06441000") 
-
-# read in the mean daily flow; statCd = "00003"
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-parameterCd <- '00060' # '00060' should be parameter for discharge 
-#gage_raw <- readNWISdv(siteNumbers, parameterCd, startDate = "", 
-                   endDate = "", statCd = "00003") 
-rm(siteNumbers, parameterCd) 
-
-# convert attribute data to json by jsonlite & readr
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_list <- list(attributes(gage_raw))
-gage_json <- serializeJSON(gage_list, digits = 8, pretty = FALSE)
-
-# rename gage vars
-# ~~~~~~~~~~~~~~~~~~~
-gage_int <- gage_raw %>% 
-  rename(discharge = "X_00060_00003") %>%
-  rename(code = "X_00060_00003_cd") %>% 
-  rename(date = Date) %>%
-  mutate(year = year(date)) %>%
-  mutate(month = month(date)) %>%
-  arrange(desc(date))
-
-# check ice - starts 2017-10-23 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-ice <- gage_int %>%
-  filter(code == "P Ice") %>% 
-  arrange(date) 
-
-# check provisional values 
-# ~~~~~~~~~~~~~~~~~~~~~~~~
-provis <- gage_int %>%
-  filter(code == "P" | code == "P e" | code == "P <") %>%
-  arrange(date) # starts 2016-10-05
-
-# remove data after 2017-10-01
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_int <- gage_int %>%
-  filter(year != 2018)
-
-gage_2017 <- gage_int %>%
-  filter(year == 2017)
-
-gage_prior <- gage_int %>%
-  filter(year < 2017) 
-
-gage_2017 <- gage_2017 %>%
-  filter(month != 10) %>% 
-  filter(month != 11) %>%
-filter(month != 12)
-
-gage_imp <- bind_rows(gage_prior, gage_2017) %>%
-  arrange(desc(date)) 
-rm(gage_2017, gage_int, gage_list, gage_prior, ice, provis, gage_raw) 
-
-# simplify the naming convention for gages 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_imp <- gage_imp %>% 
-  select(site_no, date, discharge, code)
-
-station_nm <- gage_meta %>% 
-  select(site_no, station_nm) %>% 
-  as.tibble()
-
-abrev <- c("whr_sta", "whr_ogl", "wcc_ogl", "whr_int", "wkc_wok", 
-           "blc_wan", "whr_kad", "blp_bel", "lwr_mar", "lcr_tut", 
-           "lcr_vet", "brsf_co", "bad_mid") %>%
-  as.tibble() %>%
-  rename(sta = value)
-
-abrev <- bind_cols(abrev, station_nm) 
-
-gage_imp <- full_join(abrev, gage_imp, by = "site_no")
-gage_meta <- full_join(abrev, gage_meta, by = "site_no")
-rm(station_nm, abrev)
-
-# Split and spread data
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_dis_imp <- gage_imp %>% 
-  select(sta, date, discharge)
-
-gage_dis_imp <- gage_dis_imp %>% 
-  spread(key = sta, value = discharge) 
-
-# Add short name to metadata
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~
-abrev <- gage_imp %>%
-  distinct(sta, site_no)
-
-gage_meta <- full_join(abrev, gage_meta, by = "site_no") 
-
-# export and import station df by rio
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# export(gage_raw, "data/gage_raw.csv") 
-# write_lines(gage_json, "data/gage_list.json")
-# export(gage_imp, "data/gage_imperial.csv") 
+gage_meta_list <- map(gage_id$id, readNWISsite) 
+gage_meta <- gage_meta_list %>%
+  map_df(extract, 
+               c("site_no", "station_nm", "site_tp_cd", "dec_lat_va", 
+                 "dec_long_va", "dec_coord_datum_cd", "state_cd", 
+                 "county_cd", "alt_va", "alt_datum_cd", "huc_cd", 
+                 "drain_area_va", "contrib_drain_area_va"))
 export(gage_meta, "data/gage_meta.csv") 
-# export(gage_dis_imp, "data/gage_discharge_imp.csv") 
 ```
 
-```{r}
-# Issues: I am having challenges w EGRET to return a batch file.
-#   Tried to use 'map' but still have issues.
-# Solution: avoid gold plating. Load data individually and bind_cols
+```{r import_streamflow_EGRET, eval=FALSE}
+# Loads USGS gage data individually and bind_cols
 # 
 #   readNWISDaily(siteNumber, parameterCd = "00060", startDate = "",
-#      endDate = "", interactive = TRUE, convert = TRUE)
-
+#      endDate = "", interactive = TRUE, convert = TRUE) 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Notes - data jumps - should use a different end date to fix
-
+#
+# List of sites
+# ~~~~~~~~~~~~~
+## Site Number: 06406500 - BATTLE CR BELOW HERMOSA,SD 
+#bad_mid <- "06441000" 
+#brsf_co <- "06440200" 
+#blp_bel <- "06447230" 
+## Site Number: 06402500 - BEAVER CR NEAR BUFFALO GAP,SD
+## Site Number: 06402430 - BEAVER CREEK NEAR PRINGLE, SD 
+## Site Number: 06402600 - CHEYENNE R NEAR BUFFALO GAP SD 
+## Site Number: 06403700 - CHEYENNE RIVER AT RED SHIRT, SD 
+## Site Number: 06408650 - CHEYENNE RIVER NEAR SCENIC, SD 
+# Site Number: 06423500 - CHEYENNE RIVER NEAR WASTA, SD 
+## Site Number: 06402000 - FALL R AT HOT SPRINGS,SD 
+## Site Number: 06400000 - HAT CR NEAR EDGEMONT,SD
+## Site Number: 06400875 - HORSEHEAD CR AT OELRICHS,SD 
+#lcr_tut <- "06449000" 
+#lcr_vet <- "06449100"  
+#lwr_mar <- "06447500" 
+## Site Number: 06449500 - LITTLE WHITE R NEAR ROSEBUD SD
+## Site Number: 06450500 - LITTLE WHITE R BELOW WHITE RIVER,SD 
+## Site Number: 06421500 - RAPID CR NEAR FARMINGDALE,SD 
+#wcc_ogl <- "06445980" 
+#whr_int <- "06446500" 
+#whr_kad <- "06447000"  
+#whr_ogl <- "06446000"  
+#whr_sta <- "06445685" 
+## Site Number: 06447450 - WHITE RIVER NEAR WHITE RIVER, SD 
+#wkc_wok <- "06446100" 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Next steps: 1) fix Bear in the Lodge Creek
+# 2) Load the remainder of discontinued sites (below)
+#
+# 3) check on data jumps - should use a different start or end date 
 # bad_mid discharge data jumps from 1979-09-29 to 1984-05-02
 #          discharge data jumps from 1984-05-02 to 1984-06-05
 #          discharge data jumps from 1984-06-07 to 1984-06-12
@@ -349,60 +283,6 @@ export(gage_meta, "data/gage_meta.csv")
 #           discharge data jumps from 1942-09-29 to 2002-10-01 
 # whr_slm   discharge data jumps from 1970-09-29 to 1990-12-04 
 
-
-
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# get site numbers from prior metadata
-gage_meta <- import("data/gage_meta.csv")
-#site_nums <- gage_meta %>%
-#  select(sta, site_no) %>% 
-#  print()
-
-# add an end date to remove provisional data & gaps in vals
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-startDate    <- "" #Gets earliest date
-endDate      <- "2017-09-30"
-parameter_cd <- "00060" 
-#Sample <- readNWISSample(siteNumber,parameter_cd,startDate,endDate)
-
-# List of sites
-# ~~~~~~~~~~~~~
-## Site Number: 06406500 - BATTLE CR BELOW HERMOSA,SD 
-#bad_mid <- "06441000" 
-#brsf_co <- "06440200" 
-#blp_bel <- "06447230" 
-## Site Number: 06402500 - BEAVER CR NEAR BUFFALO GAP,SD
-## Site Number: 06402430 - BEAVER CREEK NEAR PRINGLE, SD 
-## Site Number: 06402600 - CHEYENNE R NEAR BUFFALO GAP SD 
-## Site Number: 06403700 - CHEYENNE RIVER AT RED SHIRT, SD 
-## Site Number: 06408650 - CHEYENNE RIVER NEAR SCENIC, SD 
-# Site Number: 06423500 - CHEYENNE RIVER NEAR WASTA, SD 
-## Site Number: 06402000 - FALL R AT HOT SPRINGS,SD 
-## Site Number: 06400000 - HAT CR NEAR EDGEMONT,SD
-## Site Number: 06400875 - HORSEHEAD CR AT OELRICHS,SD 
-#lcr_tut <- "06449000" 
-#lcr_vet <- "06449100"  
-#lwr_mar <- "06447500" 
-## Site Number: 06449500 - LITTLE WHITE R NEAR ROSEBUD SD
-## Site Number: 06450500 - LITTLE WHITE R BELOW WHITE RIVER,SD 
-## Site Number: 06421500 - RAPID CR NEAR FARMINGDALE,SD 
-#wcc_ogl <- "06445980" 
-#whr_int <- "06446500" 
-#whr_kad <- "06447000"  
-#whr_ogl <- "06446000"  
-#whr_sta <- "06445685" 
-## Site Number: 06447450 - WHITE RIVER NEAR WHITE RIVER, SD 
-#wkc_wok <- "06446100" 
-
-
-
-# Add???
-
-#bad_mid <- "06441000" 
-
-
 # Discontinued Stations w/in 30 mi.
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Site Number: 06445700 - WHITE RIVER AT SLIM BUTTE, SD
@@ -435,12 +315,6 @@ parameter_cd <- "00060"
 # Site Number: 06403500 - FRENCH CR NEAR FAIRBURN SD 
 # Site Number: 06422000 - RAPID CR AT CRESTON SD
 # Site Number: 06440500 - NORTH FORK BAD R NEAR PHILIP SD
-
-
-# should be ok
-
-## Site Number: 06402600 - CHEYENNE R NEAR BUFFALO GAP SD 
-# Site Number: 06423500 - CHEYENNE RIVER NEAR WASTA, SD 
 
 # load individual gages
 # ~~~~~~~~~~~~~~~~~~~~~~~~ 
@@ -591,8 +465,7 @@ wkc_wok <- wkc_wok %>%
   mutate(sta = "wkc_wok") %>%
   mutate(site_no = "06446100") 
 
-
-# join together to save - FIX for NEXT STEPS
+# join together in long format and save
 gage_int1  <- bind_rows(bad_mid, bat_her) 
 gage_int2  <- bind_rows(gage_int1, brsf_co) 
 gage_int3  <- bind_rows(gage_int2, blp_bel) 
@@ -659,6 +532,106 @@ rm(gage_int26, whr_roc) #
 
 # # blc_wan <- readNWISDaily("06446700") # this not working!
 ```
+
+```{r next_steps_munging}
+# Also add BEAR in the LODGE
+
+
+# check ice - starts 2017-10-23 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ice <- gage_int %>%
+  filter(code == "P Ice") %>% 
+  arrange(date) 
+
+# check provisional values 
+# ~~~~~~~~~~~~~~~~~~~~~~~~
+provis <- gage_int %>%
+  filter(code == "P" | code == "P e" | code == "P <") %>%
+  arrange(date) # starts 2016-10-05
+
+# remove data after 2017-10-01
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_int <- gage_int %>%
+  filter(year != 2018)
+
+gage_2017 <- gage_int %>%
+  filter(year == 2017)
+
+gage_prior <- gage_int %>%
+  filter(year < 2017) 
+
+gage_2017 <- gage_2017 %>%
+  filter(month != 10) %>% 
+  filter(month != 11) %>%
+filter(month != 12)
+
+gage_imp <- bind_rows(gage_prior, gage_2017) %>%
+  arrange(desc(date)) 
+rm(gage_2017, gage_int, gage_list, gage_prior, ice, provis, gage_raw) 
+
+# simplify the naming convention for gages 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_imp <- gage_imp %>% 
+  select(site_no, date, discharge, code)
+
+station_nm <- gage_meta %>% 
+  select(site_no, station_nm) %>% 
+  as.tibble()
+
+abrev <- c("whr_sta", "whr_ogl", "wcc_ogl", "whr_int", "wkc_wok", 
+           "blc_wan", "whr_kad", "blp_bel", "lwr_mar", "lcr_tut", 
+           "lcr_vet", "brsf_co", "bad_mid") %>%
+  as.tibble() %>%
+  rename(sta = value)
+
+abrev <- bind_cols(abrev, station_nm) 
+
+gage_imp <- full_join(abrev, gage_imp, by = "site_no")
+gage_meta <- full_join(abrev, gage_meta, by = "site_no")
+rm(station_nm, abrev)
+
+# Split and spread data
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_dis_imp <- gage_imp %>% 
+  select(sta, date, discharge)
+
+gage_dis_imp <- gage_dis_imp %>% 
+  spread(key = sta, value = discharge) 
+
+# Add short name to metadata
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~
+abrev <- gage_imp %>%
+  distinct(sta, site_no)
+
+gage_meta <- full_join(abrev, gage_meta, by = "site_no") 
+
+# export and import station df by rio
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# export(gage_raw, "data/gage_raw.csv") 
+# write_lines(gage_json, "data/gage_list.json")
+# export(gage_imp, "data/gage_imperial.csv") 
+
+# export(gage_dis_imp, "data/gage_discharge_imp.csv") 
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# get site numbers from prior metadata
+gage_meta <- import("data/gage_meta.csv")
+#site_nums <- gage_meta %>%
+#  select(sta, site_no) %>% 
+#  print()
+
+# add an end date to remove provisional data & gaps in vals
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+startDate    <- "" #Gets earliest date
+endDate      <- "2017-09-30"
+parameter_cd <- "00060" 
+#Sample <- readNWISSample(siteNumber,parameter_cd,startDate,endDate)
+# this code chunk uses dataRetreval to get discharge in cfs 
+# removes provisional values and ice and saves the data as a csv.
+```
+
 
 
 ```{r daily2monthly-precip}
