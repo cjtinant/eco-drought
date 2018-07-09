@@ -827,17 +827,17 @@ gage_int5  <- bind_rows(gage_int4, spr_her)
 ``` 
 
 ```{r import_gage_metadata, eval=FALSE} 
- 
-# import daily streamflow datasets 
+  
+# import daily streamflow datasets  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 gage_cont <- import("data/gage_cont.csv") 
 gage_disc <- import("data/gage_disc.csv") 
-gage_othr <- import("data/gage_other.csv")
-
-# check for duplicate data 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_othr <- import("data/gage_other.csv") 
+ 
+# check for duplicate data  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 gage_cont_ck  <- gage_cont %>% 
-  distinct(sta, site_no)
+  distinct(sta, site_no) 
 
 gage_dist_ck  <- gage_disc %>% 
   distinct(sta, site_no) 
@@ -845,79 +845,79 @@ gage_dist_ck  <- gage_disc %>%
 gage_othr_ck  <- gage_othr %>% 
   distinct(sta, site_no) 
 
-gage_names <- bind_rows(gage_cont_ck, gage_dist_ck)
-gage_names <- bind_rows(gage_names, gage_othr_ck)
+gage_names <- bind_rows(gage_cont_ck, gage_dist_ck) 
+gage_names <- bind_rows(gage_names, gage_othr_ck) 
 
-rm(gage_cont_ck, gage_dist_ck, gage_othr_ck)
+rm(gage_cont_ck, gage_dist_ck, gage_othr_ck) 
 
-# join data & import metadata
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# join data & import metadata 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
-gage  <- bind_rows(gage_cont, gage_disc) 
-gage  <- bind_rows(gage, gage_othr)
+gage_full  <- bind_rows(gage_cont, gage_disc)  
+gage_full  <- bind_rows(gage_full, gage_othr) 
 
-# gage$site_no is brought in as an integer but needs to be 8-dig char
-gage <- gage %>% 
+# gage$site_no is brought in as an integer but needs to be 8-dig char 
+gage_full <- gage_full %>% 
   mutate(sta = as.character(sta)) %>%  
   mutate(site_no = zeroPad(site_no, 8)) %>% 
-  select(site_no, sta, everything())
+  select(site_no, sta, everything()) 
 
-# reduces the set down to a small number to reduce API calls
-gage_id <- gage %>%
-  distinct(site_no, sta)
+# reduces the set down to a small number to reduce API calls 
+gage_id <- gage_full %>% 
+  distinct(site_no, sta) 
 
 # iterate across a list of gage ids by purrr::map_dfr 
-# & get gage metadata using dataRetrieval::readNWISsite
+# & get gage metadata using dataRetrieval::readNWISsite 
 gage_meta_list <- map(gage_id$site_no, readNWISsite) 
 
-# extract the wanted dataframe items from the list
-gage_meta <- gage_meta_list %>%
+# extract the wanted dataframe items from the list 
+gage_meta <- gage_meta_list %>% 
   map_df(extract, 
                c("site_no", "station_nm", "site_tp_cd", "dec_lat_va", 
                  "dec_long_va", "dec_coord_datum_cd", "state_cd", 
                  "county_cd", "alt_va", "alt_datum_cd", "huc_cd", 
                  "drain_area_va", "contrib_drain_area_va")) 
-rm(gage_meta_list)
+rm(gage_meta_list) 
 
-# join the abbreviation to the metadata
-gage_meta <- gage_meta %>% 
+# join the abbreviation to the metadata 
+gage_meta <- gage_meta %>%  
   full_join(gage_id, gage_meta, by = "site_no") 
 
 gage_meta <- gage_meta %>% 
-  select(sta, everything())
+  select(sta, everything()) 
 
-# check on integrity of the data by looking at counts
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# check on integrity of the data by looking at counts 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 ck_sta <- gage_meta %>% 
   distinct(sta) 
 
 ck_num <- gage_meta %>% 
   distinct(site_no) 
 
-ck_sta_num <- gage_meta %>%
+ck_sta_num <- gage_meta %>% 
   distinct(sta, site_no) 
 
 ck_nam <- gage_meta %>% 
   distinct(station_nm) 
 
-ck_sta_nam <- gage_meta %>%
+ck_sta_nam <- gage_meta %>% 
   distinct(sta, station_nm) 
 
 num_nam <- gage_meta %>% 
   distinct(site_no, station_nm) 
 
 ck_sta_nam_num <- gage_meta %>% 
-  distinct(sta, site_no, station_nm)
+  distinct(sta, site_no, station_nm) 
 
-# export dataframes of the largest population of gages
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# export(gage, "data/gage_full.csv") 
-# export(gage_meta, "data/gage_meta.csv") 
+# export dataframes of the largest population of gages 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# export(gage, "data/gage_full.csv") # too big for GitHub 
+# export(gage_meta, "data/gage_meta.csv")  
 
-# create a table to show abbreviation, site no & station name
+# create a table to show abbreviation, site no & station name 
 gage_table <- gage_meta %>% 
-  select(sta, site_no, station_nm) %>%
-  as.tibble()
+  select(sta, site_no, station_nm) %>% 
+  as.tibble() 
 ```
 
 ```{r clean_daily flow}
@@ -933,11 +933,19 @@ gage_table <- gage_meta %>%
 
 # 1. load data & metadata 
 # ~~~~~~~~~~~~~~~~~~~~~~~
-gage_raw <- import("data/gage_full.csv") %>% 
-  arrange(sta) %>% 
-  select(site_no, sta, Date, i, everything())
 gage_meta <- import("data/gage_meta.csv") %>% 
   arrange(sta)
+
+gage_cont <- import("data/gage_cont.csv") 
+gage_disc <- import("data/gage_disc.csv") 
+gage_othr <- import("data/gage_othr.csv") 
+
+gage_full  <- bind_rows(gage_cont, gage_disc)  
+gage_full  <- bind_rows(gage_full, gage_othr) 
+
+gage_full <- gage_full %>% 
+  arrange(sta) %>% 
+  select(site_no, sta, Date, i, everything())
 
 # 2. identify short records using gage_raw$i column
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
