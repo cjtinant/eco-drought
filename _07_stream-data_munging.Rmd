@@ -64,18 +64,11 @@ xxx_yyy      individual gage names xxx = stream & yyy = location
 
 gage         USGS streamgage station
   _int#      intermediate dataframe for binding
- 
- 
-_meta        metadata  
-_raw         the "mostly" raw dataset  
-_list        gage data as a list
-_json        gage data as a list in JSON format 
-_imp         gage data in imperial units in long format
-_dis_imp     gage discharge in imperial units in wide format
+  _meta      metadata  
+  _raw       the "mostly" raw dataset  
+
 
 ## Results: 
-
-
 
 
 -->
@@ -87,14 +80,14 @@ knitr::opts_chunk$set(echo = FALSE)
 
 ```{r library, message=FALSE}
 # Sets up the library of packages  
-library("here") # identifies where to save work
+library("here") # identifies where to save work 
 library("dataRetrieval") # USGS data import 
 library("EGRET") # Exploration and Graphics for RivEr Trends
 library("rio") # more robust I/O - to import and clean data 
 library("lubridate") # easier dates
 library("tidyverse")
 library("janitor") # tools for examining and cleaning dirty data 
-#library("DataExplorer") # quick look at NA vals
+# library("DataExplorer") # quick look at NA vals
 #library('jsonlite') # tools for working with lists 
 #library("magrittr") # provides aliases for easier reading
 # library("friendlyeval")
@@ -103,12 +96,12 @@ library("janitor") # tools for examining and cleaning dirty data
 # http://r-pkgs.had.co.nz/git.html
 ```
 
-```{r import_streamflow_EGRET, eval=FALSE} 
+```{r import_daily_flow_active_EGRET, eval=FALSE} 
 # Loads USGS gage data individually, bind_cols & exports data
 # Note: found gage ids by USGS watermapper.  However, this was an
 #   iterative process in deciding sites to choose.  This is reflected
 #   in the row numbers (see table below) non-sequential arrangement
-# Also note: the joined file of active & discontinued stations >87 mb
+# Also note: the joined file of active & discontinued stations >87 mb 
 # Saving this file separately may protect data integrity
 # 
 #   readNWISDaily(siteNumber, parameterCd = "00060", startDate = "",
@@ -366,21 +359,21 @@ gage_int47 <- bind_rows(gage_int46, whi_roc)
 
 ```
 
-```{r import_streamflow_EGRET-bearLodge}
+```{r import_dailyflow_EGRET-bearLodge, eval=FALSE}
 # long story, but Bear in the Lodge streamflow is restricted.  So,
 # need to find another approach to getting the data. 
 # one way is annual reports - but only to 2013
 # Need to email the webmaster to get streamflow data.
-# https://waterdata.usgs.gov/sd/nwis/inventory/?site_no=06446700&agency_cd=
+# https://waterdata.usgs.gov/sd/nwis/inventory/?site_no=06446700&agency_cd= 
 
-#blc_wan <- readNWISDaily("06446700") # this not working!
+#blc_wan <- readNWISDaily("06446700") # this not working! 
 #blc_wan <- blc_wan %>%
 #  mutate(sta = blc_wan) %>%
 #  mutate(site_no = "06446700")
 
 ```
 
-```{r import_streamflow_EGRET-discontinued} 
+```{r import_daily_flow_discontinued_EGRET} 
 
 # List of discontinued sites w/in 30 mi. of PRR boundary
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -597,17 +590,15 @@ gage_int26 <- bind_rows(gage_int25, whi_wht)
 export(gage_int26, "data/gage_disc.csv") 
 ```
 
-```{r get_metadata}
-
-# import daily streamflow datasets
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```{r import_gage_metadata, eval=FALSE} 
+ 
+# import daily streamflow datasets 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 gage_cont <- import("data/gage_cms.csv") 
-# gage_meta <- import("data/gage_meta.csv")
 gage_disc <- import("data/gage_cms_discontinued.csv") 
-# gage_names_disc <- import("data/gage_nm_discontinued.csv")
 
 # check for duplicate data 
-# ~~~~~~~~~~~~~~~~~~~~~~~~
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 gage_cont_ck  <- gage_cont %>% 
   distinct(sta, site_no)
 
@@ -674,19 +665,407 @@ num_nam <- gage_meta %>%
   distinct(site_no, station_nm)
 
 # export dataframes of the largest population of gages
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # export(gage, "data/gage_full.csv") 
 # export(gage_meta, "data/gage_meta.csv") 
 
-table <- gage_meta %>% 
+# create a table to show abbreviation, site no & station name
+gage_table <- gage_meta %>% 
   select(sta, site_no, station_nm) %>%
   as.tibble()
 
 ```
 
-```{r}
-gage <- import("data/gage_full.csv") 
-gage_meta <- import("data/gage_meta.csv")
+```{r check_watersheds, eval=FALSE}
 
+# this code chunk checks for "missed" stations.  
+# for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. get huc codes for gages already selected
+gage_meta <- import("data/gage_meta.csv") %>% 
+  arrange(sta)
+
+hucs <- gage_meta %>% 
+  distinct(huc_cd) %>%
+  arrange() %>%
+  mutate(huc_cd = as.character(huc_cd))
+
+# 2. split the API query into smaller parts
+hucs1 <- hucs %>%
+  slice(1:6)
+
+hucs2 <- hucs %>%
+  slice(7:13) 
+
+# 3. get the set of NWIS data for each of the slices
+gages1 <- hucs1 %>% 
+     map_df(~ whatNWISdata(huc = .x)) 
+
+gages2 <- hucs2 %>% 
+     map_df(~ whatNWISdata(huc = .x)) 
+
+# 4. create a single dataframe and clean up 
+gages1 <- gages1 %>% 
+  mutate(alt_acy_va = as.numeric(alt_acy_va))
+
+gages_pos <- bind_rows(gages1, gages2)
+rm(hucs, hucs1, hucs2, gages1, gages2)
+
+# 5. explore data types
+# ~~~~~~~~~~~~~~~~~~~~~~~
+
+#   a. find site_types 
+NWIS_type <- gages_pos %>% 
+  distinct(site_tp_cd) %>%  
+  arrange(site_tp_cd)
+
+#   b. remove atmosphere (AT), land (LA), & subsurface (SB) site types
+gage_pos1 <- gages_pos %>% 
+  filter(site_tp_cd != "AT" &
+           site_tp_cd != "LA-SH" & 
+           site_tp_cd != "LA-SNK" &
+           site_tp_cd != "SB-CV" &
+           site_tp_cd != "SB" 
+         ) %>% 
+  arrange(site_tp_cd) 
+
+#   c. remove facilities (FA) site type 
+gage_pos2 <- gage_pos1 %>% 
+  filter(site_tp_cd != "FA-CI" &
+           site_tp_cd != "FA-OF" & 
+           site_tp_cd != "FA-SEW" & 
+           site_tp_cd != "FA-STS" & 
+           site_tp_cd != "FA-WDS"
+         )
+
+#   d. remove groundwater (GW) & spring site types 
+gw <- gage_pos2 %>% 
+  filter(site_tp_cd == "GW" |
+           site_tp_cd == "GW-CR" | 
+           site_tp_cd == "GW-IW" |
+           site_tp_cd == "GW-MW" | 
+           site_tp_cd == "GW-TH" | 
+          site_tp_cd == "SP"
+         )
+
+gage_pos3 <- gage_pos2 %>% 
+  filter(site_tp_cd != "GW" &
+           site_tp_cd != "GW-CR" & 
+           site_tp_cd != "GW-IW" &
+           site_tp_cd != "GW-MW" & 
+           site_tp_cd != "GW-TH" & 
+          site_tp_cd != "SP"
+         )
+
+#   e. remove lake (LK) & canal (CA) site types 
+gage_pos4 <- gage_pos3 %>% 
+  filter(site_tp_cd != "LK" & 
+           site_tp_cd != "ST-CA" &
+           site_tp_cd != "ST-DCH"
+           ) 
+
+#   e. check streams == gage_pos4 & clean up
+gage_pos5 <- gage_pos4 %>% 
+  filter(site_tp_cd != "ST") 
+
+gage_strm <- gages_pos %>% 
+  filter(site_tp_cd == "ST") 
+
+rm(NWIS_type, gage_pos, gage_pos1, gage_pos2, gage_pos3, 
+   gage_pos4, gage_pos5) 
+
+#   f. remove bio, sediment, wq, report, peak, temp data
+bio <- gage_strm %>% 
+  filter(medium_grp_cd == "bio")
+
+sed <- gage_strm %>% 
+  filter(medium_grp_cd == "sed") 
+
+wq <- gage_strm %>% 
+  filter(data_type_cd == "qw") 
+
+ad <- gage_strm %>% 
+  filter(data_type_cd == "ad") 
+
+pk <- gage_strm %>% 
+  filter(data_type_cd == "pk") 
+
+tmp <- gage_strm %>% 
+  filter(parm_cd == "00010") 
+
+gages_dv <- gage_strm %>% 
+  filter(medium_grp_cd != "bio" & 
+           medium_grp_cd != "sed" & 
+           data_type_cd != "qw" & 
+           data_type_cd != "uv" & 
+           data_type_cd != "ad" &
+           data_type_cd != "sv" &
+           data_type_cd != "pk" & 
+           parm_cd != "00010" & 
+           parm_cd != "00065" & 
+           parm_cd != "00095" & 
+           parm_cd != "00300" & 
+           parm_cd != "00400" & 
+           parm_cd != "63680" & 
+           parm_cd != "80154" & 
+           parm_cd != "80155" 
+           ) 
+
+# g. clean dataframe to fit the area
+gages_pot <- gages_dv %>% 
+  mutate(alt_va = as.numeric(alt_va)) %>% 
+  filter(count_nu > 365*5) %>%
+  filter(dec_lat_va < 43.97) %>% 
+  filter(dec_long_va > -103.58825) %>% 
+  filter(dec_long_va < -100.55167) %>% 
+  filter(alt_va < 4050) %>% 
+  mutate(end_date = ymd(end_date)) %>% 
+  mutate(end_yr = year(end_date)) %>% 
+  filter(end_yr > 1990)
+
+# bind new and old metadata cols together to check
+gages_pot_list <- gages_pot %>% 
+  select(site_no, station_nm) %>% 
+  mutate(site_no = as.integer(site_no))
+gages_exist <- gage_meta %>% 
+    select(site_no, station_nm) 
+
+gages_new <- full_join(gages_pot_list, gages_exist, by = "site_no") 
+gages_new <- gages_new %>% 
+  filter(is.na(station_nm.y)) %>% 
+  rename(station_nm = station_nm.x) %>% 
+  select(-station_nm.y) %>% 
+  as.tibble()
+```
+
+```{r import_daily_flow_overlooked} 
+
+# List of possible extra sites 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# A tibble: 55 x 3
+#   sta     site_no station_nm                                   
+# * <chr>     <int> <chr>          
+#1 chr_ang 6401500 CHEYENNE R BELOW ANGOSTURA DAM,SD
+#2 frn_fai 6403300 FRENCH CR ABOVE FAIRBURN SD      
+#3 bat_key 6404000 BATTLE CR NEAR KEYSTONE,SD       
+#4 bat_her 6406000 BATTLE CR AT HERMOSA,SD          
+#5 spr_her 6408500 SPRING CR NEAR HERMOSA,SD        
+#6 nio_gor 6457500 NIOBRARA RIVER NEAR GORDON, NEBR.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. load individual gages
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# add an end date to remove provisional data & gaps in vals
+startDate    <- "" #Gets earliest date
+endDate      <- "2017-09-30"
+parameter_cd <- "00060" 
+# ~~~~~~~~~~~~~~~~~~~~~ 
+
+chr_ang <- readNWISDaily("6401500", parameter_cd, startDate ,endDate)
+frn_fai <- readNWISDaily("6403300", parameter_cd, startDate ,endDate) 
+bat_key <- readNWISDaily("6404000", parameter_cd, startDate ,endDate) 
+bat_her <- readNWISDaily("6406000", parameter_cd, startDate ,endDate) 
+spr_her <- readNWISDaily("6408500", parameter_cd, startDate ,endDate)     
+nio_gor <- readNWISDaily("6457500", parameter_cd, startDate ,endDate) 
+
+# 2. add short name and abbreviation to gage data 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+chr_ang <- chr_ang  %>% 
+  mutate(sta = "chr_ang") %>%
+  mutate(site_no = "6401500")
+
+frn_fai <- frn_fai %>% 
+  mutate(sta = "frn_fai") %>%
+  mutate(site_no = "6403300") 
+
+bat_key <- bat_key %>% 
+  mutate(sta = "bat_key") %>%
+  mutate(site_no = "6404000")
+
+bat_her <- bat_her %>% 
+  mutate(sta = "bat_her") %>%
+  mutate(site_no = "6406000") 
+
+spr_her <- spr_her %>% 
+  mutate(sta = "spr_her") %>%
+  mutate(site_no = "6408500")
+
+
+nio_gor <- readNWISDaily("6457500", parameter_cd, startDate ,endDate) 
+
+
+ant_gor <- ant_gor %>% 
+  mutate(sta = "ant_gor") %>%
+  mutate(site_no = "06458000") 
+
+brnf_ph <- brnf_ph %>% 
+  mutate(sta = "brnf_ph") %>%
+  mutate(site_no = "06440500") 
+
+bea_eli <- bea_eli %>% 
+  mutate(sta = "bea_eli") %>%
+  mutate(site_no = "06458500") 
+
+bev_abf <- bev_abf %>% 
+  mutate(sta = "bev_abf") %>%
+  mutate(site_no = "06402470") 
+
+bor_cha <- bor_cha %>% 
+  mutate(sta = "bor_cha") %>%
+  mutate(site_no = "06445590") 
+
+cas_hot <- cas_hot %>% 
+  mutate(sta = "cas_hot") %>%
+  mutate(site_no = "06400497") 
+
+che_hot <- che_hot %>% 
+  mutate(sta = "che_hot") %>%
+  mutate(site_no = "06400500") 
+
+fre_fai <- fre_fai %>% 
+  mutate(sta = "fre_fai") %>%
+  mutate(site_no = "06403500") 
+
+hor_aoe <- hor_aoe %>% 
+  mutate(sta = "hor_aoe") %>%
+  mutate(site_no = "06400870") 
+
+lcr_abv <- lcr_abv %>% 
+  mutate(sta = "lcr_abv") %>%
+  mutate(site_no = "06448000") 
+
+lwr_abv <- lwr_abv %>% 
+  mutate(sta = "lwr_abv") %>%
+  mutate(site_no = "06449300") 
+
+min_kil <- min_kil %>% 
+  mutate(sta = "min_kil") %>%
+  mutate(site_no = "06460900") 
+
+nio_abb <- nio_abb %>% 
+  mutate(sta = "nio_abb") %>%
+  mutate(site_no = "06454500") 
+
+nio_bbb <- nio_bbb %>% 
+  mutate(sta = "nio_bbb") %>%
+  mutate(site_no = "06455500") 
+
+nio_col <- nio_col %>% 
+  mutate(sta = "nio_col") %>%
+  mutate(site_no = "06457000") 
+
+nio_cod <- nio_cod %>% 
+  mutate(sta = "nio_cod") %>%
+  mutate(site_no = "06459000") 
+
+nio_dun <- nio_dun %>% 
+  mutate(sta = "nio_dun") %>%
+  mutate(site_no = "06455900")
+
+nio_hay <- nio_hay %>% 
+  mutate(sta = "nio_hay") %>%
+  mutate(site_no = "06456500") 
+
+rap_cre <- rap_cre %>% 
+  mutate(sta = "rap_cre") %>%
+  mutate(site_no = "06422000")
+
+ros_ros <- ros_ros %>% 
+  mutate(sta = "ros_ros") %>%
+  mutate(site_no = "06449400") 
+
+sna_bur <- sna_bur %>% 
+  mutate(sta = "sna_bur") %>%
+  mutate(site_no = "06459500")
+
+sna_dou <- sna_dou %>% 
+  mutate(sta = "sna_dou") %>%
+  mutate(site_no = "06459175") 
+
+sna_mer <- sna_mer %>% 
+  mutate(sta = "sna_mer") %>%
+  mutate(site_no = "06459200")
+
+spr_stf <- spr_stf %>% 
+  mutate(sta = "spr_stf") %>%
+  mutate(site_no = "06449250") 
+
+whi_cha <- whi_cha %>% 
+  mutate(sta = "whi_cha") %>%
+  mutate(site_no = "06445500") 
+
+whi_cra <- whi_cra %>% 
+  mutate(sta = "whi_cra") %>%
+  mutate(site_no = "06444000") 
+
+whi_wht <- whi_wht %>% 
+  mutate(sta = "whi_wht") %>%
+  mutate(site_no = "06445000") 
+
+# 3. join together in long format
+# Next step: probably could be done more efficiently with map_df()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_int1  <- bind_rows(ant_gor, bea_eli) 
+gage_int2  <- bind_rows(gage_int1, bev_abf) 
+gage_int3  <- bind_rows(gage_int2, bor_cha) 
+gage_int4  <- bind_rows(gage_int3, brnf_ph) 
+gage_int5  <- bind_rows(gage_int4, cas_hot) 
+gage_int6  <- bind_rows(gage_int5, che_hot) 
+gage_int7  <- bind_rows(gage_int6, fre_fai) 
+gage_int8  <- bind_rows(gage_int7, hor_aoe) 
+gage_int9  <- bind_rows(gage_int8, lcr_abv) 
+gage_int10 <- bind_rows(gage_int9, lwr_abv) 
+gage_int11 <- bind_rows(gage_int10, min_kil) 
+gage_int12 <- bind_rows(gage_int11, nio_abb) 
+gage_int13 <- bind_rows(gage_int12, nio_bbb) 
+gage_int14 <- bind_rows(gage_int13, nio_cod) 
+gage_int15 <- bind_rows(gage_int14, nio_col) 
+gage_int16 <- bind_rows(gage_int15, nio_dun) 
+gage_int17 <- bind_rows(gage_int16, nio_hay) 
+gage_int18 <- bind_rows(gage_int17, rap_cre) 
+gage_int19 <- bind_rows(gage_int18, ros_ros) 
+gage_int20 <- bind_rows(gage_int19, sna_bur) 
+gage_int21 <- bind_rows(gage_int20, sna_dou) 
+gage_int22 <- bind_rows(gage_int21, sna_mer) 
+gage_int23 <- bind_rows(gage_int22, spr_stf) 
+gage_int24 <- bind_rows(gage_int23, whi_cha) 
+gage_int25 <- bind_rows(gage_int24, whi_cra) 
+gage_int26 <- bind_rows(gage_int25, whi_wht) 
+
+# export daily flows to data folder
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+export(gage_int26, "data/gage_disc.csv") 
+```
+
+
+```{r clean_daily flow}
+
+# this code chunk checks and removes gages w/o useful characteristics
+#   for future analysis 
+#
+# Steps: 
+# 1. start with the "raw" dataset
+# 2. remove very short records (< 5 years)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. load data & metadata 
+# ~~~~~~~~~~~~~~~~~~~~~~~
+gage_raw <- import("data/gage_full.csv") %>% 
+  arrange(sta) %>% 
+  select(site_no, sta, Date, i, everything())
+gage_meta <- import("data/gage_meta.csv") %>% 
+  arrange(sta)
+
+# 2. identify short records using gage_raw$i column
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+num_recs <- gage_raw %>% 
+  group_by(sta) %>% 
+  summarize(num_days = max(i)) %>% 
+  arrange(num_days) %>% 
+  mutate(num_months = round(num_days/30)) %>% 
+  mutate(num_years = round(num_months/12))
 
 
 
