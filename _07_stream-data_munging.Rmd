@@ -25,7 +25,6 @@ Sometimes the data will need some cleaning and every dataset has its unique quir
 5.0  Challenge your solution 
 6.0  Follow up questions 
 
-
 ## Broad questions:
 What is the drought history of the Pine Ridge Reservation?  
 Does the drought extent differ across the study area?
@@ -40,6 +39,7 @@ What is streamflow variation across the Pine Ridge Reservation?
 2.  Added names & station numbers & joined data 
 3.  Data saved in a flat format (.csv) 
 
+
 Didn't work these
 1.  Data read in from USGS website by dataRetrieval (cfs)
 2.  Data saved as array (.JSON), and flat format (.csv) 
@@ -47,8 +47,10 @@ Didn't work these
 
 # Next STEPS
 1. blc_wan <- readNWISDaily("06446700") # this not working!
+2. Identify percent coverage
+
 2. Check on next steps from Chapter 2 list 
-3. Describe the precipitation seasonality
+
 
 # Someday Maybe
 # USGS 06447050 UNNAMED TRIB BUZZARD CREEK NR LONG VALLEY, SD -instant meas
@@ -75,7 +77,7 @@ gage         USGS streamgage station
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE) 
-# options(tibble.print_max = Inf) # sets tibble output to max
+options(tibble.print_max = 20) # sets tibble output for printing 
 ```
 
 ```{r library, message=FALSE}
@@ -119,7 +121,7 @@ library("janitor") # tools for examining and cleaning dirty data
 # 4 blp_bel 6447230 BLACK PIPE CREEK NR BELVIDERE, SD            
 # 5 bev_buf 6402500 BEAVER CR NEAR BUFFALO GAP,SD                
 # 6 bev_pri 6402430 BEAVER CREEK NEAR PRINGLE, SD   
-#26 che_buf 6402600 CHEYENNE R NEAR BUFFALO GAP SD                         
+#26 che_buf 6402600 CHEYENNE R NEAR BUFFALO GAP SD                        
 # 7 che_red 6403700 CHEYENNE RIVER AT RED SHIRT, SD              
 # 8 che_sce 6408650 CHEYENNE RIVER NEAR SCENIC, SD       
 #27 che_was 6423500 CHEYENNE RIVER NEAR WASTA, SD 
@@ -599,7 +601,7 @@ export(gage_int26, "data/gage_disc.csv")
 # A tibble: 6 x 2
 #   sta     site_no station_nm                                   
 # * <chr>     <int> <chr>          
-#1 chr_ang 06401500 CHEYENNE R BELOW ANGOSTURA DAM,SD
+#1 che_ang 06401500 CHEYENNE R BELOW ANGOSTURA DAM,SD
 #2 frn_fai 06403300 FRENCH CR ABOVE FAIRBURN SD      
 #3 bat_key 06404000 BATTLE CR NEAR KEYSTONE,SD       
 #4 bat_bhr 06406000 BATTLE CR AT HERMOSA,SD          
@@ -795,7 +797,7 @@ bat_key <- bat_key %>%
   mutate(sta = "bat_key") %>%
   mutate(site_no = "6404000") 
 
-chr_ang <- che_ang  %>% 
+che_ang <- che_ang  %>% 
   mutate(sta = "che_ang") %>%
   mutate(site_no = "6401500")
 
@@ -814,7 +816,7 @@ spr_her <- spr_her %>%
 # 3. join together in long format
 # Next step: probably could be done more efficiently with map_df()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_int1  <- bind_rows(bat_her, bat_key) 
+gage_int1  <- bind_rows(bat_bhr, bat_key) 
 gage_int2  <- bind_rows(gage_int1, che_ang) 
 gage_int3  <- bind_rows(gage_int2, frn_fai) 
 gage_int4  <- bind_rows(gage_int3, nio_gor) 
@@ -926,19 +928,21 @@ gage_table <- gage_meta %>%
 #   for future analysis 
 #
 # Steps: 
-# 1. start with the "raw" dataset
-# 2. remove very short records (< 5 years)
-
+# 1. start with a full dataset
+# 2. check for stations with very incomplete data 
+#      * remove cheyenne river at angustora 
+# 2. remove very short records (< 5 years) 
+# 3. check end dates
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 1. load data & metadata 
 # ~~~~~~~~~~~~~~~~~~~~~~~
 gage_meta <- import("data/gage_meta.csv") %>% 
-  arrange(sta)
+  arrange(sta) 
 
 gage_cont <- import("data/gage_cont.csv") 
 gage_disc <- import("data/gage_disc.csv") 
-gage_othr <- import("data/gage_othr.csv") 
+gage_othr <- import("data/gage_other.csv") 
 
 gage_full  <- bind_rows(gage_cont, gage_disc)  
 gage_full  <- bind_rows(gage_full, gage_othr) 
@@ -947,14 +951,117 @@ gage_full <- gage_full %>%
   arrange(sta) %>% 
   select(site_no, sta, Date, i, everything())
 
-# 2. identify short records using gage_raw$i column
+check_sta <- gage_full %>% 
+  distinct(sta)
+
+gage_full <- full_join(gage_full, gage_meta, by = c("site_no", "sta"))
+rm(gage_cont, gage_disc, gage_othr, check_sta)  
+
+# 2. add more info to gage_meta
+gage_yr <- gage_full %>% 
+  group_by(sta) %>% 
+  summarize(min_yr = min(waterYear), 
+            max_yr = max(waterYear)) %>% 
+  mutate(count_yr = 1 + max_yr - min_yr)
+
+gage_meta <- full_join(gage_meta, gage_yr, by = "sta")
+
+gage_meta <- gage_meta %>% 
+  arrange(count_yr)
+
+# 3. look for years with not full data
+gage_incomp <- gage_full %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
+  arrange(desc(i_count), waterYear) 
+
+# 2.1 remove che_ang - which is run ~ 180 days/yr 
+gage_incomp <- gage_incomp %>% 
+  filter(sta != "che_ang")
+
+gage_full_1 <- gage_full %>% 
+  filter(sta != "che_ang") 
+
+che_ang <- gage_full %>% 
+  filter(sta == "che_ang") 
+
+# 2.2 remove bad_mid after 1979
+check_sta <- gage_full_1 %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(sta == "bad_mid") %>% 
+  arrange(waterYear) 
+
+gage_full_2 <- gage_full_1 %>% 
+  filter(sta != "bad_mid" | 
+           waterYear < 1979)
+
+bad_mid <- gage_full_2 %>%
+  filter(sta == "bad_mid")
+
+gage_incomp <- gage_full_2 %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(i_count = n(), 
+            min_yr = min(waterYear), 
+            max_yr = max(waterYear)) %>% 
+  filter(i_count <= 330) %>% 
+  filter(sta != "che_ang") %>%
+  arrange(sta, waterYear, desc(i_count)) 
+
+
+
+# 2. remove short records using gage_raw$i column
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-num_recs <- gage_raw %>% 
+table <- gage_full %>% 
   group_by(sta) %>% 
   summarize(num_days = max(i)) %>% 
   arrange(num_days) %>% 
   mutate(num_months = round(num_days/30)) %>% 
-  mutate(num_years = round(num_months/12))
+  mutate(num_years = round(num_months/12)) %>% 
+  ungroup() %>%
+  as.tibble()
+
+# 2. result - remove very short record stations
+# A tibble: 61 x 4
+#  sta     num_days num_months num_years
+# <chr>      <dbl>      <dbl>     <dbl>
+# 1 ant_gor      254          8         1
+# 2 fre_fai      595         20         2
+# 3 hor_aoe      623         21         2
+# 4 rap_cre     1320         44         4
+
+gage_removed <- gage_full %>%
+  filter(sta == "ant_gor" | 
+           sta == "fre_fai" | 
+           sta == "hor_aoe" | 
+           sta == "rap_cre"
+         )
+
+gage_int1 <- gage_full %>%
+  filter(sta != "ant_gor" & 
+           sta != "fre_fai" & 
+           sta != "hor_aoe" & 
+           sta != "rap_cre"
+         )
+
+table <- gage_int1 %>% 
+  group_by(sta) %>% 
+  summarize(endYear = max(waterYear)) %>% 
+  arrange(endYear) %>% 
+  ungroup() %>% 
+  as.tibble()
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1128,7 +1235,7 @@ num_recs <- gage_raw %>%
 #            discharge data jumps from 1949-02-06 to 1949-02-15
 #            discharge data jumps from 1949-02-15 to 1949-02-24
 #            discharge data jumps from 1950-09-30 to 1951-10-01
-# chr_ang   discharge data jumps from 1978-10-17 to 1979-01-18
+# che_ang   discharge data jumps from 1978-10-17 to 1979-01-18
 #            discharge data jumps from 1979-08-08 to 1980-02-01
 #            discharge data jumps from 1980-08-04 to 1981-02-01
 #            discharge data jumps from 1981-08-03 to 1982-02-01
@@ -1180,7 +1287,6 @@ num_recs <- gage_raw %>%
 
 # # blc_wan <- readNWISDaily("06446700") # this not working!
 ```
-
 
 ```{r next_steps_munging}
 # Also add BEAR in the LODGE
