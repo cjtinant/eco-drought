@@ -64,11 +64,17 @@ parameter_cd USGS parameter codes
 
 xxx_yyy      individual gage names xxx = stream & yyy = location
 
-gage         USGS streamgage station
-  _int#      intermediate dataframe for binding
+gage         USGS streamgage station 
+  _cont      set of active gages 
+  _disc      set of discontinued gages   
+  _othr      set of gages not found in initial analysis 
+  _full      equals {_cont + _disc + _othr}; N = 741,215 obs
+  _int#      intermediate dataframe for binding 
   _meta      metadata  
-  _raw       the "mostly" raw dataset  
-
+  _yr        temporary variable to calculate years of stations
+  
+check_sta    check variable
+?  _raw       the "mostly" raw dataset of  
 
 ## Results: 
 
@@ -80,22 +86,22 @@ knitr::opts_chunk$set(echo = FALSE)
 options(tibble.print_max = 20) # sets tibble output for printing 
 ```
 
-```{r library, message=FALSE}
-# Sets up the library of packages  
-library("here") # identifies where to save work 
-library("dataRetrieval") # USGS data import 
-library("EGRET") # Exploration and Graphics for RivEr Trends
-library("rio") # more robust I/O - to import and clean data 
-library("lubridate") # easier dates
-library("tidyverse")
-library("janitor") # tools for examining and cleaning dirty data 
-# library("DataExplorer") # quick look at NA vals
-#library('jsonlite') # tools for working with lists 
-#library("magrittr") # provides aliases for easier reading
-# library("friendlyeval")
+```{r library, message=FALSE} 
+# Sets up the library of packages   
+library("here") # identifies where to save work  
+library("dataRetrieval") # USGS data import  
+library("EGRET") # Exploration and Graphics for RivEr Trends 
+library("rio") # more robust I/O - to import and clean data  
+library("lubridate") # easier dates 
+library("tidyverse") 
+library("janitor") # tools for examining and cleaning dirty data  
+# library("DataExplorer") # quick look at NA vals 
+#library('jsonlite') # tools for working with lists  
+#library("magrittr") # provides aliases for easier reading 
+# library("friendlyeval") 
 
-# a useful description of commits:
-# http://r-pkgs.had.co.nz/git.html
+# a useful description of commits: 
+# http://r-pkgs.had.co.nz/git.html 
 ```
 
 ```{r import_daily_flow_active_EGRET, eval=FALSE} 
@@ -923,10 +929,9 @@ gage_table <- gage_meta %>%
 ```
 
 ```{r clean_daily flow}
-
 # this code chunk checks and removes gages w/o useful characteristics
 #   for future analysis 
-#
+
 # Steps: 
 # 1. start with a full dataset
 # 2. check for stations with very incomplete data 
@@ -944,6 +949,7 @@ gage_cont <- import("data/gage_cont.csv")
 gage_disc <- import("data/gage_disc.csv") 
 gage_othr <- import("data/gage_other.csv") 
 
+# create set of all possible recorded streamflows & arrange
 gage_full  <- bind_rows(gage_cont, gage_disc)  
 gage_full  <- bind_rows(gage_full, gage_othr) 
 
@@ -954,10 +960,9 @@ gage_full <- gage_full %>%
 check_sta <- gage_full %>% 
   distinct(sta)
 
-gage_full <- full_join(gage_full, gage_meta, by = c("site_no", "sta"))
 rm(gage_cont, gage_disc, gage_othr, check_sta)  
 
-# 2. add more info to gage_meta
+# 2. calculate year count, drop vars & join
 gage_yr <- gage_full %>% 
   group_by(sta) %>% 
   summarize(min_yr = min(waterYear), 
@@ -967,7 +972,76 @@ gage_yr <- gage_full %>%
 gage_meta <- full_join(gage_meta, gage_yr, by = "sta")
 
 gage_meta <- gage_meta %>% 
-  arrange(count_yr)
+  arrange(count_yr) %>% 
+  select(-c(site_tp_cd, dec_coord_datum_cd, alt_datum_cd, huc_cd)) %>% 
+  as.tibble() %>% 
+  select(count_yr, everything())
+
+gage_full <- full_join(gage_meta, gage_full, by = c("site_no", "sta"))
+rm(gage_yr)
+
+# 2. remove gages with short records 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# This is the top of the metadata tibble: 61 x 13
+#   count_yr sta    site_no station_nm        dec_lat_va dec_long_va 
+#      <dbl> <chr>    <int> <chr>                  <dbl>       <dbl>  
+# 1        1 ant_g… 6458000 Antelope Creek n…       42.7       -102.  
+# 2        2 fre_f… 6403500 FRENCH CR NEAR F…       43.7       -103.  
+# 3        3 hor_a… 6400870 HORSEHEAD CR NEA…       43.1       -103.
+# 4        6 bea_e… 6458500 BEAR C NR ELI NE…       42.9       -102.  
+# 5        6 brnf_… 6440500 NORTH FORK BAD R…       44.0       -102.  
+# 6        6 wkc_w… 6446100 WOUNDED KNEE CRE…       43.1       -102.  
+# 7        7 bev_a… 6402470 BEAVER CREEK ABO…       43.5       -103.   # 8        7 whi_r… 6446200 WHITE R NEAR ROC…       43.5       -102.   
+# 9        8 nio_c… 6457000 NIOBRARA RIVER N…       42.5       -102.  
+#10       10 nio_c… 6459000 NIOBRARA R NEAR …       42.8       -101.  
+
+gage_dis1 <- gage_full %>%
+  filter(sta == c("ant_gor", "fre_fai", "hor_aoe"))
+
+gage_int1 <- gage_full %>% 
+  filter(sta != c("ant_gor", "fre_fai", "hor_aoe"))
+
+
+
+
+table <- gage_full %>% 
+  group_by(sta) %>% 
+  summarize(num_days = max(i)) %>% 
+  arrange(num_days) %>% 
+  mutate(num_months = round(num_days/30)) %>% 
+  mutate(num_years = round(num_months/12)) %>% 
+  ungroup() %>%
+  as.tibble()
+
+# 2. result - remove very short record stations
+# A tibble: 61 x 4
+#  sta     num_days num_months num_years
+# <chr>      <dbl>      <dbl>     <dbl>
+# 1 ant_gor      254          8         1
+# 2 fre_fai      595         20         2
+# 3 hor_aoe      623         21         2
+# 4 rap_cre     1320         44         4
+
+gage_removed <- gage_full %>%
+  filter(sta == "ant_gor" | 
+           sta == "fre_fai" | 
+           sta == "hor_aoe" | 
+           sta == "rap_cre"
+         )
+
+gage_int1 <- gage_full %>%
+  filter(sta != "ant_gor" & 
+           sta != "fre_fai" & 
+           sta != "hor_aoe" & 
+           sta != "rap_cre"
+         )
+
+table <- gage_int1 %>% 
+  group_by(sta) %>% 
+  summarize(endYear = max(waterYear)) %>% 
+  arrange(endYear) %>% 
+  ungroup() %>% 
+  as.tibble()
 
 # 3. look for years with not full data
 gage_incomp <- gage_full %>% 
@@ -1008,51 +1082,6 @@ gage_incomp <- gage_full_2 %>%
   filter(i_count <= 330) %>% 
   filter(sta != "che_ang") %>%
   arrange(sta, waterYear, desc(i_count)) 
-
-
-
-# 2. remove short records using gage_raw$i column
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-table <- gage_full %>% 
-  group_by(sta) %>% 
-  summarize(num_days = max(i)) %>% 
-  arrange(num_days) %>% 
-  mutate(num_months = round(num_days/30)) %>% 
-  mutate(num_years = round(num_months/12)) %>% 
-  ungroup() %>%
-  as.tibble()
-
-# 2. result - remove very short record stations
-# A tibble: 61 x 4
-#  sta     num_days num_months num_years
-# <chr>      <dbl>      <dbl>     <dbl>
-# 1 ant_gor      254          8         1
-# 2 fre_fai      595         20         2
-# 3 hor_aoe      623         21         2
-# 4 rap_cre     1320         44         4
-
-gage_removed <- gage_full %>%
-  filter(sta == "ant_gor" | 
-           sta == "fre_fai" | 
-           sta == "hor_aoe" | 
-           sta == "rap_cre"
-         )
-
-gage_int1 <- gage_full %>%
-  filter(sta != "ant_gor" & 
-           sta != "fre_fai" & 
-           sta != "hor_aoe" & 
-           sta != "rap_cre"
-         )
-
-table <- gage_int1 %>% 
-  group_by(sta) %>% 
-  summarize(endYear = max(waterYear)) %>% 
-  arrange(endYear) %>% 
-  ungroup() %>% 
-  as.tibble()
-
-
 
 
 
