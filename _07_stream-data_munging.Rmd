@@ -980,8 +980,8 @@ gage_meta <- gage_meta %>%
 gage_full <- full_join(gage_meta, gage_full, by = c("site_no", "sta"))
 rm(gage_yr)
 
-# 2. remove gages with short records 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. remove gages with very short records of < 5 yrs
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # This is the top of the metadata tibble: 61 x 13
 #   count_yr sta    site_no station_nm        dec_lat_va dec_long_va 
 #      <dbl> <chr>    <int> <chr>                  <dbl>       <dbl>  
@@ -995,46 +995,41 @@ rm(gage_yr)
 # 9        8 nio_c… 6457000 NIOBRARA RIVER N…       42.5       -102.  
 #10       10 nio_c… 6459000 NIOBRARA R NEAR …       42.8       -101.  
 
-gage_dis1 <- gage_full %>%
-  filter(sta == c("ant_gor", "fre_fai", "hor_aoe"))
-
-gage_int1 <- gage_full %>% 
-  filter(sta != c("ant_gor", "fre_fai", "hor_aoe"))
-
-
-
-
-table <- gage_full %>% 
-  group_by(sta) %>% 
-  summarize(num_days = max(i)) %>% 
-  arrange(num_days) %>% 
-  mutate(num_months = round(num_days/30)) %>% 
-  mutate(num_years = round(num_months/12)) %>% 
-  ungroup() %>%
-  as.tibble()
-
-# 2. result - remove very short record stations
-# A tibble: 61 x 4
-#  sta     num_days num_months num_years
-# <chr>      <dbl>      <dbl>     <dbl>
-# 1 ant_gor      254          8         1
-# 2 fre_fai      595         20         2
-# 3 hor_aoe      623         21         2
-# 4 rap_cre     1320         44         4
-
-gage_removed <- gage_full %>%
-  filter(sta == "ant_gor" | 
+gage_drp1 <- gage_full %>%
+  filter(sta == "ant_gor" |
            sta == "fre_fai" | 
-           sta == "hor_aoe" | 
-           sta == "rap_cre"
+           sta == "hor_aoe" 
          )
 
 gage_int1 <- gage_full %>%
   filter(sta != "ant_gor" & 
            sta != "fre_fai" & 
-           sta != "hor_aoe" & 
-           sta != "rap_cre"
-         )
+           sta != "hor_aoe" 
+         ) 
+
+gage_dmet1 <- gage_meta %>%
+  filter(sta == "ant_gor" |
+           sta == "fre_fai" | 
+           sta == "hor_aoe" 
+         ) 
+
+gage_imet1 <- gage_meta %>%
+  filter(sta != "ant_gor" & 
+           sta != "fre_fai" & 
+           sta != "hor_aoe" 
+         ) %>% 
+  select(min_yr, max_yr, sta, station_nm, everything()) %>%
+  arrange(max_yr)
+
+
+
+
+
+
+
+
+
+
 
 table <- gage_int1 %>% 
   group_by(sta) %>% 
@@ -1311,7 +1306,23 @@ gage_incomp <- gage_full_2 %>%
 #            discharge data jumps from 1932-09-14 to 1945-10-01
 
 
+table <- gage_full %>% 
+  group_by(sta) %>% 
+  summarize(num_days = max(i)) %>% 
+  arrange(num_days) %>% 
+  mutate(num_months = round(num_days/30)) %>% 
+  mutate(num_years = round(num_months/12)) %>% 
+  ungroup() %>%
+  as.tibble()
 
+# 2. result - remove very short record stations
+# A tibble: 61 x 4
+#  sta     num_days num_months num_years
+# <chr>      <dbl>      <dbl>     <dbl>
+# 1 ant_gor      254          8         1
+# 2 fre_fai      595         20         2
+# 3 hor_aoe      623         21         2
+# 4 rap_cre     1320         44         4
 
 
 # # blc_wan <- readNWISDaily("06446700") # this not working!
