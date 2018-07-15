@@ -68,7 +68,7 @@ gage         USGS streamgage station
   _cont      set of active gages 
   _disc      set of discontinued gages   
   _othr      set of gages not found in initial analysis 
-  _full      equals {_cont + _disc + _othr}; N = 741,215 obs
+  _full      equals {_cont + _disc + _othr}; 741,215 obs for 61 sta
   _int#      intermediate dataframe for binding 
   _meta      metadata  
   _yr        temporary variable to calculate years of stations
@@ -933,15 +933,14 @@ gage_table <- gage_meta %>%
 #   for future analysis 
 
 # Steps: 
-# 1. start with a full dataset
-# 2. check for stations with very incomplete data 
-#      * remove cheyenne river at angustora 
-# 2. remove very short records (< 5 years) 
-# 3. check end dates
+# 1. Assemble a full dataset (N = 61 stations)
+# 2. Join metadata information & year count to observations
+# 3. Subset stations with observations 1992-1997 for clustering 
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# 1. load data & metadata 
-# ~~~~~~~~~~~~~~~~~~~~~~~
+# 1. Join & arrange a set of all possible recorded streamflows
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 gage_meta <- import("data/gage_meta.csv") %>% 
   arrange(sta) 
 
@@ -949,7 +948,7 @@ gage_cont <- import("data/gage_cont.csv")
 gage_disc <- import("data/gage_disc.csv") 
 gage_othr <- import("data/gage_other.csv") 
 
-# create set of all possible recorded streamflows & arrange
+# Assemble a complete set of stations identifed in prior steps
 gage_full  <- bind_rows(gage_cont, gage_disc)  
 gage_full  <- bind_rows(gage_full, gage_othr) 
 
@@ -957,12 +956,15 @@ gage_full <- gage_full %>%
   arrange(sta) %>% 
   select(site_no, sta, Date, i, everything())
 
+# check results
 check_sta <- gage_full %>% 
   distinct(sta)
 
 rm(gage_cont, gage_disc, gage_othr, check_sta)  
 
-# 2. calculate year count, drop vars & join
+# 2. join together gage & gage metadata information 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 gage_yr <- gage_full %>% 
   group_by(sta) %>% 
   summarize(min_yr = min(waterYear), 
@@ -980,12 +982,9 @@ gage_meta <- gage_meta %>%
 gage_full <- full_join(gage_meta, gage_full, by = c("site_no", "sta"))
 rm(gage_yr)
 
-# 2. view reservation gages
-# based on this look, I will use 1992-1997 as set of stations to do 
-# grouping...
-gage_fin1 <- gage_full %>% 
-  filter(state_cd == 46)
-
+# 3. Identify a subset of gages for cluster analysis 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Filter set of reservation stations; note wkc-wok is 1992-1997
 gage_met1 <- gage_meta %>% 
   filter(state_cd == 46) %>% 
   filter(county_cd == 7 | 
@@ -994,67 +993,48 @@ gage_met1 <- gage_meta %>%
            county_cd == 102
   )
 
+gage_fin1 <- gage_full %>% 
+  filter(state_cd == 46) %>% 
+  filter(county_cd == 7 | 
+           county_cd == 71 |
+           county_cd == 95 |
+           county_cd == 102
+  ) 
 
-
-
-# 2. remove gages with very short records of < 5 yrs
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# This is the top of the metadata tibble: 61 x 13
-#   count_yr sta    site_no station_nm        dec_lat_va dec_long_va 
-#      <dbl> <chr>    <int> <chr>                  <dbl>       <dbl>  
-# 1        1 ant_g… 6458000 Antelope Creek n…       42.7       -102.  
-# 2        2 fre_f… 6403500 FRENCH CR NEAR F…       43.7       -103.  
-# 3        3 hor_a… 6400870 HORSEHEAD CR NEA…       43.1       -103.
-# 4        6 bea_e… 6458500 BEAR C NR ELI NE…       42.9       -102.  
-# 5        6 brnf_… 6440500 NORTH FORK BAD R…       44.0       -102.  
-# 6        6 wkc_w… 6446100 WOUNDED KNEE CRE…       43.1       -102.  
-# 7        7 bev_a… 6402470 BEAVER CREEK ABO…       43.5       -103.   # 8        7 whi_r… 6446200 WHITE R NEAR ROC…       43.5       -102.   
-# 9        8 nio_c… 6457000 NIOBRARA RIVER N…       42.5       -102.  
-#10       10 nio_c… 6459000 NIOBRARA R NEAR …       42.8       -101.  
-
-gage_drp1 <- gage_full %>%
-  filter(sta == "ant_gor" |
-           sta == "fre_fai" | 
-           sta == "hor_aoe" 
-         )
-
-gage_int1 <- gage_full %>%
-  filter(sta != "ant_gor" & 
-           sta != "fre_fai" & 
-           sta != "hor_aoe" 
-         ) 
-
-gage_dmet1 <- gage_meta %>%
-  filter(sta == "ant_gor" |
-           sta == "fre_fai" | 
-           sta == "hor_aoe" 
-         ) 
-
-gage_imet1 <- gage_meta %>%
-  filter(sta != "ant_gor" & 
-           sta != "fre_fai" & 
-           sta != "hor_aoe" 
+# Filter the gages with data for 1992-1997
+gage_met2 <- gage_meta %>% 
+  filter(min_yr < 1993 & 
+           max_yr > 1995
          ) %>% 
-  select(min_yr, max_yr, sta, station_nm, everything()) %>%
-  arrange(max_yr)
+  arrange(count_yr) %>%
+  as.tibble() 
+
+gage_mdp2 <- gage_meta %>% 
+  filter(min_yr > 1992 |
+           max_yr < 1996
+         ) %>% 
+  arrange(count_yr) %>%
+  as.tibble() 
+
+gage_fin2 <- gage_full %>% 
+  filter(min_yr < 1993 & 
+           max_yr > 1995
+         ) %>% 
+  as.tibble() 
+
+gage_drp2 <- gage_full %>% 
+  filter(min_yr > 1992 |
+           max_yr < 1996
+         ) %>% 
+  as.tibble() 
+
+chk_sta <- bind_rows(gage_met2, gage_mdp2) # count is ok
+chk_sta <- bind_rows(gage_fin2, gage_drp2) # count is ok
+
+rm(gage_fin1, gage_met1, chk_sta)
 
 
-
-
-
-
-
-
-
-
-
-table <- gage_int1 %>% 
-  group_by(sta) %>% 
-  summarize(endYear = max(waterYear)) %>% 
-  arrange(endYear) %>% 
-  ungroup() %>% 
-  as.tibble()
-
+# START HERE!
 # 3. look for years with not full data
 gage_incomp <- gage_full %>% 
   group_by(sta, waterYear) %>% 
