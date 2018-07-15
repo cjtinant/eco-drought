@@ -68,13 +68,20 @@ gage         USGS streamgage station
   _cont      set of active gages 
   _disc      set of discontinued gages   
   _othr      set of gages not found in initial analysis 
-  _full      equals {_cont + _disc + _othr}; 741,215 obs for 61 sta
-  _int#      intermediate dataframe for binding 
+
+  _full      equals {_cont + _disc + _othr}; 741,215 obs for 61 sta 
+  _drp#      observations sequentially dropped from _full
+  _fin#      equals {_full} - {_drp#} 
+  _int       intermediate dataframe for binding 
+  
   _meta      metadata  
+  _incomp    temporary variable to find station-years w/ incomp data 
+  _mdp#      gages sequentially dropped from _meta
+  _met#      equals {_meta} - {_mdp#} 
   _yr        temporary variable to calculate years of stations
   
 check_sta    check variable
-?  _raw       the "mostly" raw dataset of  
+
 
 ## Results: 
 
@@ -1001,7 +1008,7 @@ gage_fin1 <- gage_full %>%
            county_cd == 102
   ) 
 
-# Filter the gages with data for 1992-1997
+# Filter the gages with 1992-1997 observations
 gage_met2 <- gage_meta %>% 
   filter(min_yr < 1993 & 
            max_yr > 1995
@@ -1028,29 +1035,50 @@ gage_drp2 <- gage_full %>%
          ) %>% 
   as.tibble() 
 
+# check work
 chk_sta <- bind_rows(gage_met2, gage_mdp2) # count is ok
 chk_sta <- bind_rows(gage_fin2, gage_drp2) # count is ok
+rm(chk_sta, gage_drp1, gage_fin1, gage_mdp1, gage_met1)
 
-rm(gage_fin1, gage_met1, chk_sta)
-
-
-# START HERE!
-# 3. look for years with not full data
-gage_incomp <- gage_full %>% 
+# 4. Identify serially complete observations 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_incomp <- gage_fin2 %>% 
   group_by(sta, waterYear) %>% 
   summarize(i_count = n()) %>% 
   filter(i_count <= 364) %>% 
-  arrange(desc(i_count), waterYear) 
+  arrange(sta, waterYear) 
 
-# 2.1 remove che_ang - which is run ~ 180 days/yr 
+# 3.1 remove bad_mid & che_ang: too much missing data
 gage_incomp <- gage_incomp %>% 
-  filter(sta != "che_ang")
+  filter(sta != "bad_mid" & 
+           sta != "che_ang")
 
-gage_full_1 <- gage_full %>% 
-  filter(sta != "che_ang") 
+gage_met3 <- gage_met2 %>% 
+  filter(sta != "bad_mid" & 
+           sta != "che_ang") 
 
-che_ang <- gage_full %>% 
-  filter(sta == "che_ang") 
+gage_int <- gage_meta %>% 
+  filter(sta == "bad_mid" | 
+           sta == "che_ang") 
+
+
+gage_mdp3 <- bind_rows(gage_mdp2, gage_int) # checks: 27 + 2
+
+gage_fin3 <- gage_fin2 %>% 
+  filter(sta != "bad_mid" & 
+           sta != "che_ang") 
+
+gage_int <- gage_full %>% 
+  filter(sta == "bad_mid" | 
+           sta == "che_ang") 
+
+gage_drp3 <- bind_rows(gage_drp2, gage_int) 
+
+# check work - remove unneeded tibbles
+chk_sta <- bind_rows(gage_met3, gage_mdp3) # count is ok
+chk_sta <- bind_rows(gage_fin3, gage_drp3) # count is ok
+rm(gage_drp2, gage_fin2, gage_int, gage_mdp2, gage_met2)
+
 
 # 2.2 remove bad_mid after 1979
 check_sta <- gage_full_1 %>% 
