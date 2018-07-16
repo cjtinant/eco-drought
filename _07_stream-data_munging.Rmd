@@ -1066,7 +1066,6 @@ gage_int <- gage_meta %>%
            sta == "che_ang") %>% 
   arrange(sta)
 
-
 gage_mdp3 <- bind_rows(gage_mdp2, gage_int)
 
 gage_fin3 <- gage_fin2 %>% 
@@ -1086,40 +1085,90 @@ chk_sta <- bind_rows(gage_met3, gage_mdp3) # count is ok
 chk_sta <- bind_rows(gage_fin3, gage_drp3) # count is ok
 # rm(gage_drp2, gage_fin2, gage_int, gage_mdp2, gage_met2)
 
-#  5. Use the EGRET input data (below) to increase serial completeness
+# Remove stations without 1992-1997
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# find incomplete data
-gage_incomp <- gage_fin3 %>% 
-  group_by(waterYear, sta) %>% 
-  count() %>%
-  filter(n < 364) %>% 
+# Remove stations with no annual data 1992-1997 
+chk_sta <- gage_fin3 %>% 
+  filter(waterYear > 1992) %>% 
+  filter(waterYear < 1998) %>% 
+  group_by(sta, waterYear) %>%  
+  count() %>% 
+  arrange(n) %>% 
+  ungroup() 
+
+gage_incomp <- anti_join(gage_met3, chk_sta)
+
+gage_fin4 <- gage_fin3 %>% 
+  filter(sta != "che_buf") %>% 
+  filter(sta != "whi_cra") %>% 
+  filter((sta != "whi_int")) 
+
+gage_int <- gage_fin3 %>% 
+  filter(sta == "che_buf" | 
+           sta == "whi_cra" | 
+           sta == "whi_int"
+         )
+
+gage_drp4 <- bind_rows(gage_drp3, gage_int)
+
+gage_int <- gage_met3 %>% 
+  filter(sta == "che_buf" | 
+           sta == "whi_cra" | 
+           sta == "whi_int"
+         ) 
+
+gage_mdp4 <- bind_rows(gage_mdp3, gage_int)
+
+gage_met4 <- gage_met3 %>% 
+  filter(sta != "che_buf") %>% 
+  filter(sta != "whi_cra") %>% 
+  filter((sta != "whi_int")) 
+
+# Remove stations with incomplete annual data 1992-1997 
+gage_incomp <- gage_fin4 %>% 
+  filter(waterYear > 1992) %>% 
+  filter(waterYear < 1998) %>% 
+  group_by(sta, waterYear) %>%  
+  count() %>% 
   arrange(sta) %>% 
   ungroup() 
 
-gage_incomp <- inner_join(gage_incomp, gage_meta, by = "sta") %>% 
-  select(-c(4:12))
+gage_incomp <- gage_incomp %>% 
+  group_by(sta) %>% 
+  count() %>% 
+  filter(nn < 5)
+
+# remove lcr_abv - not complete for 1992-1997  
+gage_fin5 <- gage_fin4 %>% 
+  filter(sta != "lcr_abv") 
+
+gage_int <- gage_fin4 %>% 
+  filter(sta == "lcr_abv")
+
+gage_drp5 <- bind_rows(gage_drp4, gage_int)
+
+gage_int <- gage_met4 %>% 
+  filter(sta == "lcr_abv")
+
+gage_mdp5 <- bind_rows(gage_mdp4, gage_int)
+
+gage_met5 <- gage_met4 %>% 
+  filter(sta != "lcr_abv") %>% 
+  arrange(sta)
+
+#  6. Use the EGRET input data (below) to increase serial completeness
+
 
 # EGRET table for gage_met3 stations
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # bat_key   discharge data jumps from 1947-07-31 to 1961-10-02 ???
 #  Start @ 1961-10-02
-# che_buf  discharge data jumps from 1980-09-29 to 2007-03-23 
-#  Start @ 1961-10-02 
-# che_hot  discharge data jumps from 1919-12-06 to 1920-01-22
-#           discharge data jumps from 1920-09-30 to 1943-03-01
-#  Start @ 1943-03-01 
 # che_was  discharge data jumps from 1914-12-31 to 1915-02-01
 #           discharge data jumps from 1915-06-30 to 1928-08-18
 #           discharge data jumps from 1932-06-30 to 1934-03-06
 #           discharge data jumps from 1934-03-06 to 1934-03-18 
 #  Start @ 1934-03-18  
-# lcr_abv  discharge data jumps from 1940-09-29 to 1962-08-01
-#           discharge data jumps from 1979-02-28 to 1996-04-12
-#           discharge data jumps from 2015-11-12 to 2016-07-23
-#           discharge data jumps from 2016-08-07 to 2016-08-09
-#           61 discharge values are not reported (NA's). 
-#  Remove lcr_abv for lack of data 
 # lcr_bel discharge data jumps from 1940-09-29 to 1962-08-01 
 #  Start @ 1962-08-01 
 # lwr_abv   discharge data jumps from 1999-09-30 to 2000-01-01
@@ -1133,17 +1182,6 @@ gage_incomp <- inner_join(gage_incomp, gage_meta, by = "sta") %>%
 #  End @ 1997-09-30
 # wcc_ogl  discharge data jumps from 1981-09-29 to 1987-10-01 
 # No change
-# whi_cra   discharge data jumps from 1943-09-30 to 1947-10-01
-#            discharge data jumps from 1991-09-30 to 2003-10-01 
-# Remove whi_cra
-# whi_int  discharge data jumps from 1928-11-30 to 1929-03-01
-#           discharge data jumps from 1930-11-30 to 1931-01-20
-#           discharge data jumps from 1931-01-20 to 1931-02-01
-#           discharge data jumps from 1931-10-16 to 1931-10-18
-#           discharge data jumps from 1931-11-30 to 1932-02-01
-#           discharge data jumps from 1932-06-30 to 1939-10-02
-#           discharge data jumps from 1942-09-29 to 2002-10-01  
-# Start @ 2002-10-01
 # whi_slm   discharge data jumps from 1970-09-29 to  
 # Start @ 1990-12-04
 
@@ -1162,10 +1200,26 @@ gage_fin4 <- gage_fin3 %>%
            waterYear > 1961)
 
 chk_sta <- anti_join(gage_fin3, gage_fin4) 
-
 gage_drp4 <- bind_rows(gage_drp3, gage_int)
 
+# make che_buf serially complete  
+chk_sta <- gage_fin3 %>% 
+  filter(sta == "che_buf") %>%
+  distinct(waterYear)
 
+# & 
+#           waterYear < 1962) %>% 
+
+gage_int <- gage_fin3 %>% 
+  filter(sta == "bat_key" & 
+           waterYear < 1962) 
+
+gage_fin4 <- gage_fin3 %>% 
+  filter(sta != "bat_key" | 
+           waterYear > 1961)
+
+chk_sta <- anti_join(gage_fin3, gage_fin4) 
+gage_drp4 <- bind_rows(gage_drp3, gage_int)
 
 
 
