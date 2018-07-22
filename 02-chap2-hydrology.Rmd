@@ -3225,7 +3225,6 @@ rm(intr8, intc8, spi_24rap)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
 # For clustering:  rows are observations and columns are variables 
 # (in the first case stations, in the final case stations & averaging 
 #  periods).  
@@ -3286,29 +3285,60 @@ gage_sum <- gage_scale_l %>%
             sd = sd(q_scaled)) %>%
     ungroup()
 
-gage_scale_l <- gage_prep %>% 
+# standardize the variables
+gage_scale1_l <- gage_prep %>% 
   select(sta, q_depth, date) %>% 
   mutate(q_mean = mean(q_depth)) %>% 
   mutate(q_sd = sd(q_depth)) %>% 
   mutate(q_scaled = (q_depth - q_mean)/q_sd) %>% 
-  select(sta, q_scaled, date)
+  mutate(avg_period = "1") %>% 
+  mutate(sta_type = paste(sta, avg_period, sep = "")) %>% 
+  select(sta_type, q_scaled, date)
 
-gage_scale <- gage_scale_l %>% 
-  spread(sta, q_scaled) 
+gage_scale7_l <- gage_prep %>%  
+ filter(!is.na(q7_depth)) %>% 
+  mutate(q7_mean = mean(q7_depth)) %>% 
+  mutate(q7_sd = sd(q7_depth)) %>% 
+  mutate(q7_scaled = (q7_depth - q7_mean)/q7_sd) %>% 
+  mutate(avg_period = "7") %>% 
+  mutate(sta_type = paste(sta, avg_period, sep = "")) %>% 
+  select(sta_type, q7_scaled, date)
+    
+gage_scale30_l <- gage_prep %>% 
+  filter(!is.na(q30_depth)) %>% 
+  mutate(q30_mean = mean(q30_depth)) %>% 
+  mutate(q30_sd = sd(q30_depth)) %>% 
+  mutate(q30_scaled = (q30_depth - q30_mean)/q30_sd) %>% 
+  mutate(avg_period = "30") %>% 
+  mutate(sta_type = paste(sta, avg_period, sep = "")) %>% 
+  select(sta_type, q30_scaled, date)
+
+# spread the long variables
+gage_scale1 <- gage_scale_l %>% 
+  spread(sta_type, q_scaled) 
+
+gage_scale7 <- gage_scale7_l %>% 
+  spread(sta_type, q7_scaled) 
+
+gage_scale30 <- gage_scale30_l %>% 
+  spread(sta_type, q30_scaled) 
+
+gage_scale <- full_join(gage_scale1, gage_scale7)
+gage_scale <- full_join(gage_scale, gage_scale30)
+
+rm(gage_scale_l, gage_scale1, gage_scale1_l, gage_scale7, 
+   gage_scale7_l, gage_scale30, gage_scale30_l)
 
 # A check on the data finds Wounded Knee Creek has ~11% NA values
-# plot_missing(gage_scale)
+#plot_missing(gage_scale)
 
 check_sta <- gage_scale %>% 
-  select(wkc_wok, date) %>% 
-  filter(is.na(wkc_wok))
+  select(wkc_wok30, date) %>% 
+  filter(is.na(wkc_wok30))
 
-
-# drop the NA values (num obs drops from 2192 to 1945)
+# drop the NA values (num obs drops from 2192 to 1916)
 gage_scale <- gage_scale %>% 
   drop_na()
-
-
 ```
 
 $xi−center(x)scale(x) \frac{x_i - center(x)}{scale(x)}$
@@ -3317,6 +3347,45 @@ $xi−mean(x)sd(x) \frac{x_i - mean(x)}{(x)}$
 Where center(x) can be the mean or the median of x values, and scale(x) can be the standard deviation (SD), the interquartile range, or the MAD (median absolute deviation).
 
 
+```{r visualize}
+16.2 Data preparation
+
+#We'll use two data sets:
+#the built-in R data set iris. and a random data set generated from the iris data set.
+#The iris data sets look like this:
+head(iris, 3)
+
+## Sepal.Length Sepal.Width Petal.Length Petal.Width Species ## 1 5.1 3.5 1.4 0.2 setosa ## 2 4.9 3.0 1.4 0.2 setosa ## 3 4.7 3.2 1.3 0.2 setosa
+
+#We start by excluding the column "Species" at position 5
+
+# Iris data set 
+df <- iris[, -5] 
+df <- as.data.frame(df)
+
+# Random data generated from the iris data set 
+random_df <- apply(df, 2,
+function(x){runif(length(x), min(x), (max(x)))}) 
+random_df <- as.data.frame(random_df) 
+
+# Standardize the data sets 
+df <- iris.scaled <- scale(df) 
+random_df <- scale(random_df)
+
+#________________
+#16.3 Visual inspection of the data
+
+#We start by visualizing the data to assess whether they contains any #meaningful clusters.
+
+#As the data contain more than two variables, we need to reduce the #dimensionality in order to plot a scatter plot. This can be done using #principal component analysis (PCA) algorithm (R function: prcomp()). #After performing PCA, we use the function fviz_pca_ind() [factoextra R #package] to visualize the output.
+
+#The iris and the random data sets can be illustrated as follow: 
+
+library("factoextra") 
+# Plot faithful data set 
+fviz_pca_ind(prcomp(df), title = "PCA - Iris data",
+habillage = iris$Species, palette = "jco", geom = "point", ggtheme = theme_classic(), legend = "bottom")
+```
 
 
 
