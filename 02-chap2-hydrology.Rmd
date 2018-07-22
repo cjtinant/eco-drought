@@ -3,12 +3,12 @@ Big Picture Steps
 2.    Characterize drought
 2.1   Download station data: _04_prco-data_munging
 2.1.1 Precip data: finished
-2.1.2 Stream data: in progress - July 1
+2.1.2 Stream data: finished - July 16
 2.2   Identify distribution: _05_L-moment_diagram
 2.3   Calculate SPI: this; but having difficulties!
 2.3.1 Learn purrr::map(): ok.finished http://r4ds.had.co.nz/iteration.html#the-map-functions
-2.4   Calculate SDI 
-2.5   Cluster time series  
+2.4   Cluster time series - in progress July 16
+2.5   Calculate SDI 
 2.6   Delineate watersheds
 2.7   Cluster ungaged stations
 2.7.1 learn 'rf' function
@@ -71,6 +71,26 @@ spi          Standardized Precipitation Index vals for a station
 ## Log-tranformation looks like the mirror of orig depth vs plotting
 
 ## Results: Fits a PE3 distribution
+
+
+## Introduction
+
+
+## Methods
+I imported Global Historical Climatology Network (GHCN) daily precipitation records for candidate "WEATHER STATIONS" into R-Studio (REF1) using the "rnoaa" package.
+I used Theissen polygons and the length and continuity of precipitation records to select stations for further analysis.
+I used 'dplyr' to fill NA values with data from nearest station
+I used 'dplyr' to create monthly vals from daily vals.
+I removed short records: Oral & Long Valley after checking for 
+covariance.
+
+<!-- 
+Work on finishing describing methods for EDA.
+-->
+
+## Results
+<!--
+Work on describing results of EDA.
 -->
 
 ```{r setup, include=FALSE}
@@ -79,21 +99,30 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r library, include=FALSE, message=FALSE} 
 # Sets up the library of packages 
-library("magrittr") # contains easier ways to say things about lists
+#library("magrittr") # contains easier ways to say things about lists
 library("here") # identifies where to save work 
 library("rio") # more robust I/O - to import and clean data
 library("lubridate") # fixes dates 
 library("tidyverse") 
+library("janitor") # tools to clean dirty data 
+
+library("standardize")
+library("cluster")
+library("factoextra") 
+# library("broom")
+
+#library("DataExplorer")
 
 library("SPEI") # Calculates SPI-index
 
+library("clValid")
 #library("lintr")
 #library("test_that")
 #library("jsonlite") # Convert between JSON data and R objects
 #library("curl") # Drop-in replacement for base url
 #library("listviewer") # htmlwidget for interactive views of R lists
-# library("broom")
-#library("janitor") # tools to clean dirty data 
+
+
 
 #lmomco <- citation("lmomco")
 #toBibtex(lmomco)
@@ -135,7 +164,6 @@ rap_na <- sta_rap2 %>%
   filter(rap == is.na(rap))
 # Zero values are flagged as NA????
 ```
-
 
 ```{r precip-boxplot, include=FALSE, eval=FALSE} 
 
@@ -3191,21 +3219,126 @@ rm(intr8, intc8, spi_24rap)
 # Next steps:
 # distribution = 'PersonIII'
 ```
-## Introduction
+
+```{r cluster-gages}
 
 
-## Methods
-I imported Global Historical Climatology Network (GHCN) daily precipitation records for candidate "WEATHER STATIONS" into R-Studio (REF1) using the "rnoaa" package.
-I used Theissen polygons and the length and continuity of precipitation records to select stations for further analysis.
-I used 'dplyr' to fill NA values with data from nearest station
-I used 'dplyr' to create monthly vals from daily vals.
-I removed short records: Oral & Long Valley after checking for 
-covariance.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-<!-- 
-Work on finishing describing methods for EDA.
--->
 
-## Results
-<!--
-Work on describing results of EDA.
+# For clustering:  rows are observations and columns are variables 
+# (in the first case stations, in the final case stations & averaging 
+#  periods).  
+# Dropped Cheyenne River at Angustora with  ~50% NA values
+
+gage_raw <- import("data/gage_92_97.csv") %>%  
+  filter(sta != "chr_ang")
+  
+# The original data is saved in a long format: 
+# sta                   <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat...
+# contrib_drain_area_va <dbl> 284, 284, (in mi)
+# Q                     <dbl> 0.12518933, 0.12518933, 0.14217944, 0...
+# Q7                    <dbl> 0.14420207, 0.14015681, 0.13894323, 0...
+# Q30                   <dbl> 0.1342507, 0.1346283, 0.1356666, 0.13...
+
+# 2. To eliminate the effects of different sizes of watersheds  
+#    calculate daily flow depths by dividing flow (cms) by watershed 
+#    area (sq-km) and multiplying the resultant by the number of 
+#    seconds in a day
+
+# 3. Missing values in the data must be removed or estimated. 
+#    The NA vals created by calculating Q7 & Q30 need to be
+#    removed or estimated.  Removal seems the more conservative 
+#    approach - especially as the NA values are very small given 
+#    the number of observations of 365 obs/yr * 7 years. 
+
+gage_prep <- gage_raw %>% 
+  as.tibble() %>% 
+  clean_names() %>% 
+  select(sta, contrib_drain_area_va, q, q7, q30, date) %>% 
+  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
+  mutate(q_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
+  mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
+  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>% 
+  select(sta, q_depth, q7_depth, q30_depth, date) 
+  
+# glimpse(gage_prep)
+# sta       <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat_bhr", "b...
+# q_depth   <dbl> 14.704930, 14.704930, 16.700614, 18.696298, 17...
+# q7_depth  <dbl> 16.93820, 16.46303, 16.32048, 16.46303, 16.463...
+# q30_depth <dbl> 15.76929, 15.81364, 15.93560, 16.12408, 16.268...
+
+# 4. The data must be standardized (i.e., scaled) such that they have 
+# mean zero and standard deviation one (z-score). 
+
+# this is the simplist case approach
+gage_scale_l <- gage_prep %>% 
+  select(sta, q_depth, date) %>% 
+  mutate(q_mean = mean(q_depth)) %>% 
+  mutate(q_sd = sd(q_depth)) %>% 
+  mutate(q_scaled = (q_depth - q_mean)/q_sd) %>% 
+  select(sta, q_scaled, date)
+
+# calculate summary values
+gage_sum <- gage_scale_l %>% 
+  group_by(sta) %>% 
+  summarise(mean = mean(q_scaled),
+         sd = sd(q_scaled)) %>% 
+  ungroup() 
+
+gage_scale <- gage_scale_l %>% 
+  spread(sta, q_scaled) 
+
+# A check on the data finds Wounded Knee Creek has ~11% NA values
+# plot_missing(gage_scale)
+
+check_sta <- gage_scale %>% 
+  select(wkc_wok, date)
+
+# drop the NA values (num obs drops from 2192 to 1945)
+gage_scale <- gage_scale %>% 
+  drop_na()
+
+
+```
+
+$xi−center(x)scale(x) \frac{x_i - center(x)}{scale(x)}$
+$xi−mean(x)sd(x) \frac{x_i - mean(x)}{(x)}$
+
+Where center(x) can be the mean or the median of x values, and scale(x) can be the standard deviation (SD), the interquartile range, or the MAD (median absolute deviation).
+
+
+
+
+
+1. To remove any missing value that might be present in the data, type this:
+df <- na.omit(df)
+2. As we don't want the clustering algorithm to depend to an arbitrary variable unit, we start by scaling/standardizing the data using the R function scale():
+df <- scale(df) head(df, n = 3)
+## Murder Assault UrbanPop Rape ## Alabama 1.2426 0.783 -0.521 -0.00342 ## Alaska 0.5079 1.107 -1.212 2.48420 ## Arizona 0.0716 1.479 0.999 1.04288
+
+Several R packages available from CRAN or Bioconducto perform cluster validation, including: 
+
+|    Package   |    Function(s)   |      Author       |      Notes    |
+|:------------:|:----------------:|:-----------------:|:-------------:|
+|   cclust     | clustIndex()     |    Dimitriadou    | No user guide |
+|     fpc      | cluster.stats()  |       Hennig      | No user guide |
+|              | clusterboot()    |                   |               |
+| clusterRepro |                  | Kapp & Tibshirani | not general   |
+|  clusterSim  |                  | Walesiak & Dudek  | poor user guide |
+|  clusterStab |                  | MacDonald et al.  | narrow vignette |
+|     clue     | cl_validity() +  | Hornik, September |     maybe...    |
+|     e1071    | fclustIndex() ++ | Dimitriadou et al.| 2006  | unk.
+
++ validation for both paritioning methods (“dissimilarity accounted for”) and hierarchical methods (“variance accounted for”) 
+++ fuzzy cluster validation measures.
+
+pam() in recommended pack- age cluster (Rousseeuw, Struyf, Hubert, and Maechler, 2005; Struyf, Hubert, and Rousseeuw, 1996), and Mclust() in package mclust (Fraley, Raftery, and Wehrens, 2005; Fraley and Raftery, 2003), are available as components named cluster, clustering, and classification, 
+
+RWeka (Hornik, Hothorn, and Karatzoglou, 2006), cba (Buchta and Hahsler, 2005), cclust (Dimitriadou, 2005), cluster, e1071 (Dimitriadou, Hornik, Leisch, Meyer, and Weingessel, 2005), flexclust (Leisch, 2006), flexmix (Leisch, 2004), kernlab (Karatzoglou, Smola, Hornik, and Zeileis, 2004), and mclust (and of course, clue itself).
+
+
+
+
+
+
