@@ -104,9 +104,7 @@ Work on describing results of EDA.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
 
-```{r library, include=FALSE, message=FALSE} 
 # Sets up the library of packages 
 #library("magrittr") # contains easier ways to say things about lists
 library("here") # identifies where to save work 
@@ -115,10 +113,11 @@ library("lubridate") # fixes dates
 library("tidyverse") 
 library("janitor") # tools to clean dirty data 
 
+library("forecast") # using the BoxCox function
 library("standardize")
 library("cluster")
 library("factoextra") 
-# library("broom")
+library("broom") # tidies up objects 
 
 #library("DataExplorer")
 
@@ -175,8 +174,7 @@ rap_na <- sta_rap2 %>%
 ```
 
 ```{r precip-boxplot, include=FALSE, eval=FALSE} 
-
-sta_sum <- as.tibble(summary(sta_mon))
+sta_sum <- as.tibble(summary(sta_mon)) 
   
 # plot the precip data as a boxplot
 ggplot(sta_grp, aes(as.factor(station), depth)) +
@@ -198,8 +196,9 @@ ggplot(sta_grp, aes(as.factor(station), depth)) +
 
 ```{r eda_fiddling, include=FALSE, eval=FALSE}
 sta_big <- sta_grp %>%
-  filter(depth > 100)
+  filter(depth > 100) 
 summary(sta_big)
+
 ggplot(sta_big, aes(month)) +
   geom_histogram(binwidth = 1) 
 
@@ -3229,70 +3228,365 @@ rm(intr8, intc8, spi_24rap)
 # distribution = 'PersonIII'
 ```
 
-```{r cluster-gages}
+```{r exploratory-PCA-gages}
+# Overview
+# ~~~~~~~~
+# PCA is a method to summarize data using fewer variables by 
+# constructing new linear descriptors from variables. The new 
+# linear discriptors describe maximum variation across observations. 
+# The new discriptors can be used to predict, or "reconstruct",
+# observations as well as possible.
 
-# For clustering: rows are observations and columns are variables 
-# (in the first case stations, in the final case stations & averaging 
-#  periods).  
-  
-# The original data is saved in a long format: 
-# sta                   <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat...
-# contrib_drain_area_va <dbl> 284, 284, (in mi)
-# Q                     <dbl> 0.12518933, 0.12518933, 0.14217944, 0...
-# Q7                    <dbl> 0.14420207, 0.14015681, 0.13894323, 0...
-# Q30                   <dbl> 0.1342507, 0.1346283, 0.1356666, 0.13...
+# PCA finds the axis the describes the maximum covariance and 
+# projecting all of the observations points onto this line. The line 
+# called the "first principal component" simultanesous describes 
+# maximal variation of values along the line & minimizes the 
+# reconstruction error 
+
+# PCA is related to eigenvectors and eigenvalues.  The variance or 
+# spread of the observations is measured as the average squared 
+# distance from the center of the point cloud to each observation (c).  
+# The total reconstruction error is measured as the average squared 
+# length of the errors (b), and distance along the principal axis (a) 
+# can also be measured.  Therefore the sum of the square of the errors 
+# plus the sum of the square distance along the principal axis equals 
+# the average squared distance between the center of the point cloud 
+# each observation; this is precisely Pythagoras theorem. 
+
+# You can imagine that the PC axis is a solid rod and each error 
+# is a spring. The energy of the spring is proportional to its squared 
+# length (this is known in physics as the Hooke's law), so the rod 
+# will orient itself such as to minimize the sum of these squared 
+# distances. 
+
+# Regarding eigenvectors and eigenvalues. A 2×2 matrix given by: 
+#   (1.07     0.63)
+#   (0.63     0.64)
+
+# The variance of the x variable is 1.07, 
+# the variance of the y variable is 0.64, 
+# and the covariance between them is 0.63. 
+
+# As it is a square symmetric matrix, it can be diagonalized by 
+# choosing a new orthogonal coordinate system, given by its 
+# eigenvectors (incidentally, this is called spectral theorem); # corresponding eigenvalues will then be located on the diagonal. 
+# In this new coordinate system, the covariance matrix is diagonal 
+# and looks like this:
+#   (1.52     0) 
+#   (0     0.19)
+
+# The correlation between points is now zero. It becomes clear that 
+# the variance of any projection will be given by a weighted average 
+# of the eigenvalues.  Consequently, the maximum possible variance 
+# (1.52) will be achieved if we simply take the projection on the 
+# first coordinate axis. It follows that the direction of the first 
+# principal component is given by the first eigenvector of the 
+# covariance matrix. 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Drop Cheyenne River at Angustora with ~50% NA values --------------
+# The original data is saved in a long format with rows as daily 
+# observations and columns as variables
+
+# glimpse(gage_raw)
+# Variables: 26
+# count_yr              <int> 67, 67, 67... count of years of record
+# sta                   <chr> "bat_bhr"...  station name
+# site_no               <int> 6406500...    USGS site number 
+# station_nm            <chr> "BATTLE CR BELOW HERMOSA,SD"... 
+# dec_lat_va            <dbl> 43.72543...   latitude 
+# dec_long_va           <dbl> -102.9061...  longitude 
+# state_cd              <int> 46, 46...     fips? code for State  
+# county_cd             <int> 103, 103...   fips? code for County  
+# alt_va                <dbl> 2800.32...    altitude in feet 
+# drain_area_va         <dbl> 284, 284...   drainage area in sq mi. 
+# contrib_drain_area_va <dbl> 284, 284...   contrib. da in sq mi.
+# min_yr                <int> 1951...       first year of record 
+# max_yr                <int> 2017...       last year of record 
+# Date                  <chr> "1991-10-01"  date 
+# i                     <int> 2191, 2192... count from 1st day of rec. 
+# Q                     <dbl> 0.12518933... discharge in cms
+# Julian                <int> 51772...      Julian calendar date  
+# Month                 <int> 10, 10...     month 
+# Day                   <int> 275, 276...   day  
+# DecYear               <dbl> 1991.749...   decimal year  
+# MonthSeq              <int> 1702...       NA 
+# waterYear             <int> 1992...       water year 
+# Qualifier             <chr> "A", "A"...   data quality code  
+# LogQ                  <dbl> -2.077928...  log of zero-adj discharge 
+# Q7                    <dbl> 0.14420207... 7-day moving average  
+# Q30                   <dbl> 0.1342507...  30-day moving average 
+
+# Prepare for exploratory PCA ---------------------------------------
+# 1. Import data & drop Cheyenne River at Angustora with ~50% NA vals 
 gage_raw <- import("data/gage_92_97.csv") %>%  
   filter(sta != "chr_ang")
+meta <- import("data/gage_meta_92_97.csv") 
 
-# Eliminate the effects of different sizes of watersheds ------------  
-# Calculate daily flow depths by dividing flow (cms) by watershed 
-# area (sq-km) and multiplying the resultant by the number of 
-# seconds in a day
+# 2. Eliminate the effects of different sizes of watersheds:  
+#    Calculate daily flow depths by dividing flow (cms) by watershed 
+#    area (sq-km) and multiplying the resultant by the number of 
+#    seconds in a day
 
-# Estimate or remove missing values in the data ---------------------
-#    The NA vals created by calculating Q7 & Q30 need to be
-#    removed or estimated.  Removal seems the more conservative 
-#    approach - especially as the NA values are very small given 
-#    the number of observations of 365 obs/yr * 7 years. 
+# 3. Transform using BoxCox to approach normality
 
-# Standardize the data (i.e. scale or z-score) so columns have mean 
-# zero and standard deviation of unity. 
+# 4.Standardize the data:
+#   Scale the data, a.k.a calculate z-scores so columns have a zero 
+#   mean and standard deviation of unity. 
+
+# 5. Estimate or remove missing values in the data 
+# The NA vals created by calculating Q7 & Q30 need to be removed or 
+#    estimated.  Removal seems the more conservative approach - 
+#    especially as the NA values are very small given the number of 
+#    observations of 365 obs/yr * 7 years. 
 
 gage_scale <- gage_raw %>% 
   as.tibble() %>% 
   clean_names() %>% 
-  select(sta, contrib_drain_area_va, q, q7, q30, date) %>% 
   mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
   mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
   mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>% 
-  select(sta, q1_depth, q7_depth, q30_depth, date) %>% 
-  mutate(q1_mean = mean(q1_depth, na.rm = TRUE)) %>% 
-  mutate(q1_sd = sd(q1_depth, na.rm = TRUE)) %>% 
-  mutate(q1_scaled = (q1_depth - q1_mean)/q1_sd) %>% 
-  mutate(q7_mean = mean(q7_depth, na.rm = TRUE)) %>% 
-  mutate(q7_sd = sd(q7_depth, na.rm = TRUE)) %>% 
-  mutate(q7_scaled = (q7_depth - q7_mean)/q7_sd) %>% 
-  mutate(q30_mean = mean(q30_depth, na.rm = TRUE)) %>% 
-  mutate(q30_sd = sd(q30_depth, na.rm = TRUE)) %>% 
-  mutate(q30_scaled = (q30_depth - q30_mean)/q30_sd) %>% 
+  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>%
+  drop_na() 
+
+# find lambda values for BoxCox transformation  
+lambda_q1 <- BoxCox.lambda(gage_scale$q1_depth)
+lambda_q7 <- BoxCox.lambda(gage_scale$q7_depth)
+lambda_q30 <- BoxCox.lambda(gage_scale$q30_depth)
+
+# scale data
+gage_scale <- gage_scale %>%
+  mutate(q1_tr = BoxCox(gage_scale$q1_depth,lambda_q1)) %>%
+  mutate(q7_tr = BoxCox(gage_scale$q7_depth,lambda_q7)) %>% 
+  mutate(q30_tr = BoxCox(gage_scale$q30_depth,lambda_q30)) %>%
+  mutate(q1_mean = mean(q1_tr, na.rm = TRUE)) %>% 
+  mutate(q1_sd = sd(q1_tr, na.rm = TRUE)) %>% 
+  mutate(q1_scaled = (q1_tr - q1_mean)/q1_sd) %>% 
+  mutate(q7_mean = mean(q7_tr, na.rm = TRUE)) %>% 
+  mutate(q7_sd = sd(q7_tr, na.rm = TRUE)) %>% 
+  mutate(q7_scaled = (q7_tr - q7_mean)/q7_sd) %>% 
+  mutate(q30_mean = mean(q30_tr, na.rm = TRUE)) %>% 
+  mutate(q30_sd = sd(q30_tr, na.rm = TRUE)) %>% 
+  mutate(q30_scaled = (q30_tr - q30_mean)/q30_sd) %>% 
   select(sta, date, q1_depth, q7_depth, q30_depth, 
-         q1_scaled,  q7_scaled, q30_scaled)
+         q1_scaled,  q7_scaled, q30_scaled) 
 
 # glimpse(gage_scale) 
-# sta        <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat_bhr", "b... 
-# date       <chr> "1991-10-01", "1991-10-02", "1991-10-03", "199... 
-# q1_depth   <dbl> 14.704930, 14.704930, 16.700614, 18.696298, 17... 
-# q7_depth   <dbl> 16.93820, 16.46303, 16.32048, 16.46303, 16.463... 
-# q30_depth  <dbl> 15.76929, 15.81364, 15.93560, 16.12408, 16.268... 
-# q1_scaled  <dbl> -0.3585591, -0.3585591, -0.3508945, -0.3432298... 
-# q7_scaled  <dbl> -0.4316930, -0.4339446, -0.4346201, -0.4339446... 
-# q30_scaled <dbl> -0.5543399, -0.5540731, -0.5533394, -0.5522055... 
-```
+# sta        <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat_bhr", ... 
+# date       <chr> "1991-10-01", "1991-10-02", "1991-10-03", "1... 
+# q1_depth   <dbl> 14.704930, 14.704930, 16.700614, 18.696298, ... 
+# q7_depth   <dbl> 16.93820, 16.46303, 16.32048, 16.46303, 16.4... 
+# q30_depth  <dbl> 15.76929, 15.81364, 15.93560, 16.12408, 16.2... 
+# q1_scaled  <dbl> -0.4163661, -0.4163661, -0.3542800, -0.29912... 
+# q7_scaled  <dbl> -0.5215705, -0.5363362, -0.5408399, -0.53633... 
+# q30_scaled <dbl> -0.7615155, -0.7600352, -0.7559816, -0.74976... 
 
+# Exploratory PCA---------------------------------------------------
+# Select numeric data for PCA input &  names to connect to result 
+gage_matrix <- gage_scale %>% 
+  select(q1_scaled, q7_scaled, q30_scaled) 
+
+gage_matrix_name <- gage_scale %>% 
+  select(sta, date, q1_depth, q7_depth, q30_depth) 
+
+# Calculate PCA matrix & summary info
+gage_pc <- prcomp(gage_matrix, scale = TRUE)
+
+# this plots the PCA biplot - takes a LONG time
+# biplot(gage_pc, scale = 0)
+
+# Eigenvectors
+gage_pc_eigen <-  tidy(gage_pc, matrix = "pcs") 
+#gage_pc_eigen
+#    PC std.dev percent cumulative
+#  <dbl>   <dbl>   <dbl>      <dbl>
+#1     1   1.68  0.941        0.941
+#2     2   0.385 0.0494       0.990
+#3     3   0.170 0.00958      1  
+
+# PCA variables
+gage_pc_vars <-  tidy(gage_pc, matrix = "variables") 
+gage_pc_vars <- gage_pc_vars %>% 
+  filter(PC != 3) %>% 
+  rename(var = column) %>% 
+  mutate(var = as.factor(var))
+
+#gage_pc_vars
+#var           PC  value
+#  <fct>      <dbl>  <dbl>
+#1 q1_scaled      1  0.576
+#2 q7_scaled      1  0.589
+#3 q30_scaled     1  0.567
+#4 q1_scaled      2  0.598
+#5 q7_scaled      2  0.169
+#6 q30_scaled     2 -0.784
+
+# Bind sample vals to PCA matrix 
+gage_au <- augment(gage_pc, data = gage_matrix) 
+gage_au <- bind_cols(gage_matrix_name, gage_au)
+rm(gage_matrix_name)
+
+# Calculate mean eigenvectors 
+gage_eigen <- gage_au %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean = mean(.fittedPC1),
+            PC2_mean = mean(.fittedPC2), 
+            q1_sd = sd(log10(q1_depth)),
+            q30_sd = sd(log10(q30_depth)),
+            q1_depth = mean(log10(q1_depth)),
+            q30_depth = mean(log10(q30_depth))
+            ) %>% 
+  mutate(ratio_q1_q30 = q1_depth - q30_depth) %>% 
+  mutate(ratio_q30_q1 = q30_depth - q1_depth) %>% 
+  ungroup()
+
+ggplot(gage_eigen, aes(PC1_mean, PC2_mean)) +
+  geom_point() +
+  geom_text(aes(label = sta), vjust = 1, hjust = 1) 
+
+# PCA1 Interpretation--------------------------
+gage_check1 <- gage_au %>% 
+  filter(sta == "hor_oel" | 
+           sta == "whi_ogl" |
+           sta == "whi_kad" |
+           sta == "blp_bel" |
+           sta == "wkc_wok" |
+           sta == "lwr_mar" |
+           sta == "lcr_vet" |
+           sta == "lwr_abv" |
+           sta == "fal_hot" |
+         sta == "lcr_bel") %>% 
+  select(sta, q1_depth, q7_depth, q30_depth) 
+
+# set levels for plotting
+gage_check1$sta <- as.factor(gage_check1$sta)
+gage_check1$sta <- factor(gage_check1$sta, 
+                          levels = c("hor_oel", "whi_ogl", 
+                                     "whi_kad", "blp_bel",
+                                     "wkc_wok", "lwr_mar", 
+                                     "lcr_vet", "lwr_abv", 
+                                     "fal_hot", "lcr_bel")
+                          )
+
+plot_gage_pca <- ggplot(gage_check1, aes(sta, q7_depth)) +
+  geom_boxplot() +
+  scale_y_log10() + 
+  theme_classic() +
+  xlab("") +
+  ylab("log Q7 depth")
+
+# PCA2 Interpretation--------------------------
+
+gage_matrix_small <- gage_scale %>% 
+      filter(sta == "hor_oel" | 
+           sta == "wcc_ogl" |
+           sta == "blp_bel" |
+           sta == "lwr_mar" |
+         sta == "lcr_bel") %>%
+  select(q1_scaled, q7_scaled, q30_scaled) 
+
+gage_matrix_small_name <- gage_scale %>% 
+      filter(sta == "hor_oel" | 
+           sta == "wcc_ogl" |
+           sta == "blp_bel" |
+           sta == "lwr_mar" |
+         sta == "lcr_bel") %>%
+  select(sta, date, q1_depth, q7_depth, q30_depth) 
+
+gage_pc_small <- prcomp(gage_matrix_small, scale = TRUE)
+
+gage_small_au <- augment(gage_pc_small, data = gage_matrix_small) 
+gage_small_au <- bind_cols(gage_matrix_small_name, gage_small_au)
+rm(gage_matrix_small_name)
+
+gage_eigen_small <- gage_eigen %>% 
+      filter(sta == "hor_oel" | 
+           sta == "wcc_ogl" |
+           sta == "blp_bel" |
+           sta == "lwr_mar" |
+         sta == "lcr_bel")
+
+ggplot() +
+  geom_point(data = gage_small_au, 
+             mapping = aes(x = .fittedPC1, y = .fittedPC2, 
+                           color = factor(sta))) +
+  geom_point(data = gage_eigen_small, 
+             mapping = aes(PC1_mean, PC2_mean)) + 
+    geom_text(data = gage_eigen_small,
+              mapping = aes(PC1_mean, PC2_mean, label = sta), 
+              vjust = 1, hjust = 1, 
+              label.size = 0.2) 
+#  xlim(-2.5, 2) + 
+ # ylim(-1, 0.5) 
+  
+
+
+
+#fviz_pca_ind(prcomp(gage_matrix_small), 
+#             title = "PCA - Iris data", 
+#             habillage = gage_matrix_small_name$sta, 
+#             palette = "jco", geom = "point", 
+#             ggtheme = theme_classic(), 
+#             legend = "bottom") 
+
+
+gage_matrix_name <- gage_scale %>% 
+  select(sta, date, q1_depth, q7_depth, q30_depth) 
+
+# Calculate PCA matrix & summary info
+gage_pc <- prcomp(gage_matrix, scale = TRUE)
+
+
+
+gage_check2 <- gage_au %>% 
+  filter(
+         sta == "brsf_co" |  
+         sta == "blp_bel" |  
+         sta == "lcr_bel" | 
+         sta == "whi_kad" |  
+         sta == "lwr_abv" | 
+         sta == "lcr_vet" |  
+         sta == "wkc_wok" | 
+         sta == "lwr_mar" | 
+         sta == "whi_kad" |  
+         sta == "wcc_ogl" 
+           ) %>% 
+  select(sta, q1_depth, q30_depth) %>% 
+  gather(key = "duration", value = "depth", -sta)
+
+# set levels for plotting
+gage_check2$sta <- as.factor(gage_check2$sta) 
+gage_check2$sta <- factor(gage_check2$sta, 
+                          levels = c("brsf_co", "blp_bel", 
+                                     "lcr_bel", "whi_kad", 
+                                     "lwr_abv", "lcr_vet", 
+                                     "wkc_wok", "lwr_mar", 
+                                     "whi_sta", "wcc_ogl")
+                          ) 
+
+ggplot(gage_check2, aes(sta, depth)) +
+  geom_boxplot() +
+  scale_y_log10() + 
+   facet_grid(duration ~ .)
+
+#gage_eigen <- full_join(meta, gage_eigen, by = "sta")
+
+
+
+# this would be nice but for the many stations
+# fviz_pca_ind(prcomp(gage_pca), 
+#             title = "PCA - Iris data", 
+#             habillage = gage_scale$sta, 
+#             palette = "jco", geom = "point", 
+#             ggtheme = theme_classic(), 
+#             legend = "bottom") 
+
+
+
+
+
+
+plot_gage_pca
+```
 
 ```{r visualize}
 
@@ -3300,9 +3594,13 @@ gage_scale <- gage_raw %>%
 #We'll use two data sets:
 #the built-in R data set iris. and a random data set generated from the iris data set.
 #The iris data sets look like this:
+
 head(iris, 3)
 
-## Sepal.Length Sepal.Width Petal.Length Petal.Width Species ## 1 5.1 3.5 1.4 0.2 setosa ## 2 4.9 3.0 1.4 0.2 setosa ## 3 4.7 3.2 1.3 0.2 setosa
+#  Sepal.Length Sepal.Width Petal.Length Petal.Width Species
+#1          5.1         3.5          1.4         0.2  setosa
+#2          4.9         3.0          1.4         0.2  setosa
+#3          4.7         3.2          1.3         0.2  setosa
 
 #We start by excluding the column "Species" at position 5
 
@@ -3312,7 +3610,10 @@ df <- as.data.frame(df)
 
 # Random data generated from the iris data set 
 random_df <- apply(df, 2,
-function(x){runif(length(x), min(x), (max(x)))}) 
+function(x){
+  runif(length(x), min(x), (max(x)))
+  }) 
+
 random_df <- as.data.frame(random_df) 
 
 # Standardize the data sets 
