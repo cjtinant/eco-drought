@@ -3242,46 +3242,6 @@ rm(intr8, intc8, spi_24rap)
 # called the "first principal component" simultanesous describes 
 # maximal variation of values along the line & minimizes the 
 # reconstruction error 
-
-# PCA is related to eigenvectors and eigenvalues.  The variance or 
-# spread of the observations is measured as the average squared 
-# distance from the center of the point cloud to each observation (c).  
-# The total reconstruction error is measured as the average squared 
-# length of the errors (b), and distance along the principal axis (a) 
-# can also be measured.  Therefore the sum of the square of the errors 
-# plus the sum of the square distance along the principal axis equals 
-# the average squared distance between the center of the point cloud 
-# each observation; this is precisely Pythagoras theorem. 
-
-# You can imagine that the PC axis is a solid rod and each error 
-# is a spring. The energy of the spring is proportional to its squared 
-# length (this is known in physics as the Hooke's law), so the rod 
-# will orient itself such as to minimize the sum of these squared 
-# distances. 
-
-# Regarding eigenvectors and eigenvalues. A 2×2 matrix given by: 
-#   (1.07     0.63)
-#   (0.63     0.64)
-
-# The variance of the x variable is 1.07, 
-# the variance of the y variable is 0.64, 
-# and the covariance between them is 0.63. 
-
-# As it is a square symmetric matrix, it can be diagonalized by 
-# choosing a new orthogonal coordinate system, given by its 
-# eigenvectors (incidentally, this is called spectral theorem); # corresponding eigenvalues will then be located on the diagonal. 
-# In this new coordinate system, the covariance matrix is diagonal 
-# and looks like this:
-#   (1.52     0) 
-#   (0     0.19)
-
-# The correlation between points is now zero. It becomes clear that 
-# the variance of any projection will be given by a weighted average 
-# of the eigenvalues.  Consequently, the maximum possible variance 
-# (1.52) will be achieved if we simply take the projection on the 
-# first coordinate axis. It follows that the direction of the first 
-# principal component is given by the first eigenvector of the 
-# covariance matrix. 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # The original data is saved in a long format with rows as daily 
@@ -3316,30 +3276,24 @@ rm(intr8, intc8, spi_24rap)
 # Q7                    <dbl> 0.14420207... 7-day moving average  
 # Q30                   <dbl> 0.1342507...  30-day moving average 
 
-# Prepare for exploratory PCA ---------------------------------------
+# Prepare data for exploratory PCA -----------------------------------
 # 1. Import data & drop Cheyenne River at Angustora with ~50% NA vals 
 gage_raw <- import("data/gage_92_97.csv") %>%  
   filter(sta != "chr_ang")
-meta <- import("data/gage_meta_92_97.csv") 
+gage_meta <- import("data/gage_meta_92_97.csv") 
 
 # 2. Eliminate the effects of different sizes of watersheds:  
-#    Calculate daily flow depths by dividing flow (cms) by watershed 
+#    I calculated daily flow depths by dividing flow (cms) by watershed 
 #    area (sq-km) and multiplying the resultant by the number of 
-#    seconds in a day
+#    seconds in a day.  The result is cu-m-d per sq-km.
 
-# 3. Transform using BoxCox to approach normality
-
-# 4.Standardize the data:
-#   Scale the data, a.k.a calculate z-scores so columns have a zero 
-#   mean and standard deviation of unity. 
-
-# 5. Estimate or remove missing values in the data 
-# The NA vals created by calculating Q7 & Q30 need to be removed or 
+# 3. Estimate or remove missing values in the data 
+#    The NA vals created by calculating Q7 & Q30 need to be removed or 
 #    estimated.  Removal seems the more conservative approach - 
 #    especially as the NA values are very small given the number of 
 #    observations of 365 obs/yr * 7 years. 
 
-gage_scale <- gage_raw %>% 
+gage_scaled <- gage_raw %>% 
   as.tibble() %>% 
   clean_names() %>% 
   mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
@@ -3348,13 +3302,27 @@ gage_scale <- gage_raw %>%
   mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>%
   drop_na() 
 
+# 4. Transform using BoxCox to approach normality 
+# daily flow data are highly skewed & tend to approach a logrithmic 
+# distribution.  BoxCox transformation utilizes a lamda value to 
+# transform a dataset to approach a normal distribution.
+# Lambda = 1 is normal distribution (no change), 
+# lambda = 0.5 is a square-root transformation, 
+# lamda = 2 is a square transformation,
+# lambda = 0 is a logrithmic transformation.
+
 # find lambda values for BoxCox transformation  
 lambda_q1 <- BoxCox.lambda(gage_scale$q1_depth)
 lambda_q7 <- BoxCox.lambda(gage_scale$q7_depth)
 lambda_q30 <- BoxCox.lambda(gage_scale$q30_depth)
 
-# scale data
-gage_scale <- gage_scale %>%
+# 5.Standardize the data:
+# PCA requires that data are scaled with a mean of zero and standard 
+# deviation of unity, e.g. a z-score.  This could be done within the 
+# PCA, but I did it manually.
+
+# Apply transformation and scale data
+gage_scaled <- gage_scaled %>%
   mutate(q1_tr = BoxCox(gage_scale$q1_depth,lambda_q1)) %>%
   mutate(q7_tr = BoxCox(gage_scale$q7_depth,lambda_q7)) %>% 
   mutate(q30_tr = BoxCox(gage_scale$q30_depth,lambda_q30)) %>%
@@ -3380,32 +3348,84 @@ gage_scale <- gage_scale %>%
 # q7_scaled  <dbl> -0.5215705, -0.5363362, -0.5408399, -0.53633... 
 # q30_scaled <dbl> -0.7615155, -0.7600352, -0.7559816, -0.74976... 
 
-# Exploratory PCA---------------------------------------------------
+# Exploratory PCA--------------------------------------------------- 
+# PCA is related to eigenvectors and eigenvalues.  The variance or 
+# spread of the observations is measured as the average squared 
+# distance from the center of the point cloud to each observation (c).  
+# The total reconstruction error is measured as the average squared 
+# length of the errors (b), and distance along the principal axis (a) 
+# can also be measured.  Therefore the sum of the square of the errors 
+# plus the sum of the square distance along the principal axis equals 
+# the average squared distance between the center of the point cloud 
+# each observation; this is precisely Pythagoras theorem. 
+
+# You can imagine that the PC axis is a solid rod and each error 
+# is a spring. The energy of the spring is proportional to its squared 
+# length (this is known in physics as the Hooke's law), so the rod 
+# will orient itself such as to minimize the sum of these squared 
+# distances. 
+
+# Regarding eigenvectors and eigenvalues. A 2×2 matrix given by: 
+#   (1.07     0.63)
+#   (0.63     0.64)
+
+# The variance of the x variable is 1.07, 
+# the variance of the y variable is 0.64, 
+# and the covariance between them is 0.63. 
+
+# As it is a square symmetric matrix, it can be diagonalized by 
+# choosing a new orthogonal coordinate system, given by its 
+# eigenvectors (incidentally, this is called spectral theorem); 
+# corresponding eigenvalues will then be located on the diagonal. 
+# In this new coordinate system, the covariance matrix is diagonal 
+# and looks like this:
+#   (1.52     0) 
+#   (0     0.19)
+
+# The correlation between points is now zero. It becomes clear that 
+# the variance of any projection will be given by a weighted average 
+# of the eigenvalues.  Consequently, the maximum possible variance 
+# (1.52) will be achieved if we simply take the projection on the 
+# first coordinate axis. It follows that the direction of the first 
+# principal component is given by the first eigenvector of the 
+# covariance matrix. 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 # Select numeric data for PCA input &  names to connect to result 
-gage_matrix <- gage_scale %>% 
+# prcomp() requires a dataset with only the variables for the 
+# unsupervised classification 
+pca_input <- gage_scaled %>% 
   select(q1_scaled, q7_scaled, q30_scaled) 
 
-gage_matrix_name <- gage_scale %>% 
+pca_meta <- gage_scaled %>% 
   select(sta, date, q1_depth, q7_depth, q30_depth) 
 
 # Calculate PCA matrix & summary info
-gage_pc <- prcomp(gage_matrix, scale = TRUE)
+pca_matrix <- prcomp(pca_input, scale = TRUE)
 
 # this plots the PCA biplot - takes a LONG time
 # biplot(gage_pc, scale = 0)
 
+# Gather PCA results----
+# The broom package is used to gather results into tibbles.
+
 # Eigenvectors
-gage_pc_eigen <-  tidy(gage_pc, matrix = "pcs") 
+pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
+
 #gage_pc_eigen
 #    PC std.dev percent cumulative
 #  <dbl>   <dbl>   <dbl>      <dbl>
 #1     1   1.68  0.941        0.941
 #2     2   0.385 0.0494       0.990
 #3     3   0.170 0.00958      1  
+# This means that 94% of covarience is explained by PCA1 & 
+# 5% of varience by PCA2
 
-# PCA variables
-gage_pc_vars <-  tidy(gage_pc, matrix = "variables") 
-gage_pc_vars <- gage_pc_vars %>% 
+# PCA variables 
+# these are the loadings on the PCA axes.  Dropped the 3rd PCA 
+# because it's not useful
+pca_vars <-  tidy(pca_matrix, matrix = "variables") 
+pca_vars <- pca_vars %>% 
   filter(PC != 3) %>% 
   rename(var = column) %>% 
   mutate(var = as.factor(var))
@@ -3418,33 +3438,37 @@ gage_pc_vars <- gage_pc_vars %>%
 #3 q30_scaled     1  0.567
 #4 q1_scaled      2  0.598
 #5 q7_scaled      2  0.169
-#6 q30_scaled     2 -0.784
+#6 q30_scaled     2 -0.784 
+# This explains approximately equal loadings of Q1, Q7, Q30 on PCA1 & 
+# large positive loading of Q1 & large negative loading of Q30. 
 
 # Bind sample vals to PCA matrix 
-gage_au <- augment(gage_pc, data = gage_matrix) 
-gage_au <- bind_cols(gage_matrix_name, gage_au)
-rm(gage_matrix_name)
+pca_au <- augment(pca_matrix, data = pca_input) 
+pca_au <- bind_cols(pca_meta, pca_au)
+rm(pca_meta)
 
-# Calculate mean eigenvectors 
-gage_eigen <- gage_au %>% 
+# Calculate median eigenvectors 
+# this summarizes the individual points by station
+pca_summary <- pca_au %>% 
   group_by(sta) %>% 
   summarize(PC1_mean = mean(.fittedPC1),
             PC2_mean = mean(.fittedPC2), 
-            q1_sd = sd(log10(q1_depth)),
-            q30_sd = sd(log10(q30_depth)),
-            q1_depth = mean(log10(q1_depth)),
-            q30_depth = mean(log10(q30_depth))
-            ) %>% 
-  mutate(ratio_q1_q30 = q1_depth - q30_depth) %>% 
-  mutate(ratio_q30_q1 = q30_depth - q1_depth) %>% 
+           q1_mean = mean(log10(q1_depth)), 
+            q7_mean = mean(log10(q7_depth)),
+            q30_mean = mean(log10(q30_depth)), 
+            q1_sd = sd(log10(q1_depth)), 
+            q7_sd = sd(log10(q7_depth)),
+            q30_sd = sd(log10(q30_depth))) %>% 
+  mutate(q1_minus_q30 = q1_mean - q30_mean) %>% 
   ungroup()
 
-ggplot(gage_eigen, aes(PC1_mean, PC2_mean)) +
+# quick plot of means
+ggplot(pca_summary, aes(PC1_mean, PC2_mean)) +
   geom_point() +
   geom_text(aes(label = sta), vjust = 1, hjust = 1) 
 
 # PCA1 Interpretation--------------------------
-gage_check1 <- gage_au %>% 
+pca_au_small <- pca_au %>% 
   filter(sta == "hor_oel" | 
            sta == "whi_ogl" |
            sta == "whi_kad" |
@@ -3458,8 +3482,8 @@ gage_check1 <- gage_au %>%
   select(sta, q1_depth, q7_depth, q30_depth) 
 
 # set levels for plotting
-gage_check1$sta <- as.factor(gage_check1$sta)
-gage_check1$sta <- factor(gage_check1$sta, 
+pca_au_small$sta <- as.factor(pca_au_small$sta)
+pca_au_small$sta <- factor(pca_au_small$sta, 
                           levels = c("hor_oel", "whi_ogl", 
                                      "whi_kad", "blp_bel",
                                      "wkc_wok", "lwr_mar", 
@@ -3467,56 +3491,52 @@ gage_check1$sta <- factor(gage_check1$sta,
                                      "fal_hot", "lcr_bel")
                           )
 
-plot_gage_pca <- ggplot(gage_check1, aes(sta, q7_depth)) +
+# plot gradient along axis
+ggplot(pca_au_small, aes(sta, q7_depth)) +
   geom_boxplot() +
   scale_y_log10() + 
   theme_classic() +
   xlab("") +
   ylab("log Q7 depth")
 
-# PCA2 Interpretation--------------------------
-
-gage_matrix_small <- gage_scale %>% 
+# Examine the second axis loadings 
+pca_input_small <- gage_scaled %>% 
       filter(sta == "hor_oel" | 
            sta == "wcc_ogl" |
            sta == "blp_bel" |
-           sta == "lwr_mar" |
          sta == "lcr_bel") %>%
   select(q1_scaled, q7_scaled, q30_scaled) 
 
-gage_matrix_small_name <- gage_scale %>% 
+pca_meta_small <- gage_scaled %>% 
       filter(sta == "hor_oel" | 
            sta == "wcc_ogl" |
            sta == "blp_bel" |
-           sta == "lwr_mar" |
+
          sta == "lcr_bel") %>%
   select(sta, date, q1_depth, q7_depth, q30_depth) 
 
-gage_pc_small <- prcomp(gage_matrix_small, scale = TRUE)
+pca_matrix_small <- prcomp(pca_input_small, scale = TRUE)
 
-gage_small_au <- augment(gage_pc_small, data = gage_matrix_small) 
-gage_small_au <- bind_cols(gage_matrix_small_name, gage_small_au)
-rm(gage_matrix_small_name)
+pca_au_small <- augment(pca_matrix_small, data = pca_meta_small) 
+pca_au_small <- bind_cols(pca_meta_small, pca_au_small)
+rm(pca_meta_small)
 
-gage_eigen_small <- gage_eigen %>% 
+pca_summary_small <- pca_summary %>% 
       filter(sta == "hor_oel" | 
            sta == "wcc_ogl" |
            sta == "blp_bel" |
-           sta == "lwr_mar" |
          sta == "lcr_bel")
 
 ggplot() +
-  geom_point(data = gage_small_au, 
+  geom_jitter(data = pca_au_small, 
              mapping = aes(x = .fittedPC1, y = .fittedPC2, 
                            color = factor(sta))) +
-  geom_point(data = gage_eigen_small, 
+  geom_point(data = pca_summary, 
              mapping = aes(PC1_mean, PC2_mean)) + 
-    geom_text(data = gage_eigen_small,
+    geom_text(data = pca_summary_small,
               mapping = aes(PC1_mean, PC2_mean, label = sta), 
-              vjust = 1, hjust = 1, 
-              label.size = 0.2) 
-#  xlim(-2.5, 2) + 
- # ylim(-1, 0.5) 
+              vjust = 0, hjust = 0) + 
+  theme_classic()
   
 
 
@@ -3572,20 +3592,7 @@ ggplot(gage_check2, aes(sta, depth)) +
 
 
 
-# this would be nice but for the many stations
-# fviz_pca_ind(prcomp(gage_pca), 
-#             title = "PCA - Iris data", 
-#             habillage = gage_scale$sta, 
-#             palette = "jco", geom = "point", 
-#             ggtheme = theme_classic(), 
-#             legend = "bottom") 
 
-
-
-
-
-
-plot_gage_pca
 ```
 
 ```{r visualize}
