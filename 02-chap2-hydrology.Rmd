@@ -83,14 +83,15 @@ covariance.
 
 ## Variable naming convention:   
 sta          precipitation station  
-_meta        metadata  
-_mon         monthly precipitation depths  
 _grp         wide data changed to long data #might change to _gath
+_meta        metadata  
+_mon         precipitation depths w/ month as variable
+_raw         imported data of monthly precip vals
+
 _notzero     non-zero precip values
 _zero        precip values equal to zero
 _log         log10 of monthly precipitation depths
 _count       number of months in a given record
-
 min          minimum non-zero value
 n            number of months in a given record
 
@@ -120,11 +121,6 @@ _l           data in long format
 ## Log-tranformation looks like the mirror of orig depth vs plotting
 
 ## Results: Precipitation fits a PE3 distribution
-
-
-
-
-
 
 <!-- 
 Work on finishing describing methods for EDA.
@@ -330,16 +326,14 @@ knitr::opts_chunk$set(echo = TRUE)
 #library("magrittr") # contains easier ways to say things about lists
 library("here") # identifies where to save work 
 library("rio") # more robust I/O - to import and clean data
-library("lubridate") # fixes dates 
-library("tidyverse") 
-library("janitor") # tools to clean dirty data 
 
+library("janitor") # tools to clean dirty data 
 library("forecast") # using the BoxCox function
 library("standardize")
 library("cluster")
 library("factoextra") 
 library("broom") # tidies up objects 
-
+library("ggpubr") 
 #library("DataExplorer")
 
 # library("SPEI") # Calculates SPI-index # having some issues...
@@ -354,78 +348,14 @@ library("clValid")
 #library("curl") # Drop-in replacement for base url
 #library("listviewer") # htmlwidget for interactive views of R lists
 
-
-
 #lmomco <- citation("lmomco")
 #toBibtex(lmomco)
+library("mclust") 
+library("lubridate") # fixes dates 
+library("tidyverse") 
 
 # Session Info
 a_session <- devtools::session_info()
-```
-
-```{r import-precip-data} 
-# General Purpose: prepare data for drought index    
-# Specific purpose: graphical EDA  
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
-sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
-
-# fix date & add year and month  
-sta_mon <- sta_mon %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date)) 
-
-# make the wide data long, remove NA vals 
-sta_grp <- sta_mon %>% 
-  gather(key = "station", value = "depth", -date, -year, -month) %>% 
-  drop_na(depth)  # %>%  
-#  mutate(sqrt_depth = sqrt(depth)) 
-```
-
-```{r check-precip-data}
-# not sure why these zeros are thought of as NA values
-sta_na <- sta_grp %>% 
-    filter(depth == is.na(depth)) 
-
-sta_grp$depth <- ifelse(sta_grp$depth == is.na(sta_grp$depth), 0, sta_grp$depth)  
-
-sta_na <- sta_grp %>% 
-    filter(depth == is.na(depth)) 
-```
-
-```{r precip-boxplot, include=FALSE, eval=FALSE} 
-sta_sum <- as.tibble(summary(sta_mon))  
-  
-# plot the precip data as a boxplot
-ggplot(sta_grp, aes(as.factor(station), depth)) +
-  geom_violin() +
-  geom_boxplot() +
-#  scale_y_sqrt() +
-#  scale_y_log10() +
-  scale_y_sqrt() +
-  theme_bw() +
-  ggtitle("Weather stations near Pine Ridge Reservation, SD", 
-          subtitle = "1909-2018") +
-  xlab("") + 
-  ylab("Monthly depth in mm") +
-  NULL
-
-ggplot2::ggsave(filename = "prcp_boxplot.png", 
-                width = 6, height = 6, units = "in")
-```
-
-```{r eda_fiddling, include=FALSE, eval=FALSE}
-sta_big <- sta_grp %>% 
-  filter(depth > 100) 
-summary(sta_big) 
-
-ggplot(sta_big, aes(month)) +
-  geom_histogram(binwidth = 1) 
-
-# the anomolously wet month series is dominated by May & June events.
-# what drives precip during this time? 
-#   In May & June the area recieves low-level moisture from the Gulf 
-#   of Mexico, strong cold fronts, and active upper-level pattern 
-#   leading to greater chance for convection.
 ```
 
 ```{r testing, include=FALSE, eval=FALSE}
@@ -729,6 +659,409 @@ test_a <- test_a %>%
 
 ```
 
+```{r import-precip-data} 
+# General Purpose: prepare data for drought index    
+# Specific purpose: graphical EDA  
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_raw     <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date)) 
+
+# make the wide data long, remove NA vals 
+sta_grp <- sta_raw %>% 
+  gather(key = "sta", value = "depth", 
+         -date, -year, -month) %>% 
+  drop_na(depth)  %>% 
+  mutate(sta = as.factor(sta))
+
+# not sure why these zeros are thought of as NA values 
+sta_na <- sta_grp %>% 
+    filter(depth == is.na(depth)) 
+
+sta_grp$depth <- ifelse(sta_grp$depth == is.na(sta_grp$depth), 0, sta_grp$depth)  
+
+sta_na <- sta_grp %>% 
+    filter(depth == is.na(depth)) 
+#rm(sta_na)
+```
+
+```{r precip-boxplot} 
+# drop rows with missing data
+sta_int <- sta_raw %>%  
+  drop_na %>% 
+  gather(key = "sta", value = "depth", 
+         -date, -year, -month) 
+
+# create abreviated column for plotting & join
+abbrev <- data.frame("sta" = c("cot", "int", "oel", "ora", "rap"),
+                     "sta_abrev" = c("C", "I", "E", "O", "R")) 
+
+sta_int <- full_join(sta_int, abbrev, by = "sta")
+
+# create a year_month column
+sta_int <- sta_int %>% 
+  mutate(yr_mon = paste(year, month, sep = '_')) 
+
+# find mean values by month & join
+sta_mean <- sta_int %>% 
+  group_by(month, year) %>% 
+  summarize(mean_depth = mean(depth)) %>% 
+  ungroup() %>% 
+  mutate(mean_depth = round(mean_depth, digits = 2)) %>% 
+  mutate(yr_mon = paste(year, month, sep = '_')) %>% 
+  select(-year, -month)
+ 
+sta_int <- full_join(sta_int, sta_mean, by = "yr_mon") 
+
+# create a column of deviation from the mean by year & month
+sta_int <- sta_int %>%
+  mutate(deviation = depth - mean_depth) 
+
+
+ 
+
+# plot the precip data as a boxplot 
+ggplot(sta_int, aes(as.factor(sta), depth)) + 
+  geom_violin() + 
+  geom_boxplot() + 
+  scale_y_sqrt() + 
+  theme_bw() + 
+  ggtitle("Weather stations near Pine Ridge Reservation, SD",  
+          subtitle = "1971-2018") + 
+  xlab("") +  
+  ylab("Monthly depth in mm") + 
+  NULL 
+
+ggplot2::ggsave(filename = "prcp_boxplot.png", 
+                width = 6, height = 6, units = "in") 
+
+ggplot(sta_int, aes(sta_abrev, deviation)) + 
+  geom_boxplot() +
+#  geom_histogram(binwidth = 1) +
+  facet_grid(cols = vars(month))
+
+# the anomolously wet month series is dominated by May & June events.
+# what drives precip during this time? 
+#   In May & June the area recieves low-level moisture from the Gulf 
+#   of Mexico, strong cold fronts, and active upper-level pattern 
+#   leading to greater chance for convection.
+
+ggplot(sta_int, aes(sta_abrev, depth)) + 
+  geom_boxplot() +
+#  geom_histogram(binwidth = 1) +
+  facet_grid(cols = vars(month))
+
+sta_sum <- sta_int %>% 
+  group_by(sta, month) %>% 
+  summarise(mean_depth = mean(depth),
+            sd_depth = sd(depth),
+            mean_dev = mean(deviation)) 
+```
+
+```{r precip-PCA, include=FALSE, eval=FALSE}
+
+# Prepare data for exploratory PCA -----------------------------------
+
+# PCA requires that data are scaled with a mean of zero and standard 
+# deviation of unity, e.g. a z-score.  
+
+# The steps are as follows :
+# 1. Transform using BoxCox transformation to approach normality & 
+#    standardize.
+# 2. Drop rows with missing observations from wide data
+#    (e.g. the station records are of different lengths)
+# 3. Apply transformation and the scale data after making the data 
+#    long.
+# 4. Drop intermediate variables & rows with missing observations 
+#    
+
+# BoxCox transformation utilizes a lamda value to transform a dataset 
+# to approach a normal distribution.
+#   lambda = 1 is normal distribution (no change), 
+#   lambda = 0.5 is a square-root transformation, 
+#   lamda = 2 is a square transformation,
+#   lambda = 0 is a logrithmic transformation.
+# find lambda values for BoxCox transformation  
+lambda_prcp <- BoxCox.lambda(sta_grp$depth) 
+
+# lambda vals
+#  prcp ==> 0.108 
+
+# glimpse(sta_scaled) 
+# sta          <chr> "oel", "oel", "oel", "oel", "oel", "oel", "oel"
+# date         <date> 2018-05-01, 2018-04-01, 2018-03-01, 2018-02-01
+# depth        <dbl> 139.8, 33.5, 24.0, 18.3, 13.3, 14.8, 16.5, 19.0.
+# depth_tr     <dbl> 6.528617, 4.270760, 3.792030, 3.415306, 2.985829.
+# depth_scaled <dbl> 1.320188955, 0.340849965, 0.133202243 
+
+sta_mon_wide <- sta_int %>% 
+  mutate(depth_tr = BoxCox(sta_int$depth, lambda_prcp)) %>% 
+  mutate(depth_mean = mean(depth_tr, na.rm = TRUE)) %>% 
+  mutate(depth_sd = sd(depth_tr, na.rm = TRUE)) %>% 
+  mutate(depth_scaled = (depth_tr - depth_mean)/depth_sd) %>% 
+  dplyr::select(-date) %>% 
+  select(-sta_abrev, -mean_depth, -deviation)
+
+sta_mon <- sta_mon_wide %>%  
+  mutate(sta = as.factor(sta)) %>%  
+  select(-depth, -yr_mon, -depth_mean, -depth_sd, -depth_tr, ) %>%
+  spread(month, depth_scaled, convert = TRUE) %>% 
+  drop_na() %>% 
+  rename(jan = "1") %>% 
+  rename(feb = "2") %>% 
+  rename(mar = "3") %>% 
+  rename(apr = "4") %>% 
+  rename(may = "5") %>% 
+  rename(jun = "6") %>% 
+  rename(jul = "7") %>% 
+  rename(aug = "8") %>% 
+  rename(sep = "9") %>% 
+  rename(oct = "10") %>% 
+  rename(nov = "11") %>% 
+  rename(dec = "12") 
+
+# glimpse(sta_mon) 
+# Observations: 230
+# Variables: 14
+# year <int> 1972, 1972, 1972, 1972, 1972, 1973, 1973, 1973, 1973, 
+# sta  <fct> cot, int, oel, ora, rap, cot, int, oel, ora, rap, cot, 
+# jan  <dbl> -1.1705655, -1.8359887, -1.0710896, -0.5540255, -0.781 
+# feb  <dbl> -0.5138541, -1.7302116, -1.1024868, -1.3120703, -0.400 
+# mar  <dbl> -0.49461927, -0.43412364, -0.01338585, -0.13223232, -0 
+# apr  <dbl> -0.1172139, 1.0387562, 0.6274294, 0.3555747, 0.8642143 
+# may  <dbl> 1.37710556, 0.70367637, 0.96166778, 0.84463790, 0.9909 
+# jun  <dbl> 0.63876170, 0.36154511, 1.03170176, 1.35395955, 1.1668 
+# jul  <dbl> 1.1087770, 0.7467736, 0.2690885, 0.3312313, 0.4877920, 
+# aug  <dbl> 0.32709997, 0.79595891, 0.29970391, 0.47757034, 0.7806 
+# sep  <dbl> -0.53364445, -0.99892436, -0.25600144, -0.10249695, -0 
+# oct  <dbl> -0.25151491, -0.25151491, -0.01338585, -0.10981856, -0 
+# nov  <dbl> -0.39471011, -0.39471011, -0.78171073, -0.32692017, -0 
+# dec  <dbl> -0.84271133, -6.16974428, -0.83213761, -1.11880814, -0 
+
+# Select numeric data for PCA input &  names to connect to result 
+# prcomp() requires a dataset with only the variables for the 
+# unsupervised classification 
+
+pca_meta <- sta_mon %>% 
+  select(year, sta)
+pca_input <- sta_mon %>% 
+  select(-year, -sta)
+
+# Calculate PCA matrix & summary info
+pca_matrix <- prcomp(pca_input, scale = TRUE) 
+
+# Gather PCA results----
+# The broom package is used to gather results into tibbles.
+
+# this plots the PCA biplot 
+biplot <- biplot(pca_matrix, scale = 0) 
+
+# Eigenvectors
+pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
+
+# A tibble: 12 x 4
+#      PC std.dev percent cumulative
+#   <dbl>   <dbl>   <dbl>      <dbl>
+# 1     1   1.25   0.130       0.130
+# 2     2   1.20   0.120       0.250
+# 3     3   1.14   0.108       0.357
+# 4     4   1.11   0.103       0.460
+# 5     5   1.07   0.0955      0.556
+# 6     6   1.03   0.0877      0.643
+# 7     7   0.984  0.0807      0.724
+# 8     8   0.924  0.0711      0.795
+# 9     9   0.885  0.0652      0.860
+#10    10   0.846  0.0597      0.92 
+#11    11   0.728  0.0441      0.964
+#12    12   0.656  0.0359      1  
+# This means that 13% of covarience is explained by PCA1 & 
+# 12% of varience by PCA2
+
+# PCA variables 
+# these are the loadings on the PCA axes.  
+pca_vars <-  tidy(pca_matrix, matrix = "variables") 
+pca_vars <- pca_vars %>% 
+  rename(var = column) %>% 
+  mutate(var = as.factor(var)) %>% 
+  arrange(value) %>% 
+  arrange(PC)
+
+pca_rotation <- pca_matrix$rotation
+
+# Bind sample vals to PCA matrix 
+pca_au <- augment(pca_matrix, data = pca_input) %>% 
+  select(jan:.fittedPC3)
+pca_au <- bind_cols(pca_meta, pca_au) 
+rm(pca_meta)
+
+# Calculate mean eigenvectors 
+# this summarizes the individual points by station - used in plots
+pca_summary <- pca_au %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean = mean(.fittedPC1),
+            PC2_mean = mean(.fittedPC2), 
+            PC3_mean = mean(.fittedPC3), 
+            mar_mean = mean(mar), 
+            apr_mean = mean(apr), 
+            may_mean = mean(may),
+            jun_mean = mean(jun), 
+            jul_mean = mean(jul), 
+            aug_mean = mean(aug),
+            sep_mean = mean(sep), 
+            oct_mean = mean(oct), 
+            nov_mean = mean(nov)) %>% 
+  ungroup()    
+
+
+# PCA Interpretation-------------------------- 
+pca_expl <- pca_vars %>%
+  filter(abs(value) > 0.3) %>% 
+  filter(PC < 4) %>% 
+  filter(var != "dec") %>% 
+  filter(var != "jan") %>% 
+  arrange(value) %>% 
+  arrange(PC)
+
+pca_expl
+# A tibble: 9 x 3
+#  var      PC  value
+#  <fct> <dbl>  <dbl>
+#1 jun       1 -0.612
+#2 mar       1  0.357
+#3 sep       1  0.368
+#4 may       2 -0.485
+#5 aug       2 -0.438
+#6 apr       2  0.330
+#7 mar       2  0.438
+#8 oct       3 -0.540
+#9 may       3 -0.409
+
+# thus PC1 is var in jun vs mar & sep
+#      PC2 is var in may & aug vs apr
+#      PC3 is var in oct & may
+
+#PCA1:PCA2
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC1_mean, PC2_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC1_mean, PC2_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+# PC1:: 
+# Interior has some unusually a dry March & Jun records
+# Cottonwood has some unusually dry Jun & Sept records
+pca_pc1 <- pca_au %>% 
+  select(sta, mar, jun, sep, .fittedPC1) %>% 
+  gather(key = month, value = z_depth, -.fittedPC1, -sta)
+
+ggplot(pca_pc1, aes(.fittedPC1, z_depth, color = sta)) + 
+  geom_point() + 
+  geom_smooth() + 
+  facet_grid(cols = vars(month))
+
+# PC2:: 
+# Oral & Interior have a slightly wetter May & August
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC2_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC2_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+
+pca_pc2 <- pca_au %>% 
+  select(sta, apr, may, aug, .fittedPC2) %>% 
+  gather(key = month, value = z_depth, -.fittedPC2, -sta)
+
+ggplot(pca_pc2, aes(.fittedPC2, z_depth, color = sta)) + 
+  geom_point() + 
+  geom_smooth() + 
+  facet_grid(rows = vars(month)) + 
+  theme_classic() 
+
+
+#PCA1:PCA3
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC1_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC1_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+#PCA2:PCA3
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC2_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC2_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+#fviz_pca_ind(prcomp(pca_input), 
+#             title = "PCA - Iris data", 
+#             habillage = pca_meta$sta, 
+#             palette = "jco", geom = "point", 
+#             ggtheme = theme_classic(), 
+#             legend = "bottom")  
+```
+
+```{r precip-clustering, include=FALSE, eval=FALSE}
+# The traditional clustering methods, such as hierarchical clustering 
+# and k-means clustering, are heuristic and are not based on formal  
+# models. An alternative is model-based clustering, which consider the 
+# data as coming from a distribution that is mixture of two or more 
+# clusters 
+
+# (Fraley and Raftery 2002, Fraley #et al. (2012)).
+
+# Model-based clustering uses a soft assignment, where each data point 
+# has a probability of belonging to each cluster.  In model-based 
+# clustering, the data is considered as coming from a mixture of 
+# density.  Each component (i.e. cluster) k is modeled by the normal 
+# or Gaussian distribution which is characterized by the parameters:
+#   μk\mu_k: mean vector, 
+#   ∑k\sum_k: covariance matrix, 
+#   An associated probability in the mixture. Each point has a 
+#     probability of belonging to each cluster.
+
+# "Old faithful geyser data" Example 
+
+
+# Scatter plots 
+ggscatter(pca_summary, x = "PC1_mean", y = "PC2_mean") + 
+geom_density2d() + # Add 2D density 
+    geom_text(label = pca_summary$sta) 
+
+ggscatter(pca_au, x = ".fittedPC1", y = ".fittedPC2", 
+          color = "sta", mean.point = TRUE) + 
+            geom_density2d()  
+
+
+ggplot() +
+  geom_point(pca_summary, aes(x = "PC1_mean", y = "PC2_mean"))
+
+geom_density_2d(mapping = NULL, data = NULL, stat = "density2d",
+  position = "identity", ..., lineend = "butt", linejoin = "round",
+  linemitre = 10, na.rm = FALSE, show.legend = NA, inherit.aes = TRUE)
+
+
+# The plot suggests at least 3 clusters in the mixture. 
+#   Interior is more negative on PCA1 & PCA2 & more positive on PCA3
+#   Cottonwood is more positive on PCA1 & more positive on PCA3 
+
+
+# The shape of each of the 3 clusters appears to be approximately 
+# elliptical suggesting three bivariate normal distributions. As the 
+# 3 ellipses seems to be similar in terms of volume, shape and 
+# orientation, we might anticipate that the three components of this 
+# mixture might have homogeneous covariance matrices.  
+
+```
+
 ```{r spi-with-SCI}
 # Standardized Climate Index (SCI)
 
@@ -739,14 +1072,15 @@ test_a <- test_a %>%
 # Usage
 
 fitSCI(x, ...)
-## Default S3 method:
+## Default S3 method: 
 fitSCI(x, first.mon, time.scale, distr, p0, 
-       p0.center.mass=FALSE, scaling=c("no","max","sd"),mledist.par =  list(),
+       p0.center.mass = FALSE, scaling = c("no","max","sd"),
+       mledist.par =  list(),
        start.fun = dist.start, start.fun.fix = FALSE, warn = TRUE, ...)
 
 transformSCI(x, ...)
 ## Default S3 method:
-transformSCI(x, first.mon, obj, sci.limit = Inf, warn=TRUE, ...)
+transformSCI(x, first.mon, obj, sci.limit = Inf, warn = TRUE, ...)
 
 #Arguments
 # x	- numeric vector, representing a monthly univariate time series.
@@ -903,8 +1237,8 @@ transformSCI(x, first.mon, obj, sci.limit = Inf, warn=TRUE, ...)
 ##
 set.seed(101)
 n.years <- 60
-date <- as.tibble(rep(1:n.years,each = 12) + 1950 + 
-  rep((0:11)/12,times = n.years))
+date <- rep(1:n.years,each = 12) + 1950 + 
+  rep((0:11)/12,times = n.years)
 
 ## Precipitation
 PRECIP <- (0.25*sin( 2 * pi * date) + 0.3) * 
@@ -912,69 +1246,62 @@ PRECIP <- (0.25*sin( 2 * pi * date) + 0.3) *
 PRECIP[PRECIP < 0.1] <- 0
 
 ## Potential Evapotranspiration
-PET <- 0.5 * sin( 2 * pi * date) + 1.2 + rnorm(n.years * 12, 0, 0.2)
+#PET <- 0.5 * sin( 2 * pi * date) + 1.2 + rnorm(n.years * 12, 0, 0.2) 
 
 ## display test data
-matplot(date,cbind(PRECIP,PET),t=c("h","l"),col=c("blue","red"),lty=1)
-legend("topright",legend=c("PRECIPitation","temperature"),fill=c("blue","red"))
-
+#matplot(date, cbind(PRECIP ,PET), t = c("h", "l"), 
+#        col = c("blue", "red"), lty = 1)
+#legend("topright", legend = c("PRECIPitation","temperature"), 
+#       fill = c("blue","red")) # won't work in Markdown w/o 
 ##
 ## example SPI
 ##
-spi.para <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE)
-spi.para
-spi <- transformSCI(PRECIP,first.mon=1,obj=spi.para)
-plot(date,spi,t="l")
+spi.para <- fitSCI(PRECIP, first.mon = 1, distr = "gamma", 
+                   time.scale = 6, p0 = TRUE)
+
+spi <- transformSCI(PRECIP, first.mon = 1, obj = spi.para) 
+#plot(date, spi, t = "l")
+#spi <- as.tibble(spi)
 
 ##
 ## effect of time.scale on SPI
 ##
-spi.1.para <- fitSCI(PRECIP,first.mon=1,time.scale=1,distr="gamma",p0=TRUE)
-spi.12.para <- fitSCI(PRECIP,first.mon=1,time.scale=12,distr="gamma",p0=TRUE)
-spi.1 <- transformSCI(PRECIP,first.mon=1,obj=spi.1.para)
-spi.12 <- transformSCI(PRECIP,first.mon=1,obj=spi.12.para)
-matplot(date,cbind(spi.1,spi.12),t="l",lty=1,col=c("red","blue"),lwd=c(1,2))
-legend("topright",legend=c("time.scale=1","time.scale=12"),fill=c("red","blue"))
+spi.1.para <- fitSCI(PRECIP, first.mon = 1, time.scale = 1, 
+                      distr = "gamma", p0 = TRUE)
+spi.12.para <- fitSCI(PRECIP, first.mon = 1,
+                      time.scale = 12,distr = "gamma", p0 = TRUE)
+spi.1 <- transformSCI(PRECIP, first.mon = 1,obj = spi.1.para)
+spi.12 <- transformSCI(PRECIP, first.mon = 1,obj = spi.12.para)
 
-##
-## example SPEI
-##
-if(require(evd)){
-    spei.para <- fitSCI(PRECIP-PET,first.mon=1,time.scale=6,distr="gev",p0=FALSE)
-    spei <- transformSCI(PRECIP-PET,first.mon=1,obj=spei.para)
-    plot(date,spei,t="l")
-}
-
-##
-## effect of changing different distribution for SPEI computation
-##
-spei.genlog.para <- fitSCI(PRECIP-PET,first.mon=1,time.scale=6,distr="genlog",p0=FALSE)
-spei.genlog <- transformSCI(PRECIP-PET,first.mon=1,obj=spei.genlog.para)
-if(require(evd)){lines(date,spei.genlog, col="red")} else {plot(date,spei.genlog,t="l")}
-## in this case: only limited effect.
-## generally: optimal choice of distribution: user responsibility.
+#matplot(date, cbind(spi.1, spi.12), t = "l", 
+#        lty = 1,col = c("red", "blue"), lwd = c(1, 2))
+#legend("topright",legend = c("time.scale = 1","time.scale = 12"), 
+#       fill = c("red","blue"))
 
 ##
 ## use a 30 year reference period for SPI parameter estimation
 ##
-sel.date <- date>=1970 & date<2000
-spi.ref.para <- fitSCI(PRECIP[sel.date],first.mon=1,distr="gamma",time.scale=6,p0=TRUE)
+sel.date <- date >= 1970 & date < 2000
+spi.ref.para <- fitSCI(PRECIP[sel.date], first.mon = 1, 
+                       distr = "gamma", time.scale = 6, p0 = TRUE)
+
 ## apply the the parameters of the reference period to all data
 ## also outside the reference period
-spi.ref <- transformSCI(PRECIP,first.mon=1,obj=spi.ref.para)
-plot(date,spi.ref,t="l",col="blue",ylim=c(-5,5),lwd=2)
-lines(date[sel.date],spi.ref[sel.date],col="red",lwd=3)
-legend("bottom",legend=c("reference period","extrapolation period"),fill=c("red","blue"),
-       horiz=TRUE)
+spi.ref <- transformSCI(PRECIP, first.mon = 1,obj = spi.ref.para)
+
 
 ##
-## use "start.fun.fix" in instances where maximum likelyhood estimation fails
+## use "start.fun.fix" in instances where maximum likelyhood 
+#     estimation fails
+
 ##
 ## force failure of maximum likelyhood estimation by adding "strange" value
 ## a warning should be issued
+
 xx <- PRECIP-PET; xx[300] <- 1000
 spei.para <- fitSCI(xx,first.mon=2,time.scale=1,p0=FALSE,distr="gev")
 spei.para$dist.para
+
 ## use start.fun, usually ment for estimating inital values for
 ## parameter optimisation if maximum likelihood estimation fails
 spei.para <- fitSCI(xx,first.mon=2,time.scale=1,p0=FALSE,distr="gev",
@@ -984,6 +1311,7 @@ spei.para$dist.para
 ##
 ## usage of sci.limit to truncate unrealistic SCI values
 ## 
+
 PRECIP.mod <- PRECIP
 PRECIP.mod[300] <- 100 ## introduce spuriously large value
 spi.mod.para <- fitSCI(PRECIP.mod,first.mon=1,time.scale=3,p0=TRUE,distr="gamma")
@@ -1002,31 +1330,142 @@ upper.lim <- apply(spi.para$dist.para,1,max) + 0.5*apply(spi.para$dist.para,1,sd
 spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
                          mledist.par=list(lower=lower.lim, upper=upper.lim))
 
-##
-## how to write an own start.fun
-## (required if distributions not mentioned in "dist.start" are used)
-##
-## function with same arguments as "dist.start" 
-my.start <- function(x,distr="gamma"){
-### code based on "mmedist" in package "fitdistrplus"
-    ppar <- try({
-        n <- length(x)
-        m <- mean(x)
-        v <- (n - 1)/n * var(x)
-        shape <- m^2/v
-        rate <- m/v
-        list(shape = shape, rate = rate)},TRUE)
-    if (class(ppar) == "try-error") ## function has to be able to return NA parameters
-        ppar <- list(shape = NA, rate = NA)
-    return(ppar)
-}
-my.start(PRECIP)
-spi.para <- fitSCI(PRECIP,first.mon=1,time.scale=6,p0=TRUE,
-                   distr="gamma",start.fun=my.start)
-
 ```
 
+```{r spi-with-SCI2}
+# Description
+# Calculate SPI with the SCI package.
+# fitSCI identifies parameters for the Standardized Climate Index (SCI) 
+# transformSCI applies the transformation
 
+# Usage: 
+# fitSCI(x, first.mon, time.scale, distr, p0, 
+#       p0.center.mass=FALSE, scaling=c("no","max","sd"),mledist.par =  list(),
+#       start.fun = dist.start, start.fun.fix = FALSE, warn = TRUE, ...)
+
+# transformSCI(x, first.mon, obj, sci.limit = Inf, warn=TRUE, ...)
+
+#Arguments
+# x	- numeric vector, representing a monthly univariate time series.
+# first.mon	- value in 1:12 indicating month of the first element of x 
+
+# time.scale	- The time scale (integer) of the SCI calculation. 
+# The time scale is the window length of an backward looking running mean.
+
+# distr	- A character string "name" naming a distribution for which 
+# the corresponding density function (dname), the corresponding 
+# distribution function (pname) and the quantile function (qname) must 
+# be defined (see for example GammaDist)
+
+# p0 - if TRUE, model Probability of zero (precipitation) months is 
+# modeled with a mixed distribution as D(x) = p0 + (1-p0)G(x), 
+# where G(x) > 0 is the reference distribution (e.g. Gamma) p0 is the 
+# probability of a zero (precipitation) month.
+
+# p0.center.mass - If TRUE, the Probability of zero (precipitation) is 
+# estimated using a "center of mass" estimate based on the Weibull 
+# plotting position function (see details). Only applies if p0=TRUE.
+
+# scaling	- Indicates whether to do some scaling of x prior to 
+# parameter identification. "no" (the default) indicates no scaling. 
+# "max" indicates scaling by the maximum of x, such that 
+# x <- x/max(x,na.rm=TRUE). "sd" stands for scaling by the standard 
+# deviation. Scaling can stabilize parameter estimation.
+
+# mledist.par	- named list that can be used to pass parameters to 
+# mledist in package fitdistrplus.
+
+# start.fun	- Function with arguments x and distr estimating initial 
+# parameters of the function distr for each month. The function should 
+# return a named list corresponding to the parameters of distr. 
+# (See also dist.start)
+
+# start.fun.fix	- logical argument, indicating if parameter estimates 
+# of start.fun should be used if maximum likelihood estimation breaks 
+# down. This stabilizes the implementation but can introduce biases in 
+# the resulting SCI.
+
+# obj	- an object of class fitSCI, output from fitSCI.
+
+# sci.limit	- Truncate absolute values of SCI that are lage than 
+# sci.limit. See details.
+
+# warn	- Issue warnings if problems in parameter estimation occur.
+
+# Details
+# fitSCI estimates the parameters for transforming a meteorological 
+# and environmental time series to a Standardized Climate Index (SCI). 
+
+# transformSCI applies the standardisation. 
+
+# Typical SCI are the Standardized Precipitation Index (SPI), the 
+# Standardized Runoff Index (SRI) or the Standardized Precipitation 
+# Evapotranspiration Index (SPEI).
+
+# To reduce biases in the presence of many zero (precipitation) events, 
+# the probability of these events (p0) can be estimated using a 
+# "center of mass" estimate based on the Weibull plotting position 
+# function (p0.center.mass=TRUE). Following Stagge et al. (2014) the 
+# probability of zero events is then estimated as p0 = (n_p)/(n + 1), 
+# where np refers to the number of zero events and n is the sample 
+# size. The resulting mixed distribution used fro SCI transformation 
+# is then: 
+# g(x) = if(x > 0) p0 + (1 - p0)G(x) else if(x == 0) (np + 1)/(2(n + 1))
+#   where G(x)>0 is a model (e.g. gamma) distribution.
+
+# Uncertainty in distribution parameters can cause unrealistically 
+# large (small) SCI values if values in x exceed the values used for 
+# parameter estimation (see fitSCI). Therefore transformSCI allows for 
+# a truncation of the SCI series such that abs(sci)<=sci.limit. The 
+# truncation can be disabled by setting sci.limit=Inf.
+
+# Value
+# fitSCI returns an object of class "fitSCI" with the following components:
+
+# dist.para	
+# A column matrix containing the parameters of distribution distr for 
+# each month. Row names correspond to the distribution parameters. 
+# If p0=TUE an additional row named P0 is introduced, indicating the 
+# probability of zero (precipitation) events.
+
+# dist.para.flag	
+# an vector indicating possible issues occurring throughout parameter 
+# estimation. Possible values are: 0. no problems occurred; 1. 
+# starting values could not be estimated; 2. mledist crashed with 
+# unknown error; 3. mledist did not converge; 4. all values in this 
+# month are NA; 5. all values in this month are constant, distribution 
+# not defined.
+
+# time.scale	
+# The time scale (integer) of the SCI calculation.
+
+# distr	
+# A character string "name" naming a distribution used
+
+# p0	
+# logical indicating whether probability of zero (precipitation) 
+# events is estimated separately.
+
+# p0.center.mass	
+# logical indicating whether probability of zero (precipitation) 
+# events is estimated using the "centre of mass" estimator 
+# (see Stagge et al. (2014) for details).
+
+# scaling	
+# numeric value that has been used to scale x (see argument scaling). 
+# A value of 1 results from scaling="no", other values are the maximum 
+# value or the standard deviation of x, depending on the choice of the 
+# parameter scaling.
+
+# call	
+# the function call transform SCI returns a numeric vector containing 
+# the SCI, having values of the standard normal distribution.
+
+time_scale <- c(1, 2, 3, 4, 5, 6, 9, 12, 24) 
+
+spi.para <- fitSCI(PRECIP, first.mon = 1, distr = "gamma", 
+                   time.scale = 6, p0 = TRUE)
+```
 
 ```{r spi-cot} 
 # This code chunk calculates SPI coefficients for 
@@ -3747,10 +4186,9 @@ rm(intr8, intc8, spi_24rap)
 ```
 
 
-
 ```{r exploratory-PCA-gages}
 # Overview
-# ~~~~~~~~
+# ~~~~~~~~ 
 # PCA is a method to summarize data using fewer variables by 
 # constructing new linear descriptors from variables. The new 
 # linear discriptors describe maximum variation across observations. 
@@ -4036,8 +4474,8 @@ ggplot() +
 ```
 
 ```{r Model-Based_Clustering}
-# The traditional clustering methods, such as hierarchical clustering
-# and k-means clustering, are heuristic and are not based on formal 
+# The traditional clustering methods, such as hierarchical clustering 
+# and k-means clustering, are heuristic and are not based on formal  
 # models. An alternative is model-based clustering, which consider the 
 # data as coming from a distribution that is mixture of two or more 
 # clusters 
@@ -4336,7 +4774,20 @@ pam() in recommended pack- age cluster (Rousseeuw, Struyf, Hubert, and Maechler,
 RWeka (Hornik, Hothorn, and Karatzoglou, 2006), cba (Buchta and Hahsler, 2005), cclust (Dimitriadou, 2005), cluster, e1071 (Dimitriadou, Hornik, Leisch, Meyer, and Weingessel, 2005), flexclust (Leisch, 2006), flexmix (Leisch, 2004), kernlab (Karatzoglou, Smola, Hornik, and Zeileis, 2004), and mclust (and of course, clue itself).
 
 
+```{r eda_fiddling, include=FALSE, eval=FALSE}
+sta_big <- sta_grp %>% 
+  filter(depth > 100) 
+summary(sta_big) 
 
+ggplot(sta_big, aes(month)) +
+  geom_histogram(binwidth = 1) 
+
+# the anomolously wet month series is dominated by May & June events.
+# what drives precip during this time? 
+#   In May & June the area recieves low-level moisture from the Gulf 
+#   of Mexico, strong cold fronts, and active upper-level pattern 
+#   leading to greater chance for convection.
+```
 
 
 
