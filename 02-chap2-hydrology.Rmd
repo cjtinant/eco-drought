@@ -325,8 +325,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Sets up the library of packages 
 #library("magrittr") # contains easier ways to say things about lists
 library("here") # identifies where to save work 
-library("rio") # more robust I/O - to import and clean data
-
+library("rio") # more robust I/O - to import and clean data 
 library("janitor") # tools to clean dirty data 
 library("forecast") # using the BoxCox function
 library("standardize")
@@ -351,6 +350,7 @@ library("clValid")
 #lmomco <- citation("lmomco")
 #toBibtex(lmomco)
 library("mclust") 
+library("corrplot")
 library("lubridate") # fixes dates 
 library("tidyverse") 
 
@@ -661,8 +661,15 @@ test_a <- test_a %>%
 
 ```{r import-precip-data} 
 # General Purpose: prepare data for drought index    
-# Specific purpose: graphical EDA  
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+# Specific purpose: check EDA 
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) %>% 
+  mutate(min_date = ymd(mindate)) %>% 
+  mutate(max_date = ymd(maxdate)) %>% 
+  select(-mindate, -maxdate) %>% 
+  mutate(dur_year = max_date - min_date) %>% 
+  mutate(dur_year = days(dur_year)) %>% 
+  mutate(dur_year = time_length(dur_year, unit = "year"))
+
 sta_raw     <- as.tibble(import("data/stations_monthly.csv")) %>% 
   mutate(date = ymd(date)) %>% 
   arrange(desc(date)) 
@@ -683,10 +690,23 @@ sta_grp$depth <- ifelse(sta_grp$depth == is.na(sta_grp$depth), 0, sta_grp$depth)
 sta_na <- sta_grp %>% 
     filter(depth == is.na(depth)) 
 #rm(sta_na)
+rm(sta_grp)
 ```
 
-```{r precip-boxplot} 
-# drop rows with missing data
+```{r precip-EDA}
+# Purpose: EDA of precipitation data.
+# Outcome: Differences among stations 1971-2018 are small.
+#          less than +/-5 mm on average.
+
+# the anomolously wet month series is dominated by May & June events.
+# what drives precip during this time? 
+#   In May & June the area recieves low-level moisture from the Gulf 
+#   of Mexico, strong cold fronts, and active upper-level pattern 
+#   leading to greater chance for convection.
+
+
+# drop rows with missing data - this organizes the stations to same 
+# time series length
 sta_int <- sta_raw %>%  
   drop_na %>% 
   gather(key = "sta", value = "depth", 
@@ -712,15 +732,13 @@ sta_mean <- sta_int %>%
   select(-year, -month)
  
 sta_int <- full_join(sta_int, sta_mean, by = "yr_mon") 
+rm(sta_mean)
 
 # create a column of deviation from the mean by year & month
 sta_int <- sta_int %>%
   mutate(deviation = depth - mean_depth) 
 
-
- 
-
-# plot the precip data as a boxplot 
+# plot the precip data as an overall boxplot 
 ggplot(sta_int, aes(as.factor(sta), depth)) + 
   geom_violin() + 
   geom_boxplot() + 
@@ -735,331 +753,25 @@ ggplot(sta_int, aes(as.factor(sta), depth)) +
 ggplot2::ggsave(filename = "prcp_boxplot.png", 
                 width = 6, height = 6, units = "in") 
 
+# plot the precip data as a monthly boxplot
+ggplot(sta_int, aes(sta_abrev, depth)) + 
+  geom_boxplot() +
+#  geom_histogram(binwidth = 1) +
+  facet_grid(cols = vars(month))
+
+# plot the precip deviations as a monthly boxplot
 ggplot(sta_int, aes(sta_abrev, deviation)) + 
   geom_boxplot() +
 #  geom_histogram(binwidth = 1) +
   facet_grid(cols = vars(month))
 
-# the anomolously wet month series is dominated by May & June events.
-# what drives precip during this time? 
-#   In May & June the area recieves low-level moisture from the Gulf 
-#   of Mexico, strong cold fronts, and active upper-level pattern 
-#   leading to greater chance for convection.
 
-ggplot(sta_int, aes(sta_abrev, depth)) + 
-  geom_boxplot() +
-#  geom_histogram(binwidth = 1) +
-  facet_grid(cols = vars(month))
 
 sta_sum <- sta_int %>% 
   group_by(sta, month) %>% 
   summarise(mean_depth = mean(depth),
             sd_depth = sd(depth),
             mean_dev = mean(deviation)) 
-```
-
-```{r precip-PCA, include=FALSE, eval=FALSE}
-
-# Prepare data for exploratory PCA -----------------------------------
-
-# PCA requires that data are scaled with a mean of zero and standard 
-# deviation of unity, e.g. a z-score.  
-
-# The steps are as follows :
-# 1. Transform using BoxCox transformation to approach normality & 
-#    standardize.
-# 2. Drop rows with missing observations from wide data
-#    (e.g. the station records are of different lengths)
-# 3. Apply transformation and the scale data after making the data 
-#    long.
-# 4. Drop intermediate variables & rows with missing observations 
-#    
-
-# BoxCox transformation utilizes a lamda value to transform a dataset 
-# to approach a normal distribution.
-#   lambda = 1 is normal distribution (no change), 
-#   lambda = 0.5 is a square-root transformation, 
-#   lamda = 2 is a square transformation,
-#   lambda = 0 is a logrithmic transformation.
-# find lambda values for BoxCox transformation  
-lambda_prcp <- BoxCox.lambda(sta_grp$depth) 
-
-# lambda vals
-#  prcp ==> 0.108 
-
-# glimpse(sta_scaled) 
-# sta          <chr> "oel", "oel", "oel", "oel", "oel", "oel", "oel"
-# date         <date> 2018-05-01, 2018-04-01, 2018-03-01, 2018-02-01
-# depth        <dbl> 139.8, 33.5, 24.0, 18.3, 13.3, 14.8, 16.5, 19.0.
-# depth_tr     <dbl> 6.528617, 4.270760, 3.792030, 3.415306, 2.985829.
-# depth_scaled <dbl> 1.320188955, 0.340849965, 0.133202243 
-
-sta_mon_wide <- sta_int %>% 
-  mutate(depth_tr = BoxCox(sta_int$depth, lambda_prcp)) %>% 
-  mutate(depth_mean = mean(depth_tr, na.rm = TRUE)) %>% 
-  mutate(depth_sd = sd(depth_tr, na.rm = TRUE)) %>% 
-  mutate(depth_scaled = (depth_tr - depth_mean)/depth_sd) %>% 
-  dplyr::select(-date) %>% 
-  select(-sta_abrev, -mean_depth, -deviation)
-
-sta_mon <- sta_mon_wide %>%  
-  mutate(sta = as.factor(sta)) %>%  
-  select(-depth, -yr_mon, -depth_mean, -depth_sd, -depth_tr, ) %>%
-  spread(month, depth_scaled, convert = TRUE) %>% 
-  drop_na() %>% 
-  rename(jan = "1") %>% 
-  rename(feb = "2") %>% 
-  rename(mar = "3") %>% 
-  rename(apr = "4") %>% 
-  rename(may = "5") %>% 
-  rename(jun = "6") %>% 
-  rename(jul = "7") %>% 
-  rename(aug = "8") %>% 
-  rename(sep = "9") %>% 
-  rename(oct = "10") %>% 
-  rename(nov = "11") %>% 
-  rename(dec = "12") 
-
-# glimpse(sta_mon) 
-# Observations: 230
-# Variables: 14
-# year <int> 1972, 1972, 1972, 1972, 1972, 1973, 1973, 1973, 1973, 
-# sta  <fct> cot, int, oel, ora, rap, cot, int, oel, ora, rap, cot, 
-# jan  <dbl> -1.1705655, -1.8359887, -1.0710896, -0.5540255, -0.781 
-# feb  <dbl> -0.5138541, -1.7302116, -1.1024868, -1.3120703, -0.400 
-# mar  <dbl> -0.49461927, -0.43412364, -0.01338585, -0.13223232, -0 
-# apr  <dbl> -0.1172139, 1.0387562, 0.6274294, 0.3555747, 0.8642143 
-# may  <dbl> 1.37710556, 0.70367637, 0.96166778, 0.84463790, 0.9909 
-# jun  <dbl> 0.63876170, 0.36154511, 1.03170176, 1.35395955, 1.1668 
-# jul  <dbl> 1.1087770, 0.7467736, 0.2690885, 0.3312313, 0.4877920, 
-# aug  <dbl> 0.32709997, 0.79595891, 0.29970391, 0.47757034, 0.7806 
-# sep  <dbl> -0.53364445, -0.99892436, -0.25600144, -0.10249695, -0 
-# oct  <dbl> -0.25151491, -0.25151491, -0.01338585, -0.10981856, -0 
-# nov  <dbl> -0.39471011, -0.39471011, -0.78171073, -0.32692017, -0 
-# dec  <dbl> -0.84271133, -6.16974428, -0.83213761, -1.11880814, -0 
-
-# Select numeric data for PCA input &  names to connect to result 
-# prcomp() requires a dataset with only the variables for the 
-# unsupervised classification 
-
-pca_meta <- sta_mon %>% 
-  select(year, sta)
-pca_input <- sta_mon %>% 
-  select(-year, -sta)
-
-# Calculate PCA matrix & summary info
-pca_matrix <- prcomp(pca_input, scale = TRUE) 
-
-# Gather PCA results----
-# The broom package is used to gather results into tibbles.
-
-# this plots the PCA biplot 
-biplot <- biplot(pca_matrix, scale = 0) 
-
-# Eigenvectors
-pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
-
-# A tibble: 12 x 4
-#      PC std.dev percent cumulative
-#   <dbl>   <dbl>   <dbl>      <dbl>
-# 1     1   1.25   0.130       0.130
-# 2     2   1.20   0.120       0.250
-# 3     3   1.14   0.108       0.357
-# 4     4   1.11   0.103       0.460
-# 5     5   1.07   0.0955      0.556
-# 6     6   1.03   0.0877      0.643
-# 7     7   0.984  0.0807      0.724
-# 8     8   0.924  0.0711      0.795
-# 9     9   0.885  0.0652      0.860
-#10    10   0.846  0.0597      0.92 
-#11    11   0.728  0.0441      0.964
-#12    12   0.656  0.0359      1  
-# This means that 13% of covarience is explained by PCA1 & 
-# 12% of varience by PCA2
-
-# PCA variables 
-# these are the loadings on the PCA axes.  
-pca_vars <-  tidy(pca_matrix, matrix = "variables") 
-pca_vars <- pca_vars %>% 
-  rename(var = column) %>% 
-  mutate(var = as.factor(var)) %>% 
-  arrange(value) %>% 
-  arrange(PC)
-
-pca_rotation <- pca_matrix$rotation
-
-# Bind sample vals to PCA matrix 
-pca_au <- augment(pca_matrix, data = pca_input) %>% 
-  select(jan:.fittedPC3)
-pca_au <- bind_cols(pca_meta, pca_au) 
-rm(pca_meta)
-
-# Calculate mean eigenvectors 
-# this summarizes the individual points by station - used in plots
-pca_summary <- pca_au %>% 
-  group_by(sta) %>% 
-  summarize(PC1_mean = mean(.fittedPC1),
-            PC2_mean = mean(.fittedPC2), 
-            PC3_mean = mean(.fittedPC3), 
-            mar_mean = mean(mar), 
-            apr_mean = mean(apr), 
-            may_mean = mean(may),
-            jun_mean = mean(jun), 
-            jul_mean = mean(jul), 
-            aug_mean = mean(aug),
-            sep_mean = mean(sep), 
-            oct_mean = mean(oct), 
-            nov_mean = mean(nov)) %>% 
-  ungroup()    
-
-
-# PCA Interpretation-------------------------- 
-pca_expl <- pca_vars %>%
-  filter(abs(value) > 0.3) %>% 
-  filter(PC < 4) %>% 
-  filter(var != "dec") %>% 
-  filter(var != "jan") %>% 
-  arrange(value) %>% 
-  arrange(PC)
-
-pca_expl
-# A tibble: 9 x 3
-#  var      PC  value
-#  <fct> <dbl>  <dbl>
-#1 jun       1 -0.612
-#2 mar       1  0.357
-#3 sep       1  0.368
-#4 may       2 -0.485
-#5 aug       2 -0.438
-#6 apr       2  0.330
-#7 mar       2  0.438
-#8 oct       3 -0.540
-#9 may       3 -0.409
-
-# thus PC1 is var in jun vs mar & sep
-#      PC2 is var in may & aug vs apr
-#      PC3 is var in oct & may
-
-#PCA1:PCA2
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC1_mean, PC2_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC1_mean, PC2_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-# PC1:: 
-# Interior has some unusually a dry March & Jun records
-# Cottonwood has some unusually dry Jun & Sept records
-pca_pc1 <- pca_au %>% 
-  select(sta, mar, jun, sep, .fittedPC1) %>% 
-  gather(key = month, value = z_depth, -.fittedPC1, -sta)
-
-ggplot(pca_pc1, aes(.fittedPC1, z_depth, color = sta)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_grid(cols = vars(month))
-
-# PC2:: 
-# Oral & Interior have a slightly wetter May & August
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC2_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC2_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-
-pca_pc2 <- pca_au %>% 
-  select(sta, apr, may, aug, .fittedPC2) %>% 
-  gather(key = month, value = z_depth, -.fittedPC2, -sta)
-
-ggplot(pca_pc2, aes(.fittedPC2, z_depth, color = sta)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_grid(rows = vars(month)) + 
-  theme_classic() 
-
-
-#PCA1:PCA3
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC1_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC1_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-#PCA2:PCA3
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC2_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC2_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-#fviz_pca_ind(prcomp(pca_input), 
-#             title = "PCA - Iris data", 
-#             habillage = pca_meta$sta, 
-#             palette = "jco", geom = "point", 
-#             ggtheme = theme_classic(), 
-#             legend = "bottom")  
-```
-
-```{r precip-clustering, include=FALSE, eval=FALSE}
-# The traditional clustering methods, such as hierarchical clustering 
-# and k-means clustering, are heuristic and are not based on formal  
-# models. An alternative is model-based clustering, which consider the 
-# data as coming from a distribution that is mixture of two or more 
-# clusters 
-
-# (Fraley and Raftery 2002, Fraley #et al. (2012)).
-
-# Model-based clustering uses a soft assignment, where each data point 
-# has a probability of belonging to each cluster.  In model-based 
-# clustering, the data is considered as coming from a mixture of 
-# density.  Each component (i.e. cluster) k is modeled by the normal 
-# or Gaussian distribution which is characterized by the parameters:
-#   μk\mu_k: mean vector, 
-#   ∑k\sum_k: covariance matrix, 
-#   An associated probability in the mixture. Each point has a 
-#     probability of belonging to each cluster.
-
-# "Old faithful geyser data" Example 
-
-
-# Scatter plots 
-ggscatter(pca_summary, x = "PC1_mean", y = "PC2_mean") + 
-geom_density2d() + # Add 2D density 
-    geom_text(label = pca_summary$sta) 
-
-ggscatter(pca_au, x = ".fittedPC1", y = ".fittedPC2", 
-          color = "sta", mean.point = TRUE) + 
-            geom_density2d()  
-
-
-ggplot() +
-  geom_point(pca_summary, aes(x = "PC1_mean", y = "PC2_mean"))
-
-geom_density_2d(mapping = NULL, data = NULL, stat = "density2d",
-  position = "identity", ..., lineend = "butt", linejoin = "round",
-  linemitre = 10, na.rm = FALSE, show.legend = NA, inherit.aes = TRUE)
-
-
-# The plot suggests at least 3 clusters in the mixture. 
-#   Interior is more negative on PCA1 & PCA2 & more positive on PCA3
-#   Cottonwood is more positive on PCA1 & more positive on PCA3 
-
-
-# The shape of each of the 3 clusters appears to be approximately 
-# elliptical suggesting three bivariate normal distributions. As the 
-# 3 ellipses seems to be similar in terms of volume, shape and 
-# orientation, we might anticipate that the three components of this 
-# mixture might have homogeneous covariance matrices.  
-
 ```
 
 ```{r spi-with-SCI}
@@ -1323,7 +1035,7 @@ lines(transformSCI(PRECIP.mod,first.mon=1,obj=spi.mod.para,sci.limit=4),col="red
 ## how to modify settings of function "mledist" used for parameter identification
 ## 
 ## identify parameters with standard settings
-spi.para <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE)
+spi.para <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE) 
 ## add lower and upper limits for parameter identification
 lower.lim <- apply(spi.para$dist.para,1,min) - 0.5*apply(spi.para$dist.para,1,sd)
 upper.lim <- apply(spi.para$dist.para,1,max) + 0.5*apply(spi.para$dist.para,1,sd)
@@ -1333,6 +1045,9 @@ spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
 ```
 
 ```{r spi-with-SCI2}
+# Questions: are transformation params the same for oel & cot?
+
+
 # Description
 # Calculate SPI with the SCI package.
 # fitSCI identifies parameters for the Standardized Climate Index (SCI) 
@@ -1420,7 +1135,8 @@ spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
 # truncation can be disabled by setting sci.limit=Inf.
 
 # Value
-# fitSCI returns an object of class "fitSCI" with the following components:
+# fitSCI returns an object of class "fitSCI" 
+# with the following components: 
 
 # dist.para	
 # A column matrix containing the parameters of distribution distr for 
@@ -1451,20 +1167,77 @@ spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
 # events is estimated using the "centre of mass" estimator 
 # (see Stagge et al. (2014) for details).
 
-# scaling	
+# scaling	 
 # numeric value that has been used to scale x (see argument scaling). 
 # A value of 1 results from scaling="no", other values are the maximum 
 # value or the standard deviation of x, depending on the choice of the 
-# parameter scaling.
+# parameter scaling. 
 
-# call	
+# call	 
 # the function call transform SCI returns a numeric vector containing 
-# the SCI, having values of the standard normal distribution.
+# the SCI, having values of the standard normal distribution. 
 
-time_scale <- c(1, 2, 3, 4, 5, 6, 9, 12, 24) 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare oelrichs precip 
+sta_oel <- sta_raw %>% 
+  arrange(date) %>% 
+  select(oel) 
 
-spi.para <- fitSCI(PRECIP, first.mon = 1, distr = "gamma", 
+oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
+#is.vector(oel)
+#is.double(oel)
+
+# calculate SPI as a list & extract results
+# It seems that the SCI package doesn't like snake_case variables
+spi.oel.l <- fitSCI(oel, first.mon = 1, distr = "pe3", 
+                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
+
+spi.oel <- transformSCI(oel, first.mon = 1, obj = spi.oel.l) 
+spi_oel <- as.tibble(spi.oel) 
+spi_oel <- spi_oel %>% 
+  rename(spi_oel = value)
+# summary(spi_oel)
+
+attr <- spi.cot.l$dist.para
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare cottonwoods precip 
+sta_cot <- sta_raw %>% 
+  arrange(date) %>% 
+  select(cot) 
+
+cot <- as.double(sta_cot$cot) #changes tibble to a vector as double
+#is.vector(oel)
+#is.double(oel)
+
+# calculate SPI as a list & extract results
+spi.cot.l <- fitSCI(cot, first.mon = 1, distr = "pe3", 
                    time.scale = 6, p0 = TRUE)
+
+spi.cot <- transformSCI(cot, first.mon = 1, obj = spi.cot.l) 
+spi_cot <- as.tibble(spi.cot) 
+
+spi_cot <- spi_cot %>% 
+  rename(spi_cot = value)
+
+
+spi <- bind_cols(spi_oel, spi_cot) 
+spi <- bind_cols(sta_raw, spi)
+
+spi_gath <- spi %>% 
+  select(date, spi_oel, spi_cot) %>% 
+  gather(key = sta, value = spi, -date)
+
+ggplot(spi_gath, aes(date, spi)) +
+  geom_line() +
+  facet_wrap(vars(sta))
+
+
+# check covariance
+
+# create a correlation matrix and plot it
+spi_M <- cor(spi)
+corrplot.mixed(spi_M,  order = "hclust", addrect = 2, upper = "ellipse", lower = "number", title = "Precipitation station correlation")
 ```
 
 ```{r spi-cot} 
@@ -4773,6 +4546,309 @@ pam() in recommended pack- age cluster (Rousseeuw, Struyf, Hubert, and Maechler,
 
 RWeka (Hornik, Hothorn, and Karatzoglou, 2006), cba (Buchta and Hahsler, 2005), cclust (Dimitriadou, 2005), cluster, e1071 (Dimitriadou, Hornik, Leisch, Meyer, and Weingessel, 2005), flexclust (Leisch, 2006), flexmix (Leisch, 2004), kernlab (Karatzoglou, Smola, Hornik, and Zeileis, 2004), and mclust (and of course, clue itself).
 
+
+```{r precip-EDA}
+# Prepare data for exploratory PCA -----------------------------------
+
+# PCA requires that data are scaled with a mean of zero and standard 
+# deviation of unity, e.g. a z-score.  
+
+# The steps are as follows :
+# 1. Transform using BoxCox transformation to approach normality & 
+#    standardize.
+# 2. Drop rows with missing observations from wide data
+#    (e.g. the station records are of different lengths)
+# 3. Apply transformation and the scale data after making the data 
+#    long.
+# 4. Drop intermediate variables & rows with missing observations 
+#    
+
+# BoxCox transformation utilizes a lamda value to transform a dataset 
+# to approach a normal distribution.
+#   lambda = 1 is normal distribution (no change), 
+#   lambda = 0.5 is a square-root transformation, 
+#   lamda = 2 is a square transformation,
+#   lambda = 0 is a logrithmic transformation.
+# find lambda values for BoxCox transformation  
+lambda_prcp <- BoxCox.lambda(sta_grp$depth) 
+
+# lambda vals
+#  prcp ==> 0.108 
+
+# glimpse(sta_scaled) 
+# sta          <chr> "oel", "oel", "oel", "oel", "oel", "oel", "oel"
+# date         <date> 2018-05-01, 2018-04-01, 2018-03-01, 2018-02-01
+# depth        <dbl> 139.8, 33.5, 24.0, 18.3, 13.3, 14.8, 16.5, 19.0.
+# depth_tr     <dbl> 6.528617, 4.270760, 3.792030, 3.415306, 2.985829.
+# depth_scaled <dbl> 1.320188955, 0.340849965, 0.133202243 
+
+sta_mon_wide <- sta_int %>% 
+  mutate(depth_tr = BoxCox(sta_int$depth, lambda_prcp)) %>% 
+  mutate(depth_mean = mean(depth_tr, na.rm = TRUE)) %>% 
+  mutate(depth_sd = sd(depth_tr, na.rm = TRUE)) %>% 
+  mutate(depth_scaled = (depth_tr - depth_mean)/depth_sd) %>% 
+  dplyr::select(-date) %>% 
+  select(-sta_abrev, -mean_depth, -deviation)
+
+sta_mon <- sta_mon_wide %>%  
+  mutate(sta = as.factor(sta)) %>%  
+  select(-depth, -yr_mon, -depth_mean, -depth_sd, -depth_tr, ) %>%
+  spread(month, depth_scaled, convert = TRUE) %>% 
+  drop_na() %>% 
+  rename(jan = "1") %>% 
+  rename(feb = "2") %>% 
+  rename(mar = "3") %>% 
+  rename(apr = "4") %>% 
+  rename(may = "5") %>% 
+  rename(jun = "6") %>% 
+  rename(jul = "7") %>% 
+  rename(aug = "8") %>% 
+  rename(sep = "9") %>% 
+  rename(oct = "10") %>% 
+  rename(nov = "11") %>% 
+  rename(dec = "12") 
+
+# glimpse(sta_mon) 
+# Observations: 230
+# Variables: 14
+# year <int> 1972, 1972, 1972, 1972, 1972, 1973, 1973, 1973, 1973, 
+# sta  <fct> cot, int, oel, ora, rap, cot, int, oel, ora, rap, cot, 
+# jan  <dbl> -1.1705655, -1.8359887, -1.0710896, -0.5540255, -0.781 
+# feb  <dbl> -0.5138541, -1.7302116, -1.1024868, -1.3120703, -0.400 
+# mar  <dbl> -0.49461927, -0.43412364, -0.01338585, -0.13223232, -0 
+# apr  <dbl> -0.1172139, 1.0387562, 0.6274294, 0.3555747, 0.8642143 
+# may  <dbl> 1.37710556, 0.70367637, 0.96166778, 0.84463790, 0.9909 
+# jun  <dbl> 0.63876170, 0.36154511, 1.03170176, 1.35395955, 1.1668 
+# jul  <dbl> 1.1087770, 0.7467736, 0.2690885, 0.3312313, 0.4877920, 
+# aug  <dbl> 0.32709997, 0.79595891, 0.29970391, 0.47757034, 0.7806 
+# sep  <dbl> -0.53364445, -0.99892436, -0.25600144, -0.10249695, -0 
+# oct  <dbl> -0.25151491, -0.25151491, -0.01338585, -0.10981856, -0 
+# nov  <dbl> -0.39471011, -0.39471011, -0.78171073, -0.32692017, -0 
+# dec  <dbl> -0.84271133, -6.16974428, -0.83213761, -1.11880814, -0 
+
+# Select numeric data for PCA input &  names to connect to result 
+# prcomp() requires a dataset with only the variables for the 
+# unsupervised classification 
+
+pca_meta <- sta_mon %>% 
+  select(year, sta)
+pca_input <- sta_mon %>% 
+  select(-year, -sta)
+
+# Calculate PCA matrix & summary info
+pca_matrix <- prcomp(pca_input, scale = TRUE) 
+
+# Gather PCA results----
+# The broom package is used to gather results into tibbles.
+
+# this plots the PCA biplot 
+biplot <- biplot(pca_matrix, scale = 0) 
+
+# Eigenvectors
+pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
+
+# A tibble: 12 x 4
+#      PC std.dev percent cumulative
+#   <dbl>   <dbl>   <dbl>      <dbl>
+# 1     1   1.25   0.130       0.130
+# 2     2   1.20   0.120       0.250
+# 3     3   1.14   0.108       0.357
+# 4     4   1.11   0.103       0.460
+# 5     5   1.07   0.0955      0.556
+# 6     6   1.03   0.0877      0.643
+# 7     7   0.984  0.0807      0.724
+# 8     8   0.924  0.0711      0.795
+# 9     9   0.885  0.0652      0.860
+#10    10   0.846  0.0597      0.92 
+#11    11   0.728  0.0441      0.964
+#12    12   0.656  0.0359      1  
+# This means that 13% of covarience is explained by PCA1 & 
+# 12% of varience by PCA2
+
+# PCA variables 
+# these are the loadings on the PCA axes.  
+pca_vars <-  tidy(pca_matrix, matrix = "variables") 
+pca_vars <- pca_vars %>% 
+  rename(var = column) %>% 
+  mutate(var = as.factor(var)) %>% 
+  arrange(value) %>% 
+  arrange(PC)
+
+pca_rotation <- pca_matrix$rotation
+
+# Bind sample vals to PCA matrix 
+pca_au <- augment(pca_matrix, data = pca_input) %>% 
+  select(jan:.fittedPC3)
+pca_au <- bind_cols(pca_meta, pca_au) 
+rm(pca_meta)
+
+# Calculate mean eigenvectors 
+# this summarizes the individual points by station - used in plots
+pca_summary <- pca_au %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean = mean(.fittedPC1),
+            PC2_mean = mean(.fittedPC2), 
+            PC3_mean = mean(.fittedPC3), 
+            mar_mean = mean(mar), 
+            apr_mean = mean(apr), 
+            may_mean = mean(may),
+            jun_mean = mean(jun), 
+            jul_mean = mean(jul), 
+            aug_mean = mean(aug),
+            sep_mean = mean(sep), 
+            oct_mean = mean(oct), 
+            nov_mean = mean(nov)) %>% 
+  ungroup()    
+
+
+# PCA Interpretation-------------------------- 
+pca_expl <- pca_vars %>%
+  filter(abs(value) > 0.3) %>% 
+  filter(PC < 4) %>% 
+  filter(var != "dec") %>% 
+  filter(var != "jan") %>% 
+  arrange(value) %>% 
+  arrange(PC)
+
+pca_expl
+# A tibble: 9 x 3
+#  var      PC  value
+#  <fct> <dbl>  <dbl>
+#1 jun       1 -0.612
+#2 mar       1  0.357
+#3 sep       1  0.368
+#4 may       2 -0.485
+#5 aug       2 -0.438
+#6 apr       2  0.330
+#7 mar       2  0.438
+#8 oct       3 -0.540
+#9 may       3 -0.409
+
+# thus PC1 is var in jun vs mar & sep
+#      PC2 is var in may & aug vs apr
+#      PC3 is var in oct & may
+
+#PCA1:PCA2
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC1_mean, PC2_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC1_mean, PC2_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+# PC1:: 
+# Interior has some unusually a dry March & Jun records
+# Cottonwood has some unusually dry Jun & Sept records
+pca_pc1 <- pca_au %>% 
+  select(sta, mar, jun, sep, .fittedPC1) %>% 
+  gather(key = month, value = z_depth, -.fittedPC1, -sta)
+
+ggplot(pca_pc1, aes(.fittedPC1, z_depth, color = sta)) + 
+  geom_point() + 
+  geom_smooth() + 
+  facet_grid(cols = vars(month))
+
+# PC2:: 
+# Oral & Interior have a slightly wetter May & August
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC2_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC2_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+
+pca_pc2 <- pca_au %>% 
+  select(sta, apr, may, aug, .fittedPC2) %>% 
+  gather(key = month, value = z_depth, -.fittedPC2, -sta)
+
+ggplot(pca_pc2, aes(.fittedPC2, z_depth, color = sta)) + 
+  geom_point() + 
+  geom_smooth() + 
+  facet_grid(rows = vars(month)) + 
+  theme_classic() 
+
+
+#PCA1:PCA3
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC1_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC1_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+#PCA2:PCA3
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC2_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC2_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+#fviz_pca_ind(prcomp(pca_input), 
+#             title = "PCA - Iris data", 
+#             habillage = pca_meta$sta, 
+#             palette = "jco", geom = "point", 
+#             ggtheme = theme_classic(), 
+#             legend = "bottom")  
+```
+
+```{r precip-clustering, include=FALSE, eval=FALSE}
+# The traditional clustering methods, such as hierarchical clustering 
+# and k-means clustering, are heuristic and are not based on formal  
+# models. An alternative is model-based clustering, which consider the 
+# data as coming from a distribution that is mixture of two or more 
+# clusters 
+
+# (Fraley and Raftery 2002, Fraley #et al. (2012)).
+
+# Model-based clustering uses a soft assignment, where each data point 
+# has a probability of belonging to each cluster.  In model-based 
+# clustering, the data is considered as coming from a mixture of 
+# density.  Each component (i.e. cluster) k is modeled by the normal 
+# or Gaussian distribution which is characterized by the parameters:
+#   μk\mu_k: mean vector, 
+#   ∑k\sum_k: covariance matrix, 
+#   An associated probability in the mixture. Each point has a 
+#     probability of belonging to each cluster.
+
+# "Old faithful geyser data" Example 
+
+
+# Scatter plots 
+ggscatter(pca_summary, x = "PC1_mean", y = "PC2_mean") + 
+geom_density2d() + # Add 2D density 
+    geom_text(label = pca_summary$sta) 
+
+ggscatter(pca_au, x = ".fittedPC1", y = ".fittedPC2", 
+          color = "sta", mean.point = TRUE) + 
+            geom_density2d()  
+
+
+ggplot() +
+  geom_point(pca_summary, aes(x = "PC1_mean", y = "PC2_mean"))
+
+geom_density_2d(mapping = NULL, data = NULL, stat = "density2d",
+  position = "identity", ..., lineend = "butt", linejoin = "round",
+  linemitre = 10, na.rm = FALSE, show.legend = NA, inherit.aes = TRUE)
+
+
+# The plot suggests at least 3 clusters in the mixture. 
+#   Interior is more negative on PCA1 & PCA2 & more positive on PCA3
+#   Cottonwood is more positive on PCA1 & more positive on PCA3 
+
+
+# The shape of each of the 3 clusters appears to be approximately 
+# elliptical suggesting three bivariate normal distributions. As the 
+# 3 ellipses seems to be similar in terms of volume, shape and 
+# orientation, we might anticipate that the three components of this 
+# mixture might have homogeneous covariance matrices.  
+
+```
 
 ```{r eda_fiddling, include=FALSE, eval=FALSE}
 sta_big <- sta_grp %>% 
