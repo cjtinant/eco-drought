@@ -1046,9 +1046,12 @@ spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
 
 ```{r spi-with-SCI2}
 # Questions: are transformation params the same for oel & cot?
+# Can look at this by the attribute file
 
+# Results
+# 6-month droughts not well correlated
 
-# Description
+# Method Description
 # Calculate SPI with the SCI package.
 # fitSCI identifies parameters for the Standardized Climate Index (SCI) 
 # transformSCI applies the transformation
@@ -1177,30 +1180,7 @@ spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
 # the function call transform SCI returns a numeric vector containing 
 # the SCI, having values of the standard normal distribution. 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip 
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(oel) 
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-#is.vector(oel)
-#is.double(oel)
-
-# calculate SPI as a list & extract results
-# It seems that the SCI package doesn't like snake_case variables
-spi.oel.l <- fitSCI(oel, first.mon = 1, distr = "pe3", 
-                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
-
-spi.oel <- transformSCI(oel, first.mon = 1, obj = spi.oel.l) 
-spi_oel <- as.tibble(spi.oel) 
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value)
-# summary(spi_oel)
-
-attr <- spi.cot.l$dist.para
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip 
 sta_cot <- sta_raw %>% 
   arrange(date) %>% 
@@ -1220,15 +1200,107 @@ spi_cot <- as.tibble(spi.cot)
 spi_cot <- spi_cot %>% 
   rename(spi_cot = value)
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare Interior precip 
+sta_int <- sta_raw %>% 
+  arrange(date) %>% 
+  select(int) 
 
-spi <- bind_cols(spi_oel, spi_cot) 
-spi <- bind_cols(sta_raw, spi)
+int <- as.double(sta_int$int) #changes tibble to a vector as double
+#is.vector(oel)
+#is.double(oel)
 
+# calculate SPI as a list & extract results
+spi.int.l <- fitSCI(int, first.mon = 1, distr = "pe3", 
+                   time.scale = 6, p0 = TRUE)
+
+spi.int <- transformSCI(int, first.mon = 1, obj = spi.int.l) 
+spi_int <- as.tibble(spi.int) 
+
+spi_int <- spi_int %>% 
+  rename(spi_int = value)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare oelrichs precip 
+sta_oel <- sta_raw %>% 
+  arrange(date) %>% 
+  select(oel) 
+
+oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
+#is.vector(oel)
+#is.double(oel)
+
+# calculate SPI as a list & extract results
+# It seems that the SCI package doesn't like snake_case variables
+spi.oel.l <- fitSCI(oel, first.mon = 1, distr = "pe3", 
+                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
+
+spi.oel <- transformSCI(oel, first.mon = 1, obj = spi.oel.l) 
+spi_oel <- as.tibble(spi.oel) 
+spi_oel <- spi_oel %>% 
+  rename(spi_oel = value)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare Oral precip for SPI transformation
+sta_ora <- sta_raw %>% 
+  arrange(date) %>% 
+  select(ora) 
+
+ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
+#is.vector(ora)
+#is.double(ora)
+
+# calculate SPI as a list & extract results
+# It seems that the SCI package doesn't like snake_case variables
+spi.ora.l <- fitSCI(ora, first.mon = 1, distr = "pe3", 
+                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
+
+spi.ora <- transformSCI(ora, first.mon = 1, obj = spi.ora.l) 
+spi_ora <- as.tibble(spi.ora) 
+spi_ora <- spi_ora %>% 
+  rename(spi_ora = value)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare Rapid City precip for SPI transformation 
+sta_rap <- sta_raw %>% 
+  arrange(date) %>% 
+  select(rap) 
+
+rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#is.vector(rap)
+#is.double(rap)
+
+# calculate SPI as a list & extract results
+# It seems that the SCI package doesn't like snake_case variables
+spi.rap.l <- fitSCI(rap, first.mon = 1, distr = "pe3", 
+                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
+
+spi.rap <- transformSCI(rap, first.mon = 1, obj = spi.rap.l) 
+spi_rap <- as.tibble(spi.rap) 
+spi_rap <- spi_rap %>% 
+  rename(spi_rap = value)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# combine the SPI variables & clean up
+
+#NEED TO DO A JOIN WITH THE DATES!
+#spi <- bind_cols(sta_raw, spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
+rm(sta_cot, sta_int, sta_oel, sta_ora, sta_rap) 
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(cot, int, oel, ora, rap)
+
+# extract a summary as a list
 spi_gath <- spi %>% 
-  select(date, spi_oel, spi_cot) %>% 
-  gather(key = sta, value = spi, -date)
+  select(-(2:8)) %>% 
+  gather(key = sta, value = spi_index, -date)
 
-ggplot(spi_gath, aes(date, spi)) +
+spi_summary <- spi_gath %>%
+  split(.$sta) %>%
+  map(~ summary(.$spi_index)) 
+  
+ggplot(spi_gath, aes(date, spi_index)) +
   geom_line() +
   facet_wrap(vars(sta))
 
@@ -1238,6 +1310,8 @@ ggplot(spi_gath, aes(date, spi)) +
 # create a correlation matrix and plot it
 spi_M <- cor(spi)
 corrplot.mixed(spi_M,  order = "hclust", addrect = 2, upper = "ellipse", lower = "number", title = "Precipitation station correlation")
+
+#attr <- spi.cot.l$dist.para
 ```
 
 ```{r spi-cot} 
