@@ -315,9 +315,13 @@ References
 -->
 
 ## Results
-<!--
-Work on describing results of EDA.
--->
+Regional monthly precipitation fits a Pearson type-III distribution.
+The mean and deviation of monthly precipitation depth among stations are similiar (e.g little spatial difference).  
+However, the distribution of wet and dry periods is temporally dependant 
+Station distance is a substantial predictor of covarience
+=> Next STEP use distance from centroid to create a predictor variable to test significance..
+Regional streamflow clusters into 7 groups.
+Hydrologic export coefficient describes ~95% of varience and flashiness (e.g Q1 -Q3) describing 5% of varience.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -774,7 +778,7 @@ sta_sum <- sta_int %>%
             mean_dev = mean(deviation)) 
 ```
 
-```{r spi-with-SCI}
+```{r spi-with-SCI, eval = FALSE}
 # Standardized Climate Index (SCI)
 
 # Description
@@ -1044,52 +1048,118 @@ spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
 
 ```
 
-```{r spi-with-SCI2}
+```{r spi-with-SCI-6mo} 
+# This code chunk use the Standardized Climate Index (SCI) package
+# to calculate SPI. Typical SCI are the Standardized Precipitation 
+# Index (SPI), the Standardized Runoff Index (SRI) or the 
+# Standardized Precipitation Evapotranspiration Index (SPEI).
+
+#   fitSCI estimates the parameters for transforming a meteorological 
+#   & environmental time series to a Standardized Climate Index (SCI).  
+#       fitSCI(x, first.mon, time.scale, distr, p0, 
+#         p0.center.mass = FALSE, scaling = c("no","max","sd"), 
+#         mledist.par =  list(), start.fun = dist.start, 
+#         start.fun.fix = FALSE, warn = TRUE, ...) 
+
+#   transformSCI applies the transformation 
+#       transformSCI(x, first.mon, obj, sci.limit = Inf,
+#         warn = TRUE, ...) 
+
+# The probability of zero precipitation events (p0) can be estimated 
+# using a "center of mass" estimate based on the Weibull plotting 
+# position function to reduce biases in the presence of many zero 
+# precipitation events by 'p0.center.mass = TRUE'. 
+#
+# Following Stagge et al. (2014) the probability of zero events is 
+# then estimated as p0 = (n_p)/(n + 1), where np refers to the number 
+# of zero events and n is the sample size. The resulting mixed 
+# distribution used fro SCI transformation 
+# is then: 
+
+# g(x) = if(x > 0) p0 + (1 - p0) G(x) 
+#   else if(x == 0) (np + 1)/(2(n + 1))
+#    where G(x) > 0 is a model (e.g. gamma) distribution.
+
+# Uncertainty in distribution parameters can cause unrealistically 
+# large or small SCI values if values in x exceed the values used for 
+# parameter estimation (see fitSCI). Therefore transformSCI allows for 
+# a truncation of the SCI series such that abs(sci) <= sci.limit. The 
+# truncation can be disabled by setting sci.limit = Inf.
+
+# fitSCI returns an object of class "fitSCI" 
+# with the following components: 
+#     dist.para	
+# A column matrix containing the parameters of distribution distr for 
+# each month. Row names correspond to the distribution parameters. 
+# If p0=TRUE an additional row named P0 is introduced, indicating the 
+# probability of zero (precipitation) events.
+
+#     dist.para.flag	
+# an vector indicating possible issues occurring throughout parameter 
+# estimation. Possible values are: 0. no problems occurred; 1. 
+# starting values could not be estimated; 2. mledist crashed with 
+# unknown error; 3. mledist did not converge; 4. all values in this 
+# month are NA; 5. all values in this month are constant, distribution 
+# not defined.
+
+#     p0	
+# logical indicating whether probability of zero (precipitation) 
+# events is estimated separately.
+
+#     p0.center.mass	
+# logical indicating whether probability of zero (precipitation) 
+# events is estimated using the "centre of mass" estimator 
+# (see Stagge et al. (2014) for details).
+
+#     scaling	 
+# numeric value that has been used to scale x (see argument scaling). 
+# A value of 1 results from scaling="no", other values are the maximum 
+# value or the standard deviation of x, depending on the choice of the 
+# parameter scaling. 
+
+#     call	 
+# the function call transform SCI returns a numeric vector containing 
+# the SCI, having values of the standard normal distribution. 
+
 # Questions: are transformation params the same for oel & cot?
 # Can look at this by the attribute file
 
 # Results
 # 6-month droughts not well correlated
 
-# Method Description
-# Calculate SPI with the SCI package.
-# fitSCI identifies parameters for the Standardized Climate Index (SCI) 
-# transformSCI applies the transformation
-
-# Usage: 
-# fitSCI(x, first.mon, time.scale, distr, p0, 
-#       p0.center.mass=FALSE, scaling=c("no","max","sd"),mledist.par =  list(),
-#       start.fun = dist.start, start.fun.fix = FALSE, warn = TRUE, ...)
-
-# transformSCI(x, first.mon, obj, sci.limit = Inf, warn=TRUE, ...)
-
-#Arguments
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Arguments for the SCI function
 # x	- numeric vector, representing a monthly univariate time series.
+
 # first.mon	- value in 1:12 indicating month of the first element of x 
 
-# time.scale	- The time scale (integer) of the SCI calculation. 
-# The time scale is the window length of an backward looking running mean.
+# time.scale - The time scale (integer) of the SCI calculation. 
+# The time scale is the window length of an backward-looking running 
+# mean.
 
 # distr	- A character string "name" naming a distribution for which 
 # the corresponding density function (dname), the corresponding 
 # distribution function (pname) and the quantile function (qname) must 
-# be defined (see for example GammaDist)
+# be defined (see for example GammaDist) 
 
 # p0 - if TRUE, model Probability of zero (precipitation) months is 
 # modeled with a mixed distribution as D(x) = p0 + (1-p0)G(x), 
 # where G(x) > 0 is the reference distribution (e.g. Gamma) p0 is the 
-# probability of a zero (precipitation) month.
+# probability of a zero (precipitation) month. 
 
 # p0.center.mass - If TRUE, the Probability of zero (precipitation) is 
 # estimated using a "center of mass" estimate based on the Weibull 
-# plotting position function (see details). Only applies if p0=TRUE.
+# plotting position function (see details). Only applies if p0=TRUE. 
 
 # scaling	- Indicates whether to do some scaling of x prior to 
 # parameter identification. "no" (the default) indicates no scaling. 
 # "max" indicates scaling by the maximum of x, such that 
 # x <- x/max(x,na.rm=TRUE). "sd" stands for scaling by the standard 
-# deviation. Scaling can stabilize parameter estimation.
+# deviation. Scaling can stabilize parameter estimation. 
 
+# warn	- Issue warnings if problems in parameter estimation occur. 
+
+# STILL NOT SURE ABOUT THESE!!!
 # mledist.par	- named list that can be used to pass parameters to 
 # mledist in package fitdistrplus.
 
@@ -1102,169 +1172,141 @@ spi.para.limit <- fitSCI(PRECIP,first.mon=1,distr="gamma",time.scale=6,p0=TRUE,
 # of start.fun should be used if maximum likelihood estimation breaks 
 # down. This stabilizes the implementation but can introduce biases in 
 # the resulting SCI.
+# DON'T NEED THIS BECAUSE MLE IS WORKING FOR THE DATA
 
 # obj	- an object of class fitSCI, output from fitSCI.
 
-# sci.limit	- Truncate absolute values of SCI that are lage than 
-# sci.limit. See details.
+# sci.limit	- Truncate absolute values of SCI that are larger than 
+# sci.limit. 
 
-# warn	- Issue warnings if problems in parameter estimation occur.
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Initial values for SCI calculations
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+time_scale <- 6 # sets the length of the averaging period
+distrib <- "pe3"
+p_zero <- TRUE
+p_zero_cm <- TRUE 
+scale <- "sd" 
+warn_me <- TRUE
 
-# Details
-# fitSCI estimates the parameters for transforming a meteorological 
-# and environmental time series to a Standardized Climate Index (SCI). 
+# Cottonwoods SPI ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare cottonwoods precip for SPI transformation
+first_mon <- 6 # sets the first month 
 
-# transformSCI applies the standardisation. 
-
-# Typical SCI are the Standardized Precipitation Index (SPI), the 
-# Standardized Runoff Index (SRI) or the Standardized Precipitation 
-# Evapotranspiration Index (SPEI).
-
-# To reduce biases in the presence of many zero (precipitation) events, 
-# the probability of these events (p0) can be estimated using a 
-# "center of mass" estimate based on the Weibull plotting position 
-# function (p0.center.mass=TRUE). Following Stagge et al. (2014) the 
-# probability of zero events is then estimated as p0 = (n_p)/(n + 1), 
-# where np refers to the number of zero events and n is the sample 
-# size. The resulting mixed distribution used fro SCI transformation 
-# is then: 
-# g(x) = if(x > 0) p0 + (1 - p0)G(x) else if(x == 0) (np + 1)/(2(n + 1))
-#   where G(x)>0 is a model (e.g. gamma) distribution.
-
-# Uncertainty in distribution parameters can cause unrealistically 
-# large (small) SCI values if values in x exceed the values used for 
-# parameter estimation (see fitSCI). Therefore transformSCI allows for 
-# a truncation of the SCI series such that abs(sci)<=sci.limit. The 
-# truncation can be disabled by setting sci.limit=Inf.
-
-# Value
-# fitSCI returns an object of class "fitSCI" 
-# with the following components: 
-
-# dist.para	
-# A column matrix containing the parameters of distribution distr for 
-# each month. Row names correspond to the distribution parameters. 
-# If p0=TUE an additional row named P0 is introduced, indicating the 
-# probability of zero (precipitation) events.
-
-# dist.para.flag	
-# an vector indicating possible issues occurring throughout parameter 
-# estimation. Possible values are: 0. no problems occurred; 1. 
-# starting values could not be estimated; 2. mledist crashed with 
-# unknown error; 3. mledist did not converge; 4. all values in this 
-# month are NA; 5. all values in this month are constant, distribution 
-# not defined.
-
-# time.scale	
-# The time scale (integer) of the SCI calculation.
-
-# distr	
-# A character string "name" naming a distribution used
-
-# p0	
-# logical indicating whether probability of zero (precipitation) 
-# events is estimated separately.
-
-# p0.center.mass	
-# logical indicating whether probability of zero (precipitation) 
-# events is estimated using the "centre of mass" estimator 
-# (see Stagge et al. (2014) for details).
-
-# scaling	 
-# numeric value that has been used to scale x (see argument scaling). 
-# A value of 1 results from scaling="no", other values are the maximum 
-# value or the standard deviation of x, depending on the choice of the 
-# parameter scaling. 
-
-# call	 
-# the function call transform SCI returns a numeric vector containing 
-# the SCI, having values of the standard normal distribution. 
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare cottonwoods precip 
 sta_cot <- sta_raw %>% 
   arrange(date) %>% 
-  select(cot) 
+  select(date, cot) 
 
 cot <- as.double(sta_cot$cot) #changes tibble to a vector as double
 #is.vector(oel)
 #is.double(oel)
 
-# calculate SPI as a list & extract results
-spi.cot.l <- fitSCI(cot, first.mon = 1, distr = "pe3", 
-                   time.scale = 6, p0 = TRUE)
+# calculate SPI as a list & extract results 
+#   It seems that the SCI package doesn't like snake_case variables
+spi.cot.l <- fitSCI(cot, first.mon = first_mon, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
 
-spi.cot <- transformSCI(cot, first.mon = 1, obj = spi.cot.l) 
-spi_cot <- as.tibble(spi.cot) 
+spi.cot <- transformSCI(cot, first.mon = first_mon, obj = spi.cot.l) 
+
+spi_cot <- as.tibble(spi.cot) # change the vector into a tibble
 
 spi_cot <- spi_cot %>% 
-  rename(spi_cot = value)
+  rename(spi_cot = value) # prepare for a later join
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Interior precip 
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+rm(sta_cot)
+
+# Interior SPI ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare Interior precip for SPI transformation
+first_mon <- 11 # sets the first month 
+
 sta_int <- sta_raw %>% 
   arrange(date) %>% 
-  select(int) 
+  select(date, int) %>% 
+  drop_na()
 
 int <- as.double(sta_int$int) #changes tibble to a vector as double
-#is.vector(oel)
-#is.double(oel)
 
 # calculate SPI as a list & extract results
-spi.int.l <- fitSCI(int, first.mon = 1, distr = "pe3", 
-                   time.scale = 6, p0 = TRUE)
+spi.int.l <- fitSCI(int, first.mon = first_mon, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
 
-spi.int <- transformSCI(int, first.mon = 1, obj = spi.int.l) 
-spi_int <- as.tibble(spi.int) 
+spi.int <- transformSCI(int, first.mon = first_mon, obj = spi.int.l) 
+
+spi_int <- as.tibble(spi.int) # change the vector into a tibble
 
 spi_int <- spi_int %>% 
-  rename(spi_int = value)
+  rename(spi_int = value) # prepare for a later join
 
-#~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip 
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+rm(sta_int)
+
+# Oelrichs SPI ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare oelrichs precip for SPI transformation
+first_mon <- 6 # sets the first month 
+
 sta_oel <- sta_raw %>% 
   arrange(date) %>% 
-  select(oel) 
+  select(date, oel) %>% 
+  drop_na()
 
 oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-#is.vector(oel)
-#is.double(oel)
 
 # calculate SPI as a list & extract results
-# It seems that the SCI package doesn't like snake_case variables
-spi.oel.l <- fitSCI(oel, first.mon = 1, distr = "pe3", 
-                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
+spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = 1, obj = spi.oel.l) 
-spi_oel <- as.tibble(spi.oel) 
+spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+
+spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
+
 spi_oel <- spi_oel %>% 
-  rename(spi_oel = value)
+  rename(spi_oel = value) # prepare for a later join
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+rm(sta_oel)
+
+# Oral SPI ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Oral precip for SPI transformation
+first_mon <- 5 # sets the first month 
+
 sta_ora <- sta_raw %>% 
   arrange(date) %>% 
-  select(ora) 
+  select(date, ora) %>% 
+  drop_na() 
 
 ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
-#is.vector(ora)
-#is.double(ora)
 
 # calculate SPI as a list & extract results
-# It seems that the SCI package doesn't like snake_case variables
-spi.ora.l <- fitSCI(ora, first.mon = 1, distr = "pe3", 
-                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
+spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = 1, obj = spi.ora.l) 
-spi_ora <- as.tibble(spi.ora) 
+spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+
+spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
+
 spi_ora <- spi_ora %>% 
-  rename(spi_ora = value)
+  rename(spi_ora = value) # prepare for a later join
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+rm(sta_ora)
+
+# Rapid SPI ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # prepare Rapid City precip for SPI transformation 
+first_mon <- 5 # sets the first month 
+
 sta_rap <- sta_raw %>% 
   arrange(date) %>% 
-  select(rap) 
+  select(date, rap) %>% 
+  drop_na() 
 
 rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 #is.vector(rap)
@@ -1272,46 +1314,180 @@ rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = 1, distr = "pe3", 
-                   time.scale = 6, p0 = TRUE, p0.center.mass = TRUE)
+spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = 1, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
 spi_rap <- as.tibble(spi.rap) 
 spi_rap <- spi_rap %>% 
-  rename(spi_rap = value)
+  rename(spi_rap = value) # prepare for a later join
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# combine the SPI variables & clean up
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+rm(sta_rap)
 
-#NEED TO DO A JOIN WITH THE DATES!
-#spi <- bind_cols(sta_raw, spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+# check for warnings ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
+flag_int <- as.tibble(spi.int.l$dist.para.flag) 
+flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
+flag_ora <- as.tibble(spi.ora.l$dist.para.flag) 
+flag_rap <- as.tibble(spi.rap.l$dist.para.flag) 
+flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
+                      flag_ora, flag_rap) 
+rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
-rm(sta_cot, sta_int, sta_oel, sta_ora, sta_rap) 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# clean up & combine the SPI variables 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
-rm(cot, int, oel, ora, rap)
+rm(cot, int, oel, ora, rap) 
 
-# extract a summary as a list
+spi <- full_join(spi_cot, spi_int, by = "date") 
+spi <- full_join(spi, spi_oel, by = "date") 
+spi <- full_join(spi, spi_ora, by = "date") 
+spi <- full_join(spi, spi_rap, by = "date") 
+
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
+# gather SPI variables 
 spi_gath <- spi %>% 
-  select(-(2:8)) %>% 
-  gather(key = sta, value = spi_index, -date)
+  select(-cot, -int, -oel, -ora, -rap) %>% 
+  rename(cot = spi_cot) %>% 
+  rename(int = spi_int) %>% 
+  rename(oel = spi_oel) %>%  
+  rename(ora = spi_ora) %>%  
+  rename(rap = spi_rap) %>% 
+  gather(key = sta, value = spi_index, -date) %>% 
+  drop_na()
 
-spi_summary <- spi_gath %>%
+# create a summary
+spi_summary <- spi_gath %>% 
   split(.$sta) %>%
   map(~ summary(.$spi_index)) 
-  
-ggplot(spi_gath, aes(date, spi_index)) +
-  geom_line() +
-  facet_wrap(vars(sta))
 
+# NEXT STEP TRANSPOSE THIS LIST
 
-# check covariance
+# check covariance~~~~~~~~~~~~~~~~~~~~~~~
+# create a correlation matrix
+spi_M <- spi %>% 
+    select(-cot, -int, -oel, -ora, -rap, -date) %>% 
+  drop_na()
 
-# create a correlation matrix and plot it
-spi_M <- cor(spi)
+spi_M <- cor(spi_M)
+
 corrplot.mixed(spi_M,  order = "hclust", addrect = 2, upper = "ellipse", lower = "number", title = "Precipitation station correlation")
 
-#attr <- spi.cot.l$dist.para
+# NEXT STEP - SAVE THIS PLOT
+
+# get the Pearson Type-III properties~~~~~~
+# get names
+att_names <- spi.cot.l$dist.para 
+att_names <- rownames(att_names) 
+att_names <- as_data_frame(att_names) %>% 
+  rename(property = value)
+
+# cottonwood~~~~~~~~~~~~~~~~~~~~~~
+att_cot <- spi.cot.l$dist.para %>% 
+  as_data_frame() %>% 
+  mutate(sta = "cot")
+
+att_cot <- bind_cols(att_names, att_cot)
+
+# interior~~~~~~~~~~~~~~~~~~~~~~~~ 
+att_int <- spi.int.l$dist.para %>% 
+  as_data_frame() %>% 
+  mutate(sta = "int")
+
+att_int <- bind_cols(att_names, att_int)
+
+# oelrichs~~~~~~~~~~~~~~~~~~~~~~~~
+att_oel <- spi.oel.l$dist.para %>% 
+  as_data_frame() %>% 
+  mutate(sta = "oel")
+
+att_oel <- bind_cols(att_names, att_oel)
+
+# oral~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+att_ora <- spi.ora.l$dist.para %>% 
+  as_data_frame() %>% 
+  mutate(sta = "ora")
+
+att_ora <- bind_cols(att_names, att_ora)
+
+# rapid city~~~~~~~~~~~~~~~~~~~~~~
+att_rap <- spi.rap.l$dist.para %>% 
+  as_data_frame() %>% 
+  mutate(sta = "rap")
+
+att_rap <- bind_cols(att_names, att_rap)
+
+# join the rows & prepare for gather
+spi_att <- bind_rows(att_cot, att_int, att_oel, att_ora, att_rap) %>% 
+  rename("1" = M1) %>% 
+  rename("2" = M2) %>% 
+  rename("3" = M3) %>% 
+  rename("4" = M4) %>% 
+  rename("5" = M5) %>% 
+  rename("6" = M6) %>% 
+  rename("7" = M7) %>% 
+  rename("8" = M8) %>% 
+  rename("9" = M9) %>% 
+  rename("10" = M10) %>% 
+  rename("11" = M11) %>% 
+  rename("12" = M12) 
+
+# gather months
+spi_att <- spi_att %>% 
+  select(sta, property, everything()) %>% 
+  gather(key = month, value = value, -sta, -property) 
+
+# split properties from check vars
+spi_att_check <- spi_att %>% 
+  filter(property == "N" |
+           property == "P0" |
+           property == "N.P0") %>% 
+  arrange(property)
+
+spi_att <- spi_att %>% 
+  filter(property != "N") %>% 
+  filter(property != "P0") %>% 
+  filter(property != "N.P0") %>% 
+  mutate(month = as.integer(month)) 
+
+# plot & evaluate results~~~~~~~~~~~~~~~~~~~~~~~~~~
+# attributes plot  
+ggplot(spi_att, aes(as.factor(month), value)) + 
+  geom_boxplot() +
+  facet_wrap(ncol = 1, scales = "free_y", vars(property)) + 
+  theme_classic()
+
+# result => shape parameter is interesting!
+# check it out in greater detail
+spi_att_skew <- spi_att %>% 
+  filter(property == "shape") %>% 
+  select(-property) 
+
+ggplot(spi_att_skew, aes(as.factor(sta), value)) + 
+  geom_boxplot() + 
+  theme_classic()
+
+# SPI index values plot
+ggplot(spi_gath, aes(date, spi_index)) +
+  geom_line() +
+  facet_wrap(vars(sta)) + 
+  theme_classic()
+
+# Clean up Global Environment
+#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
+rm(att_names, att_cot, att_int, att_oel, att_ora, att_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+rm(spi, spi_M, flag_spi, spi_att_check)
+
+spi_att6     <- spi_att 
+spi_gath6    <- spi_gath
+spi_summary6 <- spi_summary 
+
+rm(spi_att, spi_gath, spi_summary)
 ```
 
 ```{r spi-cot} 
