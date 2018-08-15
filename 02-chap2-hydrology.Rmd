@@ -3893,6 +3893,7 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi, spi_check)
 rm(spi_att, spi_gath)
+rm(distrib, first_mon, p_zero, p_zero_cm, scale, time_scale, warn_me)
 ```
 
 ```{r join_spi} 
@@ -4040,27 +4041,35 @@ spi_M24 <- spi_M24 %>%
   gather(key = sta2, value = pears_r, -sta) %>% 
   mutate(spi_length = 24)
 
-# create a list of the spi_att dataframes
-corr_list <- list(spi_M1, spi_M2, spi_M3, 
-                            spi_M4, spi_M5, spi_M6, 
-                            spi_M9, spi_M12, spi_M18, 
-                            spi_M24)
+# bind rows of spi correlations for different averaging periods
+spi_corr <- bind_rows(spi_M1, spi_M2) 
+spi_corr <- bind_rows(spi_corr, spi_M3) 
+spi_corr <- bind_rows(spi_corr, spi_M4) 
+spi_corr <- bind_rows(spi_corr, spi_M5) 
+spi_corr <- bind_rows(spi_corr, spi_M6) 
+spi_corr <- bind_rows(spi_corr, spi_M9) 
+spi_corr <- bind_rows(spi_corr, spi_M12) 
+spi_corr <- bind_rows(spi_corr, spi_M18) 
+spi_corr <- bind_rows(spi_corr, spi_M24) 
 
-# flatten the list to a dataframe, select values, 
-# arrange into a long format, create a distance descriptor variable
-spi_corr <- flatten_dfc(corr_list) %>% 
- select(sta, sta2, starts_with("pears_r"), 
-        starts_with("spi_length")) %>% 
-  gather(key, spi_length, -sta, -sta2, -starts_with("pears")) %>%
-  select(-key) %>% 
-  gather(key, pears_r, -spi_length, -sta, -sta2) %>% 
-  select(-key) %>% 
-  group_by(sta2) %>%
-  mutate(sta3 = str_remove_all(sta2, "spi_")) %>% 
-  ungroup() %>% 
-  select(-sta2) %>% 
-  mutate(stations = str_c(sta, sta3, sep = "-")) %>% 
-  filter(pears_r < .99)
+# remove r = 1.00 from dataframe, remove "spi_" & create "to-from" var
+spi_corr <- spi_corr %>% 
+  filter(pears_r < .99) %>% 
+  mutate(sta2 = str_remove_all(sta2, "spi_")) %>% 
+  mutate(stations = str_c(sta, sta2, sep = "-")) 
+
+# remove duplicates from dataframe
+spi_corr_int1 <- spi_corr %>% 
+  filter(sta == "oel" |
+         sta == "rap") 
+
+spi_corr_int2 <- spi_corr %>% 
+  filter(sta == "ora" & 
+           sta2 != "cot") %>% 
+    filter(sta == "ora" & 
+           sta2 != "int")
+
+spi_corr <- bind_rows(spi_corr_int1, spi_corr_int2)
 
 # prepare lookup table of sta_meta for a join
 sta_meta <- sta_meta %>% 
@@ -4072,7 +4081,7 @@ sta_loc <- sta_meta %>%
 
 # join the lookup table to create from lat-lons
 spi_corr <- spi_corr %>% 
-  gather(key, val, -sta, -sta3) %>% 
+  gather(key, val, -sta, -sta2) %>% 
   group_by(key) %>% 
   mutate(id = row_number()) %>% 
   left_join(sta_loc) %>%
@@ -4085,7 +4094,7 @@ spi_corr <- spi_corr %>%
 # join the lookup table to create to lat-lons
 spi_corr <- spi_corr %>% 
   select(-sta) %>% 
-  rename(sta = sta3) %>% 
+  rename(sta = sta2) %>% 
   gather(key, val, -sta) %>% 
   group_by(key) %>% 
   mutate(id = row_number()) %>% 
@@ -4106,11 +4115,9 @@ spi_corr <- spi_corr %>%
   mutate(easting = (to_lon - from_lon) * lon_to_km)  %>%
   mutate(distance = sqrt(northing^2 + easting^2)) 
 
-test <- spi_corr %>% 
+spi_corr <- spi_corr %>% 
   select(-to_lat, -to_lon, -from_lat, -from_lon, -northing, -easting)
 
-##### ISSUE WITH THE DIFFERENT CORRELATIONS
-  
 # join spi index values----
 # prepare for join -add lengths & get dataframes to same length
 spi_gath1 <- spi_gath1 %>% 
@@ -4168,19 +4175,41 @@ rm(spi_check1, spi_check2, spi_check3, spi_check4,
 rm(spi_M1, spi_M2, spi_M3, spi_M4, spi_M5, spi_M6, spi_M9, 
    spi_M12, spi_M18, spi_M24)
 
+rm(spi_corr_int1, spi_corr_int2, lat_to_km, lon_to_km)
+
 rm(spi_gath1, spi_gath2, spi_gath3, spi_gath4, spi_gath5, 
    spi_gath6, spi_gath9, spi_gath12, spi_gath18, spi_gath24) 
 
 rm(check_list, gath_list, corr_list)
+
+
+# create a list of the spi_att dataframes
+#corr_list <- list(spi_M1, spi_M2, spi_M3, 
+#                            spi_M4, spi_M5, spi_M6, 
+#                            spi_M9, spi_M12, spi_M18, 
+#                            spi_M24)
+
+# flatten the list to a dataframe, select values, 
+# arrange into a long format, create a distance descriptor variable
+#spi_corr <- flatten_dfc(corr_list) %>% 
+# select(sta, sta2, starts_with("pears_r"), 
+#        starts_with("spi_length")) %>% 
+#  gather(key, spi_length, -sta, -sta2, -starts_with("pears")) %>%
+#  select(-key) %>% 
+#  gather(key, pears_r, -spi_length, -sta, -sta2) %>% 
+#  select(-key) %>% 
+#  group_by(sta2) %>%
+#  mutate(sta3 = str_remove_all(sta2, "spi_")) %>% 
+#  ungroup() %>% 
+#  select(-sta2) %>% 
+#  mutate(stations = str_c(sta, sta3, sep = "-")) %>% 
+#  filter(pears_r < .99) %>% 
+#  distinct()
 ```
 
 ```{r munge-joined-SCI-values}
-test <- spi_corr %>% 
-  mutate(pears_r = 
-           if_else(key == "pears_r", value, NA))
+
 ```
-
-
 
 ```{r SCI-diagnostic-plots}
 # Diagnostic plots of SPI transforms 
@@ -4220,6 +4249,12 @@ ggplot(spi_shape, aes(as.factor(month), spi_value)) +
 # clean up Global Environment----
 rm(spi_location, spi_shape, spi_scale)
 ```
+
+```{r spi-correlation-plot}
+
+```
+
+
 
 ```{r other-plots}
 # Next steps: spread or extract the spi_corr 
