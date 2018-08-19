@@ -298,16 +298,18 @@ knitr::opts_chunk$set(echo = TRUE)
 library("here") # identifies where to save work 
 library("rio") # more robust I/O - to import and clean data 
 library("janitor") # tools to clean dirty data 
+
+library("SCI")
+library("munsell") # https://github.com/cwickham/munsell
+
 library("forecast") # using the BoxCox function
+
 library("standardize")
 library("cluster")
 library("factoextra") 
 library("broom") # tidies up objects 
 library("ggpubr") 
 #library("DataExplorer")
-
-# library("SPEI") # Calculates SPI-index # having some issues...
-library("SCI")
 
 library("clValid")
 # library("grateful") - not yet ready for R 3.5.0
@@ -325,6 +327,9 @@ library("corrplot")
 library("lubridate") # fixes dates 
 library("tidyverse") 
 
+# library("SPEI") # Calculates SPI-index # having some issues...
+
+
 # Session Info
 a_session <- devtools::session_info()
 ```
@@ -332,10 +337,12 @@ a_session <- devtools::session_info()
 # Variable naming convention:   
 a_session    list variable of session information
 sta          precipitation station  
-gage         streamflow gage
 spi          Standardized Precipitation Index vals  
-abbrev       abbreviation look-up table 
+abbrev       abbreviation; a look-up table 
+gage         streamflow gage 
 
+
+# general modifiers:
 _meta        metadata  
 _raw         original imported data in wide format
 _gath        wide data changed to long data format
@@ -344,22 +351,14 @@ _prep        intermediate variable
 _mean        intermediate variable; mean monthly value
 _sum         summary data 
 
+# station modifiers:
 _cot        Cottonwood precipitation station
 _oel        Oelrichs precipitation station 
 _rap        Rapid City precipitation station 
 _int        Interior precipitation station 
 _ora        Oral precipitation station
-_M          Matrix of correlation 
-_check      Temporary variable used to check data
 
-Variables & constants used by SCI function
-.cot        Cottonwood precipitation station
-.oel        Oelrichs precipitation station 
-.rap        Rapid City precipitation station 
-.int        Interior precipitation station 
-.ora        Oral precipitation station
-.l          a variable as a list 
-
+Variables & constants used by SCI function:
 time_scale   sets the length of the averaging period 
 distrib      sets the distribution type 
 p_zero       sets a function to reduce zero-precip bias
@@ -367,9 +366,29 @@ scale        scales input by subtract mean & divide by sd
 warn_me      sets explicit warning
 first_mon    sets the first month for SCI; based on the data
 
-flag_spi     records any flags from fitSPI or transformSPI
+.cot        Cottonwood precipitation station
+.oel        Oelrichs precipitation station 
+.rap        Rapid City precipitation station 
+.int        Interior precipitation station 
+.ora        Oral precipitation station
+.l          a variable as a list 
+
+# SPI join or final values:
+_att        SPI function attributes: scale, location, shape 
+_check      Temporary variable used to check data
+_M          Correlation matrix 
+_corr       final correlation dataframe
+_index      SPI index
+zero_prob   probability of a zero depth month
+
+# regression variables:
+_lm          linear model 
+_aug         Added prediction info about each dataset observation 
+_fit         Fitted regression model information 
+_tidy        Summarizes information about model components 
 
 # NOT YET MAPPED Varibles
+#flag_spi     records any flags from fitSPI or transformSPI
 # p_zero_cm <- TRUE # ?????
 # _mon         precipitation depths w/ month as variable
 # _scale       standardized (z-score) data, number is averaging period 
@@ -2726,9 +2745,9 @@ spi_gath6    <- spi_gath
 spi_M6       <- spi_M 
 spi_check6   <- spi_check
 
-rm(att_names, att_cot, att_int, att_oel, att_ora, att_rap) 
+rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
-rm(spi, spi_M, flag_spi, spi_att_check)
+rm(spi, spi_M, flag_spi)
 rm(spi_att, spi_gath)
 ```
 
@@ -3897,29 +3916,29 @@ rm(distrib, first_mon, p_zero, p_zero_cm, scale, time_scale, warn_me)
 ```
 
 ```{r join_spi} 
-
+# this code chunk joins the various [spi1, spi24] data slices
 
 # join spi attributes---- 
 # prepare for join- create length
-spi_att1 <- mutate(spi_att1, spi_length = 1) 
-spi_att2 <- mutate(spi_att2, spi_length = 2) 
-spi_att3 <- mutate(spi_att3, spi_length = 3) 
-spi_att4 <- mutate(spi_att4, spi_length = 4) 
-spi_att5 <- mutate(spi_att5, spi_length = 5) 
-spi_att6 <- mutate(spi_att6, spi_length = 6) 
-spi_att9 <- mutate(spi_att9, spi_length = 9)  
+spi_att1 <-  mutate(spi_att1, spi_length = 1) 
+spi_att2 <-  mutate(spi_att2, spi_length = 2) 
+spi_att3 <-  mutate(spi_att3, spi_length = 3) 
+spi_att4 <-  mutate(spi_att4, spi_length = 4) 
+spi_att5 <-  mutate(spi_att5, spi_length = 5) 
+spi_att6 <-  mutate(spi_att6, spi_length = 6) 
+spi_att9 <-  mutate(spi_att9, spi_length = 9)  
 spi_att12 <- mutate(spi_att12, spi_length = 12)  
 spi_att18 <- mutate(spi_att18, spi_length = 18) 
 spi_att24 <- mutate(spi_att24, spi_length = 24) 
 
 # prepare for join- differenciate values
-spi_att1 <- mutate(spi_att1, spi1 = value) 
-spi_att2 <- mutate(spi_att2, spi2 = value) 
-spi_att3 <- mutate(spi_att3, spi3 = value) 
-spi_att4 <- mutate(spi_att4, spi4 = value) 
-spi_att5 <- mutate(spi_att5, spi5 = value) 
-spi_att6 <- mutate(spi_att6, spi6 = value) 
-spi_att9 <- mutate(spi_att9, spi9 = value)  
+spi_att1 <-  mutate(spi_att1, spi1 = value) 
+spi_att2 <-  mutate(spi_att2, spi2 = value) 
+spi_att3 <-  mutate(spi_att3, spi3 = value) 
+spi_att4 <-  mutate(spi_att4, spi4 = value) 
+spi_att5 <-  mutate(spi_att5, spi5 = value) 
+spi_att6 <-  mutate(spi_att6, spi6 = value) 
+spi_att9 <-  mutate(spi_att9, spi9 = value)  
 spi_att12 <- mutate(spi_att12, spi12 = value)  
 spi_att18 <- mutate(spi_att18, spi18 = value) 
 spi_att24 <- mutate(spi_att24, spi24 = value) 
@@ -3952,31 +3971,28 @@ spi_check12 <- mutate(spi_check12, spi_length = 12)
 spi_check18 <- mutate(spi_check18, spi_length = 18) 
 spi_check24 <- mutate(spi_check24, spi_length = 24) 
 
-# prepare for join- differenciate values 
-spi_check1 <- mutate(spi_check1, spi1 = value) 
-spi_check2 <- mutate(spi_check2, spi2 = value) 
-spi_check3 <- mutate(spi_check3, spi3 = value) 
-spi_check4 <- mutate(spi_check4, spi4 = value) 
-spi_check5 <- mutate(spi_check5, spi5 = value) 
-spi_check6 <- mutate(spi_check6, spi6 = value) 
-spi_check9 <- mutate(spi_check9, spi9 = value) 
-spi_check12 <- mutate(spi_check12, spi12 = value) 
-spi_check18 <- mutate(spi_check18, spi18 = value) 
-spi_check24 <- mutate(spi_check24, spi24 = value) 
+# bind rows of spi correlations for different averaging periods
+spi_check <- bind_rows(spi_check1, spi_check2) 
+spi_check <- bind_rows(spi_check, spi_check3) 
+spi_check <- bind_rows(spi_check, spi_check4) 
+spi_check <- bind_rows(spi_check, spi_check5) 
+spi_check <- bind_rows(spi_check, spi_check6) 
+spi_check <- bind_rows(spi_check, spi_check9) 
+spi_check <- bind_rows(spi_check, spi_check12) 
+spi_check <- bind_rows(spi_check, spi_check18) 
+spi_check <- bind_rows(spi_check, spi_check24) 
 
-# create a list of the spi_check dataframes
-check_list <- list(spi_check1, spi_check2, spi_check3, 
-                            spi_check4, spi_check5, spi_check6, 
-                            spi_check9, spi_check12, spi_check18, 
-                            spi_check24)
 
-# flatten the list to a dataframe & select values
-spi_check <- flatten_dfc(check_list) %>% 
-  select(sta, spi_length, property, spi1, spi2, spi3, spi4, spi5, spi6, 
-         spi9, spi12, spi18, spi24) %>% 
-  gather(key = length, value = spi_value, -spi_length, 
-         -property, -sta) %>% 
-  select(-length) 
+# check non-zero precip vals
+zero_prob <- spi_check %>% 
+  filter(property != "N") %>% 
+  mutate(value = as.numeric(value)) %>% 
+  mutate(month = as.integer(month)) %>% 
+  drop_na() %>% 
+  filter(property == "P0") %>% 
+  group_by(month, spi_length) %>% 
+  summarize(mean_val_perc = 100 * mean(value)) %>% 
+  filter(mean_val_perc > 0)
 
 
 # join spi correlation coefficients----
@@ -4052,24 +4068,33 @@ spi_corr <- bind_rows(spi_corr, spi_M12)
 spi_corr <- bind_rows(spi_corr, spi_M18) 
 spi_corr <- bind_rows(spi_corr, spi_M24) 
 
-# remove r = 1.00 from dataframe, remove "spi_" & create "to-from" var
+# prepare to join spi_corr 
 spi_corr <- spi_corr %>% 
   filter(pears_r < .99) %>% 
   mutate(sta2 = str_remove_all(sta2, "spi_")) %>% 
   mutate(stations = str_c(sta, sta2, sep = "-")) 
 
 # remove duplicates from dataframe
-spi_corr_int1 <- spi_corr %>% 
-  filter(sta == "oel" |
-         sta == "rap") 
+spi_corr_cot <- spi_corr %>% 
+  filter(sta == "cot")
 
-spi_corr_int2 <- spi_corr %>% 
-  filter(sta == "ora" & 
-           sta2 != "cot") %>% 
-    filter(sta == "ora" & 
+spi_corr_int <- spi_corr %>% 
+  filter(sta == "int") %>% 
+  filter(sta2 != "cot")
+
+spi_corr_oel <- spi_corr %>% 
+  filter(sta == "oel") %>% 
+  filter(sta2 != "cot" &
            sta2 != "int")
 
-spi_corr <- bind_rows(spi_corr_int1, spi_corr_int2)
+spi_corr_ora <- spi_corr %>% 
+  filter(sta == "ora") %>% 
+  filter(sta2 != "cot" &
+           sta2 != "int" & 
+           sta2 != "oel")
+
+spi_corr <- bind_rows(spi_corr_cot, spi_corr_int, 
+                      spi_corr_oel, spi_corr_ora)
 
 # prepare lookup table of sta_meta for a join
 sta_meta <- sta_meta %>% 
@@ -4084,7 +4109,7 @@ spi_corr <- spi_corr %>%
   gather(key, val, -sta, -sta2) %>% 
   group_by(key) %>% 
   mutate(id = row_number()) %>% 
-  left_join(sta_loc) %>%
+  left_join(sta_loc, by = "sta") %>%
   spread(key, val, convert = TRUE) %>% 
   ungroup() %>%
   rename(from_lat = lat) %>% 
@@ -4098,7 +4123,7 @@ spi_corr <- spi_corr %>%
   gather(key, val, -sta) %>% 
   group_by(key) %>% 
   mutate(id = row_number()) %>% 
-  left_join(sta_loc) %>% 
+  left_join(sta_loc, by = "sta") %>% 
   spread(key, val, convert = TRUE) %>% 
   ungroup() %>% 
   rename(to_lat = lat) %>% 
@@ -4116,7 +4141,7 @@ spi_corr <- spi_corr %>%
   mutate(distance = sqrt(northing^2 + easting^2)) 
 
 spi_corr <- spi_corr %>% 
-  select(-to_lat, -to_lon, -from_lat, -from_lon, -northing, -easting)
+  select(-to_lat, -to_lon, -from_lat, -from_lon)
 
 # join spi index values----
 # prepare for join -add lengths & get dataframes to same length
@@ -4175,43 +4200,218 @@ rm(spi_check1, spi_check2, spi_check3, spi_check4,
 rm(spi_M1, spi_M2, spi_M3, spi_M4, spi_M5, spi_M6, spi_M9, 
    spi_M12, spi_M18, spi_M24)
 
-rm(spi_corr_int1, spi_corr_int2, lat_to_km, lon_to_km)
+rm(spi_corr_cot, spi_corr_int, spi_corr_oel, spi_corr_ora, 
+   lat_to_km, lon_to_km, sta_loc)
 
 rm(spi_gath1, spi_gath2, spi_gath3, spi_gath4, spi_gath5, 
    spi_gath6, spi_gath9, spi_gath12, spi_gath18, spi_gath24) 
 
-rm(check_list, gath_list, corr_list)
-
-
-# create a list of the spi_att dataframes
-#corr_list <- list(spi_M1, spi_M2, spi_M3, 
-#                            spi_M4, spi_M5, spi_M6, 
-#                            spi_M9, spi_M12, spi_M18, 
-#                            spi_M24)
-
-# flatten the list to a dataframe, select values, 
-# arrange into a long format, create a distance descriptor variable
-#spi_corr <- flatten_dfc(corr_list) %>% 
-# select(sta, sta2, starts_with("pears_r"), 
-#        starts_with("spi_length")) %>% 
-#  gather(key, spi_length, -sta, -sta2, -starts_with("pears")) %>%
-#  select(-key) %>% 
-#  gather(key, pears_r, -spi_length, -sta, -sta2) %>% 
-#  select(-key) %>% 
-#  group_by(sta2) %>%
-#  mutate(sta3 = str_remove_all(sta2, "spi_")) %>% 
-#  ungroup() %>% 
-#  select(-sta2) %>% 
-#  mutate(stations = str_c(sta, sta3, sep = "-")) %>% 
-#  filter(pears_r < .99) %>% 
-#  distinct()
+rm(spi_check, att_list)
 ```
 
-```{r munge-joined-SCI-values}
+```{r spi-correlation-analysis}
+# model effect of averaging time & distance on correlation----
+# fit a linear model
+spi_lm <- lm(pears_r ~ distance + spi_length, 
+             data = spi_corr)
+
+# augment the original data
+spi_corr_aug <- augment(spi_lm, spi_corr)
+
+# gather the data
+spi_corr_gath <- spi_corr_aug %>% 
+  select(stations:.fitted) %>% 
+  select(-northing, -easting) %>% 
+  gather(key = factor, val, -stations, -pears_r)
+
+# plot the original data and fitted model
+ggplot(spi_corr_gath, aes(val, pears_r)) + 
+  geom_point(aes(color = factor(stations))) +
+  facet_wrap(ncol = 1, vars(factor), scales = "free") +
+    geom_smooth(method = lm) + 
+  theme_classic()
+
+spi_lm_fit <- glance(spi_lm) 
+
+spi_lm_tidy <- tidy(spi_lm) %>% 
+  mutate(
+    low = estimate - std.error,
+    high = estimate + std.error
+  )
+
+# Distance model only
+# model is pears_corr = 0.78 -0.001 dist_km + 0.005 length_mo
+# worst is 0.78 - 0.001*145 + 0.005
+# best is 0.78 - 0.001*24 + 0.005*24
+# range of dist: [0.024, 17.6]; plus_minus 8.79
+# range of length: [0.005, 12]; plus_minus 6.0 
+
+# So, slightly better fit on average by incorporating distance
+
+# clean-up Global Environment----
+spi_corr <- spi_corr_aug 
+rm(spi_corr_aug, spi_corr_gath) 
+rm(spi_lm,spi_lm_fit, spi_lm_tidy)
 
 ```
 
-```{r SCI-diagnostic-plots}
+```{r fix-SCI-values}
+# This code chunk fixes the really large negative values &
+# the NA values by non-closure of  ML estimator for 
+# Interior 1-month SPI for Feb
+
+# Examine the initial SPI values for outliers----
+ggplot(spi_index, aes(spi_length, spi_index)) + 
+  geom_jitter() + 
+  facet_grid(rows = vars(sta)) +
+  theme_bw() +
+  ggtitle("Initial SPI Plot", 
+          subtitle = "Typical values are between -4 to 4") 
+
+# save intial plot
+#ggplot2::ggsave(filename = "figure/initial_spi.png", 
+#                width = 6, height = 6, units = "in")
+
+# split outliers from typical values----
+spi_index_outlier <- spi_index %>% 
+  filter(spi_index < -4) %>% 
+  as.tibble()
+
+spi_index_typical <- spi_index %>% 
+  filter(spi_index > -4) %>%
+  arrange(spi_index)
+
+# spi_index_outlier 
+# date       sta   spi_index spi_length
+#  <date>     <chr>     <dbl>      <dbl>
+#1 2012-09-01 int       -8.03          1
+#2 2007-01-01 ora       -8.01          4
+#3 1977-02-01 ora       -8.03          5
+#4 2005-01-01 ora       -7.51         12
+#5 2012-11-01 ora       -7.71         12 
+
+# spi_index_typical 
+# these are the min SPI vals
+#  date       sta   spi_index spi_length
+#   <date>     <chr>     <dbl>      <dbl>
+# 1 1936-10-01 cot       -3.31          6
+# 2 1937-01-01 cot       -3.27          9
+# 3 1936-09-01 cot       -3.26          4
+# 4 1936-09-01 cot       -3.25          5
+# 5 1936-10-01 cot       -3.25          9
+
+# plot outlier years----
+sta_outlier <- sta_raw %>% 
+  gather(key = sta, value = depth, -date, -year, -month) %>% 
+  filter(date == "1977-02-01" | 
+    date == "2005-01-01" | 
+    date == "2007-01-01" | 
+    date == "2012-11-01") 
+
+ggplot(sta_outlier, aes(date, depth, color = factor(sta))) + 
+  geom_point() + 
+  theme_bw() +
+  ggtitle("Initial SPI Plot", 
+          subtitle = "Typical values are between -4 to 4") 
+
+# Outlier Oral values chould be approximated by the mean SPI 
+# or the nearest neighbor (Oelrichs) - used mean SPI
+
+# create a tibble to replace the SPI outliers----
+spi_index_replace1 <- spi_index_typical %>% 
+  filter(date == "1977-02-01" & 
+           spi_length == 5) 
+
+spi_index_replace2 <- spi_index_typical %>% 
+  filter(date == "2005-01-01" & 
+           spi_length == 12) 
+
+spi_index_replace3 <- spi_index_typical %>% 
+  filter(date == "2007-01-01" & 
+           spi_length == 4) 
+
+spi_index_replace4 <- spi_index_typical %>% 
+  filter(date == "2012-11-01" & 
+           spi_length == 12) 
+
+spi_index_replace5 <- spi_index_typical %>% 
+  filter(date == "2012-09-01" & 
+           spi_length == 1) 
+
+spi_index_replace <- bind_rows(spi_index_replace1, spi_index_replace2) 
+spi_index_replace <- bind_rows(spi_index_replace, spi_index_replace3) 
+spi_index_replace <- bind_rows(spi_index_replace, spi_index_replace4) 
+spi_index_replace <- bind_rows(spi_index_replace, spi_index_replace5) 
+
+# calculate mean values & prepare for join 
+spi_index_replace <- spi_index_replace %>% 
+    group_by(date, spi_length) %>% 
+  summarize(spi_index = mean(spi_index)) %>%
+  ungroup() 
+
+spi_replace_sta <- spi_index_outlier %>% 
+  select(date, sta)
+
+# join replace values to typical values & bind rows
+spi_index_replace <- full_join(spi_index_replace, 
+                               spi_replace_sta, by = "date")
+
+spi_index2 <- bind_rows(spi_index_typical, spi_index_replace) 
+
+# check the values after the fix
+# spi_index2
+# A tibble: 48,011 x 4
+#   date       sta   spi_index spi_length
+#   <date>     <chr>     <dbl>      <dbl>
+# 1 1936-10-01 cot       -3.31          6
+# 2 1937-01-01 cot       -3.27          9
+# 3 1936-09-01 cot       -3.26          4
+# 4 1936-09-01 cot       -3.25          5
+# 5 1936-10-01 cot       -3.25          9
+# the outlier values are now fixed 
+
+spi_index <- spi_index2 %>% 
+  arrange(spi_index)
+
+# fix the NA values for Interior----
+# get mean values for all the years & # split at the start of 
+# Interior weather station 
+
+spi_index_na <- spi_index %>% 
+  mutate(month = month(date)) %>% 
+  filter(month == 2)  %>% 
+  filter(spi_length == 1) %>% 
+  group_by(date, spi_length) %>% 
+  summarize(spi_index = mean(spi_index)) %>%
+  ungroup() %>%
+  filter(date > "1948-11-01") %>%  
+  mutate(sta = "int")
+  
+spi_index <- bind_rows(spi_index, spi_index_na) 
+
+
+
+# visually check results
+spi_index_plot <- spi_index %>% 
+  filter(spi_length == 12)
+  
+ggplot(spi_index_plot, aes(date, spi_index)) + 
+  geom_line() +
+  facet_wrap(vars(sta)) + 
+  theme_classic() +
+  geom_hline(yintercept = 0, aes)
+
+#ggplot2::ggsave(filename = "figure/spi_1mo.png",  
+#                width = 6, height = 6, units = "in")  
+
+# clean up Global Environment----
+rm(spi_index_replace1, spi_index_replace2, spi_index_replace3, 
+   spi_index_replace4, spi_index_replace5, spi_replace_sta, 
+   spi_index2, spi_index_outlier, spi_index_replace, 
+   spi_index_typical, spi_index_na, sta_na, sta_outlier)
+```
+
+```{r SCI-diagnostic-plots, eval=FALSE}
 # Diagnostic plots of SPI transforms 
 
 # PE3 scale plot---- 
@@ -4224,6 +4424,8 @@ ggplot(spi_scale, aes(as.factor(month), spi_value)) +
              cols = vars(spi_length)) + 
   theme_classic() 
 
+ggplot2::ggsave(filename = "figure/spi_scale.png", 
+                width = 6, height = 6, units = "in") 
 
 # PE3 location plot---- 
 spi_location <- spi_att %>% 
@@ -4235,6 +4437,8 @@ ggplot(spi_location, aes(as.factor(month), spi_value)) +
              cols = vars(spi_length)) + 
   theme_classic() 
 
+ggplot2::ggsave(filename = "figure/spi_location.png", 
+                width = 6, height = 6, units = "in") 
 
 # PE3 shape plot---- 
 spi_shape <- spi_att %>% 
@@ -4246,75 +4450,18 @@ ggplot(spi_shape, aes(as.factor(month), spi_value)) +
              cols = vars(spi_length)) + 
   theme_classic() 
 
-# clean up Global Environment----
-rm(spi_location, spi_shape, spi_scale)
-```
-
-```{r spi-correlation-plot}
-
-```
-
-
-
-```{r other-plots}
-# Next steps: spread or extract the spi_corr 
-# set large values of SPI to the probability of the spi value 
-# or max of longest station...
-
-
-# correlation plot
-# ~~~~~~~~~~~~~~~~
-corrplot.mixed(spi_M1,  order = "hclust", addrect = 2, 
-               upper = "ellipse", lower = "number", 
-               title = "One month SPI correlation among stations") 
-
-# don't know how to save the results of this! - SEE ggcorrelation?
-
-# general attributes plot 
-# ~~~~~~~~~~~~~~~~~~~~~~~
-ggplot(spi_att, aes(as.factor(month), value)) + 
-  geom_boxplot() +
-  facet_wrap(ncol = 1, scales = "free_y", vars(property)) + 
-  theme_classic() 
-
-ggplot2::ggsave(filename = "figure/spi_att_1mo.png", 
-                width = 6, height = 6, units = "in")
-
-# result => shape parameter is interesting!
-# check it out in greater detail
-
-# attributes plot for skew 
-# ~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-ggplot(spi_att_skew, aes(as.factor(sta), value)) + 
-  geom_boxplot() + 
-  theme_classic()
-# Oral has a low skew in April... 
-
-ggplot2::ggsave(filename = "figure/spi_skew_1mo.png", 
+ggplot2::ggsave(filename = "figure/spi_shape.png", 
                 width = 6, height = 6, units = "in") 
 
-# SPI index values plot 
-# ~~~~~~~~~~~~~~~~~~~~~
-ggplot(spi_gath, aes(date, spi_index)) +
-  geom_line() +
-  facet_wrap(vars(sta)) + 
-  theme_classic()   
+# clean up Global Environment----
+rm(spi_location, spi_shape, spi_scale) 
+```
 
-ggplot2::ggsave(filename = "figure/spi_1mo.png",  
-                width = 6, height = 6, units = "in")  
 
-# plot SPI results----  
-# NOTE: BE CAREFUL WITH THE VALUES FOR THE SAVING OF THE PLOTS 
+```{r final-plot}
 
-# correlation plot
-# ~~~~~~~~~~~~~~~~
-corrplot.mixed(spi_M,  order = "hclust", addrect = 2, 
-               upper = "ellipse", lower = "number", 
-               title = "One month SPI correlation among stations") 
 
-# don't know how to save the results of this! - SEE ggcorrelation?
+
 ```
 
 
