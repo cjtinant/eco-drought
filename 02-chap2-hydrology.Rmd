@@ -294,7 +294,10 @@ References
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 # Sets up the library of packages 
-#library("magrittr") # contains easier ways to say things about lists
+
+# dplyr::select -- this is a potential issue!
+
+
 library("here") # identifies where to save work 
 library("rio") # more robust I/O - to import and clean data 
 library("janitor") # tools to clean dirty data 
@@ -312,8 +315,9 @@ library("ggpubr")
 #library("DataExplorer")
 
 library("clValid")
-# library("grateful") - not yet ready for R 3.5.0
 
+# library("grateful") - not yet ready for R 3.5.0
+#library("magrittr") # contains easier ways to say things about lists
 #library("lintr")
 #library("test_that")
 #library("jsonlite") # Convert between JSON data and R objects
@@ -338,30 +342,37 @@ a_session <- devtools::session_info()
 a_session    list variable of session information
 sta          precipitation station  
 spi          Standardized Precipitation Index vals  
-abbrev       abbreviation; a look-up table 
 gage         streamflow gage 
-
 
 # general modifiers:
 _meta        metadata  
 _raw         original imported data in wide format
 _gath        wide data changed to long data format
 _na          exploratory na values 
-_prep        intermediate variable 
-_mean        intermediate variable; mean monthly value
-_sum         summary data 
 _outlier     split outlier data 
 _typical     split not outlier data 
-_replace     intermediate value used to replace outlier value
+_replace     intermediate value used to replace outlier value 
 
-# station modifiers:
+# intermediate variables 
+abbrev       abbreviation; a look-up table 
+_mean        intermediate variable; mean value
+_sum         summary data 
+_prep        intermediate variable 
+
+# regression variables:
+_lm          linear model 
+_aug         Added prediction info about each dataset observation 
+_fit         Fitted regression model information 
+_tidy        Summarizes information about model components 
+
+# precipitation station identifiers:
 _cot        Cottonwood precipitation station
 _oel        Oelrichs precipitation station 
 _rap        Rapid City precipitation station 
 _int        Interior precipitation station 
 _ora        Oral precipitation station
 
-Variables & constants used by SCI function:
+# SCI input & intermediate variables:
 time_scale   sets the length of the averaging period 
 distrib      sets the distribution type 
 p_zero       sets a function to reduce zero-precip bias
@@ -375,39 +386,30 @@ first_mon    sets the first month for SCI; based on the data
 .int        Interior precipitation station 
 .ora        Oral precipitation station
 .l          a variable as a list 
-
-# SPI join or final values:
-_att        SPI function attributes: scale, location, shape 
-_check      Temporary variable used to check data
 _M          Correlation matrix 
+_check      Temporary variable used to check data
+
+# SCI output variables
+zero_prob   probability of a zero depth month
+_att        SPI function attributes: scale, location, shape 
 _corr       final correlation dataframe
 _index      SPI index
-zero_prob   probability of a zero depth month
 
-# regression variables:
-_lm          linear model 
-_aug         Added prediction info about each dataset observation 
-_fit         Fitted regression model information 
-_tidy        Summarizes information about model components 
+# Gage PCA input & intermediate variables:
+_depth      streamflow depth; depth = Q/A 
+_lambda     BoxCox lambda values defined by a ML estimator 
+  _q1       one-day average streamflow volume or depth 
+  _q7       seven-day average streamflow volume or depth 
+  _q30      thirty-day average streamflow volume or depth 
 
-
-# NOT YET MAPPED Varibles
-#flag_spi     records any flags from fitSPI or transformSPI
-# p_zero_cm <- TRUE # ?????
-# _mon         precipitation depths w/ month as variable
-# _scale       standardized (z-score) data, number is averaging period 
-# _l           data in long format
-
-# _notzero     non-zero precip values
-# _zero        precip values equal to zero
-# _log         log10 of monthly precipitation depths
-# _count       number of months in a given record
-# min          minimum non-zero value
-# n            number of months in a given record
-
-# prep#         intermediate variable used to bind rows; # = 1, 2, ...
-# intc#        intermediate variable used to bind cols; # = 1, 2, ...
-# intr#        intermediate variable used to bind rows; # = 1, 2, ...
+# pca variables
+_input      matrix with only observations
+_meta       matrix with info about observations 
+_matrix     result of prcomp analysis as prcomp object 
+_eigen      tidy eigenvecter summary 
+_vars       tidy summary about pc loadings on variables 
+_aug        added prediction info about each dataset observation 
+_sum        summary of results
 
 ```{r testing, include=FALSE, eval=FALSE}
 # Mini-library
@@ -3988,7 +3990,7 @@ spi_check <- bind_rows(spi_check, spi_check24)
 
 
 # check non-zero precip vals
-zero_prob <- spi_check %>% 
+zero_prob_prcp <- spi_check %>% 
   filter(property != "N") %>% 
   mutate(value = as.numeric(value)) %>% 
   mutate(month = as.integer(month)) %>% 
@@ -4411,7 +4413,8 @@ ggplot(spi_index_plot, aes(date, spi_index)) +
 rm(spi_index_replace1, spi_index_replace2, spi_index_replace3, 
    spi_index_replace4, spi_index_replace5, spi_replace_sta, 
    spi_index2, spi_index_outlier, spi_index_replace, 
-   spi_index_typical, spi_index_na, sta_na, sta_outlier)
+   spi_index_typical, spi_index_na, sta_na, sta_outlier, 
+   spi_index_plot)
 ```
 
 ```{r SCI-diagnostic-plots, eval=FALSE}
@@ -4460,11 +4463,8 @@ ggplot2::ggsave(filename = "figure/spi_shape.png",
 rm(spi_location, spi_shape, spi_scale) 
 ```
 
-
 ```{r final-plot}
-
-
-
+# should do a final SPI plot
 ```
 
 ```{r precip-clustering, include=FALSE, eval=FALSE}
@@ -4719,8 +4719,13 @@ ggplot() +
 #             legend = "bottom")  
 ```
 
-```{r exploratory-PCA-gages}
-# Overview
+```{r EDA-PCA-gages}
+# Data preparation steps: import data, normalize by watershed area, 
+#     remove missing values, calculate z-scores & standardize data,
+
+
+# PCA method discussion----
+# Overview 
 # ~~~~~~~~ 
 # PCA is a method to summarize data using fewer variables by 
 # constructing new linear descriptors from variables. The new 
@@ -4735,8 +4740,17 @@ ggplot() +
 # reconstruction error 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+
+# Prepare data for exploratory PCA----
+
 # The original data is saved in a long format with rows as daily 
 # observations and columns as variables
+# 1. Import data: 
+#      Drop Cheyenne River at Angustora with ~50% NA vals 
+
+gage_meta <- import("data/gage_meta_92_97.csv") 
+gage_raw <- import("data/gage_92_97.csv") %>%  
+  filter(sta != "chr_ang")
 
 # glimpse(gage_raw)
 # Variables: 26
@@ -4767,25 +4781,18 @@ ggplot() +
 # Q7                    <dbl> 0.14420207... 7-day moving average  
 # Q30                   <dbl> 0.1342507...  30-day moving average 
 
-# Prepare data for exploratory PCA -----------------------------------
-# 1. Import data & drop Cheyenne River at Angustora with ~50% NA vals 
-gage_raw <- import("data/gage_92_97.csv") %>%  
-  filter(sta != "chr_ang")
-gage_meta <- import("data/gage_meta_92_97.csv") 
-
 # 2. Eliminate the effects of different sizes of watersheds:  
 #    I calculated daily flow depths by dividing flow (cms) by watershed 
 #    area (sq-km) and multiplying the resultant by the number of 
 #    seconds in a day.  The result is cu-m-d per sq-km.
 
-# 3. Estimate or remove missing values in the data 
+# 3. Remove missing values created by rolling averages
 #    The NA vals created by calculating Q7 & Q30 need to be removed or 
 #    estimated.  Removal seems the more conservative approach - 
 #    especially as the NA values are very small given the number of 
 #    observations of 365 obs/yr * 7 years. 
 
-library(dplyr)
-gage_scaled <- gage_raw %>% 
+gage_depth <- gage_raw %>% 
   as.tibble() %>% 
   clean_names() %>% 
   mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
@@ -4804,38 +4811,33 @@ gage_scaled <- gage_raw %>%
 # lambda = 0 is a logrithmic transformation.
 
 # find lambda values for BoxCox transformation  
-lambda_q1 <- BoxCox.lambda(gage_scaled$q1_depth) 
-lambda_q7 <- BoxCox.lambda(gage_scaled$q7_depth) 
-lambda_q30 <- BoxCox.lambda(gage_scaled$q30_depth) 
+lambda_q1 <- BoxCox.lambda(gage_depth$q1_depth)   #  q1 ==> 0.013 
+lambda_q7 <- BoxCox.lambda(gage_depth$q7_depth)   #  q7 ==> 0.109  
+lambda_q30 <- BoxCox.lambda(gage_depth$q30_depth) # q30 ==> 0.202 
 
-# lambda vals
-#  q1 ==> 0.013 
-#  q7 ==> 0.109 
-# q30 ==> 0.202
-
-# 5.Standardize the data:
+# 5.Standardize data by z-score:
 # PCA requires that data are scaled with a mean of zero and standard 
 # deviation of unity, e.g. a z-score.  This could be done within the 
 # PCA, but I did it manually.
 
 # Apply transformation and scale data
-gage_scaled <- gage_scaled %>% 
-  mutate(q1_tr = BoxCox(gage_scaled$q1_depth,lambda_q1)) %>%
-  mutate(q7_tr = BoxCox(gage_scaled$q7_depth,lambda_q7)) %>% 
-  mutate(q30_tr = BoxCox(gage_scaled$q30_depth,lambda_q30)) %>%
+gage_depth <- gage_depth %>% 
+  mutate(q1_tr = BoxCox(gage_depth$q1_depth,lambda_q1)) %>%
+  mutate(q7_tr = BoxCox(gage_depth$q7_depth,lambda_q7)) %>% 
+  mutate(q30_tr = BoxCox(gage_depth$q30_depth,lambda_q30)) %>%
   mutate(q1_mean = mean(q1_tr, na.rm = TRUE)) %>% 
   mutate(q1_sd = sd(q1_tr, na.rm = TRUE)) %>% 
-  mutate(q1_scaled = (q1_tr - q1_mean)/q1_sd) %>% 
+  mutate(q1_depth = (q1_tr - q1_mean)/q1_sd) %>% 
   mutate(q7_mean = mean(q7_tr, na.rm = TRUE)) %>% 
   mutate(q7_sd = sd(q7_tr, na.rm = TRUE)) %>% 
-  mutate(q7_scaled = (q7_tr - q7_mean)/q7_sd) %>% 
+  mutate(q7_depth = (q7_tr - q7_mean)/q7_sd) %>% 
   mutate(q30_mean = mean(q30_tr, na.rm = TRUE)) %>% 
   mutate(q30_sd = sd(q30_tr, na.rm = TRUE)) %>% 
-  mutate(q30_scaled = (q30_tr - q30_mean)/q30_sd) %>% 
-  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
-         q1_scaled, q7_scaled, q30_scaled) 
+  mutate(q30_depth = (q30_tr - q30_mean)/q30_sd) %>% 
+  select(sta, date, q1_depth, q7_depth, q30_depth, 
+         q1_depth, q7_depth, q30_depth) 
 
-# glimpse(gage_scale) 
+# glimpse(gage_depth) 
 # sta        <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat_bhr", ... 
 # date       <chr> "1991-10-01", "1991-10-02", "1991-10-03", "1... 
 # q1_depth   <dbl> 14.704930, 14.704930, 16.700614, 18.696298, ... 
@@ -4845,25 +4847,32 @@ gage_scaled <- gage_scaled %>%
 # q7_scaled  <dbl> -0.5215705, -0.5363362, -0.5408399, -0.53633... 
 # q30_scaled <dbl> -0.7615155, -0.7600352, -0.7559816, -0.74976... 
 
-# Select numeric data for PCA input &  names to connect to result 
-# prcomp() requires a dataset with only the variables for the 
-# unsupervised classification 
-pca_input <- gage_scaled %>% 
-  dplyr::select(q1_scaled, q7_scaled, q30_scaled) 
+rm(lambda_q1, lambda_q7, lambda_q30)
 
-pca_meta <- gage_scaled %>% 
-  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth) 
+
+# Conduct exploratory PCA---- 
+
+# Select numeric data 
+# ~~~~~~~~~~~~~~~~~~~
+# prcomp() requires a dataset with only the variables.  
+# Below splits data into PCA input & names to connect to result 
+
+pca_input <- gage_depth %>% 
+  select(q1_depth, q7_depth, q30_depth) 
+
+pca_meta <- gage_depth %>% 
+  select(sta, date, q1_depth, q7_depth, q30_depth) 
 
 # Calculate PCA matrix & summary info
-pca_matrix <- prcomp(pca_input, scale = TRUE)
+pca_matrix <- prcomp(pca_input, scale = TRUE) 
 
-# this plots the PCA biplot - takes a LONG time
+# this plots the PCA biplot--takes a LONG time
 # biplot(gage_pc, scale = 0)
 
 # Gather PCA results----
 # The broom package is used to gather results into tibbles.
 
-# Eigenvectors
+# Eigenvectors--results about PC axes
 pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
 
 #gage_pc_eigen
@@ -4872,17 +4881,18 @@ pca_eigen <-  tidy(pca_matrix, matrix = "pcs")
 #1     1   1.68  0.941        0.941
 #2     2   0.385 0.0494       0.990
 #3     3   0.170 0.00958      1  
-# This means that 94% of covarience is explained by PCA1 & 
-# 5% of varience by PCA2
+
 
 # PCA variables 
-# these are the loadings on the PCA axes.  I dropped the 3rd PCA 
-# because it's not useful
+# ~~~~~~~~~~~~~
+# these are the loadings on the PCA axes.  
 pca_vars <-  tidy(pca_matrix, matrix = "variables") 
+
+# I dropped the 3rd PCA because it's not useful 
 pca_vars <- pca_vars %>% 
   filter(PC != 3) %>% 
   rename(var = column) %>% 
-  mutate(var = as.factor(var))
+  mutate(var = as.factor(var)) 
 
 #gage_pc_vars
 #var           PC  value
@@ -4893,17 +4903,16 @@ pca_vars <- pca_vars %>%
 #4 q1_scaled      2  0.598
 #5 q7_scaled      2  0.169
 #6 q30_scaled     2 -0.784 
-# This explains approximately equal loadings of Q1, Q7, Q30 on PCA1 & 
-# large positive loading of Q1 & large negative loading of Q30. 
+
 
 # Bind sample vals to PCA matrix 
-pca_au <- augment(pca_matrix, data = pca_input) 
-pca_au <- bind_cols(pca_meta, pca_au)
-rm(pca_meta)
+pca_aug <- augment(pca_matrix, data = pca_input) 
+pca_aug <- bind_cols(pca_meta, pca_aug) 
+
 
 # Calculate mean eigenvectors 
 # this summarizes the individual points by station - used in plots
-pca_summary <- pca_au %>% 
+pca_sum <- pca_aug %>% 
   group_by(sta) %>% 
   summarize(PC1_mean = mean(.fittedPC1),
             PC2_mean = mean(.fittedPC2), 
@@ -4915,6 +4924,16 @@ pca_summary <- pca_au %>%
             q30_sd = sd(log10(q30_depth))) %>% 
   mutate(q1_minus_q30 = q1_mean - q30_mean) %>% 
   ungroup()
+
+
+rm(pca_meta) 
+# The PCA explains the following: 
+# eigenvecter:
+#   94% of covarience is explained by PCA1 & 5% of varience by PCA2
+# variables:
+#   PC1 - approximately equal loadings of Q1, Q7, Q30;
+#   PC2 - large positive loading of Q1 & large negative loading of Q30  
+
 
 
 # PCA1 Interpretation-------------------------- 
