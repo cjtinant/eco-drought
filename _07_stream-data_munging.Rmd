@@ -39,11 +39,9 @@ What is streamflow variation across the Pine Ridge Reservation?
 2.  Added names & station numbers & joined data 
 3.  Data saved in a flat format (.csv) 
 
-
 Didn't work these
 1.  Data read in from USGS website by dataRetrieval (cfs)
 2.  Data saved as array (.JSON), and flat format (.csv) 
-
 
 # Next STEPS
 1. blc_wan <- readNWISDaily("06446700") # this not working!
@@ -89,8 +87,8 @@ check_sta    check variable
 -->
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE) 
-options(tibble.print_max = 20) # sets tibble output for printing 
+#knitr::opts_chunk$set(echo = FALSE) 
+options(tibble.print_max = 70) # sets tibble output for printing 
 ```
 
 ```{r library, message=FALSE} 
@@ -938,17 +936,19 @@ gage_table <- gage_meta %>%
 ```{r clean_daily flow}
 # this code chunk checks and removes gages w/o useful characteristics
 #   for future analysis 
-
+# This code is a refactor of prior code above, some of it broken
+# 
 # Steps: 
 # 1. Assemble a full dataset (N = 61 stations)
-# 2. Join metadata information & year count to observations
-# 3. Subset stations with observations 1992-1997 for clustering 
+# 2. Remove streams prior to 1990 from the analysis series 
+# 3. Remove streams with substantial missing data
+# 4. Investigate remaining stations
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 1. Assemble a set of all possible recorded streamflows----
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# 1. Join & arrange a set of all possible recorded streamflows
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_meta <- import("data/gage_meta.csv") %>% 
+gage_meta_full <- import("data/gage_meta.csv") %>% 
   arrange(sta) 
 
 gage_cont <- import("data/gage_cont.csv") 
@@ -963,88 +963,212 @@ gage_full <- gage_full %>%
   arrange(sta) %>% 
   select(site_no, sta, Date, i, everything())
 
-# check results
+# check results - should be 61 stations
 check_sta <- gage_full %>% 
   distinct(sta)
 
 rm(gage_cont, gage_disc, gage_othr, check_sta)  
 
-# 2. join together gage & gage metadata information 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+# calculate the minimun and maximum years in the series in metadata
 gage_yr <- gage_full %>% 
   group_by(sta) %>% 
   summarize(min_yr = min(waterYear), 
             max_yr = max(waterYear)) %>% 
   mutate(count_yr = 1 + max_yr - min_yr)
 
-gage_meta <- full_join(gage_meta, gage_yr, by = "sta")
+gage_meta_full <- full_join(gage_meta_full, gage_yr, by = "sta")
 
-gage_meta <- gage_meta %>% 
+gage_meta_full <- gage_meta_full %>% 
   arrange(count_yr) %>% 
   select(-c(site_tp_cd, dec_coord_datum_cd, alt_datum_cd, huc_cd)) %>% 
   as.tibble() %>% 
   select(count_yr, everything())
 
-gage_full <- full_join(gage_meta, gage_full, by = c("site_no", "sta"))
+# join together gage & gage metadata information
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+gage_full <- full_join(gage_meta_full, gage_full, by = c("site_no", "sta"))
 rm(gage_yr)
 
-# 3. Identify a subset of gages for cluster analysis 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Filter set of reservation stations; note wkc-wok is 1992-1997
-gage_met1 <- gage_meta %>% 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. Remove streams prior to 1990 from the analysis series----
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# identify old stations (<1990): n = 17 stations
+gage_met_lt_1990 <- gage_meta_full %>% 
+  filter(max_yr < 1990) 
+
+#gage_lt_1990 <- gage_full %>% 
+#    filter(max_yr < 1990) 
+
+# identify stations for analysis: n = 44 stations; 17 + 44 = 61
+gage_meta <- gage_meta_full %>% 
+  filter(max_yr > 1989) 
+
+gage <- gage_full %>% 
+    filter(max_yr > 1989) 
+
+# So, we should work with the 44 stations with data post-1990
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 3. Remove streams with substantial missing data----
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Identify serially incomplete observations 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_incomp <- gage %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
+  ungroup() %>% 
+  filter(waterYear > 1990) %>% 
+  arrange(sta, waterYear, i_count) 
+  
+#gage_incomp_name <- gage_incomp %>% 
+#  distinct(sta)
+
+# 18 stations post-1990n are incomplete; two stations 
+#   (bad_mid & chr_ang) have many incomplete years
+
+# gage_incomp 
+# A tibble: 62 x 3 - redacted & includes a note 
+#   sta     waterYear i_count  note
+#   <chr>       <int>   <int> <mine>
+#  1 bad_mid      1991      28  most years incomplete; remove
+# 17 bad_mid      2017       4
+# 23 chr_ang      1991     181 most years incomplete; remove
+#  7 chr_ang      2017     181
+
+# remove stations with many incomplete years
+gage_meta <- gage_meta %>% 
+  filter(sta != "bad_mid" &  
+           sta != "chr_ang"
+         ) %>% 
+  arrange(min_yr) %>% 
+  select(sta, min_yr, max_yr, count_yr, everything())
+
+# 4. Investigate remaining stations----
+gage <- gage %>% 
+  filter(sta != "bad_mid" &  
+           sta != "chr_ang"
+         ) %>% 
+  arrange(min_yr) %>% 
+  select(sta, min_yr, max_yr, count_yr, everything())
+
+gage_incomp <- gage %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
+  ungroup() %>% 
+  filter(waterYear > 1990) %>% 
+  arrange(waterYear, sta, i_count) 
+
+# filter set of Reservation stations
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+gage_met_res <- gage_meta %>% 
   filter(state_cd == 46) %>% 
   filter(county_cd == 7 | 
            county_cd == 71 |
            county_cd == 95 |
            county_cd == 102
-  )
+  ) %>% 
+  select(min_yr, max_yr, sta)
 
-gage_fin1 <- gage_full %>% 
-  filter(state_cd == 46) %>% 
-  filter(county_cd == 7 | 
-           county_cd == 71 |
-           county_cd == 95 |
-           county_cd == 102
-  ) 
+# join the stations to get a sense of 
+gage_incomp <- left_join(gage_incomp, gage_met_res, 
+                         by = "sta")
+rm(gage_met_res)
 
-# Filter the gages with 1992-1997 observations
-gage_met2 <- gage_meta %>% 
+gage_incomp <- gage_incomp %>% 
+  arrange(sta)
+
+gage_incomp 
+
+# these are the stations with missing data; NA is non-reservation 
+#  sta     waterYear i_count min_yr max_yr
+#   <chr>       <int>   <int>  <dbl>  <dbl>
+# 1 bev_pri      1991     342     NA     NA
+# 2 blp_bel      1992     176   1992   2017
+# 3 che_buf      2007     192     NA     NA
+# 4 che_red      1998      19     NA     NA
+# 5 che_sce      2007     183     NA     NA
+# 6 lcr_abv      1996     172   1938   2016
+# 7 lcr_abv      2016      61   1938   2016
+# 8 lwr_abv      2000     274     NA     NA
+# 9 lwr_abv      2003     316     NA     NA
+#10 lwr_abv      2004      48     NA     NA
+#11 nio_abb      1994     364     NA     NA
+#12 nio_gor      1991     364     NA     NA
+#13 ros_ros      2003     199     NA     NA
+#14 ros_ros      2004      79     NA     NA
+#15 sna_bur      1995     221     NA     NA
+#16 sna_dou      1995      17     NA     NA
+#17 wcc_ogl      1999     364   1966   1999
+#18 whi_slm      1991     301   1962   1997
+#19 whi_whi      2001     122     NA     NA
+#20 wkc_wok      1992     119   1992   1997
+
+# wkc-wok is 1992-1997 - so first clustering is over these dates 
+#   to identify a group for wkc-wok to estimate streamflows
+``` 
+
+```{r subset_stations_92-97}
+# This code chunk creates groups of stations for clustering
+#   Gages- original     = 61 
+#   Gages w/o 1990+ obs = 17 (dropped)
+#   Gages w/o 1996+ obs =  7 (dropped)
+#   Gages 1992-1996 obs = 32 (1st clustering)
+#   Gages post-1996 obs =  3 (2nd clustering; with additional gages)
+
+# Filter the gages with 1992-1997 observations---- 
+gage_meta_9297 <- gage_meta %>% 
   filter(min_yr < 1993 & 
            max_yr > 1995
          ) %>% 
   arrange(count_yr) %>%
   as.tibble() 
 
-gage_mdp2 <- gage_meta %>% 
-  filter(min_yr > 1992 |
-           max_yr < 1996
-         ) %>% 
+gage_meta_post97 <- gage_meta %>% 
+  filter(min_yr > 1993) %>% 
   arrange(count_yr) %>%
   as.tibble() 
 
-gage_fin2 <- gage_full %>% 
+
+# update list of dropped stations & clean up
+gage_meta_drop <- gage_meta %>% 
+  filter(max_yr < 1996) %>% 
+  arrange(count_yr) %>%
+  as.tibble() 
+
+gage_meta_drop <- bind_rows(gage_met_lt_1990, gage_meta_drop)
+rm(gage_met_lt_1990)
+
+
+
+
+
+
+gage_fin_92_97 <- gage_full %>% 
   filter(min_yr < 1993 & 
            max_yr > 1995
          ) %>% 
   as.tibble() 
 
-gage_drp2 <- gage_full %>% 
+gage_drp_92_97 <- gage_full %>% 
   filter(min_yr > 1992 |
            max_yr < 1996
          ) %>% 
   as.tibble() 
 
 # check work
-chk_sta <- bind_rows(gage_met2, gage_mdp2) # count is ok
-chk_sta <- bind_rows(gage_fin2, gage_drp2) # count is ok
+chk_sta <- bind_rows(gage_met_92_97, gage_mdp_92_97) # count is ok
+chk_sta <- bind_rows(gage_fin_92_97, gage_drp_92_97) # count is ok
 #rm(chk_sta, gage_drp1, gage_fin1, gage_mdp1, gage_met1)
 
 # 4. Identify serially complete observations 
 #   4.0: 105 station years,
 #   4.1:  48 station years,
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_incomp <- gage_fin2 %>% 
+gage_incomp <- gage_fin_92_97 %>% 
   group_by(sta, waterYear) %>% 
   summarize(i_count = n()) %>% 
   filter(i_count <= 364) %>% 
@@ -1157,9 +1281,35 @@ gage_met5 <- gage_met4 %>%
   filter(sta != "lcr_abv") %>% 
   arrange(sta)
 
-export(gage_fin5, "data/gage_92_97.csv") 
-export(gage_met5, "data/gage_meta_92_97.csv")
+export(gage_fin5, "data/gage_92_97_lg.csv") 
+export(gage_met5, "data/gage_meta_92_97.csv") 
+# Note that gage_92_97.csv is too big for git push 
+
+gage_fin6 <- gage_fin5 %>% 
+  filter(waterYear > 1991) %>% 
+  filter(waterYear < 1998)
+
+# check results 
+chk_sta <- gage_fin6 %>%
+  distinct(waterYear)
+
+export(gage_fin6, "data/gage_92_97.csv")
 ```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+
 
 ```{r remove_incomplete, eval=FALSE}
 #  6. Use the EGRET input data to increase serial completeness
