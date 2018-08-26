@@ -4750,10 +4750,8 @@ ggplot() +
 # 1. Import data: 
 #      Drop Cheyenne River at Angustora with ~50% NA vals 
 
-gage_meta <- import("data/gage_meta_92_97.csv") %>%  
-  filter(sta != "chr_ang")
-gage_raw <- import("data/gage_92_97.csv") %>%  
-  filter(sta != "chr_ang")
+gage_meta <- import("data/gage_meta_9297.csv") 
+gage_raw <- import("data/gage_9297.csv") 
 
 # glimpse(gage_raw)
 # Variables: 26
@@ -4837,8 +4835,8 @@ gage_depth <- gage_depth %>%
   mutate(q30_mean = mean(q30_tr, na.rm = TRUE)) %>% 
   mutate(q30_sd = sd(q30_tr, na.rm = TRUE)) %>% 
   mutate(q30_depth = (q30_tr - q30_mean)/q30_sd) %>% 
-  select(sta, date, q1_depth, q7_depth, q30_depth, 
-         q1_depth, q7_depth, q30_depth) 
+  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
+                everything())
 
 # glimpse(gage_depth) 
 # sta        <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat_bhr", ... 
@@ -4857,8 +4855,8 @@ gage_depth <- gage_depth %>%
 # prcomp() requires a dataset with only the variables.  
 # Below splits data into PCA input & names to connect to result 
 
-pca_input <- gage_depth %>% 
-  select(q1_depth, q7_depth, q30_depth) 
+pca_input <- gage_depth %>%  
+  dplyr::select(q1_depth, q7_depth, q30_depth) 
 
 pca_meta <- gage_depth %>% 
   select(sta, date, q1_depth, q7_depth, q30_depth) 
@@ -4891,7 +4889,7 @@ gage_aug <- bind_cols(pca_meta, gage_aug)
 gage_aug <- gage_aug %>% 
   select(-.fittedPC3, -.rownames, 
          -q1_depth1, -q7_depth1, -q30_depth1) %>% 
-  mutate(q1_q30_diff = abs(q1_depth) - abs(q30_depth)) 
+  mutate(q1_q30_diff = q1_depth - q30_depth) 
 
 # summarize pca of gages
 gage_sum <- gage_aug %>% 
@@ -4908,15 +4906,23 @@ gage_sum <- gage_aug %>%
   
 # PCA results & interpretation
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#gage_pc_eigen
+#gage_pc_eigen (PRIOR)
 #    PC std.dev percent cumulative
 #  <dbl>   <dbl>   <dbl>      <dbl>
 #1     1   1.68  0.941        0.941
 #2     2   0.385 0.0494       0.990
 #3     3   0.170 0.00958      1  
 
-#gage_pc_vars
-#var           PC  value
+# pca_eigen (after refactoring stream_data_munging code)
+# A tibble: 3 x 4
+#     PC std.dev percent cumulative
+#  <dbl>   <dbl>   <dbl>      <dbl>
+#1     1   1.65   0.908       0.908
+#2     2   0.446  0.0663      0.974
+#3     3   0.278  0.0257      1    
+
+pca_vars
+#var           PC  value (original)
 #  <fct>      <dbl>  <dbl>
 #1 q1_scaled      1  0.576
 #2 q7_scaled      1  0.589
@@ -4924,6 +4930,16 @@ gage_sum <- gage_aug %>%
 #4 q1_scaled      2  0.598
 #5 q7_scaled      2  0.169
 #6 q30_scaled     2 -0.784 
+
+# A tibble: 6 x 3 (after refactoring stream_data_munging code)
+#  var          PC   value
+#  <fct>     <dbl>   <dbl>
+#1 q1_depth      1  0.574 
+#2 q7_depth      1  0.590 
+#3 q30_depth     1  0.568 
+#4 q1_depth      2  0.654 
+#5 q7_depth      2  0.0881
+#6 q30_depth     2 -0.752 
 
 # The PCA explains the following: 
 # eigenvecter:
@@ -4939,8 +4955,8 @@ gage_sum <- gage_aug %>%
 # clean up Global Environment----
 gage_sum <- full_join(gage_meta, gage_sum)
 
-rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_meta, 
-   pca_eigen, pca_meta, pca_vars)
+#rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_meta, 
+#   pca_eigen, pca_meta, pca_vars)
 
 
 # plot PCA----
@@ -4949,9 +4965,9 @@ ggplot(gage_aug, aes(q7_depth, .fittedPC1, color = factor(sta))) +
   geom_jitter() + 
   theme_classic() +
   xlab("Q7 depth") +
-  ylab("Fitted PC1") +
+  ylab("Fitted PC1") + 
   theme(legend.position = "bottom")
-
+  
 # PC2 explanatory plot
 ggplot(gage_aug, aes(q1_q30_diff, .fittedPC2, color = factor(sta))) +
   geom_jitter() + 
@@ -5188,6 +5204,192 @@ ggplot(gage_clust_plot, aes(group, value)) +
 #   HAT CR NEAR EDGEMONT,SD
 #   HORSEHEAD CR AT OELRICHS,SD 
 ```
+
+```{r EDA-PCA-dry-gages}
+# Examines data from 1992-1997 - wet years with Wounded Knee station 
+
+gage_dry_meta <- import("data/gage_meta_03post.csv") 
+gage_dry_raw <- import("data/gage_03post.csv") 
+
+# Eliminate the effects of different sizes of watersheds & 
+# remove missing values created by rolling averages
+
+gage_dry_depth <- gage_dry_raw %>% 
+  as.tibble() %>% 
+  clean_names() %>% 
+  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
+  mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
+  mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
+  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>%
+  drop_na() 
+
+# Transform using BoxCox to approach normality 
+
+# find lambda values for BoxCox transformation  
+lambda_q1 <- BoxCox.lambda(gage_dry_depth$q1_depth)   #  q1 ==> 0.014  
+lambda_q7 <- BoxCox.lambda(gage_dry_depth$q7_depth)   #  q7 ==> 0.109  
+lambda_q30 <- BoxCox.lambda(gage_dry_depth$q30_depth) # q30 ==> 0.202 
+
+# 5.Standardize data by z-score:
+# PCA requires that data are scaled with a mean of zero and standard 
+# deviation of unity, e.g. a z-score.  This could be done within the 
+# PCA, but I did it manually.
+
+# Apply transformation and scale data
+gage_dry_depth <- gage_dry_depth %>% 
+  mutate(q1_tr = BoxCox(gage_dry_depth$q1_depth,lambda_q1)) %>%
+  mutate(q7_tr = BoxCox(gage_dry_depth$q7_depth,lambda_q7)) %>% 
+  mutate(q30_tr = BoxCox(gage_dry_depth$q30_depth,lambda_q30)) %>%
+  mutate(q1_mean = mean(q1_tr, na.rm = TRUE)) %>% 
+  mutate(q1_sd = sd(q1_tr, na.rm = TRUE)) %>% 
+  mutate(q1_depth = (q1_tr - q1_mean)/q1_sd) %>% 
+  mutate(q7_mean = mean(q7_tr, na.rm = TRUE)) %>% 
+  mutate(q7_sd = sd(q7_tr, na.rm = TRUE)) %>% 
+  mutate(q7_depth = (q7_tr - q7_mean)/q7_sd) %>% 
+  mutate(q30_mean = mean(q30_tr, na.rm = TRUE)) %>% 
+  mutate(q30_sd = sd(q30_tr, na.rm = TRUE)) %>% 
+  mutate(q30_depth = (q30_tr - q30_mean)/q30_sd) %>% 
+  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
+                everything())
+
+# Conduct exploratory PCA---- 
+
+# Select numeric data 
+# ~~~~~~~~~~~~~~~~~~~
+# prcomp() requires a dataset with only the variables.  
+# Below splits data into PCA input & names to connect to result 
+
+pca_dry_input <- gage_dry_depth %>%  
+  dplyr::select(q1_depth, q7_depth, q30_depth) 
+
+pca_dry_meta <- gage_dry_depth %>% 
+  select(sta, date, q1_depth, q7_depth, q30_depth) 
+
+# Calculate PCA matrix & summary info
+pca_dry_matrix <- prcomp(pca_dry_input, scale = TRUE) 
+
+# this plots the PCA biplot--takes a LONG time
+# biplot(gage_pc, scale = 0)
+
+# Gather & summarize PCA results----
+# The broom package is used to gather results into tibbles.
+
+# Eigenvectors--results about PC axes
+pca_dry_eigen <-  tidy(pca_dry_matrix, matrix = "pcs") 
+
+# PCA variables--the loadings on the PCA axes.  
+pca_dry_vars <-  tidy(pca_dry_matrix, matrix = "variables") 
+
+# Drop the 3rd PC-axis because it's not useful 
+pca_dry_vars <- pca_dry_vars %>% 
+  filter(PC != 3) %>% 
+  rename(var = column) %>% 
+  mutate(var = as.factor(var)) 
+
+# Bind sample vals to PCA matrix 
+gage_dry_aug <- augment(pca_dry_matrix, data = pca_dry_input) 
+gage_dry_aug <- bind_cols(pca_dry_meta, gage_dry_aug) 
+
+gage_dry_aug <- gage_dry_aug %>% 
+  select(-.fittedPC3, -.rownames, 
+         -q1_depth1, -q7_depth1, -q30_depth1) %>% 
+  mutate(q1_q30_diff = q1_depth - q30_depth) 
+
+# summarize pca of gages
+gage_dry_sum <- gage_dry_aug %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean = mean(.fittedPC1),
+            PC2_mean = mean(.fittedPC2), 
+            q1_mean = mean(q1_depth), 
+            q7_mean = mean(q7_depth),
+            q30_mean = mean(q30_depth), 
+            q1_q30_mean = mean(q1_q30_diff)) %>% 
+  ungroup() %>% 
+  arrange(q1_q30_mean) %>% 
+  arrange(q7_mean)
+  
+# PCA results & interpretation
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#     PC std.dev percent cumulative
+#  <dbl>   <dbl>   <dbl>      <dbl>
+#1     1   1.68  0.946        0.946
+#2     2   0.377 0.0473       0.993
+#3     3   0.142 0.00675      1    
+
+pca_dry_vars
+# A tibble: 6 x 3
+#  var          PC  value
+#  <fct>     <dbl>  <dbl>
+#1 q1_depth      1  0.578
+#2 q7_depth      1  0.588
+#3 q30_depth     1  0.566
+#4 q1_depth      2  0.573
+#5 q7_depth      2  0.202
+#6 q30_depth     2 -0.794
+
+# clean up Global Environment----
+gage_dry_sum <- full_join(gage_dry_meta, gage_dry_sum)
+
+#rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_meta, 
+#   pca_eigen, pca_meta, pca_vars)
+
+
+# plot PCA----
+# PC1 explanatory plot
+ggplot(gage_dry_aug, aes(q7_depth, .fittedPC1, color = factor(sta))) + 
+  geom_jitter() + 
+  theme_classic() +
+  xlab("Q7 depth") +
+  ylab("Fitted PC1") + 
+  theme(legend.position = "bottom")
+  
+# PC2 explanatory plot
+ggplot(gage_dry_aug, aes(q1_q30_diff, .fittedPC2, color = factor(sta))) +
+  geom_jitter() + 
+  theme_classic() +
+  xlab("Q1 depth minus Q30 depth") +
+  ylab("Fitted PC2") +
+  theme(legend.position = "bottom") 
+
+# mean eigenvector plot
+ggplot(gage_dry_sum, aes(PC1_mean, PC2_mean)) +
+  geom_jitter() + 
+  geom_text(aes(label = sta), check_overlap = TRUE, 
+            nudge_y = 0.02) + 
+  theme_classic() + 
+  scale_x_continuous(limits = c(-3.5, 2)) + 
+  xlab("PC axis 1 mean") +
+  ylab("PC axis 2 mean") 
+
+# transformed variable plot
+ggplot(gage_dry_sum, aes(q7_mean, q1_q30_mean)) +
+  geom_jitter() + 
+  geom_text(aes(label = sta), check_overlap = TRUE, 
+              nudge_y = 0.02) + 
+  scale_x_continuous(limits = c(-2, 1)) + 
+  geom_vline(xintercept = 0, aes(size = 2)) + 
+  geom_hline(yintercept = 0, aes(size = 1)) + 
+  theme_classic() + 
+  xlab("Average transformed Q7 depth") +
+  ylab("Transformed Q1 and Q30 average difference") 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ```{r CLUSTERING_INFO, eval=FALSE, INCLUDE=FALSE}
 
