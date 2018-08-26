@@ -1104,7 +1104,7 @@ rm(gage_met_res, gage_incomp)
 # 5 che_sce      2007     183     NA     NA
 # 6 lcr_abv      1996     172   1938   2016
 # 7 lcr_abv      2016      61   1938   2016
-# 8 lwr_abv      2000     274     NA     NA
+# 8 lwr_abv      2000     274     NA     NA 
 # 9 lwr_abv      2003     316     NA     NA
 #10 lwr_abv      2004      48     NA     NA
 #11 nio_abb      1994     364     NA     NA
@@ -1113,9 +1113,9 @@ rm(gage_met_res, gage_incomp)
 #14 ros_ros      2004      79     NA     NA
 #15 sna_bur      1995     221     NA     NA
 #16 sna_dou      1995      17     NA     NA
-#17 wcc_ogl      1999     364   1966   1999
-#18 whi_slm      1991     301   1962   1997
-#19 whi_whi      2001     122     NA     NA
+#17 wcc_ogl      1999     364   1966   1999 
+#18 whi_slm      1991     301   1962   1997 
+#19 whi_whi      2001     122     NA     NA 
 #20 wkc_wok      1992     119   1992   1997
 
 # wkc-wok is 1992-1997 - so first clustering is over these dates 
@@ -1126,18 +1126,20 @@ rm(gage_met_res, gage_incomp)
 # This code chunk creates groups of stations for clustering; steps
 # 1. filter the gages with 1992-1997 observations
 # 2. split remaining stations 
-# 3. update gages 
+# 3. filter & split observations 
+# 4. identify gages with no annual data 1992-1997 
+# 5. move station with missing data in 92-97 to post97 group 
+# 6. check for other gages with missing data 
+# 7. split incomplete years & add to post97
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   Gages- original     = 61 sta & 741,215 obs  
 #   Gages w/o 1990+ obs = 17 sta (dropped) 
 #   Gages missing data  =  2 sta (dropped) & 103,465 (total dropped)
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   Gages remaining     = 42 sta & 637,750 obs 
-#   Gages w/o 1996+ obs =  7 sta &  82,595 obs (dropped)
-#   Gages remaining     = 35 sta & 555,155 obs
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#   Gages 1992-1996 obs = 32 (1st clustering)
-#   Gages post-1996 obs =  3 (2nd clustering; with additional gages)
+#   Gages 1992-1996 obs = 26 gages; 306,052 obs (1990+)
+#   Gages post-1996 obs =  7 gages;  38,370 obs (1990+)
+#   Gages dropped       = 28 gagesl 396,793
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 1. filter the gages with 1992-1997 observations---- 
@@ -1155,135 +1157,291 @@ gage_meta_9297 <- gage_meta %>%
   arrange(max_yr) %>%
   as.tibble() # 32 stations
 
-gage_meta_post97 <- gage_meta %>% 
+gage_meta_97post <- gage_meta %>% 
   filter(min_yr > 1997) %>% 
   arrange(max_yr) %>%
   as.tibble() # 3 stations
 # 32 pre + 3 post = 35 remaining total
 # 35 rem + 26 drp = 61 sta
-rm(gage_meta)
+rm(gage_meta, drop_sta)
 
 # 3. filter & split observations----
+# drop stations w/o 1980-1997 data 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 drop_obs <- gage %>% 
    filter(max_yr < 1997) %>% 
-  arrange(max_yr) # 82,595 obs    
+  arrange(max_yr) # 82,595 obs; 
 
-gage <- anti_join(gage, drop_obs, by = "sta") 
-# 637,750 - 82,595 = 555,1555 obs
+gage_drop <- bind_rows(gage_drop, drop_obs) 
+# 103,465 + 82,595 = 186,060
 
+gage <- anti_join(gage, gage_drop, by = "sta") 
+# 741,215 = 103,465 + 637750 = 82,595 + 555,155 
+# closed prior 1990 + closed prior 1997 + left = 741,215
+
+# drop obs <1980 
+# ~~~~~~~~~~~~~~
+drop_obs <- gage %>% 
+  filter(waterYear < 1980) # 210,733 obs 
+# 741,215 = 103,465 + 637750 = 82,595 + 555,155 
+# closed prior 1990 + closed prior 1997 + left = 741,215
+
+gage_drop <- bind_rows(gage_drop, drop_obs) # 210,733 
+# 186,060 + 210,733 = 396,793  
+# closed prior 1997 + prior 1980
+
+gage <- gage %>% 
+  filter(waterYear >= 1980) # 344,422 stations
+
+# 741,215 = 555,155 + 82,595 + 103,465 
+#        = 82595 + 103465 (closed prior 1990 + closed prior 1997)
+#                + 210733 (<1980) + 344,422 (leftover)
+
+# split gage between 92-97 & 97post
 gage_9297 <- gage %>% 
-  filter(min_yr <= 1997) # 538,394 obs
+  filter(min_yr <= 1997) # 327,661
 
-gage_post97 <- gage %>% 
+gage_97post <- gage %>% 
   filter(min_yr > 1997) # 16,761 obs 
+
+rm(gage, drop_obs) 
 
 # 4. identify serially complete observations---- 
 
-# Identify stations with no annual data 1992-1997 
+# Identify gages with no annual data 1992-1997 
 gage_incomp <- gage_9297 %>% 
-  filter(waterYear > 1991) %>% 
-  filter(waterYear < 1998) %>% 
   group_by(sta, waterYear) %>%  
   count() %>% 
   arrange(n) %>% 
   ungroup() %>% 
-  filter(n < 364)
+  filter(n < 364) %>% 
+  arrange(waterYear) %>% 
+  arrange(sta)
 
-gage_incomp 
-
-# A tibble: 3 x 3
-#  sta     waterYear     n
-# <chr>       <int> <int>
-#1 wkc_wok      1992   119
-#2 lcr_abv      1996   172
-#3 blp_bel      1992   176
+#gage_incomp 
+# A tibble: 14 x 3
+#   sta     waterYear     n
+#   <chr>       <int> <int>
+#  2 blp_bel      1992   176
+#  6 lcr_abv      1996   172
+# 14 wkc_wok      1992   119
 
 # So, remove lcr_abv & start in Sept 1992
 
 # 5. move station with missing data in 92-97 to post97 group----
 
-meta_lcr_abv <- gage_meta %>% 
+meta_lcr_abv <- gage_meta_9297 %>% 
   filter(sta == "lcr_abv") 
-
-gage_meta_post97 <- bind_rows(gage_meta_post97, meta_lcr_abv) 
+gage_meta_97post <- bind_rows(gage_meta_97post, meta_lcr_abv) 
+# 3 to 4 sta
 
 gage_meta_9297 <- gage_meta_9297 %>% 
-  filter(sta != "lcr_abv")
+  filter(sta != "lcr_abv") # 32 to 31 sta
 
-gage_meta <- gage_meta %>% 
-  filter(sta != "lcr_abv") # 42 to 41 stations
-  
+obs_lcr_abv <- gage_9297 %>% 
+  filter(sta == "lcr_abv") #7,172 obs
+gage_97post <- bind_rows(gage_97post, obs_lcr_abv) 
+# 16,761 + 7,172 = 23,933
+
 gage_9297 <- gage_9297 %>% 
   filter(sta != "lcr_abv") 
-
-rm(meta_lcr_abv)
+# 327,661 - 7,172 = 320,489
+# 396,793 (drop) + 320,489 (92-97) + 23,933 (97post)
+rm(meta_lcr_abv, obs_lcr_abv, gage_incomp) 
   
-# check - "che_buf", "whi_cra","whi_int"
+# 6. check for other gages with missing data----
+
+# create a count of complete water years
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_9297_comp <- gage_9297 %>% 
+  group_by(sta, waterYear) %>% 
+  count(waterYear) %>% 
+  ungroup() %>% 
+  filter(n >= 365) %>% 
+  filter(waterYear >= 1992) %>% 
+  filter(waterYear <= 1997) %>% 
+  count(sta) # 28 sta
+
+# join count to gage_meta 
+# ~~~~~~~~~~~~~~~~~~~~~~~
+gage_9297_comp <- full_join(gage_meta_9297, gage_9297_comp, 
+                            by = "sta") 
+gage_9297_comp <- gage_9297_comp %>% 
+  select(sta, min_yr, max_yr, nn, everything())
+
+# 7. split incomplete years & add to post97----
+
+# find the incomplete gages; n=3 
+gage_9297_incomp <- gage_9297_comp %>% 
+  filter(is.na(nn)) %>% 
+  select(-nn)
+
+# dropped 3 gages -> from 31 to 28 gages 
+gage_meta_9297 <- gage_9297_comp %>% 
+  filter(!is.na(nn)) %>% 
+  select(-nn) 
+
+# moved incomplete gages -> from 4 to 7 gages
+gage_meta_97post <- bind_rows(gage_meta_97post, gage_9297_incomp) 
+
+rm(gage_9297_comp) 
+
+# drop extra vars to use for a filtering join
+gage_9297_incomp <- gage_9297_incomp %>% 
+  select(sta) 
+
+# filter out the gages with missing 92-97 data & add to 97post 
+obs_9297_incomp <- semi_join(gage_9297, gage_9297_incomp, by = "sta")
+# 14,437 obs
+
+gage_97post <- bind_rows(gage_97post, obs_9297_incomp) 
+# 23,933 + 14,437 = 38,370 
+
+gage_9297 <- anti_join(gage_9297, gage_9297_incomp, by = "sta") 
+# 320,489 - 14,437 = 306,052 obs
+# 396,793 + 38,370 + 306,052  
+rm(obs_9297_incomp, gage_9297_incomp) 
+
+# 8. check on completeness of 97post gages 
+# create a count of complete water years
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_97post_comp1 <- gage_97post %>% 
+  group_by(sta, waterYear) %>% 
+  count(waterYear) %>% 
+  ungroup() %>% 
+  filter(n >= 365) %>% 
+  filter(waterYear > 1997) %>% 
+  filter(waterYear <= 2016) %>% 
+  count(sta) # count of complete year stations
+
+gage_97post_comp2 <- gage_97post %>% 
+  group_by(sta, waterYear) %>% 
+  count(waterYear) %>% 
+  ungroup() %>% 
+  filter(n >= 365) %>% 
+  filter(waterYear > 1997) %>% 
+  group_by(sta) %>% 
+  summarise(start_yr = min(waterYear)) # summary of starting year
+
+# join the summaries together 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_97post_comp <- inner_join(gage_97post_comp1, gage_97post_comp2)
+rm(gage_97post_comp1, gage_97post_comp2)
+
+gage_97post_comp
+# sta        nn start_yr
+#  <chr>   <int>    <dbl>
+#1 che_buf     9     2008
+#2 che_red    18     1999 *
+#3 che_sce     9     2008
+#4 lcr_abv    18     1998 *
+#5 whi_cra     1     2004
+#6 whi_int    14     2003 *
+#7 whi_whi    15     2002
+
+# so, keep as a group2 stations with complete after 2003 data 
+
+# join the summaries to the metadata 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_97post_comp <- full_join(gage_meta_97post, gage_97post_comp, 
+                            by = "sta") 
+gage_97post_comp <- gage_97post_comp %>% 
+  select(sta, min_yr, max_yr, start_yr, nn, everything()) 
+
+# split betweeen complete and incomplete
+gage_97post_incomp <- gage_97post_comp %>%
+  filter(nn < 10) %>% 
+  select(-c(nn, start_yr))
+
+gage_97post_comp <- gage_97post_comp %>%
+  filter(nn >= 10) %>% 
+  select(-c(nn, start_yr))
+
+# drop extra vars to use for a filtering join
+gage_97post_incomp <- gage_97post_incomp %>% 
+  select(sta) 
+
+# update metadata
+gage_meta_97post <- anti_join(gage_meta_97post, gage_97post_incomp, 
+                               by = "sta") # from 7 to 4 stations 
+
+gage_meta_drop <- bind_rows(gage_meta_drop, gage_97post_incomp) 
+# from 26 to 29 stations 
+
+# update observations
+obs_97post_incomp <- semi_join(gage_97post, gage_97post_incomp)
+# 12,794 obs to move to dropped 
+
+gage_drop <- bind_rows(gage_drop, obs_97post_incomp)
+# 396,793 + 12,794 = 409,587 obs
+
+gage_97post <- anti_join(gage_97post, gage_97post_incomp) 
+# 38,370 - 12,794 = 25,576 obs
+
+rm(gage_97post_comp, gage_97post_incomp, obs_97post_incomp)
+
+# check results
+306052 + 38370 + 409587
 
 
+# 9. export results----
 
+export(gage_9297, "data/gage_9297.csv") 
+export(gage_97post, "data/gage_97post.csv") 
+export(gage_drop, "data/gage_drop.csv") 
 
+export(gage_meta_9297, "data/gage_meta_9297.csv") 
+export(gage_meta_97post, "data/gage_meta_97post.csv") 
+export(gage_meta_drop, "data/gage_meta_drop.csv") 
+```
 
+```{r create-a-second-clustering-group}
+# check whi_int
+gage_check <- gage_97post %>% 
+  filter(sta == "whi_int")
+# waterYear 2003 is start of record 
 
+rm(gage_check) 
 
-# Remove stations with incomplete annual data 1992-1997 
-gage_incomp <- gage_fin4 %>% 
-  filter(waterYear > 1992) %>% 
-  filter(waterYear < 1998) %>% 
-  group_by(sta, waterYear) %>%  
-  count() %>% 
-  arrange(sta) %>% 
-  ungroup() 
+# join recent gages
+gage_03post <- bind_rows(gage_9297, gage_97post) %>% 
+  filter(waterYear >= 2003)
 
-gage_incomp <- gage_incomp %>% 
+gage_meta_03post <- bind_rows(gage_meta_9297, gage_meta_97post)
+
+# create a check variable with a count of records 
+check_sta <- gage_03post %>% 
   group_by(sta) %>% 
   count() %>% 
-  filter(nn < 5)
+  ungroup() %>% 
+  arrange(n)
 
-# remove lcr_abv - not complete for 1992-1997  
-gage_fin5 <- gage_fin4 %>% 
-  filter(sta != "lcr_abv") 
+# bind the check variable to metadata
+gage_meta_03post <- left_join(gage_meta_03post, check_sta, by = "sta") 
 
-gage_int <- gage_fin4 %>% 
-  filter(sta == "lcr_abv")
+gage_meta_03post <- gage_meta_03post %>% 
+  select(1:4, n, everything()) %>% 
+  filter(!is.na(n)) %>% 
+  filter(n > 5000) %>% 
+  select(-n)
 
-gage_drp5 <- bind_rows(gage_drp4, gage_int)
+check_sta <- gage_meta_03post %>% 
+  select(sta)
 
-gage_int <- gage_met4 %>% 
-  filter(sta == "lcr_abv")
+gage_03post <- semi_join(gage_03post, check_sta, by = "sta")
 
-gage_mdp5 <- bind_rows(gage_mdp4, gage_int)
+# check results
+check_sta <- gage_03post %>% 
+  group_by(sta) %>% 
+  count() %>% 
+  ungroup() %>% 
+  arrange(n) 
 
-gage_met5 <- gage_met4 %>% 
-  filter(sta != "lcr_abv") %>% 
-  arrange(sta)
-
-export(gage_fin5, "data/gage_92_97_lg.csv") 
-export(gage_met5, "data/gage_meta_92_97.csv") 
-# Note that gage_92_97.csv is too big for git push 
-
-gage_fin6 <- gage_fin5 %>% 
-  filter(waterYear > 1991) %>% 
-  filter(waterYear < 1998)
-
-# check results 
-chk_sta <- gage_fin6 %>%
-  distinct(waterYear)
-
-export(gage_fin6, "data/gage_92_97.csv")
+# export results 
+export(gage_03post, "data/gage_03post.csv") 
+export(gage_meta_03post, "data/gage_meta_03post.csv") 
 ```
 
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
 
 
 
@@ -1418,32 +1576,7 @@ gage_drp10 <- bind_rows(gage_drp9, gage_int)
 
 ```
 
-table <- gage_full %>% 
-  group_by(sta) %>% 
-  summarize(num_days = max(i)) %>% 
-  arrange(num_days) %>% 
-  mutate(num_months = round(num_days/30)) %>% 
-  mutate(num_years = round(num_months/12)) %>% 
-  ungroup() %>%
-  as.tibble()
-
-
-```
-
-# 2. result - remove very short record stations
-# A tibble: 61 x 4
-#  sta     num_days num_months num_years
-# <chr>      <dbl>      <dbl>     <dbl>
-# 1 ant_gor      254          8         1
-# 2 fre_fai      595         20         2
-# 3 hor_aoe      623         21         2
-# 4 rap_cre     1320         44         4
-
-
-# # blc_wan <- readNWISDaily("06446700") # this not working!
-```
-
-```{r next_steps_munging}
+```{r next_steps_munging, eval=FALSE}
 # Also add BEAR in the LODGE
 
 
