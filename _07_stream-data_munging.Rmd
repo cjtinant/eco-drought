@@ -1134,14 +1134,14 @@ gage_comp <- gage %>%
   rename(yrs_post80 = nn) %>% 
   arrange(yrs_post80)
 
-check_sta <- anti_join(gage, gage_comp)
+check_sta <- anti_join(gage, gage_comp, by = "sta")
 # this shows rap_cre should be dropped   
 
 # update stations by dropping rap_cre
-gage_meta <- semi_join(gage_meta, gage_comp) #      41 sta
-gage      <- semi_join(gage, gage_comp)      # 374,974 obs
+gage_meta <- semi_join(gage_meta, gage_comp, by = "sta")     # 41 sta
+gage      <- semi_join(gage, gage_comp)                 # 374,974 obs
 
-rm(check_sta)
+rm(check_sta) 
 
 # 3. Investigate remaining stations----
 gage_incomp <- gage %>% 
@@ -1164,7 +1164,7 @@ gage_res <- gage_meta %>%
   select(min_yr, max_yr, sta)
 
 # join post-90 reservation stations 
-gage_res <- left_join(gage_comp, gage_res) 
+gage_res <- left_join(gage_comp, gage_res, by = "sta") 
 
 gage_res <- gage_res %>% 
   arrange(max_yr, yrs_post80) 
@@ -1233,7 +1233,7 @@ rm(gage_comp, gage_incomp)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 #     All gages from 93-98             = 31 gages &  64,331 obs           
 #   Incomplete gages from 93-98        =  1 gage (lcr_abv) 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+#____________________________________________________________________ 
 #     Complete gages from 93-98        = 31 gages & 61,712 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
@@ -1308,71 +1308,141 @@ rm(chk_sta, gage_9398_incomp, gage_incomp)
 
 ```{r create_9016_subset} 
 # This code chunk creates a cluster for lcr_abv active years
-#   Complete 1990-15 obs w/o 96 (lcr_abv)
+#   Complete 1990-16 obs w/o 96 (lcr_abv); range of yrs [1938, 2016] 
+# 
+#   Remember waterYear 1990 = Oct 1989 - Sept 1990, 
+#     so the last possible wateryear is 2016; but n(2006) = 61 obs,
+#       so, use 2015 as last year
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   Gages post1980; gage               = 41 gages & 374,974 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#     All gages from 90-16             = 22 gages & 270,936 obs           
-#   Incomplete gages from 90-16        =  1 gage (lcr_abv) 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#     Complete gages from 90-16        = #31 gages & 61,712 obs# 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+#     All gages from 90-16             = 22 gages & 261,538 obs           
+#   Incomp. gages !Rez & !93-98        =  5 gages &  18,458 obs *
+#____________________________________________________________________ 
+#     Intermediate gages               = 22 gages & 242,900 obs 
+#   Incomp. gages in 90-16             =  8 gages &  39,837 obs 
+#____________________________________________________________________ 
+#     Intermediate gages               = 14 gages & 210,383 obs 
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# * these gages will not be used at all in the analysis
 
 
-# 1. filter gages w/ complete 1990-15 obs w/o 96 (lcr_abv)----
-# this is to create a second cluster set with lcr_abv 
-#   range of years in metadata is 1938-2016 
-#   remember waterYear 1990 = Oct 1989 - Sept 1990
-#   so the last possible wateryear is 2016
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# filter gages for water years 1990-2016 
+# 1. filter gages with 1990-16 obs---- 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# filter gages for water years 1990-2016; all observations  
 gage_9016_meta <- gage_meta %>% 
-  filter(min_yr <= 1989)  %>%
-  filter(max_yr >= 2016)           # 22 gages 
+  filter(min_yr <= 1989)  %>% 
+  filter(max_yr >= 2015)                                #  22 gages 
 
 gage_9016 <- gage %>% 
   filter(waterYear >= 1990) %>% 
-  filter(waterYear <= 2016)        # 270,935 obs
+  filter(waterYear <= 2015)                             # 261,538 obs
 
-
-# Identify missing years for 1990-2016 
-#gage_incomp <- gage %>% 
-#  filter(sta == "lcr_abv") %>%
-#  group_by(waterYear) %>%  
-#  count() %>% 
-#  arrange(n) %>% 
-#  ungroup() %>% 
-#  filter(n < 364) 
-
-
+# identify gages w/ missing years in 1990-2016 & not in 1993-1998
 gage_incomp <- gage_9016 %>% 
   group_by(sta, waterYear) %>%  
   count() %>% 
   arrange(n) %>% 
   ungroup() %>% 
   filter(n < 364) %>% 
-  arrange(waterYear, n) # 3 obs 
+  arrange(waterYear, n)                                 #  16 obs 
 
-# take a look at what is entirely dropped 
-gage_drop <- anti_join(gage_incomp, gage_9398_meta)
+# prepare to use the gage_missing to examine # incomplete observations
+gage_missing <- anti_join(gage_incomp, gage_9398_meta, by = "sta") 
+
+gage_missing <- gage_missing %>% 
+  arrange(waterYear)
+
+gage_missing <- gage_missing %>% 
+  filter(sta != "lcr_abv")
+  
+#gage_missing 
+# A tibble: 7 x 3
+#  sta     waterYear     n
+#  <chr>       <int> <int>
+#1 sna_dou      1995    17  - ok to drop 
+#2 sna_bur      1995   221  - ok to drop 
+#3 che_red      1998    19  - ok to drop 
+#4 whi_whi      2001   122  - ok to drop 
+#5 che_sce      2007   183  - ok to drop 
+
+# drop gages missing: the set is: not Rez, incomp. 93-98
+gage_drop    <- semi_join(gage_9016, gage_missing, 
+                            by = "sta")                 #  18,458 obs 
+
+gage_9016      <- anti_join(gage_9016, gage_missing, by = "sta")
+                                                        # 242,500 obs 
+
+gage_9016_meta <- anti_join(gage_9016_meta, gage_missing, by = "sta") 
+                                                        #    22 gages
+
+# 2. Remove gages incomplete 1990-16 obs---- 
+
+# find incomplete gages
+gage_incomp <- gage_9016 %>% 
+  group_by(sta, waterYear) %>%  
+  count() %>% 
+  ungroup() %>% 
+  filter(n < 364) %>% 
+  arrange(sta) %>% 
+  group_by(sta) %>%  
+  count() %>% 
+  ungroup() 
+
+# gage_incomp 
+# A tibble: 8 x 2 
+#  sta        nn - this is the number of water years missing  
+#  <chr>   <int> 
+#1 bev_pri     1 
+#2 blp_bel     1 
+#3 che_buf     1 
+#4 lcr_abv     2 
+#5 lwr_abv     3 
+#6 ros_ros     2 
+#7 whi_slm     1 
+#8 wkc_wok     1 
+
+# drop gages w/ missing obs, the set is: not Rez, incomp. 90-16
+gage_drop      <- semi_join(gage_9016, gage_incomp, 
+                            by = "sta")                  # 39,837 obs 
 
 
-#gage_incomp 
-# A tibble: 2 x 2
-#  waterYear     n
-#      <int> <int>
-#1      2016    61
-#2      1996   172
+
+#### This is where I am confused !!!!!
+chk_sta <- gage_drop %>% 
+  group_by(sta, waterYear) %>%  
+  count() %>% 
+  arrange(n) %>% 
+  ungroup() %>% 
+  filter(n < 364) %>% 
+  arrange(waterYear, n)           # 11 obs of gages w/ missing yrs
+
+
+gage_drop_meta <- semi_join(gage_9016_meta, gage_incomp, 
+                            by = "sta")          # 40,996 obs 
+
+
+
+
+gage_9016      <- anti_join(gage_9016, gage_incomp, by = "sta")
+
+gage_9016_meta <- anti_join(gage_9016_meta, gage_incomp, by = "sta") 
+
+
+```
+
+
 # lcr_abv is missing data for 1996 & 2016 for range [1990, 2015]
-rm(gage_incomp) 
+#rm(gage_incomp) 
 
 # subset for lcr_abv with 1990-2015, without 1996
-gage_9016_no96 <- gage %>% 
-  filter(waterYear != 1996) %>%   
-  filter(waterYear < 2016)            # 345,487 obs 
+#gage_9016_no96 <- gage %>% 
+#  filter(waterYear != 1996) %>%   
+#  filter(waterYear < 2016)            # 345,487 obs 
 
 gage_9016_no96_meta <- gage_meta %>% 
   filter(min_yr <= 1990) %>% 
