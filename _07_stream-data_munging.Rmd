@@ -1320,14 +1320,14 @@ rm(chk_sta, gage_9398_incomp, gage_incomp)
 #   Incomp. gages !Rez & !93-98        =  5 gages &  18,458 obs *
 #____________________________________________________________________ 
 #     Intermediate gages               = 22 gages & 242,900 obs 
-#   Incomp. gages in 90-16             =  8 gages &  39,837 obs 
+#   Incomp. gages in 90-16             =  1 gage  &  32,726 obs * 
 #____________________________________________________________________ 
-#     Intermediate gages               = 14 gages & 210,383 obs 
-
-
+#     Intermediate gages               = 21 gages & 210,174 obs 
+#   1996 observations                  = NA gages &   8,224 obs   
+#____________________________________________________________________ 
+#  Final group of 90-16_no96           = 21 gages & 201,950 obs
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # * these gages will not be used at all in the analysis
-
 
 
 # 1. filter gages with 1990-16 obs---- 
@@ -1375,7 +1375,7 @@ gage_drop    <- semi_join(gage_9016, gage_missing,
                             by = "sta")                 #  18,458 obs 
 
 gage_9016      <- anti_join(gage_9016, gage_missing, by = "sta")
-                                                        # 242,500 obs 
+                                                        # 242,900 obs 
 
 gage_9016_meta <- anti_join(gage_9016_meta, gage_missing, by = "sta") 
                                                         #    22 gages
@@ -1388,7 +1388,7 @@ gage_incomp <- gage_9016 %>%
   count() %>% 
   ungroup() %>% 
   filter(n < 364) %>% 
-  arrange(sta) %>% 
+  arrange(sta) #%>% 
   group_by(sta) %>%  
   count() %>% 
   ungroup() 
@@ -1397,93 +1397,125 @@ gage_incomp <- gage_9016 %>%
 # A tibble: 8 x 2 
 #  sta        nn - this is the number of water years missing  
 #  <chr>   <int> 
-#1 bev_pri     1 
-#2 blp_bel     1 
-#3 che_buf     1 
-#4 lcr_abv     2 
-#5 lwr_abv     3 
-#6 ros_ros     2 
-#7 whi_slm     1 
-#8 wkc_wok     1 
+#1 bev_pri     1   - 1991 
+#2 blp_bel     1   - 1992
+#3 che_buf     1   - 2007 
+#4 lcr_abv     2   - 1996  * this is the one to keep!
+#5 lwr_abv     3   - 2000, 2003, 2004
+#6 ros_ros     2   - 2004 
+#7 whi_slm     1   - 1991
+#8 wkc_wok     1   - 1992 
+  
+# prepare for a join by removing lcr_abv from file
+gage_incomp <- gage_incomp %>% 
+  filter(sta != "lcr_abv")
 
-# drop gages w/ missing obs, the set is: not Rez, incomp. 90-16
+# drop gages w/ missing obs, the set is: not Rez, incomp. 90-16 
 gage_drop      <- semi_join(gage_9016, gage_incomp, 
-                            by = "sta")                  # 39,837 obs 
-
-
-
-#### This is where I am confused !!!!!
-chk_sta <- gage_drop %>% 
-  group_by(sta, waterYear) %>%  
-  count() %>% 
-  arrange(n) %>% 
-  ungroup() %>% 
-  filter(n < 364) %>% 
-  arrange(waterYear, n)           # 11 obs of gages w/ missing yrs
-
+                            by = "sta")                 #  32,726 obs 
 
 gage_drop_meta <- semi_join(gage_9016_meta, gage_incomp, 
-                            by = "sta")          # 40,996 obs 
-
-
-
+                            by = "sta")                 #     1 gage
 
 gage_9016      <- anti_join(gage_9016, gage_incomp, by = "sta")
-
+                                                         #210,174 obs 
 gage_9016_meta <- anti_join(gage_9016_meta, gage_incomp, by = "sta") 
+                                                          #  21 gages
 
-
-```
-
-
-# lcr_abv is missing data for 1996 & 2016 for range [1990, 2015]
-#rm(gage_incomp) 
-
-# subset for lcr_abv with 1990-2015, without 1996
-#gage_9016_no96 <- gage %>% 
-#  filter(waterYear != 1996) %>%   
-#  filter(waterYear < 2016)            # 345,487 obs 
-
-gage_9016_no96_meta <- gage_meta %>% 
-  filter(min_yr <= 1990) %>% 
-  filter(max_yr >  2016)               # 21 gages
-
-gage_9016_no96 <- semi_join(gage_9016_no96, gage_9016_no96_meta) 
-                                       # 238,998 obs remaining 
-
-#### Identify gages missing data 90-16 w/o 96
-gage_incomp <- gage_9016_no96 %>% 
+# check results & clean up 
+chk_sta <- gage_9016 %>% 
   group_by(sta, waterYear) %>%  
   count() %>% 
   arrange(n) %>% 
   ungroup() %>% 
   filter(n < 364) %>% 
-  arrange(waterYear, n)                # 3 obs 
+  arrange(waterYear, n)                # 1 obs of gage w/ missing yrs
 
-# gage_incomp 
-# A tibble: 3 x 3
-#  sta     waterYear     n 
-#  <chr>       <int> <int> 
-#1 frn_fai      1982   183 
-#2 hor_oel      1983   122 
-#3 che_buf      2007   192 
+rm(chk_sta, gage_drop, gage_drop_meta, gage_incomp, gage_missing) 
 
-# remove gages with missing data 90-16 w/o 96 
-gage_9016_no96 <- anti_join(gage_9016_no96, gage_incomp, by = "sta")    
-                                       # 238,491 remaining 
+# 3. prepare cluster two for export---- 
 
-gage_9016_no96_meta <- anti_join(gage_9016_no96_meta, gage_incomp, 
-                                 by = "sta")  # 18 obs remain 
+# remove the year 1996 from result 
+gage_9016_no96 <- gage_9016 %>% 
+  filter(waterYear != 1996) 
 
-# 3. Check what is not in the groups---- 
-gage_comp <- bind_rows(gage_9398_meta, gage_9016_no96_meta) %>% 
-  distinct()
+export(gage_9016_no96, "data/gage_9016_no96.csv") 
+export(gage_9016_meta, "data/gage_meta_9016.csv") 
+```
 
-gage_incomp <- anti_join(gage_meta, gage_comp, by = "sta")
+```{r check_results_subset} 
 
-#### NEED TO SEE WHY LCR_ABV IS IN THE INCOMPLETE PILE!
+# identify stations with full years 
+chk_sta <- bind_rows(gage_9398_meta, gage_9016_meta) 
+
+chk_sta <- chk_sta %>% 
+  distinct(sta, .keep_all = TRUE) %>% 
+  select(sta, station_nm, min_yr, max_yr, count_yr, everything()) %>% 
+    arrange(station_nm) 
+
+# identify stations dropped in the analysis
+drop_sta <- anti_join(gage_meta, chk_sta, by = "sta") 
+
+drop_sta <- drop_sta %>% 
+  select(sta, station_nm, min_yr, max_yr, count_yr) %>% 
+  arrange(station_nm)
+
+# drop_sta 
+# A tibble: 9 x 5 - thise are stations that won't be used in analysis
+#  sta     station_nm                          min_yr max_yr count_yr 
+#  <chr>   <chr>                                <dbl>  <dbl>    <dbl> 
+#1 cas_hot CASCADE SPRINGS NEAR HOT SPRINGS SD   1976   1995       20 
+#2 che_red CHEYENNE RIVER AT RED SHIRT, SD       1998   2017       20 
+#3 che_sce CHEYENNE RIVER NEAR SCENIC, SD        2007   2017       11 
+#4 nio_abb NIOBRARA RIVER ABOVE BOX BUTTE RES…   1947   1994       48 
+#5 nio_bbb NIOBRARA RIVER BELOW BOX BUTTE RES…   1947   1991       45 
+#6 nio_gor NIOBRARA RIVER NEAR GORDON, NEBR.     1928   1991       64 
+#7 sna_dou SNAKE R AT DOUGHBOY, NE               1982   1995       14 
+#8 sna_bur SNAKE RIVER NEAR BURGE, NEBR.         1948   1995       48 
+#9 whi_whi WHITE RIVER NEAR WHITE RIVER, SD      2001   2017       17 
+
+# chk_sta 
+# A tibble: 32 x 5
+#   sta     station_nm                         min_yr max_yr count_yr
+#   <chr>   <chr>                               <dbl>  <dbl>    <dbl>
+# 1 bat_her BATTLE CR AT HERMOSA,SD              1949   2017       69
+# 2 bat_bhr BATTLE CR BELOW HERMOSA,SD           1951   2017       67
+# 3 bat_key BATTLE CR NEAR KEYSTONE,SD           1945   2017       73
+# 4 bev_buf BEAVER CR NEAR BUFFALO GAP,SD        1938   2017       80
+# 5 bev_abf BEAVER CREEK ABOVE BUFFALO GAP, SD   1991   1997        7
+# 6 bev_pri BEAVER CREEK NEAR PRINGLE, SD        1991   2017       27
+# 7 blp_bel BLACK PIPE CREEK NR BELVIDERE, SD    1992   2017       26
+# 8 che_buf CHEYENNE R NEAR BUFFALO GAP SD       1969   2017       49
+# 9 che_was CHEYENNE RIVER NEAR WASTA, SD        1915   2017      103
+#10 fal_hot FALL R AT HOT SPRINGS,SD             1947   2017       71
+#11 frn_fai FRENCH CR ABOVE FAIRBURN SD          1982   2017       36
+#12 hat_edg HAT CR NEAR EDGEMONT,SD              1951   2017       67
+#13 hor_oel HORSEHEAD CR AT OELRICHS,SD          1983   2017       35
+#14 lcr_abv LAKE CR ABOVE REFUGE NEAR TUTHILL…   1938   2016       79
+#15 lcr_bel LAKE CR BELOW REFUGE NEAR TUTHILL…   1939   2017       79
+#16 lwr_abv LITTLE WHITE R ABV ROSEBUD SD        1982   2004       23
+#17 lwr_whi LITTLE WHITE R BELOW WHITE RIVER,…   1950   2017       68
+#18 lwr_mar LITTLE WHITE R NEAR MARTIN,SD        1938   2017       80
+#19 lwr_ros LITTLE WHITE R NEAR ROSEBUD SD       1943   2017       75
+#20 lcr_vet LITTLE WHITE R NEAR VETAL,SD         1959   2017       59
+#21 rap_far RAPID CR NEAR FARMINGDALE,SD         1946   2017       72
+#22 ros_ros ROSEBUD CR AT ROSEBUD SD             1975   2004       30
+#23 brsf_co SOUTH FORK BAD R NEAR COTTONWOOD,…   1989   2017       29
+#24 spr_her SPRING CR NEAR HERMOSA,SD            1949   2004       56
+#25 wcc_ogl WHITE CLAY CR NEAR OGLALA SD         1966   1999       34
+#26 whi_int WHITE R NEAR INTERIOR,SD             1929   2017       89
+#27 whi_kad WHITE R NEAR KADOKA,SD               1942   2017       76
+#28 whi_ogl WHITE R NEAR OGLALA SD               1943   2017       75
+#29 whi_sta WHITE R NR NE-SD STATE LINE          1988   2017       30
+#30 whi_cra White River at Crawford, Nebr.       1931   2004       74
+#31 whi_slm WHITE RIVER AT SLIM BUTTE, SD        1962   1997       36
+#32 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNE…   1992   1997        6
+
 
 ```
+
+
+
 
 
 
