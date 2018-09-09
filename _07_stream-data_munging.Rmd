@@ -1068,28 +1068,88 @@ rm(drop_sta, drop_obs, gage_incomp, gage_full, gage_drop,
 
 ``` 
 
+```{r check_geology}
+# quick check of the geology of watersheds
+
+chk_sta <- gage_meta %>% 
+  select(sta, station_nm) %>% 
+  arrange(sta)
+
+#chk_sta  # shows the watershed general type if not sedimentarty
+# A tibble: 42 x 2 
+#   sta     station_nm                                   
+#   <chr>   <chr>                                         
+# 1 bat_bhr BATTLE CR BELOW HERMOSA,SD                   
+# 2 bat_her BATTLE CR AT HERMOSA,SD                      
+# 3 bat_key BATTLE CR NEAR KEYSTONE,SD                   * igneous  
+# 4 bev_abf BEAVER CREEK ABOVE BUFFALO GAP, SD           
+# 5 bev_buf BEAVER CR NEAR BUFFALO GAP,SD                
+# 6 bev_pri BEAVER CREEK NEAR PRINGLE, SD                
+# 7 blp_bel BLACK PIPE CREEK NR BELVIDERE, SD            
+# 8 brsf_co SOUTH FORK BAD R NEAR COTTONWOOD,SD          
+# 9 cas_hot CASCADE SPRINGS NEAR HOT SPRINGS SD          
+#10 che_buf CHEYENNE R NEAR BUFFALO GAP SD               
+#11 che_red CHEYENNE RIVER AT RED SHIRT, SD              
+#12 che_sce CHEYENNE RIVER NEAR SCENIC, SD               
+#13 che_was CHEYENNE RIVER NEAR WASTA, SD                
+#14 fal_hot FALL R AT HOT SPRINGS,SD                     
+#15 frn_fai FRENCH CR ABOVE FAIRBURN SD                  
+#16 hat_edg HAT CR NEAR EDGEMONT,SD                      
+#17 hor_oel HORSEHEAD CR AT OELRICHS,SD                  
+#18 lcr_abv LAKE CR ABOVE REFUGE NEAR TUTHILL,SD         
+#19 lcr_bel LAKE CR BELOW REFUGE NEAR TUTHILL,SD         
+#20 lcr_vet LITTLE WHITE R NEAR VETAL,SD                 
+#21 lwr_abv LITTLE WHITE R ABV ROSEBUD SD                
+#22 lwr_mar LITTLE WHITE R NEAR MARTIN,SD                
+#23 lwr_ros LITTLE WHITE R NEAR ROSEBUD SD               
+#24 lwr_whi LITTLE WHITE R BELOW WHITE RIVER,SD          
+#25 nio_abb NIOBRARA RIVER ABOVE BOX BUTTE RESERVOIR, NE  
+#26 nio_bbb NIOBRARA RIVER BELOW BOX BUTTE RESERVOIR NEBR 
+#27 nio_gor NIOBRARA RIVER NEAR GORDON, NEBR.            
+#28 rap_cre RAPID CR AT CRESTON SD                       
+#29 rap_far RAPID CR NEAR FARMINGDALE,SD                 
+#30 ros_ros ROSEBUD CR AT ROSEBUD SD                     
+#31 sna_bur SNAKE RIVER NEAR BURGE, NEBR.                
+#32 sna_dou SNAKE R AT DOUGHBOY, NE                      
+#33 spr_her SPRING CR NEAR HERMOSA,SD                    
+#34 wcc_ogl WHITE CLAY CR NEAR OGLALA SD                 
+#35 whi_cra White River at Crawford, Nebr.               
+#36 whi_int WHITE R NEAR INTERIOR,SD                      
+#37 whi_kad WHITE R NEAR KADOKA,SD                       
+#38 whi_ogl WHITE R NEAR OGLALA SD                       
+#39 whi_slm WHITE RIVER AT SLIM BUTTE, SD                
+#40 whi_sta WHITE R NR NE-SD STATE LINE                  
+#41 whi_whi WHITE RIVER NEAR WHITE RIVER, SD             
+#42 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNEE, SD    
+
+# remove igneous PreCambrian station from analysis----
+gage <- gage %>% 
+  filter(sta != "bat_key")             # obs  from 637,750 -> 616,525 
+
+gage_meta <- gage_meta %>% 
+  filter(sta != "bat_key")             # gage from      42 ->      41 
+
+rm(chk_sta)
+```
+
 ```{r create_post1980_subset}
 # This code chunk subsets gages with 1990+ observations for clustering.
 # Note - using water year (10-01) as start of year...
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   Original Gages; gage_full       = 61 gages & 741,215 obs  
-#   Gages w/o 1980+ or missing data = 19 gages & 103,465 (dropped) 
+#      Gages w/o 1980+ or missing data = 19 gages & 103,465 (dropped) 
 #   Gages remaining; gage           = 42 gages & 637,750 obs 
+#      Gages with PreC geology      =  1 gage &   21,225 obs (dropped)
+#   Gages remaining; gage           = 41 gages & 616,525 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#   Gages pre-1980; gage_lt80       = 29 gages & 262,413 obs 
-#   Gages remaining; gage           = 42 gages & 375,337 obs 
+#   Gages pre-1980; gage_lt80       = 29 gages & 255,068 obs 
+#   Gages remaining; gage           = 42 gages & 361,457 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 #   Remove gages w/o full yrs       =  1 gage  &     363 obs
-#   Gages remaining; gage           = 41 gages & 374,974 obs 
+#   Gages remaining; gage           = 40 gages & 361,094 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#   Complete gages from 1992-1997   = 32 gages & 226,325 obs           
-#   Identify reservation stations   = 13 gages 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Steps:
-# 1. filter  pre-1980 gage observations  
-# 2. remove post-1990 stations w/o full years
-# 3. investigate remaining stations
+#   Identify reservation gages     = 14 gages 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
  
@@ -1098,12 +1158,12 @@ gage_lt80_meta <- gage_meta %>%
   filter(min_yr < 1979) # 29 gages 
 
 gage_lt80 <- gage %>% 
-  filter(min_yr <= 1979) %>% 
-  filter(Date < "1979-10-01")     #  262,413 obs; waterYear 1980 
+  filter(min_yr <= 1979) %>%                        # waterYear 1980
+  filter(Date < "1979-10-01")                       #  255,068 obs  
 
 # remove pre-1980 observations    
 gage <- gage %>% 
-  filter(Date >= "1979-10-01")     #  375,337 obs remaining
+  filter(Date >= "1979-10-01")                      #  361,457 obs 
 
 # export observations
 export(gage_lt80, "data/gage_lt80.csv") 
@@ -1130,8 +1190,8 @@ check_sta <- anti_join(gage, gage_comp, by = "sta")
 # this shows rap_cre should be dropped   
 
 # update stations by dropping rap_cre
-gage_meta <- semi_join(gage_meta, gage_comp, by = "sta")     # 41 sta
-gage      <- semi_join(gage, gage_comp)                 # 374,974 obs
+gage_meta <- semi_join(gage_meta, gage_comp, by = "sta")     # 40 sta
+gage      <- semi_join(gage, gage_comp)                 # 361,094 obs
 
 rm(check_sta) 
 
@@ -1221,12 +1281,12 @@ rm(gage_comp, gage_incomp)
 # Notes: Use water year Oct1-Sept31, w/ year on the majority of months 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#   Gages post1980; gage               = 41 gages & 374,974 obs 
+#   Gages post1980; gage               = 40 gages & 361,094 obs
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#     All gages from 93-98             = 31 gages &  64,331 obs           
-#   Incomplete gages from 93-98        =  1 gage (lcr_abv) 
+#     All gages from 93-98             = 31 gages &  62,140 obs           
+#   Incomplete gages from 93-98        =  1 gage (lcr_abv)   
 #____________________________________________________________________ 
-#     Complete gages from 93-98        = 31 gages & 61,712 obs 
+#     Complete gages from 93-98        = 30 gages & 59,521 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 
@@ -1237,13 +1297,13 @@ rm(gage_comp, gage_incomp)
 # filter gages for water years 1993-1998
 gage_9398_meta <- gage_meta %>% 
   filter(min_yr <= 1992)  %>%
-  filter(max_yr >= 1997)           # 32 gages 
+  filter(max_yr >= 1997)                               #     32 gages 
 
 gage_9398 <- gage %>% 
   filter(waterYear >= 1993) %>% 
-  filter(waterYear <= 1998)        # 64,331 obs
+  filter(waterYear <= 1998)                            # 62,140   obs
 
-# Identify gages missing data 1992-1997 
+# Identify gages missing data 1993-1998 
 gage_incomp <- gage_9398 %>% 
   group_by(sta, waterYear) %>%  
   count() %>% 
@@ -1253,20 +1313,20 @@ gage_incomp <- gage_9398 %>%
   arrange(waterYear, n) # 3 obs 
 
 #gage_incomp 
-# A tibble: 4 x 3 
+# A tibble: 4 x 3 - the o
 #  sta     waterYear     n 
 #  <chr>       <int> <int> 
-#1 sna_dou      1995    17 
-#2 sna_bur      1995   221 
-#3 lcr_abv      1996   172 * on Rez - need to add in later 
-#4 che_red      1998    19 
+#1 sna_dou      1995    17 - on list of not complete above 
+#2 sna_bur      1995   221 - on list of not complete above 
+#3 lcr_abv      1996   172 * on Rez - need to add in later  
+#4 che_red      1998    19 - on list of not complete above 
 # ~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 #  make gage_incomp full record & remove gages w/ miss. yrs in 93-98 
 gage_9398_incomp <- semi_join(gage_9398_meta, gage_incomp, by = "sta") 
 gage_9398_meta <- anti_join(gage_9398_meta, gage_incomp, by = "sta") 
 
-# removed lcr_abv - for now - 31 gages remaining  
+# removed lcr_abv - for now - 30 gages remaining  
 
 # drop incomplete stations 
 gage_9398 <- anti_join(gage_9398, gage_incomp, by = "sta") 
@@ -1306,18 +1366,18 @@ rm(chk_sta, gage_9398_incomp, gage_incomp)
 #     so the last possible wateryear is 2016; but n(2006) = 61 obs,
 #       so, use 2015 as last year
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#   Gages post1980; gage               = 41 gages & 374,974 obs 
+#   Gages post1980; gage               = 40 gages & 361,094 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#     All gages from 90-16             = 22 gages & 261,538 obs           
+#     All gages from 90-16             = 21 gages & 251,862 obs           
 #   Incomp. gages !Rez & !93-98        =  5 gages &  18,458 obs *
 #____________________________________________________________________ 
-#     Intermediate gages               = 22 gages & 242,900 obs 
+#     Intermediate gages               = 21 gages & 233,404 obs 
 #   Incomp. gages in 90-16             =  1 gage  &  32,726 obs * 
 #____________________________________________________________________ 
-#     Intermediate gages               = 21 gages & 210,174 obs 
+#     Intermediate gages               = 20 gages & 200,678 obs 
 #   1996 observations                  = NA gages &   8,224 obs   
 #____________________________________________________________________ 
-#  Final group of 90-16_no96           = 21 gages & 201,950 obs
+#  Final group of 90-16_no96           = 20 gages & 192,820 obs
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # * these gages will not be used at all in the analysis
 
@@ -1328,11 +1388,11 @@ rm(chk_sta, gage_9398_incomp, gage_incomp)
 # filter gages for water years 1990-2016; all observations  
 gage_9016_meta <- gage_meta %>% 
   filter(min_yr <= 1989)  %>% 
-  filter(max_yr >= 2015)                                #  22 gages 
+  filter(max_yr >= 2015)                                #  21 gages 
 
 gage_9016 <- gage %>% 
   filter(waterYear >= 1990) %>% 
-  filter(waterYear <= 2015)                             # 261,538 obs
+  filter(waterYear <= 2015)                             # 251,862 obs
 
 # identify gages w/ missing years in 1990-2016 & not in 1993-1998
 gage_incomp <- gage_9016 %>% 
@@ -1341,7 +1401,7 @@ gage_incomp <- gage_9016 %>%
   arrange(n) %>% 
   ungroup() %>% 
   filter(n < 364) %>% 
-  arrange(waterYear, n)                                 #  16 obs 
+  arrange(waterYear, n)                       #  16 gages (but mixed)
 
 # prepare to use the gage_missing to examine # incomplete observations
 gage_missing <- anti_join(gage_incomp, gage_9398_meta, by = "sta") 
@@ -1360,17 +1420,17 @@ gage_missing <- gage_missing %>%
 #2 sna_bur      1995   221  - ok to drop 
 #3 che_red      1998    19  - ok to drop 
 #4 whi_whi      2001   122  - ok to drop 
-#5 che_sce      2007   183  - ok to drop 
+#5 che_sce      2007   183  - ok to drop              #       5 gages
 
 # drop gages missing: the set is: not Rez, incomp. 93-98
 gage_drop    <- semi_join(gage_9016, gage_missing, 
-                            by = "sta")                 #  18,458 obs 
+                            by = "sta")               #  18,458  obs 
 
 gage_9016      <- anti_join(gage_9016, gage_missing, by = "sta")
-                                                        # 242,900 obs 
+                                                        # 233,404 obs 
 
 gage_9016_meta <- anti_join(gage_9016_meta, gage_missing, by = "sta") 
-                                                        #    22 gages
+                                                        #    21 gages
 
 # 2. Remove gages incomplete 1990-16 obs---- 
 
@@ -1380,7 +1440,7 @@ gage_incomp <- gage_9016 %>%
   count() %>% 
   ungroup() %>% 
   filter(n < 364) %>% 
-  arrange(sta) #%>% 
+  arrange(sta)  %>% 
   group_by(sta) %>%  
   count() %>% 
   ungroup() 
@@ -1407,12 +1467,12 @@ gage_drop      <- semi_join(gage_9016, gage_incomp,
                             by = "sta")                 #  32,726 obs 
 
 gage_drop_meta <- semi_join(gage_9016_meta, gage_incomp, 
-                            by = "sta")                 #     1 gage
+                            by = "sta")                #       1 gage
 
 gage_9016      <- anti_join(gage_9016, gage_incomp, by = "sta")
-                                                         #210,174 obs 
+                                                       # 200,678  obs 
 gage_9016_meta <- anti_join(gage_9016_meta, gage_incomp, by = "sta") 
-                                                          #  21 gages
+                                                      #      20 gages
 
 # check results & clean up 
 chk_sta <- gage_9016 %>% 
@@ -1465,6 +1525,8 @@ drop_sta <- drop_sta %>%
 #7 sna_dou SNAKE R AT DOUGHBOY, NE               1982   1995       14 
 #8 sna_bur SNAKE RIVER NEAR BURGE, NEBR.         1948   1995       48 
 #9 whi_whi WHITE RIVER NEAR WHITE RIVER, SD      2001   2017       17 
+#x bat_key BATTLE CR NEAR KEYSTONE,SD            1945   2017       73
+
 
 # chk_sta 
 # A tibble: 32 x 5
@@ -1472,36 +1534,35 @@ drop_sta <- drop_sta %>%
 #   <chr>   <chr>                               <dbl>  <dbl>    <dbl>
 # 1 bat_her BATTLE CR AT HERMOSA,SD              1949   2017       69
 # 2 bat_bhr BATTLE CR BELOW HERMOSA,SD           1951   2017       67
-# 3 bat_key BATTLE CR NEAR KEYSTONE,SD           1945   2017       73
-# 4 bev_buf BEAVER CR NEAR BUFFALO GAP,SD        1938   2017       80
-# 5 bev_abf BEAVER CREEK ABOVE BUFFALO GAP, SD   1991   1997        7
-# 6 bev_pri BEAVER CREEK NEAR PRINGLE, SD        1991   2017       27
-# 7 blp_bel BLACK PIPE CREEK NR BELVIDERE, SD    1992   2017       26
-# 8 che_buf CHEYENNE R NEAR BUFFALO GAP SD       1969   2017       49
-# 9 che_was CHEYENNE RIVER NEAR WASTA, SD        1915   2017      103
-#10 fal_hot FALL R AT HOT SPRINGS,SD             1947   2017       71
-#11 frn_fai FRENCH CR ABOVE FAIRBURN SD          1982   2017       36
-#12 hat_edg HAT CR NEAR EDGEMONT,SD              1951   2017       67
-#13 hor_oel HORSEHEAD CR AT OELRICHS,SD          1983   2017       35
-#14 lcr_abv LAKE CR ABOVE REFUGE NEAR TUTHILL…   1938   2016       79
-#15 lcr_bel LAKE CR BELOW REFUGE NEAR TUTHILL…   1939   2017       79
-#16 lwr_abv LITTLE WHITE R ABV ROSEBUD SD        1982   2004       23
-#17 lwr_whi LITTLE WHITE R BELOW WHITE RIVER,…   1950   2017       68
-#18 lwr_mar LITTLE WHITE R NEAR MARTIN,SD        1938   2017       80
-#19 lwr_ros LITTLE WHITE R NEAR ROSEBUD SD       1943   2017       75
-#20 lcr_vet LITTLE WHITE R NEAR VETAL,SD         1959   2017       59
-#21 rap_far RAPID CR NEAR FARMINGDALE,SD         1946   2017       72
-#22 ros_ros ROSEBUD CR AT ROSEBUD SD             1975   2004       30
-#23 brsf_co SOUTH FORK BAD R NEAR COTTONWOOD,…   1989   2017       29
-#24 spr_her SPRING CR NEAR HERMOSA,SD            1949   2004       56
-#25 wcc_ogl WHITE CLAY CR NEAR OGLALA SD         1966   1999       34
-#26 whi_int WHITE R NEAR INTERIOR,SD             1929   2017       89
-#27 whi_kad WHITE R NEAR KADOKA,SD               1942   2017       76
-#28 whi_ogl WHITE R NEAR OGLALA SD               1943   2017       75
-#29 whi_sta WHITE R NR NE-SD STATE LINE          1988   2017       30
-#30 whi_cra White River at Crawford, Nebr.       1931   2004       74
-#31 whi_slm WHITE RIVER AT SLIM BUTTE, SD        1962   1997       36
-#32 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNE…   1992   1997        6
+# 3 bev_buf BEAVER CR NEAR BUFFALO GAP,SD        1938   2017       80
+# 4 bev_abf BEAVER CREEK ABOVE BUFFALO GAP, SD   1991   1997        7
+# 5 bev_pri BEAVER CREEK NEAR PRINGLE, SD        1991   2017       27
+# 6 blp_bel BLACK PIPE CREEK NR BELVIDERE, SD    1992   2017       26
+# 7 che_buf CHEYENNE R NEAR BUFFALO GAP SD       1969   2017       49
+# 8 che_was CHEYENNE RIVER NEAR WASTA, SD        1915   2017      103
+# 9 fal_hot FALL R AT HOT SPRINGS,SD             1947   2017       71
+#10 frn_fai FRENCH CR ABOVE FAIRBURN SD          1982   2017       36
+#11 hat_edg HAT CR NEAR EDGEMONT,SD              1951   2017       67
+#12 hor_oel HORSEHEAD CR AT OELRICHS,SD          1983   2017       35
+#13 lcr_abv LAKE CR ABOVE REFUGE NEAR TUTHILL…   1938   2016       79
+#14 lcr_bel LAKE CR BELOW REFUGE NEAR TUTHILL…   1939   2017       79
+#15 lwr_abv LITTLE WHITE R ABV ROSEBUD SD        1982   2004       23
+#16 lwr_whi LITTLE WHITE R BELOW WHITE RIVER,…   1950   2017       68
+#17 lwr_mar LITTLE WHITE R NEAR MARTIN,SD        1938   2017       80
+#18 lwr_ros LITTLE WHITE R NEAR ROSEBUD SD       1943   2017       75
+#19 lcr_vet LITTLE WHITE R NEAR VETAL,SD         1959   2017       59
+#20 rap_far RAPID CR NEAR FARMINGDALE,SD         1946   2017       72
+#21 ros_ros ROSEBUD CR AT ROSEBUD SD             1975   2004       30
+#22 brsf_co SOUTH FORK BAD R NEAR COTTONWOOD,…   1989   2017       29
+#23 spr_her SPRING CR NEAR HERMOSA,SD            1949   2004       56
+#24 wcc_ogl WHITE CLAY CR NEAR OGLALA SD         1966   1999       34
+#25 whi_int WHITE R NEAR INTERIOR,SD             1929   2017       89
+#26 whi_kad WHITE R NEAR KADOKA,SD               1942   2017       76
+#27 whi_ogl WHITE R NEAR OGLALA SD               1943   2017       75
+#28 whi_sta WHITE R NR NE-SD STATE LINE          1988   2017       30
+#29 whi_cra White River at Crawford, Nebr.       1931   2004       74
+#30 whi_slm WHITE RIVER AT SLIM BUTTE, SD        1962   1997       36
+#31 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNE…   1992   1997        6
 
 
 ```
