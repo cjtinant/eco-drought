@@ -4460,7 +4460,7 @@ gage_9398_sum <- gage_9398_raw %>%
   arrange(desc(start_yr)) %>% 
   arrange(end_yr)
 
-gage_9398_sum 
+#gage_9398_sum 
 # A tibble: 29 x 3
 #   sta     start_yr end_yr 
 #   <chr>      <dbl>  <dbl> 
@@ -4495,7 +4495,7 @@ gage_9398_sum
 #29 whi_sta     1993   1998 
 
 #test <- gage_9398_raw %>% 
-#  filter(sta == "whi_sta")
+#  filter(is.na(Q30))
 
 #test <- gage_9398_raw %>% 
 #  distinct(sta) 
@@ -4584,11 +4584,11 @@ gage_depth <- gage_9398_raw %>%
 # lambda = 0 is a logrithmic transformation.
 
 # find lambda values for BoxCox transformation  
-lambda_q1 <- BoxCox.lambda(gage_depth$q1_depth)   #  q1 ==> 0.005 
-lambda_q7 <- BoxCox.lambda(gage_depth$q7_depth)   #  q7 ==> 0.102  
-lambda_q30 <- BoxCox.lambda(gage_depth$q30_depth) # q30 ==> 0.195 
+lambda_q1 <- BoxCox.lambda(gage_depth$q1_depth)   #  q1 ==> 0.006  
+lambda_q7 <- BoxCox.lambda(gage_depth$q7_depth)   #  q7 ==> 0.078  
+lambda_q30 <- BoxCox.lambda(gage_depth$q30_depth) # q30 ==> 0.086  
 
-# 5.Standardize data by z-score:
+# 5.Standardize data by z-score---- 
 # PCA requires that data are scaled with a mean of zero and standard 
 # deviation of unity, e.g. a z-score.  This could be done within the 
 # PCA, but I did it manually.
@@ -4610,7 +4610,7 @@ gage_depth <- gage_depth %>%
   dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
                 everything())
 
-# glimpse(gage_depth) 
+# glimpse(gage_depth)  # didn't update, yet!
 # sta        <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat_bhr", ... 
 # date       <chr> "1991-10-01", "1991-10-02", "1991-10-03", "1... 
 # q1_depth   <dbl> 14.704930, 14.704930, 16.700614, 18.696298, ... 
@@ -4621,14 +4621,17 @@ gage_depth <- gage_depth %>%
 # q30_scaled <dbl> -0.7615155, -0.7600352, -0.7559816, -0.74976... 
 
 # Conduct exploratory PCA---- 
-
-# Select numeric data for PCA----
+ 
+# Select numeric data for PCA---- 
 # ~~~~~~~~~~~~~~~~~~~
 # prcomp() requires a dataset with only the variables.  
 # Below splits data into PCA input & names to connect to result 
 
 pca_input <- gage_depth %>%  
   dplyr::select(q1_depth, q7_depth, q30_depth) 
+
+#test <- pca_input %>% 
+#  filter(is.na(q1_depth)) 
 
 pca_meta <- gage_depth %>% 
   select(sta, date, q1_depth, q7_depth, q30_depth) 
@@ -4679,26 +4682,28 @@ gage_sum <- gage_aug %>%
 #pca_eigen 
 # PCA results & interpretation
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#    PC std.dev percent cumulative
+# A tibble: 3 x 4
+#     PC std.dev percent cumulative
 #  <dbl>   <dbl>   <dbl>      <dbl>
-#1     1   1.68  0.938        0.938
-#2     2   0.394 0.0517       0.990
-#3     3   0.173 0.00993      1    
+#1     1   1.69  0.957        0.957
+#2     2   0.326 0.0354       0.992
+#3     3   0.154 0.00789      1    
 
 #pca_vars 
-# A tibble: 6 x 3
-#  var          PC  value
-#  <fct>     <dbl>  <dbl>
-#1 q1_depth      1  0.577
-#2 q7_depth      1  0.589
-#3 q30_depth     1  0.566
-#4 q1_depth      2  0.592
-#5 q7_depth      2  0.176
-#6 q30_depth     2 -0.786
+# A tibble: 6 x 3 
+#  var          PC   value 
+#  <fct>     <dbl>   <dbl> 
+#1 q1_depth      1  0.575  
+#2 q7_depth      1  0.585  
+#3 q30_depth     1  0.572  
+#4 q1_depth      2  0.658  
+#5 q7_depth      2  0.0841 
+#6 q30_depth     2 -0.748  
+
 
 # The PCA explains the following: 
 # eigenvecter:
-#   94% of covarience is explained by PCA1 & 5% of varience by PCA2
+#   96% of covarience is explained by PCA1 & 4% of varience by PCA2
 # variables:
 #   PC1 - approximately equal loadings of Q1, Q7, Q30;
 #   PC2 - large positive loading of Q1 & large negative loading of Q30  
@@ -4712,11 +4717,10 @@ gage_9398_sum <- full_join(gage_9398_meta, gage_sum)
 
 gage_9398_raw <- gage_9398_raw %>% 
   mutate(date = Date)
+
 gage_9398_aug <- left_join(gage_aug, gage_9398_raw, 
                            by = c("sta", "date")) 
 
-rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_9398_meta, 
-   pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, pca_matrix,  gage_sum) 
 
 # plot PCA----
 # PC1 explanatory plot
@@ -4750,7 +4754,7 @@ ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) +
   geom_jitter() + 
   geom_text(aes(label = sta), check_overlap = TRUE, 
               nudge_y = 0.02) + 
-  scale_x_continuous(limits = c(-2.5, 2)) + 
+  scale_x_continuous(limits = c(-2.0, 1.5)) + 
   scale_y_continuous(limits = c(-1, 0.75)) + 
   geom_density2d() + 
   geom_vline(xintercept = 0, aes(size = 2)) + 
@@ -4758,6 +4762,9 @@ ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) +
   theme_classic() + 
   xlab("hydrologic export index") +
   ylab("stability index") 
+
+rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_9398_meta, 
+   pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, pca_matrix,  gage_sum) 
 ```
 
 ```{r EDA-PCA-0317-gages}
