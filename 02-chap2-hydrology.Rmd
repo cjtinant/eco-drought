@@ -295,7 +295,7 @@ References
 -->
 ```
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE} 
 knitr::opts_chunk$set(echo = TRUE) 
 options(tibble.print_max = 70) # sets tibble output for printing 
 
@@ -4438,7 +4438,7 @@ ggplot() +
 ```
 
 
-```{r import-gages-9398}
+```{r PCA-9398}
 
 # Examines data from 1993-1998 - wet years with Wounded Knee station 
 
@@ -4447,7 +4447,7 @@ ggplot() +
 #     standardize & center data
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# PCA analysis: use prcomp to 
+# NEXT STEP - CHECK SOME POSSIBLE NA VALS; WHI_INT & WHI_CRA!!!!!!!!
 
 # import data----
 gage_9398_meta <- import("data/gage_meta_9398.csv") 
@@ -4584,9 +4584,9 @@ gage_depth <- gage_9398_raw %>%
 # lambda = 0 is a logrithmic transformation.
 
 # find lambda values for BoxCox transformation  
-lambda_q1 <- BoxCox.lambda(gage_depth$q1_depth)   #  q1 ==> 0.006  
-lambda_q7 <- BoxCox.lambda(gage_depth$q7_depth)   #  q7 ==> 0.078  
-lambda_q30 <- BoxCox.lambda(gage_depth$q30_depth) # q30 ==> 0.086  
+lambda_q1 <- BoxCox.lambda(gage_depth$q1_depth)   #  q1 ==> 0.010   
+lambda_q7 <- BoxCox.lambda(gage_depth$q7_depth)   #  q7 ==> 0.105  
+lambda_q30 <- BoxCox.lambda(gage_depth$q30_depth) # q30 ==> 0.264    
 
 # 5.Standardize data by z-score---- 
 # PCA requires that data are scaled with a mean of zero and standard 
@@ -4679,31 +4679,31 @@ gage_sum <- gage_aug %>%
   arrange(q1_q30_mean) %>% 
   arrange(q7_mean)
   
-#pca_eigen 
+pca_eigen 
 # PCA results & interpretation
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # A tibble: 3 x 4
 #     PC std.dev percent cumulative
 #  <dbl>   <dbl>   <dbl>      <dbl>
-#1     1   1.69  0.957        0.957
-#2     2   0.326 0.0354       0.992
-#3     3   0.154 0.00789      1    
+#1     1   1.67  0.932        0.932
+#2     2   0.419 0.0586       0.991
+#3     3   0.167 0.00935      1     
 
 #pca_vars 
-# A tibble: 6 x 3 
-#  var          PC   value 
-#  <fct>     <dbl>   <dbl> 
-#1 q1_depth      1  0.575  
-#2 q7_depth      1  0.585  
-#3 q30_depth     1  0.572  
-#4 q1_depth      2  0.658  
-#5 q7_depth      2  0.0841 
-#6 q30_depth     2 -0.748  
+## A tibble: 6 x 3
+#  var          PC  value
+#  <fct>     <dbl>  <dbl>
+#1 q1_depth      1  0.577
+#2 q7_depth      1  0.591
+#3 q30_depth     1  0.563
+#4 q1_depth      2  0.577
+#5 q7_depth      2  0.193
+#6 q30_depth     2 -0.794
 
 
 # The PCA explains the following: 
 # eigenvecter:
-#   96% of covarience is explained by PCA1 & 4% of varience by PCA2
+#   93% of covarience is explained by PCA1 & 6% of varience by PCA2
 # variables:
 #   PC1 - approximately equal loadings of Q1, Q7, Q30;
 #   PC2 - large positive loading of Q1 & large negative loading of Q30  
@@ -4713,7 +4713,7 @@ gage_sum <- gage_aug %>%
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # clean up Global Environment----
-gage_9398_sum <- full_join(gage_9398_meta, gage_sum)
+gage_9398_sum <- full_join(gage_9398_meta, gage_sum, by = "sta")
 
 gage_9398_raw <- gage_9398_raw %>% 
   mutate(date = Date)
@@ -4766,6 +4766,207 @@ ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) +
 rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_9398_meta, 
    pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, pca_matrix,  gage_sum) 
 ```
+
+```{r Model-Based_Clustering-9398}
+# The traditional clustering methods, such as hierarchical clustering 
+# and k-means clustering, are heuristic and are not based on formal  
+# models. An alternative is model-based clustering, which consider the 
+# data as coming from a distribution that is mixture of two or more  
+# clusters (Fraley and Raftery 2002, Fraley #et al. (2012)). 
+# Model-based clustering uses a soft assignment, where each data point 
+# has a probability of belonging to each cluster.  In model-based 
+# clustering, the data is considered as coming from a mixture of 
+# density.  Each component (i.e. cluster) k is modeled by the normal 
+# or Gaussian distribution which is characterized by the parameters:
+#   μk\mu_k: mean vector, 
+#   ∑k\sum_k: covariance matrix, 
+#   An associated probability in the mixture. Each point has a 
+#     probability of belonging to each cluster.  
+
+# The model parameters can be estimated using the Expectation-
+# Maximization (EM) algorithm initialized by hierarchical model-based 
+# clustering. Each cluster k is centered at the means μk\mu_k, with 
+# increased density for points near the mean.
+# Geometric features (shape, volume, orientation) of each cluster are 
+# determined by the covariance matrix ∑k\sum_k. 
+
+# Different possible parameterizations of ∑k\sum_k are available in 
+# the R package mclust (see ?mclustModelNames).
+# The available model options, in mclust package, are represented by 
+# identifiers including: EII, VII, EEI, VEI, EVI, VVI, EEE, EEV, VEV 
+# and VVV. 
+
+# The first identifier refers to volume, the second to shape and the 
+# third to orientation. E stands for "equal", V for "variable" and I 
+# for "coordinate axes".
+
+# The Mclust package uses maximum likelihood to fit all these models, 
+# with different covariance matrix parameterizations, for a range of 
+# k components.
+
+# The best model is selected using the Bayesian Information Criterion 
+# or BIC. A large BIC score indicates strong evidence for the 
+# corresponding model.
+
+# create density plot of all points
+#ggplot(gage_aug, aes(q7_depth, q1_q30_diff)) +
+#  geom_jitter(aes(color = sta, shape = ".")) + 
+#  geom_density2d(aes(color = NULL)) + 
+#  geom_point(data = gage_sum, mapping = aes(q7_mean, q1_q30_mean)) + 
+#  geom_text(data = gage_sum, 
+#            mapping = aes(q7_mean, q1_q30_mean, label = sta), 
+#            check_overlap = TRUE) + 
+#  scale_x_continuous(limits = c(-2, 1.5)) + 
+#  scale_y_continuous(limits = c(-1.0, 0.75)) + 
+#  geom_vline(xintercept = 0, aes(size = 2)) + 
+#  geom_hline(yintercept = 0, aes(size = 1)) + 
+#  theme_classic() + 
+#  theme(legend.position = "none") 
+
+# Preparing to cluster by the central tendancy
+mc_9398_input <- gage_9398_sum %>% 
+  select(q1_mean:q30_mean)
+
+mc_9398_input_meta <- gage_9398_sum %>% 
+  select(sta)
+
+gage_clust_l <- Mclust(mc_9398_input) # Model-based-clustering 
+summary(gage_clust_l) # Print a summary 
+
+#Gaussian finite mixture model fitted by EM algorithm 
+#---------------------------------------------------- 
+
+#Mclust EEV (ellipsoidal, equal volume and shape) model with 5 components: 
+
+# log.likelihood  n df     BIC      ICL
+#        130.961 27 37 139.976 138.2098
+
+#Clustering table:
+# 1  2  3  4  5 
+# 3  7 13  2  2 
+ 
+# Model-based clustering selected a model with five components 
+# (i.e. clusters). The optimal selected model name is VEV model. 
+# That is the five components are ellipsoidal with varying volume, 
+# and orientation, and equal shape. The summary contains also the clustering 
+# table specifying the number of observations in each clusters.
+
+gage_clust_l$modelName # Optimal selected model ==> "EEV" 
+gage_clust_l$G # Optimal number of cluster => 5 
+
+# Take a look at the results
+gage_clust <- as.tibble(gage_clust_l$z) 
+gage_clust <- bind_cols(mc_9398_input_meta, gage_clust) 
+
+gage_clust <- gage_clust %>% 
+  gather(key = group, value = prob, -sta) %>% 
+  filter(prob > 0.7) 
+
+gage_9398_sum <- full_join(gage_9398_sum, gage_clust, 
+                             by = "sta")
+gage_clust <- gage_clust %>% 
+  dplyr::select(sta, group, everything())
+
+# Clean up Global Environment
+rm(gage_clust_l, mc_9398_input, mc_9398_input_meta)
+
+test <- anti_join(gage_9398_sum, gage_clust)  
+
+# Visualizing model-based clustering
+# Model-based clustering results can be drawn using the base 
+# function plot.Mclust() [in mclust package]. We'll use the 
+# function fviz_mclust() [in factoextra package] to create beautiful 
+# plots based on ggplot2.
+
+# Where the data contain more than two variables, fviz_mclust() 
+# uses a principal component analysis to reduce the dimensionnality 
+# of the data. The first two principal components are used to produce 
+# a scatter plot of the data. However, if you want to plot the data 
+# using only two variables of interest, c("insulin", "sspg"), 
+# you can specify that in the fviz_mclust() function using the 
+# argument choose.vars = c("insulin", "sspg").
+
+library(factoextra)  # this might screw up the select!!!
+
+# BIC values used for choosing the number of clusters 
+fviz_mclust(gage_clust_l, "BIC", palette = "jco") 
+
+# Classification uncertainty 
+# Note: in the uncertainty plot, larger symbols indicate the 
+# more uncertain observations 
+fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
+
+# Classification: plot showing the clustering 
+fviz_mclust(gage_clust_l, "classification", geom = "point", 
+            pointsize = 1.5, palette = "jco") 
+
+test <- left_join(gage_9398_sum, gage_9398_clust)
+
+
+
+
+ggplot(gage_9398_clust, aes(q7_mean, q1_q30_mean)) + 
+  geom_density2d(aes(color = group)) + 
+  geom_jitter() + 
+  geom_text(aes(label = sta), check_overlap = TRUE, 
+              nudge_y = 0.02) + 
+  scale_x_continuous(limits = c(-2, 1.1)) + 
+  scale_y_continuous(limits = c(-1.0, 0.4)) + 
+  theme_classic() 
+
+gage_clust_plot <- gage_clust %>% 
+  select(sta, group, q7_mean, q1_q30_mean) %>% 
+  gather(key = parameter, value = value, -sta, -group)
+
+ggplot(gage_clust_plot, aes(group, value)) + 
+  facet_grid(rows = vars(parameter)) + 
+         geom_boxplot() + 
+  theme_bw()
+
+gage_clust <- gage_clust %>% 
+  select(group, sta, station_nm, everything()) %>% 
+  arrange(group)
+
+# moderately low hydrologic export, highest Q1-Q30 = stable-low export
+#1     V1 whi_slm          WHITE RIVER AT SLIM BUTTE, SD
+#2     V1 wcc_ogl           WHITE CLAY CR NEAR OGLALA SD
+#3     V1 spr_her              SPRING CR NEAR HERMOSA,SD
+#4     V1 che_was          CHEYENNE RIVER NEAR WASTA, SD
+#5     V1 whi_ogl                 WHITE R NEAR OGLALA SD
+#6     V1 whi_sta            WHITE R NR NE-SD STATE LINE
+
+# average hydrologic export, high Q1-Q30 = stable-average export
+#7     V2 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNEE, SD
+#8     V2 bev_buf          BEAVER CR NEAR BUFFALO GAP,SD
+#9     V2 bat_bhr             BATTLE CR BELOW HERMOSA,SD
+#10    V2 bev_pri          BEAVER CREEK NEAR PRINGLE, SD
+
+# averarage Q1-Q30, highes hydrologic export = GW controlled
+#11    V3 bev_abf     BEAVER CREEK ABOVE BUFFALO GAP, SD
+#12    V3 ros_ros               ROSEBUD CR AT ROSEBUD SD
+#13    V3 lwr_abv          LITTLE WHITE R ABV ROSEBUD SD
+#14    V3 lwr_mar          LITTLE WHITE R NEAR MARTIN,SD
+#15    V3 lcr_bel   LAKE CR BELOW REFUGE NEAR TUTHILL,SD
+#16    V3 lwr_ros         LITTLE WHITE R NEAR ROSEBUD SD
+#17    V3 bat_key             BATTLE CR NEAR KEYSTONE,SD
+#18    V3 rap_far           RAPID CR NEAR FARMINGDALE,SD
+#19    V3 fal_hot               FALL R AT HOT SPRINGS,SD
+#20    V3 bat_her                BATTLE CR AT HERMOSA,SD
+#21    V3 lwr_whi    LITTLE WHITE R BELOW WHITE RIVER,SD
+#22    V3 lcr_vet           LITTLE WHITE R NEAR VETAL,SD
+#23    V3 frn_fai            FRENCH CR ABOVE FAIRBURN SD
+
+# similiar export to V1, but much lower  = flashy-low export
+#24    V4 whi_kad                 WHITE R NEAR KADOKA,SD
+#25    V4 brsf_co    SOUTH FORK BAD R NEAR COTTONWOOD,SD
+#26    V4 blp_bel      BLACK PIPE CREEK NR BELVIDERE, SD
+
+# ephemeral
+#27    V5 hat_edg                HAT CR NEAR EDGEMONT,SD
+#28    V5 hor_oel            HORSEHEAD CR AT OELRICHS,SD
+
+```
+
 
 ```{r EDA-PCA-0317-gages}
 # Examines data from 2003-2017
@@ -4985,205 +5186,6 @@ ggplot(gage_sum, aes(q7_mean, q1_q30_mean)) +
 gage_sum
 ```
 
-```{r Model-Based_Clustering-9397}
-# The traditional clustering methods, such as hierarchical clustering 
-# and k-means clustering, are heuristic and are not based on formal  
-# models. An alternative is model-based clustering, which consider the 
-# data as coming from a distribution that is mixture of two or more  
-# clusters (Fraley and Raftery 2002, Fraley #et al. (2012)). 
-# Model-based clustering uses a soft assignment, where each data point 
-# has a probability of belonging to each cluster.  In model-based 
-# clustering, the data is considered as coming from a mixture of 
-# density.  Each component (i.e. cluster) k is modeled by the normal 
-# or Gaussian distribution which is characterized by the parameters:
-#   μk\mu_k: mean vector, 
-#   ∑k\sum_k: covariance matrix, 
-#   An associated probability in the mixture. Each point has a 
-#     probability of belonging to each cluster.  
-
-# The model parameters can be estimated using the Expectation-
-# Maximization (EM) algorithm initialized by hierarchical model-based 
-# clustering. Each cluster k is centered at the means μk\mu_k, with 
-# increased density for points near the mean.
-# Geometric features (shape, volume, orientation) of each cluster are 
-# determined by the covariance matrix ∑k\sum_k. 
-
-# Different possible parameterizations of ∑k\sum_k are available in 
-# the R package mclust (see ?mclustModelNames).
-# The available model options, in mclust package, are represented by 
-# identifiers including: EII, VII, EEI, VEI, EVI, VVI, EEE, EEV, VEV 
-# and VVV. 
-
-# The first identifier refers to volume, the second to shape and the 
-# third to orientation. E stands for "equal", V for "variable" and I 
-# for "coordinate axes".
-
-# The Mclust package uses maximum likelihood to fit all these models, 
-# with different covariance matrix parameterizations, for a range of 
-# k components.
-
-# The best model is selected using the Bayesian Information Criterion 
-# or BIC. A large BIC score indicates strong evidence for the 
-# corresponding model.
-
-# create density plot of all points
-#ggplot(gage_aug, aes(q7_depth, q1_q30_diff)) +
-#  geom_jitter(aes(color = sta, shape = ".")) + 
-#  geom_density2d(aes(color = NULL)) + 
-#  geom_point(data = gage_sum, mapping = aes(q7_mean, q1_q30_mean)) + 
-#  geom_text(data = gage_sum, 
-#            mapping = aes(q7_mean, q1_q30_mean, label = sta), 
-#            check_overlap = TRUE) + 
-#  scale_x_continuous(limits = c(-2, 1.5)) + 
-#  scale_y_continuous(limits = c(-1.0, 0.75)) + 
-#  geom_vline(xintercept = 0, aes(size = 2)) + 
-#  geom_hline(yintercept = 0, aes(size = 1)) + 
-#  theme_classic() + 
-#  theme(legend.position = "none") 
-
-# Preparing to cluster by the central tendancy
-mc_9398_input <- gage_9398_sum %>% 
-  select(q1_mean:q30_mean)
-
-mc_9398_input_meta <- gage_9398_sum %>% 
-  select(sta)
-
-gage_clust_l <- Mclust(mc_9398_input) # Model-based-clustering 
-summary(gage_clust_l) # Print a summary 
-
-#---------------------------------------------------- 
-#Gaussian finite mixture model fitted by EM algorithm 
-#---------------------------------------------------- 
-
-#Mclust VEV (ellipsoidal, equal shape) model with 5 components: 
-
-# log.likelihood  n df      BIC      ICL
-#       155.2134 28 41 173.8064 173.7889
-
-# Clustering table:
-# 1  2  3  4  5 
-# 6  4 13  3  2 
- 
-# Model-based clustering selected a model with five components 
-# (i.e. clusters). The optimal selected model name is VEV model. 
-# That is the five components are ellipsoidal with varying volume, 
-# and orientation, and equal shape. The summary contains also the clustering 
-# table specifying the number of observations in each clusters.
-
-gage_clust_l$modelName # Optimal selected model ==> "VEV" 
-gage_clust_l$G # Optimal number of cluster => 5 
-
-# Take a look at the results
-gage_clust <- as.tibble(gage_clust_l$z) 
-gage_clust <- bind_cols(mc_9398_input_meta, gage_clust) 
-
-gage_clust <- gage_clust %>% 
-  gather(key = group, value = prob, -sta) %>% 
-  filter(prob > 0.8) 
-
-gage_9398_sum <- full_join(gage_9398_sum, gage_clust, 
-                             by = "sta")
-gage_9398_clust <- gage_9398_clust %>% 
-  dplyr::select(sta, group, everything())
-
-# Clean up Global Environment
-rm(gage_clust, gage_clust_l, mc_9398_input, mc_9398_input_meta)
-
-
-# Visualizing model-based clustering
-# Model-based clustering results can be drawn using the base 
-# function plot.Mclust() [in mclust package]. We'll use the 
-# function fviz_mclust() [in factoextra package] to create beautiful 
-# plots based on ggplot2.
-
-# Where the data contain more than two variables, fviz_mclust() 
-# uses a principal component analysis to reduce the dimensionnality 
-# of the data. The first two principal components are used to produce 
-# a scatter plot of the data. However, if you want to plot the data 
-# using only two variables of interest, c("insulin", "sspg"), 
-# you can specify that in the fviz_mclust() function using the 
-# argument choose.vars = c("insulin", "sspg").
-
-library(factoextra)  # this might screw up the select!!!
-
-# BIC values used for choosing the number of clusters 
-fviz_mclust(gage_clust_l, "BIC", palette = "jco") 
-
-# Classification uncertainty 
-# Note: in the uncertainty plot, larger symbols indicate the 
-# more uncertain observations 
-fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
-
-# Classification: plot showing the clustering 
-fviz_mclust(gage_clust_l, "classification", geom = "point", 
-            pointsize = 1.5, palette = "jco") 
-
-test <- left_join(gage_9398_sum, gage_9398_clust)
-
-
-
-
-ggplot(gage_9398_clust, aes(q7_mean, q1_q30_mean)) + 
-  geom_density2d(aes(color = group)) + 
-  geom_jitter() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
-              nudge_y = 0.02) + 
-  scale_x_continuous(limits = c(-2, 1.1)) + 
-  scale_y_continuous(limits = c(-1.0, 0.4)) + 
-  theme_classic() 
-
-gage_clust_plot <- gage_clust %>% 
-  select(sta, group, q7_mean, q1_q30_mean) %>% 
-  gather(key = parameter, value = value, -sta, -group)
-
-ggplot(gage_clust_plot, aes(group, value)) + 
-  facet_grid(rows = vars(parameter)) + 
-         geom_boxplot() + 
-  theme_bw()
-
-gage_clust <- gage_clust %>% 
-  select(group, sta, station_nm, everything()) %>% 
-  arrange(group)
-
-# moderately low hydrologic export, highest Q1-Q30 = stable-low export
-#1     V1 whi_slm          WHITE RIVER AT SLIM BUTTE, SD
-#2     V1 wcc_ogl           WHITE CLAY CR NEAR OGLALA SD
-#3     V1 spr_her              SPRING CR NEAR HERMOSA,SD
-#4     V1 che_was          CHEYENNE RIVER NEAR WASTA, SD
-#5     V1 whi_ogl                 WHITE R NEAR OGLALA SD
-#6     V1 whi_sta            WHITE R NR NE-SD STATE LINE
-
-# average hydrologic export, high Q1-Q30 = stable-average export
-#7     V2 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNEE, SD
-#8     V2 bev_buf          BEAVER CR NEAR BUFFALO GAP,SD
-#9     V2 bat_bhr             BATTLE CR BELOW HERMOSA,SD
-#10    V2 bev_pri          BEAVER CREEK NEAR PRINGLE, SD
-
-# averarage Q1-Q30, highes hydrologic export = GW controlled
-#11    V3 bev_abf     BEAVER CREEK ABOVE BUFFALO GAP, SD
-#12    V3 ros_ros               ROSEBUD CR AT ROSEBUD SD
-#13    V3 lwr_abv          LITTLE WHITE R ABV ROSEBUD SD
-#14    V3 lwr_mar          LITTLE WHITE R NEAR MARTIN,SD
-#15    V3 lcr_bel   LAKE CR BELOW REFUGE NEAR TUTHILL,SD
-#16    V3 lwr_ros         LITTLE WHITE R NEAR ROSEBUD SD
-#17    V3 bat_key             BATTLE CR NEAR KEYSTONE,SD
-#18    V3 rap_far           RAPID CR NEAR FARMINGDALE,SD
-#19    V3 fal_hot               FALL R AT HOT SPRINGS,SD
-#20    V3 bat_her                BATTLE CR AT HERMOSA,SD
-#21    V3 lwr_whi    LITTLE WHITE R BELOW WHITE RIVER,SD
-#22    V3 lcr_vet           LITTLE WHITE R NEAR VETAL,SD
-#23    V3 frn_fai            FRENCH CR ABOVE FAIRBURN SD
-
-# similiar export to V1, but much lower  = flashy-low export
-#24    V4 whi_kad                 WHITE R NEAR KADOKA,SD
-#25    V4 brsf_co    SOUTH FORK BAD R NEAR COTTONWOOD,SD
-#26    V4 blp_bel      BLACK PIPE CREEK NR BELVIDERE, SD
-
-# ephemeral
-#27    V5 hat_edg                HAT CR NEAR EDGEMONT,SD
-#28    V5 hor_oel            HORSEHEAD CR AT OELRICHS,SD
-
-```
 
 ```{r Model-Based_Clustering-0317}
 # creates models for 2003-2017 waterYears
