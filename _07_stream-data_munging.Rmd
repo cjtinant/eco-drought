@@ -886,17 +886,42 @@ gage_full <- gage_full %>%
 gage_id <- gage_full %>% 
   distinct(site_no, sta) 
 
-# iterate across a list of gage ids by purrr::map_dfr 
+# iterate across a list of gage ids by purrr::map  
 # & get gage metadata using dataRetrieval::readNWISsite 
 gage_meta_list <- map(gage_id$site_no, readNWISsite) 
 
 # extract the wanted dataframe items from the list 
+
 gage_meta <- gage_meta_list %>% 
-  map_df(extract, 
+  map_df(rbind, 
                c("site_no", "station_nm", "site_tp_cd", "dec_lat_va", 
                  "dec_long_va", "dec_coord_datum_cd", "state_cd", 
                  "county_cd", "alt_va", "alt_datum_cd", "huc_cd", 
                  "drain_area_va", "contrib_drain_area_va")) 
+
+# and clean up
+gage_meta <- gage_meta %>% 
+  filter(agency_cd == "USGS") %>% 
+  select(-agency_cd)  %>% 
+  select(-country_cd) %>% 
+  select(-(site_tp_cd:long_va)) %>% 
+  select(-(coord_meth_cd:coord_acy_cd)) %>% 
+  select(-district_cd) %>% 
+  select(-(map_nm:map_scale_fc)) %>% 
+  select(-(alt_meth_cd:alt_acy_va)) %>% 
+  select(-(basin_cd:inventory_dt)) %>% 
+  select(-(tz_cd:project_no)) %>% 
+  select(dec_lat_va, dec_long_va, alt_va, drain_area_va, 
+         contrib_drain_area_va, state_cd, county_cd, huc_cd,
+         land_net_ds, everything()) %>% 
+  select(station_nm, site_no, everything()) %>% 
+  mutate(dec_lat_va = as.numeric(dec_lat_va)) %>% 
+  mutate(dec_long_va = as.numeric(dec_long_va)) %>%   
+  mutate(alt_va = as.numeric(alt_va)) %>%   
+  mutate(drain_area_va = as.numeric(drain_area_va)) %>%  
+  mutate(contrib_drain_area_va = as.numeric(contrib_drain_area_va)) %>% 
+  mutate(contrib_drain_area_va = as.numeric(contrib_drain_area_va)) 
+
 rm(gage_meta_list) 
 
 # join the abbreviation to the metadata 
@@ -932,12 +957,14 @@ ck_sta_nam_num <- gage_meta %>%
 # export dataframes of the largest population of gages 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # export(gage, "data/gage_full.csv") # too big for GitHub 
-# export(gage_meta, "data/gage_meta.csv")  
+# export(gage_meta, "data/gage_meta_full.csv")  
 
 # create a table to show abbreviation, site no & station name 
 gage_table <- gage_meta %>% 
   select(sta, site_no, station_nm) %>% 
   as.tibble() 
+
+
 ```
 
 ```{r clean_daily flow} 
@@ -955,7 +982,7 @@ gage_table <- gage_meta %>%
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 1. Assemble a set of all possible recorded streamflows----
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_meta_full <- import("data/gage_meta.csv") %>% 
+gage_meta_full <- import("data/gage_meta_full.csv") %>% 
   arrange(sta) 
 
 gage_cont <- import("data/gage_cont.csv") 
@@ -985,9 +1012,9 @@ gage_meta_full <- full_join(gage_meta_full, gage_yr, by = "sta")
 
 gage_meta_full <- gage_meta_full %>% 
   arrange(count_yr) %>% 
-  select(-c(site_tp_cd, dec_coord_datum_cd, alt_datum_cd, huc_cd)) %>% 
-  as.tibble() %>% 
-  select(count_yr, everything())
+#  select(-c(site_tp_cd, dec_coord_datum_cd, alt_datum_cd, huc_cd)) %>% 
+   as.tibble() %>% 
+   select(count_yr, everything())
 
 # join together gage & gage metadata information
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
@@ -1280,8 +1307,10 @@ rm(gage_comp, gage_incomp)
 #40 hat_edg         38     NA     NA
 #41 lwr_ros         38     NA     NA
 
-# wkc-wok is 1992-1997 - so first clustering is over these dates 
+# wkc-wok is 1993-1998 - so first clustering is over these dates 
 #   to identify a group for wkc-wok to estimate streamflows 
+
+
 ```
 
 ```{r create_9398_subset}
@@ -1291,10 +1320,10 @@ rm(gage_comp, gage_incomp)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   Gages post1980; gage               = 40 gages & 361,094 obs
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#     All gages from 93-98             = 31 gages &  62,140 obs           
+#     All gages from 93-98             = 31 gages &  58,599 obs           
 #   Incomplete gages from 93-98        =  1 gage (lcr_abv)   
 #____________________________________________________________________ 
-#     Complete gages from 93-98        = 30 gages & 59,521 obs 
+#     Complete gages from 93-98        = 30 gages &  57,697 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 
@@ -1309,7 +1338,9 @@ gage_9398_meta <- gage_meta %>%
 
 gage_9398 <- gage %>% 
   filter(waterYear >= 1993) %>% 
-  filter(waterYear <= 1998)                            # 62,140   obs
+  filter(waterYear <= 1998) %>%                        # 58,599   obs
+  filter(min_yr <= 1992)    %>%
+  filter(max_yr >= 1997)    
 
 # Identify gages missing data 1993-1998 
 gage_incomp <- gage_9398 %>% 
@@ -1324,10 +1355,7 @@ gage_incomp <- gage_9398 %>%
 # A tibble: 4 x 3 - the o
 #  sta     waterYear     n 
 #  <chr>       <int> <int> 
-#1 sna_dou      1995    17 - on list of not complete above 
-#2 sna_bur      1995   221 - on list of not complete above 
-#3 lcr_abv      1996   172 * on Rez - need to add in later  
-#4 che_red      1998    19 - on list of not complete above 
+#1 lcr_abv      1996   172 * on Rez - need to add in later  
 # ~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 #  make gage_incomp full record & remove gages w/ miss. yrs in 93-98 
@@ -1338,13 +1366,13 @@ gage_9398_meta <- anti_join(gage_9398_meta, gage_incomp, by = "sta")
 
 # drop incomplete stations 
 gage_9398 <- anti_join(gage_9398, gage_incomp, by = "sta") 
-# 61,712 remaining obs 
+# 57,697 remaining obs 
 
 # check results & clean up 
 chk_sta <- anti_join(gage_meta, gage_9398_meta, by = "sta") %>% 
   select(1:3) 
 
-# chk_sta 
+chk_sta 
 # A tibble: 10 x 3
 #   sta     min_yr max_yr
 #   <chr>    <dbl>  <dbl>
@@ -1358,6 +1386,13 @@ chk_sta <- anti_join(gage_meta, gage_9398_meta, by = "sta") %>%
 # 8 che_red   1998   2017   ok to drop 
 # 9 whi_whi   2001   2017   ok to drop 
 #10 che_sce   2007   2017   ok to drop 
+
+# final check 
+chk_sta <- gage_9398 %>% 
+  distinct(sta) 
+
+chk_sta <- full_join(gage_test, gage_9398_meta, by = "sta")
+
 
 # export 1993-1998 & clean up 
 export(gage_9398, "data/gage_9398.csv") 
