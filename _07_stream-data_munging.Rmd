@@ -1100,10 +1100,6 @@ gage <- gage %>%
 rm(drop_sta, drop_obs, gage_incomp, gage_full, gage_drop, 
    gage_meta_drop, gage_meta_full) 
 
-
-``` 
-
-```{r check_geology}
 # quick check of the geology of watersheds
 
 chk_sta <- gage_meta %>% 
@@ -1169,7 +1165,7 @@ rm(chk_sta)
 
 ```{r create_post1980_subset}
 # This code chunk subsets gages with 1990+ observations for clustering.
-# Note - using water year (10-01) as start of year...
+# Note - using water year (10-01) as start of year... 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   Original Gages; gage_full       = 61 gages & 741,215 obs  
@@ -1320,12 +1316,12 @@ rm(gage_comp, gage_incomp)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   Gages post1980; gage               = 40 gages & 361,094 obs
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#     All gages from 93-98             = 31 gages &  58,599 obs           
+#     All gages from 93-98             = 31 gages &  58,599 obs  
+#   Missing years                      =  3 gages &  xxxxxx obs 
 #   Incomplete gages from 93-98        =  1 gage (lcr_abv)   
 #____________________________________________________________________ 
-#     Complete gages from 93-98        = 30 gages &  57,697 obs 
+#     Complete gages from 93-98        = 27 gages &  57,697 obs 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
 
 # 1. filter gages w/ complete 1993-98 obs (wkc_wok) ----
 # this is to create an initial cluster set with wkc_wok
@@ -1334,13 +1330,16 @@ rm(gage_comp, gage_incomp)
 # filter gages for water years 1993-1998
 gage_9398_meta <- gage_meta %>% 
   filter(min_yr <= 1992)  %>%
-  filter(max_yr >= 1997)                               #     32 gages 
+  filter(max_yr >= 1997)                               #     31 gages 
 
 gage_9398 <- gage %>% 
-  filter(waterYear >= 1993) %>% 
-  filter(waterYear <= 1998) %>%                        # 58,599   obs
-  filter(min_yr <= 1992)    %>%
-  filter(max_yr >= 1997)    
+  filter(min_yr <= 1992)    %>%                       #     31 gages          
+  filter(max_yr >= 1997)    %>%
+  filter(waterYear >= 1993) %>%                   # drops to 28 gages
+  filter(waterYear <= 1998)                        
+
+gage_9398_meta <- semi_join(gage_9398_meta, gage_9398)
+# note that whi_int, whi_cra, & che_buf have missing years in the data...
 
 # Identify gages missing data 1993-1998 
 gage_incomp <- gage_9398 %>% 
@@ -1349,7 +1348,9 @@ gage_incomp <- gage_9398 %>%
   arrange(n) %>% 
   ungroup() %>% 
   filter(n < 364) %>% 
-  arrange(waterYear, n) # 3 obs 
+  arrange(waterYear, n) %>% 
+  filter(waterYear > 1992) %>% 
+  filter(waterYear < 1998)                              # 1 obs 
 
 #gage_incomp 
 # A tibble: 4 x 3 - the o
@@ -1372,12 +1373,16 @@ gage_9398 <- anti_join(gage_9398, gage_incomp, by = "sta")
 chk_sta <- anti_join(gage_meta, gage_9398_meta, by = "sta") %>% 
   select(1:3) 
 
-chk_sta 
+gage_name <- gage_9398 %>% 
+  distinct(sta) 
+  
+  
+# chk_sta 
 # A tibble: 10 x 3
 #   sta     min_yr max_yr
 #   <chr>    <dbl>  <dbl>
 # 1 nio_gor   1928   1991   ok to drop 
-# 2 lcr_abv   1938   2016 * on Rez - need to add in later 
+# 2 lcr_abv   1938   2016 
 # 3 nio_bbb   1947   1991   ok to drop 
 # 4 nio_abb   1947   1994   ok to drop 
 # 5 sna_bur   1948   1995   ok to drop 
@@ -1387,19 +1392,150 @@ chk_sta
 # 9 whi_whi   2001   2017   ok to drop 
 #10 che_sce   2007   2017   ok to drop 
 
+# A tibble: 13 x 3
+#   sta     min_yr max_yr
+#   <chr>    <dbl>  <dbl>
+# 1 nio_gor   1928   1991
+# 2 whi_int   1929   2017 - missing years
+# 3 whi_cra   1931   2004 - missing years
+# 4 lcr_abv   1938   2016 * on Rez - need to add in later 
+# 5 nio_bbb   1947   1991
+# 6 nio_abb   1947   1994
+# 7 sna_bur   1948   1995
+# 8 che_buf   1969   2017 - missing years
+# 9 cas_hot   1976   1995
+#10 sna_dou   1982   1995
+#11 che_red   1998   2017
+#12 whi_whi   2001   2017
+#13 che_sce   2007   2017
+
+
 # final check 
 chk_sta <- gage_9398 %>% 
   distinct(sta) 
 
-chk_sta <- full_join(gage_test, gage_9398_meta, by = "sta")
+chk_sta <- anti_join(chk_sta, gage_9398_meta, by = "sta")
 
 
 # export 1993-1998 & clean up 
 export(gage_9398, "data/gage_9398.csv") 
 export(gage_9398_meta, "data/gage_meta_9398.csv") 
 
-rm(chk_sta, gage_9398_incomp, gage_incomp) 
+rm(chk_sta, gage_9398_incomp, gage_incomp, gage_name) 
 ```
+
+```{r create_9016_subset_new}
+# This code chunk creates a cluster for lcr_abv
+# Notes: Use water year Oct1-Sept31, w/ year on the majority of months 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#   Gages post1980; gage               = 40 gages & 361,094 obs
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+#     All gages from 90-16             = 31 gages &  
+#58,599 obs  
+
+
+#   Missing years                      =  3 gages &
+#   Incomplete gages from 93-98        =  1 gage (lcr_abv)   
+#____________________________________________________________________ 
+#     Complete gages from 93-98        = 27 gages &  57,697 obs 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 1. filter gages w/ complete 1990-16 obs (lcr_abv) ----
+# this is to create an initial cluster set with wkc_wok
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# filter gages for water years 1993-1998
+gage_9015_meta <- gage_meta %>% 
+  filter(min_yr <= 1989)  %>%
+  filter(max_yr >= 2015)                               #     21 gages 
+
+gage_9015 <- gage %>% 
+  filter(min_yr <= 1989)    %>%                       #     21 gages          
+  filter(max_yr >= 2015)    %>%
+  filter(waterYear >= 1990) %>%                   # remains 21 gages
+  filter(waterYear <= 2015)                       # 185,536 obs 
+
+gage_9015_meta <- semi_join(gage_9015_meta, gage_9015, by = "sta") 
+
+
+# Identify gages missing data 1990-1998 
+gage_incomp <- gage_9015 %>% 
+  group_by(sta, waterYear) %>%  
+  count() %>% 
+  arrange(n) %>% 
+  ungroup() %>% 
+  filter(n < 364) %>% 
+  arrange(waterYear, n) %>% 
+  filter(waterYear > 1989) %>% 
+  filter(waterYear < 2017)                              # 1 obs 
+
+gage_incomp 
+# A tibble: 2 x 3
+#  sta     waterYear     n
+#  <chr>       <int> <int>
+#1 lcr_abv      1996   172   * drop 1996
+#2 che_buf      2007   192   * drop 2017
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# drop 1996 & 2017 for lcr_abv & che_buf 
+gage_9015 <- gage_9015 %>% 
+  filter(waterYear != 1996) %>% 
+  filter(waterYear != 2007)                          # 171,284 obs
+
+# check results & clean up 
+chk_sta <- anti_join(gage_meta, gage_9015_meta, by = "sta") %>% 
+  select(1:3) 
+
+chk_sta 
+# A tibble: 19 x 3
+#   sta     min_yr max_yr
+#   <chr>    <dbl>  <dbl>
+# 1 nio_gor   1928   1991  * dropped from both - short record, Neb
+# 2 whi_cra   1931   2004  * dropped from both - short record, miss.yr
+# 3 nio_bbb   1947   1991  * dropped from both - short record, Neb
+# 4 nio_abb   1947   1994  * dropped from both - short record, Neb
+# 5 sna_bur   1948   1995  * dropped from both - short record, Neb
+# 6 spr_her   1949   2004  * in 9397 dataset 
+# 7 whi_slm   1962   1997  * in 9397 dataset 
+# 8 wcc_ogl   1966   1999  * in 9397 dataset 
+# 9 ros_ros   1975   2004  * in 9397 dataset 
+#10 cas_hot   1976   1995  * dropped from both - short record, in SD
+#11 sna_dou   1982   1995  * dropped from both - short record, Neb
+#12 lwr_abv   1982   2004  * in 9397 dataset 
+#13 bev_abf   1991   1997  * in 9397 dataset 
+#14 bev_pri   1991   2017  * in 9397 dataset 
+#15 wkc_wok   1992   1997  * in 9397 dataset 
+#16 blp_bel   1992   2017  * in 9397 dataset 
+#17 che_red   1998   2017  * dropped from both - short record, in SD
+#18 whi_whi   2001   2017  * dropped from both - short record, in SD
+#19 che_sce   2007   2017   * dropped from both - short record, in SD 
+
+# find set of records from 9397 dataset
+sta_update <- anti_join(gage_9398_meta, gage_9015_meta) %>% 
+  select(sta)
+
+# final checks
+chk_sta <- gage_9015 %>% 
+  distinct(sta) 
+
+chk_sta <- anti_join(chk_sta, gage_9015_meta, by = "sta")
+
+chk_sta <- gage_9015 %>% 
+  group_by(sta, waterYear) %>%  
+  count() %>% 
+  arrange(n) %>% 
+  ungroup()                         
+
+
+# export 1993-1998 & clean up 
+export(gage_9015, "data/gage_9015.csv") 
+export(gage_9015_meta, "data/gage_meta_9015.csv") 
+export(sta_update, "data/update_9398.csv") 
+
+rm(chk_sta, gage_incomp, gage_name) 
+```
+
 
 ```{r create_9016_subset} 
 # This code chunk creates a cluster for lcr_abv active years
