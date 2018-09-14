@@ -4968,38 +4968,48 @@ gage_clust <- gage_clust %>%
 ```
 
 
-```{r EDA-PCA-0317-gages}
-# Examines data from 2003-2017
+```{r EDA-PCA-9015-gages}
+# Examines data from 1993-2017 without 1996 & 2007 
 
-gage_0317_meta <- import("data/gage_meta_03post.csv") 
-gage_0317_raw <- import("data/gage_03post.csv") 
+gage_9015_meta <- import("data/gage_meta_9015.csv") 
+gage_9015_raw <- import("data/gage_9015.csv") 
 
-gage_0317_sum <- gage_0317_raw %>% 
+gage_9015_sum <- gage_9015_raw %>% 
   group_by(sta) %>%  
   summarise(start_yr = min(waterYear), 
             end_yr = max(waterYear)) 
 
-#gage_0317_sum 
-# sta     start_yr end_yr
+gage_9015_sum 
+# A tibble: 21 x 3
+#   sta     start_yr end_yr
 #   <chr>      <dbl>  <dbl>
-# 1 bat_bhr     2003   2017
-# 2 bat_her     2003   2017
-# 3 bat_key     2003   2017
-# 4 bev_buf     2003   2017
-# 5 bev_pri     2003   2017
-# 6 blp_bel     2003   2017
-# 7 brsf_co     2003   2017
-# 8 che_red     2003   2017
-# 9 che_was     2003   2017
-#10 fal_hot     2003   2017
+# 1 bat_bhr     1990   2015
+# 2 bat_her     1990   2015
+# 3 bev_buf     1990   2015
+# 4 brsf_co     1990   2015
+# 5 che_buf     2008   2015
+# 6 che_was     1990   2015
+# 7 fal_hot     1990   2015
+# 8 frn_fai     1990   2015
+# 9 hat_edg     1990   2015
+#10 hor_oel     1990   2015
+#11 lcr_abv     1997   2015
+#12 lcr_bel     1990   2015
+#13 lcr_vet     1990   2015
+#14 lwr_mar     1990   2015
+#15 lwr_ros     1990   2015
+#16 lwr_whi     1990   2015
+#17 rap_far     1991   2015
+#18 whi_int     2003   2015
+#19 whi_kad     1990   2015
+#20 whi_ogl     1990   2015
+#21 whi_sta     1990   2015
 
-# This dataset is inclusive of data from 2003 - 2017 for 24 stations 
 
-# ~~~~~~~~~~~~~~~
 # Eliminate the effects of different sizes of watersheds & 
 # remove missing values created by rolling averages
 
-gage_0317_depth <- gage_0317_raw %>% 
+gage_9015_depth <- gage_9015_raw %>% 
   as.tibble() %>% 
   clean_names() %>% 
   mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
@@ -5011,9 +5021,9 @@ gage_0317_depth <- gage_0317_raw %>%
 # Transform using BoxCox to approach normality 
 
 # find lambda values for BoxCox transformation  
-lambda_q1 <- BoxCox.lambda(gage_0317_depth$q1_depth)   # q1 ==> -0.013  
-lambda_q7 <- BoxCox.lambda(gage_0317_depth$q7_depth)   # q7 ==>  0.070  
-lambda_q30 <- BoxCox.lambda(gage_0317_depth$q30_depth) # q30 ==> 0.214 
+lambda_q1 <- BoxCox.lambda(gage_9015_depth$q1_depth)   # q1 ==>  0.009   
+lambda_q7 <- BoxCox.lambda(gage_9015_depth$q7_depth)   # q7 ==>  0.113   
+lambda_q30 <- BoxCox.lambda(gage_9015_depth$q30_depth) # q30 ==> 0.214  
 
 # 5.Standardize data by z-score:
 # PCA requires that data are scaled with a mean of zero and standard 
@@ -5021,10 +5031,10 @@ lambda_q30 <- BoxCox.lambda(gage_0317_depth$q30_depth) # q30 ==> 0.214
 # PCA, but I did it manually.
 
 # Apply transformation and scale data
-gage_0317_depth <- gage_0317_depth %>% 
-  mutate(q1_tr = BoxCox(gage_0317_depth$q1_depth,lambda_q1)) %>%
-  mutate(q7_tr = BoxCox(gage_0317_depth$q7_depth,lambda_q7)) %>% 
-  mutate(q30_tr = BoxCox(gage_0317_depth$q30_depth,lambda_q30)) %>%
+gage_9015_depth <- gage_9015_depth %>% 
+  mutate(q1_tr = BoxCox(gage_9015_depth$q1_depth,lambda_q1)) %>%
+  mutate(q7_tr = BoxCox(gage_9015_depth$q7_depth,lambda_q7)) %>% 
+  mutate(q30_tr = BoxCox(gage_9015_depth$q30_depth,lambda_q30)) %>%
   mutate(q1_mean = mean(q1_tr, na.rm = TRUE)) %>% 
   mutate(q1_sd = sd(q1_tr, na.rm = TRUE)) %>% 
   mutate(q1_depth = (q1_tr - q1_mean)/q1_sd) %>% 
@@ -5044,10 +5054,10 @@ gage_0317_depth <- gage_0317_depth %>%
 # prcomp() requires a dataset with only the variables.  
 # Below splits data into PCA input & names to connect to result 
 
-pca_input <- gage_0317_depth %>%  
+pca_input <- gage_9015_depth %>%  
   dplyr::select(q1_depth, q7_depth, q30_depth) 
 
-pca_meta <- gage_0317_depth %>% 
+pca_meta <- gage_9015_depth %>% 
   select(sta, date, q1_depth, q7_depth, q30_depth) 
 
 # Calculate PCA matrix & summary info
@@ -5069,16 +5079,16 @@ pca_vars <- pca_vars %>%
   mutate(var = as.factor(var)) 
 
 # Bind sample vals to PCA matrix 
-gage_0317_aug <- augment(pca_matrix, data = pca_input) 
-gage_0317_aug <- bind_cols(pca_meta, gage_0317_aug) 
+gage_9015_aug <- augment(pca_matrix, data = pca_input) 
+gage_9015_aug <- bind_cols(pca_meta, gage_9015_aug) 
 
-gage_0317_aug <- gage_0317_aug %>% 
+gage_9015_aug <- gage_9015_aug %>% 
   select(-.fittedPC3, -.rownames, 
          -q1_depth1, -q7_depth1, -q30_depth1) %>% 
   mutate(q1_q30_diff = q1_depth - q30_depth) 
 
 # summarize pca of gages
-gage_0317_sum <- gage_0317_aug %>% 
+gage_9015_sum <- gage_9015_aug %>% 
   group_by(sta) %>% 
   summarize(PC1_mean = mean(.fittedPC1),
             PC2_mean = mean(.fittedPC2), 
@@ -5091,33 +5101,34 @@ gage_0317_sum <- gage_0317_aug %>%
   arrange(q7_mean)
   
 pca_eigen
+# A tibble: 3 x 4
 #     PC std.dev percent cumulative
 #  <dbl>   <dbl>   <dbl>      <dbl>
-#1     1   1.68  0.946        0.946
-#2     2   0.377 0.0473       0.993
-#3     3   0.142 0.00676      1  
+#1     1   1.69  0.948        0.948
+#2     2   0.369 0.0454       0.993
+#3     3   0.141 0.00659      1    
 
 pca_vars
 # A tibble: 6 x 3
-#  var          PC   value
-#  <fct>     <dbl>   <dbl>
-#1 q1_depth      1  0.578
+#  var          PC  value
+#  <fct>     <dbl>  <dbl>
+#1 q1_depth      1  0.577
 #2 q7_depth      1  0.588
-#3 q30_depth     1  0.566
-#4 q1_depth      2  0.573
-#5 q7_depth      2  0.202
-#6 q30_depth     2 -0.794
+#3 q30_depth     1  0.567
+#4 q1_depth      2  0.596
+#5 q7_depth      2  0.172
+#6 q30_depth     2 -0.784
 
 # clean up Global Environment----
-gage_0317_sum <- full_join(gage_0317_meta, gage_0317_sum)
+gage_9015_sum <- full_join(gage_9015_meta, gage_9015_sum)
 
-rm(lambda_q1, lambda_q7, lambda_q30, gage_0317_depth, gage_0317_meta, 
+rm(lambda_q1, lambda_q7, lambda_q30, gage_9015_depth, gage_9015_meta, 
    pca_eigen, pca_meta, pca_vars, pca_input, pca_matrix)
 
 
 # plot PCA----
 # PC1 explanatory plot
-ggplot(gage_0317_aug, aes(q7_depth, .fittedPC1, color = factor(sta))) + 
+ggplot(gage_9015_aug, aes(q7_depth, .fittedPC1, color = factor(sta))) + 
   geom_jitter() + 
   theme_classic() +
   xlab("Q7 depth") +
@@ -5125,7 +5136,7 @@ ggplot(gage_0317_aug, aes(q7_depth, .fittedPC1, color = factor(sta))) +
   theme(legend.position = "bottom")
   
 # PC2 explanatory plot
-ggplot(gage_0317_aug, aes(q1_q30_diff, .fittedPC2, color = factor(sta))) +
+ggplot(gage_9015_aug, aes(q1_q30_diff, .fittedPC2, color = factor(sta))) +
   geom_jitter() + 
   theme_classic() +
   xlab("Q1 depth minus Q30 depth") +
@@ -5133,7 +5144,7 @@ ggplot(gage_0317_aug, aes(q1_q30_diff, .fittedPC2, color = factor(sta))) +
   theme(legend.position = "bottom") 
 
 # mean eigenvector plot
-ggplot(gage_0317_sum, aes(PC1_mean, PC2_mean)) +
+ggplot(gage_9015_sum, aes(PC1_mean, PC2_mean)) +
   geom_jitter() + 
   geom_text(aes(label = sta), check_overlap = TRUE, 
             nudge_y = 0.02) + 
@@ -5143,16 +5154,16 @@ ggplot(gage_0317_sum, aes(PC1_mean, PC2_mean)) +
   ylab("PC axis 2 mean") 
 
 
-gage_0317_sum <- gage_0317_sum %>% 
-  mutate(period = "2003-17") 
+gage_9015_sum <- gage_9015_sum %>% 
+  mutate(period = "2000-15") 
 
 gage_9398_sum <- gage_9398_sum %>% 
-  mutate(period = "1992-97") 
+  mutate(period = "1993-98") 
 
-gage_sum <- bind_rows(gage_9398_sum, gage_0317_sum)
+gage_sum <- bind_rows(gage_9398_sum, gage_9015_sum)
 
 # transformed variable plot
-#ggplot(gage_0317_sum, aes(q7_mean, q1_q30_mean)) +
+#ggplot(gage_9015_sum, aes(q7_mean, q1_q30_mean)) +
 #  geom_jitter() + 
 #  geom_density2d() + 
 #  geom_text(aes(label = sta), check_overlap = TRUE, 
@@ -5183,17 +5194,17 @@ ggplot(gage_sum, aes(q7_mean, q1_q30_mean)) +
 
 
 
-gage_sum
+
 ```
 
 
-```{r Model-Based_Clustering-0317}
+```{r Model-Based_Clustering-9015}
 # creates models for 2003-2017 waterYears
 
 # create density plots----
 
 # create density plot of centroids 
-#ggplot(gage_0317_sum, aes(q7_mean, q1_q30_mean)) +
+#ggplot(gage_9015_sum, aes(q7_mean, q1_q30_mean)) +
 #  geom_jitter() + 
 #  geom_density2d() + 
 #  geom_text(aes(label = sta), check_overlap = TRUE, 
@@ -5205,10 +5216,10 @@ gage_sum
 
 
 # Preparing to cluster by the central tendancy
-mc_input <- gage_0317_sum %>% 
+mc_input <- gage_9015_sum %>% 
   select(q1_mean:q30_mean)
 
-mc_input_meta <- gage_0317_sum %>% 
+mc_input_meta <- gage_9015_sum %>% 
   select(sta)
 
 gage_clust_l <- Mclust(mc_input) # Model-based-clustering 
@@ -5218,17 +5229,17 @@ summary(gage_clust_l) # Print a summary
 #Gaussian finite mixture model fitted by EM algorithm 
 #---------------------------------------------------- 
 
-#Mclust EVV (ellipsoidal, equal volume) model with 2 components: 
+#Mclust EEV (ellipsoidal, equal volume and shape) model with 3 components: 
 
 # log.likelihood  n df      BIC      ICL
-#        93.2016 24 18 129.1982 129.1863
+#       90.50279 21 23 110.9816 110.9624
 
 #Clustering table:
-# 1  2 
-# 4 20 
+# 1  2  3 
+# 7 11  3 
 
-gage_clust_l$modelName # Optimal selected model ==> "EVV" 
-gage_clust_l$G # Optimal number of cluster => 2 
+gage_clust_l$modelName # Optimal selected model ==> "EEV" 
+gage_clust_l$G # Optimal number of cluster => 3 
 
 # Take a look at the results
 gage_clust <- as.tibble(gage_clust_l$z) 
@@ -5238,7 +5249,7 @@ gage_clust <- gage_clust %>%
   gather(key = group, value = prob, -sta) %>% 
   filter(prob > 0.8) 
 
-gage_clust <- full_join(gage_0317_sum, gage_clust, by = "sta")
+gage_clust <- full_join(gage_9015_sum, gage_clust, by = "sta")
 gage_clust <- gage_clust %>% 
   select(sta, group, everything())
 
@@ -5261,8 +5272,8 @@ ggplot(gage_clust, aes(q7_mean, q1_q30_mean, color = group)) +
   geom_density2d() + 
   geom_text(aes(label = sta), check_overlap = TRUE, 
               nudge_y = 0.02) + 
-  scale_x_continuous(limits = c(-2, 1.5)) + 
-  scale_y_continuous(limits = c(-0.4, 0.55)) + 
+  scale_x_continuous(limits = c(-2, 1.6)) + 
+  scale_y_continuous(limits = c(-0.8, 0.55)) + 
   geom_vline(xintercept = 0, aes(size = 2)) + 
   geom_hline(yintercept = 0, aes(size = 1)) + 
   theme_classic() 
