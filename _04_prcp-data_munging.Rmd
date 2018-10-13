@@ -28,7 +28,6 @@ _trans       final df - after cleaning
 
 gage         USGS streamgage station
 
-
 ## Results: 
 The results from the precipitation analysis indicate: 1) an annual trend of increasing aridity across the project area that trends from northwest to southeast that may be a result of the Black Hills rainshadow, 2) the 1900s were the wettest time in regions recorded history.  ??? what about the seasonal trend?
 -->
@@ -45,18 +44,18 @@ options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")
 # Sets up the library of packages  
 library("here") # identifies where to save work
 library("rnoaa") #  R wrapper for NOAA data inc. NCDC
-library("dataRetrieval") # USGS data import
 library("rio") # more robust I/O - to import and clean data 
 library("lubridate") # easier dates
-library("tidyverse")
+library("tidyverse") 
 library("janitor") # tools for examining and cleaning dirty data 
-library("DataExplorer") # quick look at NA vals
-library('deldir') # for Vorononi tesselation - Theissen polygons
-library('jsonlite') # tools for working with lists 
-library("magrittr") # provides aliases for easier reading
+library('deldir') # for Vorononi tesselation - Theissen polygons 
+library("broom") # tidies linear models 
+library("corrplot") # correlation plots
 
-#library("corrplot") # correlation plots
-#library("broom") # tidies linear models
+#library("dataRetrieval") # USGS data import
+#library("DataExplorer") # quick look at NA vals
+#library('jsonlite') # tools for working with lists 
+#library("magrittr") # provides aliases for easier reading
 #library("maps") # outlines of continents, countries, states & counties
 #library("mapdata") # higher-resolution outlines
 #library('ggmap')
@@ -70,6 +69,23 @@ library("magrittr") # provides aliases for easier reading
 # a useful description of commits:
 # http://r-pkgs.had.co.nz/git.html
 ```
+
+<!--
+## Original Stations and reason for removal, if removed
+GHCND:US1SDCS0027 HERMOSA 10.3 ESE, SD US - removed for short record  
+GHCND:USC00253615 HARRISON, NE US - removed for outside region  
+GHCND:USC00396212 OELRICHS, SD US    
+GHCND:US1SDFR0001 HOT SPRINGS 0.5 SSW, SD US - too close to Oelrichs  
+GHCND:USC00396304 ORAL, SD US    
+GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US    
+GHCND:USC00394184 INTERIOR 3 NE, SD US    
+GHCND:USC00391972 COTTONWOOD 2 E, SD US   
+GHCND:USC00394983 LONG VALLEY, SD US                  
+GHCND:US1SDJK0006 KADOKA 0.3 N, SD US - removed short period record   
+GHCND:USC00395891 MURDO, SD US - removed for outside region   
+GHCND:USC00395638 MISSION 14 S, SD US    
+GHCND:USC00250050 AINSWORTH, NE US 
+-->
 
 ```{r import_prcp, eval=FALSE}
 # Creates points for maps. No need to evaluate.  
@@ -221,7 +237,7 @@ site <- full_join(site, site_id, by = "name")
 site <- site %>%
   drop_na()
 
-site <- full_join(site, eco, by="id")
+site <- full_join(site, eco, by="id") 
 
 site <- site %>%
   replace_na(list(ecoregion = "Tablelands")) %>%
@@ -266,12 +282,12 @@ ggplot(data = sta_meta, aes(x = lon, y = lat)) +
     size = 4,
     color = "#333333") +   
   geom_segment(
-    aes(x = x1, y = y1, xend = x2, yend = y2),
-    size = 2,
-    data = voronoi$dirsgs,
-    linetype = 1,
-    color = "#FFB958") +
-  geom_polygon(data = prr, aes(x = long, y = lat, group = group), 
+    aes(x = x1, y = y1, xend = x2, yend = y2), 
+    size = 2, 
+    data = voronoi$dirsgs, 
+    linetype = 1, 
+    color = "#FFB958") + 
+  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
               color = "black", linetype = "dashed", fill = "NA") +
   theme_bw() +
   geom_text(data = sta_meta, aes(label = name), size = 2.5) +
@@ -281,24 +297,9 @@ ggplot(data = sta_meta, aes(x = lon, y = lat)) +
 # We can drop Ainsworth, Harrison that are outside of study area &
 # Oral would be better than Hot Springs for elev, location & coverage
 
-#ggplot2::ggsave(filename = "theissen_init.png", 
-#                width = 6, height = 6, units = "in")
+ggplot2::ggsave(filename = "figure/theissen_init.png", 
+                width = 6, height = 6, units = "in")
 ```
-
-## Original Stations and reason for removal, if removed
-GHCND:US1SDCS0027 HERMOSA 10.3 ESE, SD US - short record  
-GHCND:USC00253615 HARRISON, NE US - outside region  
-GHCND:USC00396212 OELRICHS, SD US    
-GHCND:US1SDFR0001 HOT SPRINGS 0.5 SSW, SD US - close to Oelrichs  
-GHCND:USC00396304 ORAL, SD US    
-GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US    
-GHCND:USC00394184 INTERIOR 3 NE, SD US    
-GHCND:USC00391972 COTTONWOOD 2 E, SD US   
-GHCND:USC00394983 LONG VALLEY, SD US                  
-GHCND:US1SDJK0006 KADOKA 0.3 N, SD US - short period of record   
-GHCND:USC00395891 MURDO, SD US - outside region   
-GHCND:USC00395638 MISSION 14 S, SD US    
-GHCND:USC00250050 AINSWORTH, NE US 
 
 ```{r download-precip, eval=FALSE}
 # DL Global Historical Climatology Network (GHCN) Daily Data   
@@ -1474,6 +1475,7 @@ sta_meta <- sta_meta %>%
 # export(sta_meta, file = "data/sta_meta_fin3.csv")
 ```
 
+<!--
 ## Fixing NA values  
 These are the stations that NA values were fixed
 NAs are caused in part by different start dates  
@@ -1482,6 +1484,7 @@ COT - COTTONWOOD  1909 - 2018  - fixed with Interior & Murdo
 RAP - RAPID CITY  1948 - 2018  - fixed with Interior    
 INT - INTERIOR    1949 - 2018  - fixed with Cottonwood & Murdo    
 ORA - ORAL        1971 - 2018  - fixed with Oelrichs & Harrison  
+-->
 
 ```{r voroni-diagram-inter}
 # import site location data and filter out:
@@ -1529,7 +1532,7 @@ p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
               color = "black", linetype = "dashed", fill = "NA") +
   theme_bw() +
   geom_text(data = sta_meta, aes(label = name), size = 2.5) +
-  ggtitle("Final Theissen Polygon Map")
+  ggtitle("Intermediate Theissen Polygon Map")
   
 p_site +
   geom_point(data = gage_meta, aes(x = dec_long_va, 
@@ -1549,11 +1552,12 @@ p_site +
 # 5 GHCND:USC00395638 MISSION 14 S, SD US               
 # 6 GHCND:USC00396304 ORAL, SD US   
 
-#ggplot2::ggsave(filename = "theissen_fin.png", 
-#                width = 6, height = 6, units = "in")
+ggplot2::ggsave(path = "figure/", filename = "theissen_inter.png", 
+                width = 6, height = 6, units = "in")
 # export(sta_meta, file = "index/data/sta_meta_fin.csv")
-```
+
 ### Note: Mission is kept on the map to extend the INT - COT line 
+```
 
 ```{r voroni-diagram-final, eval=FALSE}
 # import site location data and filter out:
@@ -1593,12 +1597,13 @@ p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
   theme_bw() +
   geom_text(data = sta_meta, aes(label = name), size = 2.5) +
   ggtitle("Final Theissen Polygon Map")
-  
-p_site +
-  geom_point(data = gage_meta, aes(x = dec_long_va, 
-                                   y = dec_lat_va),
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
+
+# this adds all of the weather stations as points
+#p_site +
+#  geom_point(data = gage_meta, aes(x = dec_long_va, 
+#                                   y = dec_lat_va),
+#    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+#    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
   
 
 #sta_meta <- as.tibble(sta_meta)
@@ -1612,8 +1617,8 @@ p_site +
 # 5 GHCND:USC00395638 MISSION 14 S, SD US               
 # 6 GHCND:USC00396304 ORAL, SD US   
 
-#ggplot2::ggsave(filename = "theissen_fin.png", 
-#                width = 6, height = 6, units = "in")
+ggplot2::ggsave(path = "figure/", filename = "theissen_fin.png", 
+               width = 6, height = 6, units = "in")
 # export(sta_meta, file = "index/data/sta_meta_fin.csv")
 ```
  
@@ -1667,7 +1672,6 @@ rm(sta_day, sta_gath, sta_gath_mon, sta_group)
 # export(sta_mon, file = "data/stations_monthly.csv") 
 ```
 
-# Deciding to keep Oral
 ```{r eval-precip-data-ora}
 # General Purpose: check a short-term record: Oral 
 
@@ -1699,38 +1703,6 @@ ggplot(sta_test, aes(ora, oel)) +
   theme_bw() +
   ggtitle("Double mass plots")
 # it's ok, keep Oral...
-```
-
-```{r ggplot_monthly}
-# General Purpose: prepare data for drought index 
-# Specific purpose: graphical EDA 
- 
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_mon     <- as.tibble(import("data/stations_monthly.csv"))
-
-# fix date & add year and month 
-sta_mon <- sta_mon %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date))  
-
-# gather monthly values & order them
-sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
-                       -date, -year, -month, factor_key = TRUE) 
-
-# x$name <- factor(x$name, levels = x$name[order(x$val)])
-
-# plot
-ggplot(sta_gath_mon, aes(date, prcp)) +
-  geom_line() +
-  facet_grid(station ~ .) +
-  theme_classic() + 
-  labs(title = "Monthly precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1909-2018") +
-       xlab("") +
-       ylab("mm")
-
-#ggplot2::ggsave(filename = "precip_mon.png", 
-#                width = 6, height = 6, units = "in")
 ```
 
 ```{r monthly2yearly-precip}
@@ -1770,60 +1742,6 @@ rm(sta_mon, sta_gath, sta_gath_yr, sta_group)
 # export(sta_yr, file = "data/stations_yearly.csv") 
 ```
 
-```{r ggplot_yearly}
-# General Purpose: prepare data for drought index 
-# Specific purpose: graphical EDA - yearly 
-
-# NEED TO FIX - screwed up variables 
-
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_yr     <- as.tibble(import("data/stations_yearly.csv"))
-
-# gather monthly values 
-sta_gath <- gather(sta_yr, key = "station", value = "prcp",  
-                   -year, factor_key = TRUE) 
-
-# plot
-ggplot(sta_gath, aes(year, prcp)) +
-  geom_line() +
-  facet_grid(station ~ .) +
-  theme_classic() + 
-  labs(title = "Annual precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
-       xlab("Date") +
-       ylab("Depth, mm")
-
-# ggplot2::ggsave(filename = "precip_yr.png", 
-#                width = 6, height = 6, units = "in")
-```
-
-
-# Annual Summaries
-```{r yearly_summaries}
-# General Purpose: prepare data for drought index  
-# Specific purpose: create summaries of data 
-sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_yr   <- as.tibble(import("data/stations_yearly.csv")) 
-
-# gather and summarize yearly values 
-# Next step - do by water year???
-sta_gath_yr <- gather(sta_yr, key = "station", value = "prcp", 
-                   -year, factor_key = TRUE)
-
-sta_summary_yr <- as.tibble(sta_gath_yr) %>%
-  group_by(station) %>%
-  summarise(mean = mean(prcp, na.rm = TRUE), 
-            med = median(prcp, na.rm = TRUE),
-            IQR = IQR(prcp, na.rm = TRUE), 
-            min = min(prcp, na.rm = TRUE), 
-            max = max(prcp, na.rm = TRUE)) %>%
-  arrange(desc(med))
-
-sta_summary_yr
-# export(sta_summary_yr, file = "data/sta_summary_yr.csv") 
-```
-
-# Monthly Summaries
 ```{r  monthly_summaries}
 
 # General Purpose: prepare data for drought index  
@@ -1851,8 +1769,91 @@ sta_summary_mon <- as.tibble(sta_gath_mon) %>%
   arrange(month) %>%
   arrange(station)
 
-sta_summary_mon 
+#sta_summary_mon 
 # export(sta_summary_mon, file = "data/sta_summary_mon.csv") 
+```
+
+```{r yearly_summaries}
+# General Purpose: prepare data for drought index  
+# Specific purpose: create summaries of data 
+sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
+sta_yr   <- as.tibble(import("data/stations_yearly.csv")) 
+
+# gather and summarize yearly values 
+# Next step - do by water year???
+sta_gath_yr <- gather(sta_yr, key = "station", value = "prcp", 
+                   -year, factor_key = TRUE)
+
+sta_summary_yr <- as.tibble(sta_gath_yr) %>%
+  group_by(station) %>%
+  summarise(mean = mean(prcp, na.rm = TRUE), 
+            med = median(prcp, na.rm = TRUE),
+            IQR = IQR(prcp, na.rm = TRUE), 
+            min = min(prcp, na.rm = TRUE), 
+            max = max(prcp, na.rm = TRUE)) %>%
+  arrange(desc(med))
+
+#sta_summary_yr
+# export(sta_summary_yr, file = "data/sta_summary_yr.csv") 
+```
+
+```{r ggplot_monthly} 
+# General Purpose: prepare data for drought index 
+# Specific purpose: graphical EDA 
+ 
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_mon     <- as.tibble(import("data/stations_monthly.csv"))
+
+# fix date & add year and month 
+sta_mon <- sta_mon %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date))  
+
+# gather monthly values & order them
+sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
+                       -date, -year, -month, factor_key = TRUE) 
+
+# x$name <- factor(x$name, levels = x$name[order(x$val)])
+
+# plot
+ggplot(sta_gath_mon, aes(date, prcp)) +
+  geom_line() +
+  facet_grid(station ~ .) +
+  theme_classic() + 
+  labs(title = "Monthly precipitation depths",
+       subtitle = "Pine Ridge Reservation, SD for 1909-2018") +
+       xlab("") +
+       ylab("mm")
+
+ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
+                width = 6, height = 6, units = "in")
+```
+
+```{r ggplot_yearly}
+# General Purpose: prepare data for drought index 
+# Specific purpose: graphical EDA - yearly 
+
+# NEED TO FIX - screwed up variables 
+
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) 
+sta_yr     <- as.tibble(import("data/stations_yearly.csv"))
+
+# gather monthly values 
+sta_gath <- gather(sta_yr, key = "station", value = "prcp",  
+                   -year, factor_key = TRUE) 
+
+# plot
+ggplot(sta_gath, aes(year, prcp)) +
+  geom_line() +
+  facet_grid(station ~ .) +
+  theme_classic() + 
+  labs(title = "Annual precipitation depths",
+       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
+       xlab("Date") +
+       ylab("Depth, mm")
+
+ggplot2::ggsave(path = "figure/", filename = "precip_yr.png", 
+                width = 6, height = 6, units = "in") 
 ```
 
 ```{r ggplot_monthly_boxplots}
@@ -1879,39 +1880,10 @@ ggplot(sta_gath_mon, aes(month, prcp, group = month)) +
        xlab("Date") +
        ylab("Depth, mm")
 
-#ggplot2::ggsave(filename = "precip_yr.png", 
-#                width = 6, height = 6, units = "in")
+ggplot2::ggsave(path = "figure/", filename = "precip_boxpl_mon.png",
+                width = 6, height = 6, units = "in")
 ```
 
-```{r ggplot_monthly_boxplots}
-# General Purpose: prepare data for drought index  
-# Specific purpose: graphical EDA  
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
-sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
-
-# fix date & add year and month  
-sta_mon <- sta_mon %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date))  
-
-# gather monthly values 
-sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
-                       -date, -year, -month, factor_key = TRUE) 
-
-ggplot(sta_gath_mon, aes(date, prcp)) +
-  geom_line() +
-  facet_grid(station~.) +
-  theme_classic() + 
-  labs(title = "Monthly precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
-       xlab("Date") +
-       ylab("Depth, mm")
-
-#ggplot2::ggsave(filename = "precip_yr.png", 
-#                width = 6, height = 6, units = "in")
-```
-
-# Correlation Plots with Pearson Coefficients
 ```{r correlation}
 # General Purpose: prepare data for drought index
 # Specific purpose: graphical EDA - correlation plot
