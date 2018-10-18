@@ -66,8 +66,8 @@ TO DO - CHECK SPI FIN3 NAME
 
 ## Analysis Steps & progress
 # 1.    Identify precipitation records for drought analysis
-#         I imported Global Historical Climatology Network (GHCN) daily 
-#         precipitation records for candidate "WEATHER STATIONS" 
+#         I imported Global Historical Climatology Network (GHCN) 
+#         daily precipitation records for candidate "WEATHER STATIONS" 
 #         into R-Studio (REF1) using the "rnoaa" package.
 # 1.2   Cleaned data (see 04_prcp-data_munging)  
 # 1.2.1   I used Theissen polygons and the length and continuity of 
@@ -88,7 +88,6 @@ TO DO - CHECK SPI FIN3 NAME
 # 1.5.1 Identify streamflow records for hydrology analysis (list) 
 # 1.5.2 Exploratory EDA of streamflow to identify membership of 
 #       short records 
-
 
 ## Thoughts - the orig depth vs plotting vals look j-shaped. 
 
@@ -4109,8 +4108,8 @@ ggplot(spi_index_plot, aes(date, spi_index)) +
   theme_classic() +
   geom_hline(yintercept = 0, aes)
 
-#ggplot2::ggsave(filename = "figure/spi_1mo.png",  
-#                width = 6, height = 6, units = "in")  
+ggplot2::ggsave(path = "figure/", filename = "spi_1mo.png", 
+                width = 6, height = 6, units = "in")  
 
 # clean up Global Environment----
 rm(spi_index_replace1, spi_index_replace2, spi_index_replace3, 
@@ -4185,7 +4184,7 @@ ggplot(spi_index_plot, aes(date, spi_index)) +
 labels = date_format("%b-%Y"),
 ```
 
-```{r precip-clustering, include=FALSE, eval=FALSE}
+```{r precip-clustering, include=FALSE, eval=FALSE} 
 # Didn't work well...
 
 # Prepare data for exploratory PCA -----------------------------------
@@ -4437,8 +4436,7 @@ ggplot() +
 #             legend = "bottom")  
 ```
 
-
-```{r PCA-9398}
+```{r PCA_exploratory_analysis}
 
 # Examines data from 1993-1998 - wet years with Wounded Knee station 
 
@@ -4453,56 +4451,6 @@ ggplot() +
 gage_9398_meta <- import("data/gage_meta_9398.csv") 
 gage_9398_raw <- import("data/gage_9398.csv") 
 
-gage_9398_sum <- gage_9398_raw %>% 
-  group_by(sta) %>% 
-  summarise(start_yr = min(waterYear), 
-            end_yr = max(waterYear)) %>% 
-  arrange(desc(start_yr)) %>% 
-  arrange(end_yr)
-
-#gage_9398_sum 
-# A tibble: 29 x 3
-#   sta     start_yr end_yr 
-#   <chr>      <dbl>  <dbl> 
-# 1 nio_abb     1993   1994 
-# 2 cas_hot     1993   1995 
-# 3 bev_abf     1993   1997 
-# 4 ros_ros     1993   1997 
-# 5 whi_slm     1993   1997 
-# 6 wkc_wok     1993   1997 
-# 7 bat_bhr     1993   1998 
-# 8 bat_her     1993   1998 
-# 9 bev_buf     1993   1998 
-#10 bev_pri     1993   1998  
-#11 blp_bel     1993   1998 
-#12 brsf_co     1993   1998 
-#13 che_was     1993   1998 
-#14 fal_hot     1993   1998 
-#15 frn_fai     1993   1998 
-#16 hat_edg     1993   1998 
-#17 hor_oel     1993   1998 
-#18 lcr_bel     1993   1998 
-#19 lcr_vet     1993   1998 
-#20 lwr_abv     1993   1998 
-#21 lwr_mar     1993   1998 
-#22 lwr_ros     1993   1998 
-#23 lwr_whi     1993   1998 
-#24 rap_far     1993   1998 
-#25 spr_her     1993   1998 
-#26 wcc_ogl     1993   1998 
-#27 whi_kad     1993   1998 
-#28 whi_ogl     1993   1998 
-#29 whi_sta     1993   1998 
-
-#test <- gage_9398_raw %>% 
-#  filter(is.na(Q30))
-
-#test <- gage_9398_raw %>% 
-#  distinct(sta) 
-
-#rm(test)
-
-# check gages----
 
 # The original data is saved in a long format with rows as daily 
 # observations and columns as variables
@@ -4536,6 +4484,14 @@ gage_9398_sum <- gage_9398_raw %>%
 # Q7                    <dbl> 0.14420207... 7-day moving average  
 # Q30                   <dbl> 0.1342507...  30-day moving average 
 
+# check gages----
+# check gage data -- Should probably dig into this some more!
+sta_chk <- gage_9398_raw %>% 
+  group_by(sta) %>% 
+  summarise(start_wat_yr = min(waterYear), 
+            end_wat_yr = max(waterYear)) %>% 
+  arrange(desc(start_wat_yr)) %>% 
+  arrange(end_wat_yr)
 
 # PCA method discussion----
 # Overview 
@@ -4559,12 +4515,6 @@ gage_9398_sum <- gage_9398_raw %>%
 #    area (sq-km) and multiplying the resultant by the number of 
 #    seconds in a day.  The result is cu-m-d per sq-km.
 
-# 3. Remove missing values created by rolling averages
-#    The NA vals created by calculating Q7 & Q30 need to be removed or 
-#    estimated.  Removal seems the more conservative approach - 
-#    especially as the NA values are very small given the number of 
-#    observations of 365 obs/yr * 7 years. 
-
 gage_depth <- gage_9398_raw %>% 
   as.tibble() %>% 
   clean_names() %>% 
@@ -4572,9 +4522,9 @@ gage_depth <- gage_9398_raw %>%
   mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
   mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
   mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>%
-  drop_na() 
+  drop_na()
 
-# 4. Transform using BoxCox to approach normality 
+# 3. Transform using BoxCox to approach normality 
 # daily flow data are highly skewed & tend to approach a logrithmic 
 # distribution.  BoxCox transformation utilizes a lamda value to 
 # transform a dataset to approach a normal distribution.
@@ -4588,7 +4538,7 @@ lambda_q1 <- BoxCox.lambda(gage_depth$q1_depth)   #  q1 ==> 0.010
 lambda_q7 <- BoxCox.lambda(gage_depth$q7_depth)   #  q7 ==> 0.105  
 lambda_q30 <- BoxCox.lambda(gage_depth$q30_depth) # q30 ==> 0.264    
 
-# 5.Standardize data by z-score---- 
+# 4.Standardize data by z-score---- 
 # PCA requires that data are scaled with a mean of zero and standard 
 # deviation of unity, e.g. a z-score.  This could be done within the 
 # PCA, but I did it manually.
@@ -4610,17 +4560,6 @@ gage_depth <- gage_depth %>%
   dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
                 everything())
 
-# glimpse(gage_depth)  # didn't update, yet!
-# sta        <chr> "bat_bhr", "bat_bhr", "bat_bhr", "bat_bhr", ... 
-# date       <chr> "1991-10-01", "1991-10-02", "1991-10-03", "1... 
-# q1_depth   <dbl> 14.704930, 14.704930, 16.700614, 18.696298, ... 
-# q7_depth   <dbl> 16.93820, 16.46303, 16.32048, 16.46303, 16.4... 
-# q30_depth  <dbl> 15.76929, 15.81364, 15.93560, 16.12408, 16.2... 
-# q1_scaled  <dbl> -0.4163661, -0.4163661, -0.3542800, -0.29912... 
-# q7_scaled  <dbl> -0.5215705, -0.5363362, -0.5408399, -0.53633... 
-# q30_scaled <dbl> -0.7615155, -0.7600352, -0.7559816, -0.74976... 
-
-# Conduct exploratory PCA---- 
  
 # Select numeric data for PCA---- 
 # ~~~~~~~~~~~~~~~~~~~
@@ -4629,9 +4568,6 @@ gage_depth <- gage_depth %>%
 
 pca_input <- gage_depth %>%  
   dplyr::select(q1_depth, q7_depth, q30_depth) 
-
-#test <- pca_input %>% 
-#  filter(is.na(q1_depth)) 
 
 pca_meta <- gage_depth %>% 
   select(sta, date, q1_depth, q7_depth, q30_depth) 
@@ -4689,7 +4625,7 @@ pca_eigen
 #2     2   0.419 0.0586       0.991
 #3     3   0.167 0.00935      1     
 
-#pca_vars 
+pca_vars 
 ## A tibble: 6 x 3
 #  var          PC  value
 #  <fct>     <dbl>  <dbl>
@@ -4721,23 +4657,37 @@ gage_9398_raw <- gage_9398_raw %>%
 gage_9398_aug <- left_join(gage_aug, gage_9398_raw, 
                            by = c("sta", "date")) 
 
+# note:looks like gage_x_raw has same info as gage_x_aug
+rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_9398_meta, 
+   pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, 
+   pca_matrix, gage_sum, sta_chk, gage_9398_raw)
+```
 
-# plot PCA----
+```{r plot_PCA}
+
 # PC1 explanatory plot
-ggplot(gage_9398_aug, aes(q7_depth, .fittedPC1, color = factor(sta))) + 
+ggplot(gage_9398_aug, 
+       aes(q7_depth, .fittedPC1, color = factor(sta))) + 
   geom_jitter() + 
   theme_classic() +
   xlab("Q7 depth") +
   ylab("Fitted PC1") + 
   theme(legend.position = "bottom")
+
+#ggplot2::ggsave(path = "figure/", filename = "strm_pca1.png", 
+#                width = 6, height = 6, units = "in")  
   
 # PC2 explanatory plot
-ggplot(gage_9398_aug, aes(q1_q30_diff, .fittedPC2, color = factor(sta))) +
+ggplot(gage_9398_aug, aes(q1_q30_diff, .fittedPC2, 
+                          color = factor(sta))) +
   geom_jitter() + 
   theme_classic() +
   xlab("Q1 depth minus Q30 depth") +
   ylab("Fitted PC2") +
   theme(legend.position = "bottom") 
+
+#ggplot2::ggsave(path = "figure/", filename = #"strm_pca1.png", 
+#                width = 6, height = 6, units = "in")  
 
 # mean eigenvector plot
 ggplot(gage_9398_sum, aes(PC1_mean, PC2_mean)) +
@@ -4763,11 +4713,30 @@ ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) +
   xlab("hydrologic export index") +
   ylab("stability index") 
 
-rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_9398_meta, 
-   pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, pca_matrix,  gage_sum) 
+#ggplot2::ggsave(path = "figure/", filename = "strm_dens_mean.png", 
+#                width = 6, height = 6, units = "in")  
+
+# create density plot of all points
+ggplot(gage_9398_aug, aes(q7_depth, q1_q30_diff)) +
+  geom_jitter(aes(color = sta, shape = ".")) + 
+  geom_density2d(aes(color = NULL)) + 
+  geom_point(data = gage_9398_sum, mapping = aes(q7_mean, q1_q30_mean)) + 
+  geom_text(data = gage_9398_sum, 
+           mapping = aes(q7_mean, q1_q30_mean, label = sta), 
+            check_overlap = TRUE) + 
+  scale_x_continuous(limits = c(-2, 1.5)) + 
+  scale_y_continuous(limits = c(-1.0, 0.75)) + 
+  geom_vline(xintercept = 0, aes(size = 2)) + 
+  geom_hline(yintercept = 0, aes(size = 1)) + 
+  theme_classic() + 
+  theme(legend.position = "none") 
+
+#ggplot2::ggsave(path = "figure/", filename = "strm_dens_all.png", 
+#                width = 6, height = 6, units = "in")  
 ```
 
 ```{r Model-Based_Clustering-9398}
+
 # The traditional clustering methods, such as hierarchical clustering 
 # and k-means clustering, are heuristic and are not based on formal  
 # models. An alternative is model-based clustering, which consider the 
@@ -4777,7 +4746,7 @@ rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_9398_meta,
 # has a probability of belonging to each cluster.  In model-based 
 # clustering, the data is considered as coming from a mixture of 
 # density.  Each component (i.e. cluster) k is modeled by the normal 
-# or Gaussian distribution which is characterized by the parameters:
+# or Gaussian distribution which is characterized by the parameters: 
 #   μk\mu_k: mean vector, 
 #   ∑k\sum_k: covariance matrix, 
 #   An associated probability in the mixture. Each point has a 
@@ -4806,31 +4775,17 @@ rm(lambda_q1, lambda_q7, lambda_q30, gage_depth, gage_9398_meta,
 
 # The best model is selected using the Bayesian Information Criterion 
 # or BIC. A large BIC score indicates strong evidence for the 
-# corresponding model.
-
-# create density plot of all points
-#ggplot(gage_aug, aes(q7_depth, q1_q30_diff)) +
-#  geom_jitter(aes(color = sta, shape = ".")) + 
-#  geom_density2d(aes(color = NULL)) + 
-#  geom_point(data = gage_sum, mapping = aes(q7_mean, q1_q30_mean)) + 
-#  geom_text(data = gage_sum, 
-#            mapping = aes(q7_mean, q1_q30_mean, label = sta), 
-#            check_overlap = TRUE) + 
-#  scale_x_continuous(limits = c(-2, 1.5)) + 
-#  scale_y_continuous(limits = c(-1.0, 0.75)) + 
-#  geom_vline(xintercept = 0, aes(size = 2)) + 
-#  geom_hline(yintercept = 0, aes(size = 1)) + 
-#  theme_classic() + 
-#  theme(legend.position = "none") 
+# corresponding model. 
 
 # Preparing to cluster by the central tendancy
-mc_9398_input <- gage_9398_sum %>% 
+gage_clust_9398_input <- gage_9398_sum %>% 
   select(q1_mean:q30_mean)
 
-mc_9398_input_meta <- gage_9398_sum %>% 
+gage_clust_9398_input_meta <- gage_9398_sum %>% 
   select(sta)
 
-gage_clust_l <- Mclust(mc_9398_input) # Model-based-clustering 
+# apply & summarize model 
+gage_clust_l <- Mclust(gage_clust_9398_input) # Model-based-clustering 
 summary(gage_clust_l) # Print a summary 
 
 #Gaussian finite mixture model fitted by EM algorithm 
@@ -4848,29 +4803,35 @@ summary(gage_clust_l) # Print a summary
 # Model-based clustering selected a model with five components 
 # (i.e. clusters). The optimal selected model name is VEV model. 
 # That is the five components are ellipsoidal with varying volume, 
-# and orientation, and equal shape. The summary contains also the clustering 
-# table specifying the number of observations in each clusters.
+# and orientation, and equal shape. The summary contains also the 
+# clustering table specifying the number of observations in each 
+# clusters.
 
-gage_clust_l$modelName # Optimal selected model ==> "EEV" 
-gage_clust_l$G # Optimal number of cluster => 5 
+#gage_clust_l$modelName # Optimal selected model ==> "EEV" 
+#gage_clust_l$G # Optimal number of cluster => 5 
 
-# Take a look at the results
+# Extract results to a dataframe & add metadata
 gage_clust <- as.tibble(gage_clust_l$z) 
-gage_clust <- bind_cols(mc_9398_input_meta, gage_clust) 
+gage_clust <- bind_cols(gage_clust_9398_input_meta, gage_clust) 
 
+# remove low probability results
 gage_clust <- gage_clust %>% 
   gather(key = group, value = prob, -sta) %>% 
   filter(prob > 0.7) 
 
+# join together summary results & rearrange
 gage_9398_sum <- full_join(gage_9398_sum, gage_clust, 
                              by = "sta")
 gage_clust <- gage_clust %>% 
   dplyr::select(sta, group, everything())
 
-# Clean up Global Environment
-rm(gage_clust_l, mc_9398_input, mc_9398_input_meta)
+# test output & clean up environment
+test <- anti_join(gage_9398_sum, gage_clust, by = "sta")  
 
-test <- anti_join(gage_9398_sum, gage_clust)  
+rm(gage_clust_l, gage_clust, mc_9398_input, mc_9398_input_meta)
+```
+
+```{r Clustering_visualization}
 
 # Visualizing model-based clustering
 # Model-based clustering results can be drawn using the base 
@@ -4900,12 +4861,11 @@ fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
 fviz_mclust(gage_clust_l, "classification", geom = "point", 
             pointsize = 1.5, palette = "jco") 
 
-test <- left_join(gage_9398_sum, gage_9398_clust)
+test <- left_join(gage_9398_sum, gage_clust)
 
 
-
-
-ggplot(gage_9398_clust, aes(q7_mean, q1_q30_mean)) + 
+# plot clusters in PCA space
+ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) + 
   geom_density2d(aes(color = group)) + 
   geom_jitter() + 
   geom_text(aes(label = sta), check_overlap = TRUE, 
@@ -4914,14 +4874,22 @@ ggplot(gage_9398_clust, aes(q7_mean, q1_q30_mean)) +
   scale_y_continuous(limits = c(-1.0, 0.4)) + 
   theme_classic() 
 
-gage_clust_plot <- gage_clust %>% 
+#ggplot2::ggsave(path = "figure/", filename = "strm_clust.png", 
+#                width = 6, height = 6, units = "in")  
+
+gage_clust_plot <- gage_9398_sum %>% 
   select(sta, group, q7_mean, q1_q30_mean) %>% 
+  rename(hydro_exp_coeff = q7_mean) %>% 
+  rename(stability_coeff = q1_q30_mean) %>% 
   gather(key = parameter, value = value, -sta, -group)
 
 ggplot(gage_clust_plot, aes(group, value)) + 
   facet_grid(rows = vars(parameter)) + 
          geom_boxplot() + 
   theme_bw()
+
+#ggplot2::ggsave(path = "figure/", filename = #"strm_clust_box.png", 
+#                width = 6, height = 3, units = "in")  
 
 gage_clust <- gage_clust %>% 
   select(group, sta, station_nm, everything()) %>% 
@@ -4966,6 +4934,9 @@ gage_clust <- gage_clust %>%
 #28    V5 hor_oel            HORSEHEAD CR AT OELRICHS,SD
 
 ```
+
+
+#start working here!
 
 
 ```{r EDA-PCA-9015-gages}
@@ -5267,7 +5238,8 @@ fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
 fviz_mclust(gage_clust_l, "classification", geom = "point", 
             pointsize = 1.5, palette = "jco") 
 
-ggplot(gage_clust, aes(q7_mean, q1_q30_mean, color = group)) +
+# Plot clusters in PCA space
+ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean, color = group)) +
   geom_jitter() + 
   geom_density2d() + 
   geom_text(aes(label = sta), check_overlap = TRUE, 
@@ -5278,9 +5250,12 @@ ggplot(gage_clust, aes(q7_mean, q1_q30_mean, color = group)) +
   geom_hline(yintercept = 0, aes(size = 1)) + 
   theme_classic() 
 
-gage_clust_plot <- gage_clust %>% 
+gage_clust_plot <- gage_9398_sum %>% 
   select(sta, group, q7_mean, q1_q30_mean) %>% 
-  gather(key = parameter, value, -sta, -group)
+  rename(hydro_exp_coeff = q7_mean) %>% 
+  rename(stability_coeff = q1_q30_mean) %>% 
+  gather(key = parameter, value, -sta, -group) 
+
 
 ggplot(gage_clust_plot, aes(group, value)) + 
   facet_grid(rows = vars(parameter)) + 
