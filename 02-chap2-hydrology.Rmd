@@ -222,7 +222,7 @@ a_session <- devtools::session_info()
 # 2. figure out how to reference stuff with - grateful package
 ```
 
-```{r rules, eval=FALSE, include=FALSE} 
+```{r rules_for_papers, eval=FALSE, include=FALSE} 
 <!---
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Ten simple rules for structuring papers 
@@ -368,186 +368,7 @@ References
     18. Strunk W (2007) The elements of style. Penguin. 
 ```
 
-```{r PCA_approach, eval=FALSE, include=FALSE}
-# Exploratory PCA--------------------------------------------------- 
-# PCA is related to eigenvectors and eigenvalues.  The variance or 
-# spread of the observations is measured as the average squared 
-# distance from the center of the point cloud to each observation (c).  
-# The total reconstruction error is measured as the average squared 
-# length of the errors (b), and distance along the principal axis (a) 
-# can also be measured.  Therefore the sum of the square of the errors 
-# plus the sum of the square distance along the principal axis equals 
-# the average squared distance between the center of the point cloud 
-# each observation; this is precisely Pythagoras theorem. 
-
-# You can imagine that the PC axis is a solid rod and each error 
-# is a spring. The energy of the spring is proportional to its squared 
-# length (this is known in physics as the Hooke's law), so the rod 
-# will orient itself such as to minimize the sum of these squared 
-# distances. 
-
-# Regarding eigenvectors and eigenvalues. A 2×2 matrix given by: 
-#   (1.07     0.63)
-#   (0.63     0.64)
-
-# The variance of the x variable is 1.07, 
-# the variance of the y variable is 0.64, 
-# and the covariance between them is 0.63. 
-
-# As it is a square symmetric matrix, it can be diagonalized by 
-# choosing a new orthogonal coordinate system, given by its 
-# eigenvectors (incidentally, this is called spectral theorem); 
-# corresponding eigenvalues will then be located on the diagonal. 
-# In this new coordinate system, the covariance matrix is diagonal 
-# and looks like this:
-#   (1.52     0) 
-#   (0     0.19)
-
-# The correlation between points is now zero. It becomes clear that 
-# the variance of any projection will be given by a weighted average 
-# of the eigenvalues.  Consequently, the maximum possible variance 
-# (1.52) will be achieved if we simply take the projection on the 
-# first coordinate axis. It follows that the direction of the first 
-# principal component is given by the first eigenvector of the 
-# covariance matrix. 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--->
-```
-
-```{r import-precip-data} 
-# Purpose: prepare data for drought index & EDA check 
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) %>% 
-  mutate(min_date = ymd(mindate)) %>% 
-  mutate(max_date = ymd(maxdate)) %>% 
-  select(-mindate, -maxdate) %>% 
-  mutate(dur_year = max_date - min_date) %>% 
-  mutate(dur_year = days(dur_year)) %>% 
-  mutate(dur_year = time_length(dur_year, unit = "year"))
-
-sta_raw     <- as.tibble(import("data/stations_monthly.csv")) %>% 
-  mutate(date = ymd(date)) %>%  
-  arrange(desc(date)) 
- 
-# make the wide data long, remove NA vals 
-sta_gath <- sta_raw %>% 
-  gather(key = "sta", value = "depth", 
-         -date, -year, -month) %>% 
-  drop_na(depth)  %>% 
-  mutate(sta = as.factor(sta))
-
-# not sure why these zeros are thought of as NA values 
-sta_na <- sta_gath %>% 
-    filter(depth == is.na(depth)) 
-
-sta_gath$depth <- ifelse(sta_gath$depth == is.na(sta_gath$depth), 0, sta_gath$depth)  
-
-sta_na <- sta_gath %>% 
-    filter(depth == is.na(depth)) 
-
-rm(sta_gath) 
-```
-
-```{r precip-EDA, include=FALSE, eval=FALSE}
-# Purpose: EDA of precipitation data.
-# Outcome: Differences among stations 1971-2018 are small.
-#          less than +/-5 mm on average.
-
-# the anomolously wet month series is dominated by May & June events.
-# what drives precip during this time?  
-#   In May & June the area recieves low-level moisture from the Gulf 
-#   of Mexico, strong cold fronts, and active upper-level pattern 
-#   leading to greater chance for convection.
-
-# drop rows with missing data - this organizes the stations to same 
-# time series length
-sta_prep <- sta_raw %>%  
-  drop_na %>% 
-  gather(key = "sta", value = "depth", 
-         -date, -year, -month) 
-
-# create abreviated column for plotting & join
-abbrev <- data.frame("sta" = c("cot", "int", "oel", "ora", "rap"),
-                     "sta_abrev" = c("C", "I", "E", "O", "R")) 
-
-sta_prep <- full_join(sta_prep, abbrev, by = "sta")
-
-# create a year_month column
-sta_prep <- sta_prep %>% 
-  mutate(yr_mon = paste(year, month, sep = '_')) 
-
-# find mean values by month & join
-sta_mean <- sta_prep %>% 
-  group_by(month, year) %>% 
-  summarize(mean_depth = mean(depth)) %>% 
-  ungroup() %>% 
-  mutate(mean_depth = round(mean_depth, digits = 2)) %>% 
-  mutate(yr_mon = paste(year, month, sep = '_')) %>% 
-  select(-year, -month)
- 
-sta_prep <- full_join(sta_prep, sta_mean, by = "yr_mon") 
-rm(abbrev, sta_mean)
-
-# create a column of deviation from the mean by year & month
-sta_prep <- sta_prep %>%
-  mutate(deviation = depth - mean_depth) 
-
-# plot the precip data as an overall boxplot 
-ggplot(sta_prep, aes(as.factor(sta), depth)) + 
-  geom_violin() + 
-  geom_boxplot() + 
-  scale_y_sqrt() + 
-  theme_bw() + 
-  ggtitle("Weather stations near Pine Ridge Reservation, SD",  
-          subtitle = "1971-2018") + 
-  xlab("") +  
-  ylab("Monthly depth in mm") + 
-  NULL 
-
-ggplot2::ggsave(filename = "prcp_boxplot.png", 
-                width = 6, height = 6, units = "in") 
-
-# plot the precip depth as a monthly boxplot
-ggplot(sta_prep, aes(sta_abrev, depth)) + 
-  geom_boxplot() +
-#  geom_histogram(binwidth = 1) +
-  facet_grid(cols = vars(month))
-
-# plot the precip deviations as a monthly boxplot
-ggplot(sta_prep, aes(sta_abrev, deviation)) + 
-  geom_boxplot() +
-#  geom_histogram(binwidth = 1) +
-  facet_grid(cols = vars(month))
-
-# prepare summary of station data & clean up
-sta_sum <- sta_prep %>% 
-  group_by(sta, month) %>% 
-  summarise(mean_depth = mean(depth),
-            sd_depth = sd(depth),
-            mean_dev = mean(deviation)) 
-
-rm(sta_prep)
-```
-
-```{r spi-with-SCI-1mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-#   SCI is the Standardized Precipitation Index 
-#   SRI is the Standardized Runoff Index (SRI) 
-# The other SCI package index is the Standardized Precipitation 
-#   Evapotranspiration Index (SPEI).
-
-# SCI function discussion----
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# Initial values for SCI calculations 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-time_scale <- 1  # sets the length of the averaging period 
-distrib <- "pe3" # sets the distribution type 
-p_zero <- TRUE   # sets a function to reduce zero-precip bias
-p_zero_cm <- TRUE # ?????
-scale <- "sd"    # scales input by subtract mean & divide by sd
-warn_me <- TRUE  # sets explicit warning
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+```{r SPI_index, eval=FALSE, include=FALSE}
 # The two SCI functions used below are fitSCI & tranformSCI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   fitSCI estimates the parameters for transforming a meteorological 
@@ -692,10 +513,181 @@ warn_me <- TRUE  # sets explicit warning
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # the function call transform SCI returns a numeric vector containing 
 # the SCI, having values of the standard normal distribution. 
+```
 
+```{r PCA_approach, eval=FALSE, include=FALSE}
+# Exploratory PCA--------------------------------------------------- 
+# PCA is related to eigenvectors and eigenvalues.  The variance or 
+# spread of the observations is measured as the average squared 
+# distance from the center of the point cloud to each observation (c).  
+# The total reconstruction error is measured as the average squared 
+# length of the errors (b), and distance along the principal axis (a) 
+# can also be measured.  Therefore the sum of the square of the errors 
+# plus the sum of the square distance along the principal axis equals 
+# the average squared distance between the center of the point cloud 
+# each observation; this is precisely Pythagoras theorem. 
 
-# SCI Analysis----
+# You can imagine that the PC axis is a solid rod and each error 
+# is a spring. The energy of the spring is proportional to its squared 
+# length (this is known in physics as the Hooke's law), so the rod 
+# will orient itself such as to minimize the sum of these squared 
+# distances. 
 
+# Regarding eigenvectors and eigenvalues. A 2×2 matrix given by: 
+#   (1.07     0.63)
+#   (0.63     0.64)
+
+# The variance of the x variable is 1.07, 
+# the variance of the y variable is 0.64, 
+# and the covariance between them is 0.63. 
+
+# As it is a square symmetric matrix, it can be diagonalized by 
+# choosing a new orthogonal coordinate system, given by its 
+# eigenvectors (incidentally, this is called spectral theorem); 
+# corresponding eigenvalues will then be located on the diagonal. 
+# In this new coordinate system, the covariance matrix is diagonal 
+# and looks like this:
+#   (1.52     0) 
+#   (0     0.19)
+
+# The correlation between points is now zero. It becomes clear that 
+# the variance of any projection will be given by a weighted average 
+# of the eigenvalues.  Consequently, the maximum possible variance 
+# (1.52) will be achieved if we simply take the projection on the 
+# first coordinate axis. It follows that the direction of the first 
+# principal component is given by the first eigenvector of the 
+# covariance matrix. 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-->
+```
+
+```{r precip-EDA, include=FALSE, eval=FALSE}
+# Purpose: EDA of precipitation data.
+# Outcome: Differences among stations 1971-2018 are small.
+#          less than +/-5 mm on average.
+
+# the anomolously wet month series is dominated by May & June events.
+# what drives precip during this time?  
+#   In May & June the area recieves low-level moisture from the Gulf 
+#   of Mexico, strong cold fronts, and active upper-level pattern 
+#   leading to greater chance for convection.
+
+# drop rows with missing data - this organizes the stations to same 
+# time series length
+sta_prep <- sta_raw %>%  
+  drop_na %>% 
+  gather(key = "sta", value = "depth", 
+         -date, -year, -month) 
+
+# create abreviated column for plotting & join
+abbrev <- data.frame("sta" = c("cot", "int", "oel", "ora", "rap"),
+                     "sta_abrev" = c("C", "I", "E", "O", "R")) 
+
+sta_prep <- full_join(sta_prep, abbrev, by = "sta")
+
+# create a year_month column
+sta_prep <- sta_prep %>% 
+  mutate(yr_mon = paste(year, month, sep = '_')) 
+
+# find mean values by month & join
+sta_mean <- sta_prep %>% 
+  group_by(month, year) %>% 
+  summarize(mean_depth = mean(depth)) %>% 
+  ungroup() %>% 
+  mutate(mean_depth = round(mean_depth, digits = 2)) %>% 
+  mutate(yr_mon = paste(year, month, sep = '_')) %>% 
+  select(-year, -month)
+ 
+sta_prep <- full_join(sta_prep, sta_mean, by = "yr_mon") 
+rm(abbrev, sta_mean)
+
+# create a column of deviation from the mean by year & month
+sta_prep <- sta_prep %>%
+  mutate(deviation = depth - mean_depth) 
+
+# plot the precip data as an overall boxplot 
+ggplot(sta_prep, aes(as.factor(sta), depth)) + 
+  geom_violin() + 
+  geom_boxplot() + 
+  scale_y_sqrt() + 
+  theme_bw() + 
+  ggtitle("Weather stations near Pine Ridge Reservation, SD",  
+          subtitle = "1971-2018") + 
+  xlab("") +  
+  ylab("Monthly depth in mm") + 
+  NULL 
+
+ggplot2::ggsave(filename = "prcp_boxplot.png", 
+                width = 6, height = 6, units = "in") 
+
+# plot the precip depth as a monthly boxplot
+ggplot(sta_prep, aes(sta_abrev, depth)) + 
+  geom_boxplot() +
+#  geom_histogram(binwidth = 1) +
+  facet_grid(cols = vars(month))
+
+# plot the precip deviations as a monthly boxplot
+ggplot(sta_prep, aes(sta_abrev, deviation)) + 
+  geom_boxplot() +
+#  geom_histogram(binwidth = 1) +
+  facet_grid(cols = vars(month))
+
+# prepare summary of station data & clean up
+sta_sum <- sta_prep %>% 
+  group_by(sta, month) %>% 
+  summarise(mean_depth = mean(depth),
+            sd_depth = sd(depth),
+            mean_dev = mean(deviation)) 
+
+rm(sta_prep)
+```
+
+```{r spi-with-SCI} 
+# import-precip-data----
+# Purpose: prepare data for drought index & EDA check 
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) %>% 
+  mutate(min_date = ymd(mindate)) %>% 
+  mutate(max_date = ymd(maxdate)) %>% 
+  select(-mindate, -maxdate) %>% 
+  mutate(dur_year = max_date - min_date) %>% 
+  mutate(dur_year = days(dur_year)) %>% 
+  mutate(dur_year = time_length(dur_year, unit = "year"))
+
+sta_raw     <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  mutate(date = ymd(date)) %>%  
+  arrange(desc(date)) 
+ 
+# make the wide data long, remove NA vals 
+sta_gath <- sta_raw %>% 
+  gather(key = "sta", value = "depth", 
+         -date, -year, -month) %>% 
+  drop_na(depth)  %>% 
+  mutate(sta = as.factor(sta))
+
+# check for NA values 
+sta_na <- sta_gath %>% 
+    filter(is.na(depth)) 
+
+rm(sta_gath, sta_na) 
+
+# 1mon-spi-with-SCI-1mo----
+# The following code chunks calculate SPI & SRI using the  Standardized 
+# Climate Index (SCI) package.  
+#   SCI is the Standardized Precipitation Index 
+#   SRI is the Standardized Runoff Index (SRI) 
+# The other SCI package index is the Standardized Precipitation 
+#   Evapotranspiration Index (SPEI).
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# Initial values for SCI calculations 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+time_scale <- 1  # sets the length of the averaging period 
+distrib <- "pe3" # sets the distribution type 
+p_zero <- TRUE   # sets a function to reduce zero-precip bias
+p_zero_cm <- TRUE # ?????
+scale <- "sd"    # scales input by subtract mean & divide by sd
+warn_me <- TRUE  # sets explicit warning
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Cottonwoods SPI
 #~~~~~~~~~~~~~~~~~~~ 
@@ -841,8 +833,7 @@ spi_rap <- spi_rap %>%
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
-
-# check for warnings from SPI----
+#   1mon-check for warnings from SPI ----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) # M2 (feb) flag => 3
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -876,7 +867,7 @@ rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap)
 # Rap  0.60    5.10    8.90   11.56   15.95   43.40  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
-# clean up & combine the SPI variables---- 
+#   1mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
 rm(cot, int, oel, ora, rap) 
 
@@ -908,7 +899,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   1mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -988,7 +979,7 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 
-# Clean up Global Environment----
+#   1mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att1     <- spi_att 
 spi_gath1    <- spi_gath
@@ -1002,17 +993,12 @@ spi_check1   <- spi_check
 rm(att_names, spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi, spi_att_skew)
 rm(spi_att, spi_check, spi_gath) 
-```
 
-```{r spi-with-SCI-2mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.   
-# Explanation is above in spi-with-SCI-1mo
+# 2mon-spi-with-SCI-2mo----
 
-# set SCI state variables
+# set SCI state variables 
 time_scale <- 2  # sets the length of the averaging period 
 
-# SCI analysis----
 # Cottonwoods SPI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -1157,7 +1143,7 @@ spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
 
-# check for warnings from SCI----
+#   2mon-check for warnings from SCI----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -1169,7 +1155,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 
-# clean up & combine the SPI variables---- 
+#   2mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -1201,7 +1187,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   2mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -1281,7 +1267,7 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 
-# Clean up Global Environment----
+#   2mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att2     <- spi_att 
 spi_gath2    <- spi_gath
@@ -1292,17 +1278,10 @@ rm(att_names, spi_check)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi)
 rm(spi_att, spi_gath)
-```
-
-```{r spi-with-SCI-3mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo
-
-# set SCI state variables
+# 3mon-spi-with-SCI---- 
+# 3mon-set SCI state variables
 time_scale <- 3  # sets the length of the averaging period 
 
-# SCI analysis----
 # Cottonwoods SPI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -1447,7 +1426,7 @@ spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
 
-# check for warnings----
+#   3mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -1459,7 +1438,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 
-# clean up & combine the SPI variables---- 
+#   3mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -1491,7 +1470,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   3mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -1571,7 +1550,7 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 
-# Clean up Global Environment----
+#   3mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att3     <- spi_att 
 spi_gath3    <- spi_gath
@@ -1582,19 +1561,12 @@ rm(att_names, spi_check)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi)
 rm(spi_att, spi_gath)
-```
-
-```{r spi-with-SCI-4mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo
-
-# ORAL HAS ONE SPI VAL OF -8
+# 4mon-spi-with-SCI-4mo----
+# notes:  ORAL HAS ONE SPI VAL OF -8
 
 # set state variables for SCI
 time_scale <- 4  # sets the length of the averaging period 
 
-# SCI analysis----
 # Cottonwoods SPI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -1738,8 +1710,7 @@ spi_rap <- spi_rap %>%
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
-
-# check for warnings----
+#   4mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -1751,7 +1722,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 
-# clean up & combine the SPI variables---- 
+#   4mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -1783,7 +1754,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   4mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -1862,8 +1833,7 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
-
-# Clean up Global Environment----
+#   4mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att4     <- spi_att 
 spi_gath4    <- spi_gath
@@ -1874,19 +1844,12 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-```
-
-```{r spi-with-SCI-5mo} 
-# The following code chunks calculate SPI & SRI using the Standardized  
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo
-
-# ora has an extreme low value & really high skew 
+#   5mon-spi-with-SCI-5mo----
+# notes: ora has an extreme low value & really high skew 
 
 # set state variables for SCI
 time_scale <- 5  # sets the length of the averaging period 
 
-# SCI analysis----
 # Cottonwoods SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -2031,7 +1994,7 @@ spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
 
-# check for warnings----
+#   5mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -2042,8 +2005,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
                       flag_ora, flag_rap) 
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-
-# clean up & combine the SPI variables---- 
+#   5mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -2075,7 +2037,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   5mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -2154,7 +2116,7 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
- # Clean up Global Environment---- 
+#   5mon-Clean up Global Environment---- 
 # NOTE: BE CAREFUL WITH THE VALUES FOR THE SAVING OF THE PLOTS 
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att5     <- spi_att 
@@ -2166,19 +2128,13 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-```
-
-```{r spi-with-SCI-6mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo 
-
-# ora has an extreme low value & really high skew 
+# 6mon-spi-with-SCI-6mo---- 
+# Notes: ora has an extreme low value & really high skew  
 
 # set SPI state variables 
 time_scale <- 6  # sets the length of the averaging period 
 
-# SCI analysis----
+
 # Cottonwoods SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -2321,9 +2277,8 @@ spi_rap <- spi_rap %>%
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
- 
 
-# check for warnings----
+#   6mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -2335,7 +2290,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 
-# clean up & combine the SPI variables---- 
+#   6mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -2367,7 +2322,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   6mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -2446,7 +2401,7 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
- # Clean up Global Environment----
+#   6mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att6     <- spi_att 
 spi_gath6    <- spi_gath
@@ -2457,19 +2412,13 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi)
 rm(spi_att, spi_gath)
-```
-
-```{r spi-with-SCI-9mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo
-
-# ora has an extreme low value & really high skew 
+#   9mon-spi-with-SCI-9mo----
+# Notes: ora has an extreme low value & really high skew ??
 
 # set SCI state variables 
 time_scale <- 9  # sets the length of the averaging period 
 
-# SCI analysis----
+
 # Cottonwoods SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -2614,7 +2563,7 @@ spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
 
-# check for warnings----
+#   9mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -2625,8 +2574,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
                       flag_ora, flag_rap) 
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-
-# clean up & combine the SPI variables---- 
+#   9mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -2658,7 +2606,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   9mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -2737,7 +2685,7 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
- # Clean up Global Environment----
+#   9mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att9     <- spi_att 
 spi_gath9    <- spi_gath
@@ -2748,19 +2696,12 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-```
-
-```{r spi-with-SCI-12mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo 
-
-# ora has an extreme low value & really high skew 
+# 12mon- spi-with-SCI-12mo----
+# Notes: ora has an extreme low value & really high skew?? 
 
 # set SCI state variables 
 time_scale <- 12  # sets the length of the averaging period 
 
-# SCI analysis----
 # Cottonwoods SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -2904,8 +2845,7 @@ spi_rap <- spi_rap %>%
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
-
-# check for warnings----
+#   12mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -2917,7 +2857,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 
-# clean up & combine the SPI variables---- 
+#   12mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -2949,7 +2889,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   12mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -3028,7 +2968,7 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
- # Clean up Global Environment----
+#   12mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att12     <- spi_att 
 spi_gath12    <- spi_gath
@@ -3039,19 +2979,14 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-```
-
-```{r spi-with-SCI-18mo} 
+# 18mon-spi-with-SCI-18mo----
 # The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo 
 
-# ora has an extreme low value & really high skew 
+# Notes: ora has an extreme low value & really high skew ???
 
 # set SCI state variables
 time_scale <- 18  # sets the length of the averaging period 
 
-# SCI analysis----
 # Cottonwoods SPI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare cottonwoods precip for SPI transformation
@@ -3195,8 +3130,7 @@ spi_rap <- spi_rap %>%
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
-
-# check for warnings----
+#   18mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -3208,7 +3142,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 
-# clean up & combine the SPI variables---- 
+#   18mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -3240,7 +3174,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   18mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -3319,7 +3253,7 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
- # Clean up Global Environment----
+#   18mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att18     <- spi_att 
 spi_gath18    <- spi_gath
@@ -3330,19 +3264,14 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, spi_M, flag_spi, spi_check)
 rm(spi_att, spi_gath) 
-```
+# 24mon- spi-with-SCI-24mo---- 
 
-```{r spi-with-SCI-24mo} 
-# The following code chunks calculate SPI & SRI using the Standardized 
-# Climate Index (SCI) package.  
-# Explanation is above in spi-with-SCI-1mo 
-
-# ora has an extreme low value & really high skew 
+# Notes: ora has an extreme low value & really high skew ????
 
 # set SCI state variables 
 time_scale <- 24  # sets the length of the averaging period 
 
-# SCI analysis----
+
 # Cottonwoods SPI 
 # prepare cottonwoods precip for SPI transformation
 first_mon <- 6 # sets the first month 
@@ -3486,7 +3415,7 @@ spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 rm(sta_rap)
  
 
-# check for warnings----
+#   24mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
 flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
@@ -3498,7 +3427,7 @@ flag_spi <- bind_rows(flag_cot, flag_int, flag_oel,
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 
-# clean up & combine the SPI variables---- 
+#   24mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 rm(cot, int, oel, ora, rap) 
 
@@ -3530,7 +3459,7 @@ spi_M <- spi %>%
 
 spi_M <- cor(spi_M)
  
-# Pearson Type-III distribution properties---- 
+#   24mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 att_names <- spi.cot.l$dist.para 
@@ -3609,7 +3538,7 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
- # Clean up Global Environment----
+#   24mon-Clean up Global Environment----
 #rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att24     <- spi_att 
 spi_gath24    <- spi_gath
@@ -3621,12 +3550,9 @@ rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l)
 rm(spi, spi_M, flag_spi, spi_check)
 rm(spi_att, spi_gath)
 rm(distrib, first_mon, p_zero, p_zero_cm, scale, time_scale, warn_me)
-```
-
-```{r join_spi} 
+# prepare for joining_spi values----
 # this code chunk joins the various [spi1, spi24] data slices
 
-# join spi attributes---- 
 # prepare for join- create length
 spi_att1 <-  mutate(spi_att1, spi_length = 1) 
 spi_att2 <-  mutate(spi_att2, spi_length = 2) 
@@ -3690,7 +3616,6 @@ spi_check <- bind_rows(spi_check, spi_check12)
 spi_check <- bind_rows(spi_check, spi_check18) 
 spi_check <- bind_rows(spi_check, spi_check24) 
 
-
 # check non-zero precip vals
 zero_prob_prcp <- spi_check %>% 
   filter(property != "N") %>% 
@@ -3701,7 +3626,6 @@ zero_prob_prcp <- spi_check %>%
   group_by(month, spi_length) %>% 
   summarize(mean_val_perc = 100 * mean(value)) %>% 
   filter(mean_val_perc > 0)
-
 
 # join spi correlation coefficients----
 # prepare for join
@@ -3851,7 +3775,7 @@ spi_corr <- spi_corr %>%
 spi_corr <- spi_corr %>% 
   select(-to_lat, -to_lon, -from_lat, -from_lon)
 
-# join spi index values----
+# join spi index values & clean up global environment----
 # prepare for join -add lengths & get dataframes to same length
 spi_gath1 <- spi_gath1 %>% 
   mutate(spi_length = 1) 
@@ -3897,7 +3821,7 @@ spi_index <- bind_rows(spi_index, spi_gath12)
 spi_index <- bind_rows(spi_index, spi_gath18)  
 spi_index <- bind_rows(spi_index, spi_gath24)  
 
-# clean up Global Environment----
+
 rm(spi_att1, spi_att2, spi_att3, spi_att4, spi_att5, 
    spi_att6, spi_att9, spi_att12, spi_att18, spi_att24)
 
@@ -3917,7 +3841,211 @@ rm(spi_gath1, spi_gath2, spi_gath3, spi_gath4, spi_gath5,
 rm(spi_check, att_list)
 ```
 
+```{r examine-SCI-values, eval=FALSE}
+# This code chunk examines the really large negative values &
+# the NA values by non-closure of  ML estimator for 
+# Interior 1-month SPI for Feb & some odd Oral values  
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Examine the initial SPI values for outliers----
+ggplot(spi_index, aes(spi_length, spi_index)) + 
+  geom_jitter() + 
+  facet_grid(rows = vars(sta)) +
+  theme_bw() +
+  ggtitle("Initial SPI Plot", 
+          subtitle = "Typical values are between -4 to 4") 
+
+# save intial plot
+#ggplot2::ggsave(filename = "figure/initial_spi.png", 
+#                width = 6, height = 6, units = "in")
+
+# split outliers from typical values----
+spi_index_outlier <- spi_index %>% 
+  filter(spi_index < -4) %>% 
+  as.tibble() 
+
+spi_index_typical <- spi_index %>% 
+  filter(spi_index > -4) %>%
+  arrange(spi_index)
+
+# plot outlier years----
+sta_outlier <- sta_raw %>% 
+  gather(key = sta, value = depth, -date, -year, -month) %>% 
+  filter(date == "1977-02-01" | 
+    date == "2005-01-01" | 
+    date == "2007-01-01" | 
+    date == "2012-11-01") 
+
+ggplot(sta_outlier, aes(date, depth, color = factor(sta))) + 
+  geom_point() + 
+  theme_bw() +
+  ggtitle("Initial SPI Plot", 
+          subtitle = "Typical values are between -4 to 4") 
+```
+
+```{r fix-SCI-values}
+# This code chunk fixes the really large negative values & 
+# NA values created by non-closure of ML estimator for  
+# Interior 1-month SPI for Feb 
+
+# spi_index_typical - calculated above 
+# these are the min SPI vals from Cottonwood during depression 
+#  date       sta   spi_index spi_length 
+#   <date>     <chr>     <dbl>      <dbl> 
+# 1 1936-10-01 cot       -3.31          6 
+# 2 1937-01-01 cot       -3.27          9 
+# 3 1936-09-01 cot       -3.26          4 
+# 4 1936-09-01 cot       -3.25          5 
+# 5 1936-10-01 cot       -3.25          9  
+
+# spi_index_outlier - calculated above 
+# date       sta   spi_index spi_length
+#  <date>     <chr>     <dbl>      <dbl>
+#1 1977-02-01 ora       -8.03          5   * caused by a zero depth
+#2 2005-01-01 ora       -7.51         12
+#3 2007-01-01 ora       -8.01          4
+#4 2012-09-01 int       -8.03          1
+#5 2012-11-01 ora       -7.71         12 
+
+
+# Outlier values could be approximated by the mean SPI  
+# or the nearest neighbor (Oral <- Oelrichs) - I used mean SPI  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# check for na values 
+spi_index_na <- spi_index %>% 
+  filter(is.na(spi_index) | 
+           is.na(sta)) 
+
+# split outliers from typical values & create replace tibble
+spi_index_outlier <- spi_index %>% 
+  filter(spi_index < -4) %>% 
+  as.tibble() 
+
+spi_index_typical <- spi_index %>% 
+  filter(spi_index > -4) %>%
+  arrange(spi_index)
+
+# create replacement values
+spi_index_replace <- spi_index_typical %>%          # pulls outliers
+  filter(date == "1977-02-01" &  spi_length == 5 |
+           date == "2005-01-01" & spi_length == 12 | 
+           date == "2007-01-01" & spi_length == 4 | 
+           date == "2012-11-01" & spi_length == 12 | 
+           date == "2012-09-01" & spi_length == 1)  %>% 
+  group_by(date, spi_length) %>% 
+  summarize(spi_index = mean(spi_index)) %>%
+  ungroup()                      # calculates mean values 
+
+
+# join replacement values with outlier dates
+spi_index_replace <- spi_index_outlier %>% 
+  select(date, sta) %>% 
+  full_join(., spi_index_replace, by = "date")
+
+spi_index2 <- bind_rows(spi_index_typical, spi_index_replace) 
+spi_index_na <- spi_index2 %>% 
+  filter(is.na(spi_index) | 
+           is.na(sta)) 
+
+# check the values after the fix
+# spi_index2
+# A tibble: 48,011 x 4
+#   date       sta   spi_index spi_length
+#   <date>     <chr>     <dbl>      <dbl>
+# 1 1936-10-01 cot       -3.31          6
+# 2 1937-01-01 cot       -3.27          9
+# 3 1936-09-01 cot       -3.26          4
+# 4 1936-09-01 cot       -3.25          5
+# 5 1936-10-01 cot       -3.25          9
+# the Oral outlier values are now fixed 
+
+# update the index in memory 
+spi_index <- spi_index2 %>% 
+  arrange(spi_index)
+
+# clean up
+spi_index_na <- spi_index %>% 
+  filter(is.na(spi_index)) 
+
+# visually check results
+spi_index_plot <- spi_index %>% 
+  filter(spi_length == 12)
+  
+ggplot(spi_index_plot, aes(date, spi_index)) + 
+  geom_line() +
+  facet_wrap(vars(sta)) + 
+  theme_classic() +
+  geom_hline(yintercept = 0, aes)
+
+#ggplot2::ggsave(path = "figure/", filename = "spi_1mo.png", 
+#                width = 6, height = 6, units = "in")  
+
+# clean up Global Environment----
+rm(spi_index_replace1, spi_index_replace2, spi_index_replace3, 
+   spi_index_replace4, spi_index_replace5, spi_replace_sta, 
+   spi_index2, spi_index_outlier, spi_index_replace, 
+   spi_index_typical, spi_index_na, sta_na, sta_outlier) 
+
+rm(spi_index2, spi_index_outlier, spi_index_replace, 
+   spi_index_typical, spi_index_na) 
+```
+
 ```{r spi-correlation-analysis}
+# create correlation matrix inputs
+spi_M <- spi_index %>% 
+  select(-date) %>% 
+  group_by(sta, spi_length) %>% 
+  mutate(grouped_id = row_number()) %>% 
+  spread(key = sta, value = spi_index) %>% 
+  drop_na() %>% 
+  ungroup() %>% 
+  select(-grouped_id) %>% 
+  select(spi_length, cot, int, oel, ora, rap) # ensure vars order
+
+# create correlation matrix names from the correlation matrix vars
+spi_M_names <- spi_M %>% 
+  filter(spi_length == 1) %>% 
+  cor() %>% 
+  as.tibble() %>% 
+  names() %>% 
+  as.tibble() %>% 
+  slice(-1) %>% 
+  mutate(value2 = value) %>% 
+  mutate(value3 = value) %>%  
+  mutate(value4 = value) %>%
+  mutate(value5 = value) %>% 
+  gather(key, sta2) %>% 
+  select(-key) %>% 
+  rownames_to_column() 
+
+spi_M_names2 <- spi_M_names %>% 
+  arrange(sta2) %>% 
+  rename(sta1 = sta2) %>% 
+  select(-rowname)
+  
+spi_M_names <- bind_cols(spi_M_names, spi_M_names2)  
+rm(spi_M_names2)
+
+# create a correlation matrix from SPI vals
+spi_M <- spi_M %>% 
+  split(.$spi_length) %>% 
+  purrr::map_dfr(~ cor(.)) %>% 
+  drop_na() %>% 
+  slice(-1) %>% 
+  rownames_to_column() 
+
+# bind names to the correlation matrix 
+spi_M <- full_join(spi_M_names, spi_M, by = "rowname")
+spi_M <- spi_M %>% 
+  select(sta1, sta2, everything()) %>%
+  select(-rowname)
+  
+
+
+
+
 # model effect of averaging time & distance on correlation----
 # fit a linear model
 spi_lm <- lm(pears_r ~ distance + spi_length, 
@@ -3932,7 +4060,7 @@ spi_corr_gath <- spi_corr_aug %>%
   select(-northing, -easting) %>% 
   gather(key = factor, val, -stations, -pears_r)
 
-# plot the original data and fitted model
+# plot the original data and fitted model for SPI----  
 ggplot(spi_corr_gath, aes(val, pears_r)) + 
   geom_point(aes(color = factor(stations))) +
   facet_wrap(ncol = 1, vars(factor), scales = "free") +
@@ -3961,161 +4089,6 @@ spi_corr <- spi_corr_aug
 rm(spi_corr_aug, spi_corr_gath) 
 rm(spi_lm,spi_lm_fit, spi_lm_tidy)
 
-```
-
-```{r fix-SCI-values}
-# This code chunk fixes the really large negative values &
-# the NA values by non-closure of  ML estimator for 
-# Interior 1-month SPI for Feb
-
-# Examine the initial SPI values for outliers----
-ggplot(spi_index, aes(spi_length, spi_index)) + 
-  geom_jitter() + 
-  facet_grid(rows = vars(sta)) +
-  theme_bw() +
-  ggtitle("Initial SPI Plot", 
-          subtitle = "Typical values are between -4 to 4") 
-
-# save intial plot
-#ggplot2::ggsave(filename = "figure/initial_spi.png", 
-#                width = 6, height = 6, units = "in")
-
-# split outliers from typical values----
-spi_index_outlier <- spi_index %>% 
-  filter(spi_index < -4) %>% 
-  as.tibble()
-
-spi_index_typical <- spi_index %>% 
-  filter(spi_index > -4) %>%
-  arrange(spi_index)
-
-# spi_index_outlier 
-# date       sta   spi_index spi_length
-#  <date>     <chr>     <dbl>      <dbl>
-#1 2012-09-01 int       -8.03          1
-#2 2007-01-01 ora       -8.01          4
-#3 1977-02-01 ora       -8.03          5
-#4 2005-01-01 ora       -7.51         12
-#5 2012-11-01 ora       -7.71         12 
-
-# spi_index_typical 
-# these are the min SPI vals
-#  date       sta   spi_index spi_length
-#   <date>     <chr>     <dbl>      <dbl>
-# 1 1936-10-01 cot       -3.31          6
-# 2 1937-01-01 cot       -3.27          9
-# 3 1936-09-01 cot       -3.26          4
-# 4 1936-09-01 cot       -3.25          5
-# 5 1936-10-01 cot       -3.25          9
-
-# plot outlier years----
-sta_outlier <- sta_raw %>% 
-  gather(key = sta, value = depth, -date, -year, -month) %>% 
-  filter(date == "1977-02-01" | 
-    date == "2005-01-01" | 
-    date == "2007-01-01" | 
-    date == "2012-11-01") 
-
-ggplot(sta_outlier, aes(date, depth, color = factor(sta))) + 
-  geom_point() + 
-  theme_bw() +
-  ggtitle("Initial SPI Plot", 
-          subtitle = "Typical values are between -4 to 4") 
-
-# Outlier Oral values chould be approximated by the mean SPI 
-# or the nearest neighbor (Oelrichs) - used mean SPI
-
-# create a tibble to replace the SPI outliers----
-spi_index_replace1 <- spi_index_typical %>% 
-  filter(date == "1977-02-01" & 
-           spi_length == 5) 
-
-spi_index_replace2 <- spi_index_typical %>% 
-  filter(date == "2005-01-01" & 
-           spi_length == 12) 
-
-spi_index_replace3 <- spi_index_typical %>% 
-  filter(date == "2007-01-01" & 
-           spi_length == 4) 
-
-spi_index_replace4 <- spi_index_typical %>% 
-  filter(date == "2012-11-01" & 
-           spi_length == 12) 
-
-spi_index_replace5 <- spi_index_typical %>% 
-  filter(date == "2012-09-01" & 
-           spi_length == 1) 
-
-spi_index_replace <- bind_rows(spi_index_replace1, spi_index_replace2) 
-spi_index_replace <- bind_rows(spi_index_replace, spi_index_replace3) 
-spi_index_replace <- bind_rows(spi_index_replace, spi_index_replace4) 
-spi_index_replace <- bind_rows(spi_index_replace, spi_index_replace5) 
-
-# calculate mean values & prepare for join 
-spi_index_replace <- spi_index_replace %>% 
-    group_by(date, spi_length) %>% 
-  summarize(spi_index = mean(spi_index)) %>%
-  ungroup() 
-
-spi_replace_sta <- spi_index_outlier %>% 
-  select(date, sta)
-
-# join replace values to typical values & bind rows
-spi_index_replace <- full_join(spi_index_replace, 
-                               spi_replace_sta, by = "date")
-
-spi_index2 <- bind_rows(spi_index_typical, spi_index_replace) 
-
-# check the values after the fix
-# spi_index2
-# A tibble: 48,011 x 4
-#   date       sta   spi_index spi_length
-#   <date>     <chr>     <dbl>      <dbl>
-# 1 1936-10-01 cot       -3.31          6
-# 2 1937-01-01 cot       -3.27          9
-# 3 1936-09-01 cot       -3.26          4
-# 4 1936-09-01 cot       -3.25          5
-# 5 1936-10-01 cot       -3.25          9
-# the outlier values are now fixed 
-
-spi_index <- spi_index2 %>% 
-  arrange(spi_index)
-
-# fix the NA values for Interior----
-# get mean values for all the years & # split at the start of 
-# Interior weather station 
-
-spi_index_na <- spi_index %>% 
-  mutate(month = month(date)) %>% 
-  filter(month == 2)  %>% 
-  filter(spi_length == 1) %>% 
-  group_by(date, spi_length) %>% 
-  summarize(spi_index = mean(spi_index)) %>%
-  ungroup() %>%
-  filter(date > "1948-11-01") %>%  
-  mutate(sta = "int")
-  
-spi_index <- bind_rows(spi_index, spi_index_na) 
-
-
-# visually check results
-spi_index_plot <- spi_index %>% 
-  filter(spi_length == 12)
-  
-ggplot(spi_index_plot, aes(date, spi_index)) + 
-  geom_line() +
-  facet_wrap(vars(sta)) + 
-  theme_classic() +
-  geom_hline(yintercept = 0, aes)
-
-ggplot2::ggsave(path = "figure/", filename = "spi_1mo.png", 
-                width = 6, height = 6, units = "in")  
-
-# clean up Global Environment----
-rm(spi_index_replace1, spi_index_replace2, spi_index_replace3, 
-   spi_index_replace4, spi_index_replace5, spi_replace_sta, 
-   spi_index2, spi_index_outlier, spi_index_replace, 
-   spi_index_typical, spi_index_na, sta_na, sta_outlier)
 ```
 
 ```{r SCI-diagnostic-plots, eval=FALSE}
@@ -4438,21 +4411,42 @@ ggplot() +
 
 
 
-
-
-
 ```{r streamflow-data-organization}  
 #  the streamflow data should be 1990-2016.  However, many stations 
 # have missing periods of record 
 
+gage_meta_full <- import("data/gage_meta_full.csv") 
+
+gage_meta <- import("data/gage_meta.csv") 
+gage_meta_lt80 <- import("data/gage_lt80_meta.csv") 
+gage_meta_9016 <- import("data/gage_meta_9016.csv")
+
+gage_disc <- import("data/gage_disc.csv") %>% 
+  clean_names() # %>% 
+  filte
+
+  filter(water)
+  mutate(min_yr = case_when(
+    .$min_yr < 1990 ~ 1990,
+    .$min_yr >= 1990 ~ as.double(.$min_yr))) 
+
 # import gage metadata 
-gage_9016 <- import("data/gage_meta_9016.csv") %>% 
-  select(1:4) 
-gage_9398 <- import("data/gage_meta_9398.csv") %>% 
-  select(1:4)
+gage_9016 <- import("data/gage_9016.csv") %>% 
+  select(1:4) %>% 
+  distinct() 
+
+gage_9015 <- import("data/gage_9015.csv") %>% 
+  select(1:4) %>% 
+  distinct() 
+
+test <- anti_join(gage_9016, gage_9015)
+
+gage_9398 <- import("data/gage_9398.csv") %>% 
+  select(1:4) %>% 
+  distinct()
 
 #  combine records and prepare to look for missing years 
-gage <- bind_rows(gage_9016, gage_9398) %>% 
+gage <- bind_rows(gage_9016, test) %>% 
   distinct() %>% 
   mutate(min_yr = case_when(
     .$min_yr < 1990 ~ 1990,
@@ -4464,6 +4458,14 @@ gage <- bind_rows(gage_9016, gage_9398) %>%
   ) %>% 
   mutate(count_yr = max_yr - min_yr) # recalculate count
   
+
+
+
+
+
+
+
+
 # split to stations with missing & nonmissing data
 gage_miss <- gage %>% 
   filter(count_yr < 27) %>% 
@@ -4502,61 +4504,17 @@ gage_yr_max_lt04 <- gage_yr_miss %>%
 #3 bev_abf   1991   1997        6
 #4 wkc_wok   1992   1997        5
 
-# inital step - run 92-97 PCA with lcr_abv by dropping 1996 
-#gage_yr_miss <- gage_yr_miss %>% 
-#  mutate(
-#    completeness = case_when(
-#      sta == "lcr_abv" ~ "1 - drop96", 
-#      TRUE ~ .$completeness
-#    )
-#) 
+
 ```
 
-```{r PCA_exploratory_analysis -refactored}
-# PCA results & interpretation
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# A tibble: 3 x 4
-#     PC std.dev percent cumulative
-#  <dbl>   <dbl>   <dbl>      <dbl>
-#1     1   1.67  0.932        0.932
-#2     2   0.419 0.0586       0.991
-#3     3   0.167 0.00935      1     
+```{r PCA_exploratory_analysis_93-98}
 
-## A tibble: 6 x 3
-#  var          PC  value
-#  <fct>     <dbl>  <dbl>
-#1 q1_depth      1  0.577
-#2 q7_depth      1  0.591
-#3 q30_depth     1  0.563
-#4 q1_depth      2  0.577
-#5 q7_depth      2  0.193
-#6 q30_depth     2 -0.794
-
-# eigenvecter:
-#   93% of covarience is explained by PCA1 & 6% of varience by PCA2
-# variables:
-#   PC1 - approximately equal loadings of Q1, Q7, Q30;
-#   PC2 - large positive loading of Q1 & large negative loading of Q30  
-#   PC1 is about the hydrologic export of the system with larger
-#     values exporting a greater amount of water 
-#   PC2 is about the contribution of baseflow vs event-flow
-# Find nearest neighbors to extend stations
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#pca_meta <- import("data/gage_meta_9398.csv") 
-#input_chk <- pca_input %>% 
-#  group_by(sta) %>% 
-#  summarise(start_wat_yr = min(DecYear), 
-#            end_wat_yr = max(DecYear)
-#            ) %>% 
-#  arrange(desc(start_wat_yr)) %>% 
-#  arrange(end_wat_yr) 
-# four stations are 93:97, the other 23 are 93:98 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # import data 
 pca_input <- import("data/gage_9398.csv") %>% 
   mutate(date = Date) 
+
 
 # Eliminate effects of watershed size----
 # Calculate daily flow depths by dividing flow (cms) by watershed 
@@ -4647,7 +4605,7 @@ gage_sum <- gage_aug %>%
             q30_mean = mean(q30_depth), 
             q1_q30_mean = mean(q1_q30_diff),
             date_min = min(dec_year), 
-            date_max = max(dec_year)
+            date_max = max(dec_year) 
             ) %>% 
   ungroup() %>% 
   arrange(PC2_mean) %>% 
@@ -4655,83 +4613,228 @@ gage_sum <- gage_aug %>%
 
 rm(lambda_q1, lambda_q7, lambda_q30, pca_input, pca_matrix) 
 
+# PCA results & interpretation
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# A tibble: 3 x 4
+#     PC std.dev percent cumulative
+#  <dbl>   <dbl>   <dbl>      <dbl>
+#1     1   1.67  0.932        0.932 
+#2     2   0.419 0.0586       0.991
+#3     3   0.167 0.00935      1     
 
+## A tibble: 6 x 3
+#  var          PC  value
+#  <fct>     <dbl>  <dbl>
+#1 q1_depth      1  0.577
+#2 q7_depth      1  0.591
+#3 q30_depth     1  0.563
+#4 q1_depth      2  0.577
+#5 q7_depth      2  0.193
+#6 q30_depth     2 -0.794
+
+# eigenvecter:
+#   93% of covarience is explained by PCA1 & 6% of varience by PCA2
+# variables:
+#   PC1 - approximately equal loadings of Q1, Q7, Q30;
+#   PC2 - large positive loading of Q1 & large negative loading of Q30  
+#   PC1 is about the hydrologic export of the system with larger
+#     values exporting a greater amount of water 
+#   PC2 is about the contribution of baseflow vs event-flow
+# Find nearest neighbors to extend stations
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#pca_meta <- import("data/gage_meta_9398.csv") 
+#input_chk <- pca_input %>% 
+#  group_by(sta) %>% 
+#  summarise(start_wat_yr = min(DecYear), 
+#            end_wat_yr = max(DecYear)
+#            ) %>% 
+#  arrange(desc(start_wat_yr)) %>% 
+#  arrange(end_wat_yr) 
+# four stations are 93:97, the other 23 are 93:98 
 ```
 
-```{r fix 1991}
+```{r fill_missing_data_wet_years}
+# overview----
 # find nearest neighbors for stations with missing data
-# from gage_sum above: 
+# also, drop stations with very short records: 
+#     nio_bbb, nio_gor, nio_abb, cas_hot
 
-# station_1991_1992_1998_neighbor
-# bev_abf   y    y    y   frn_fai
-# bev_pri   y    y    n   bev_buf
-# wkc_wok   y    n    y   bev_buf
-# blp_bel   y    n    n   brsf_co
-# whi_slm   n    n    y   whi_ogl
-# ros_ros   n    n    y   lwr_abv
+# table of nearest neighbors by PCA above by water year
+# station  1990-1992  1992   1998  neighbor
+# bev_pri      y        n      n    bev_buf
+# blp_bel      y        n      n    brsf_co
+# lwr_abv      y        n      n    lwr_ros
+# ros_ros      y        n      y    lwr_abv
+# whi_slm      y        n      y    whi_ogl
+# wkc_wok      y        n      y    bev_buf
+# bev_abf      n        y      y    frn_fai
+# rap_far      n        y      n    fal_hot 
 
-# fix 1991
-# bev_abf   <- frn_fai
-# bev_pri   <- bev_buf
-# wkc_wok   <- bev_buf
-# blp_bel   <- brsf_co
-
+# import data----
 gage_9092 <- import("data/gage_9016.csv") %>% 
   clean_names() %>% 
+  select(c("sta", "min_yr", "max_yr", "count_yr", "date", "i", 
+           "julian", "month", "day", "dec_year", "month_seq", 
+           "water_year", "qualifier", "log_q", "q", "q7", "q30", 
+           "contrib_drain_area_va")) %>% 
   filter(water_year < 1993) 
 
 gage_9398 <- import("data/gage_9398.csv") %>% 
-  mutate(date = Date) 
+  clean_names() %>% 
+  select(c("sta", "min_yr", "max_yr", "count_yr", "date", "i", 
+           "julian", "month", "day", "dec_year", "month_seq", 
+           "water_year", "qualifier", "log_q", "q", "q7", "q30", 
+           "contrib_drain_area_va")) 
 
-gage_9098 <- bind_rows(gage_9092, gage_9398) 
+gage_9098 <- bind_rows(gage_9092, gage_9398) %>% 
+  distinct() %>%            # tests to ensure no duplicates
+  mutate(min_yr = case_when(
+    .$min_yr < 1990 ~ 1990,
+    .$min_yr >= 1990 ~ as.double(.$min_yr))) %>%  # updated min yr
+  mutate(min_yr = case_when(
+      sta == "lcr_abv" ~ 1996, 
+      TRUE ~ .$min_yr
+    )  # fix min year for lcr_abv
+  ) %>% 
+  mutate(count_yr = max_yr - min_yr) %>%      # recalculate count 
+  filter(sta != "nio_bbb") %>% 
+  filter(sta != "nio_gor") %>% 
+  filter(sta != "nio_abb") %>% 
+  filter(sta != "cas_hot") %>% 
+  filter(sta != "whi_cra")  # these are very short records 
 
 rm(gage_9092, gage_9398) 
 
+# fill missing data for 1990-1992 :: bev_pri <- bev_buf---- 
+gage_from <- gage_9098 %>% 
+  filter(sta == "bev_buf") %>% 
+  filter(water_year <= 1992) %>% 
+  select(-c(2:4)) %>% 
+  mutate(sta = "bev_pri")
 
+gage_to <- gage_9098 %>% 
+  filter(sta == "bev_pri") %>% 
+  slice(1) %>% 
+  select(1:4)
+
+gage_fill <- full_join(gage_to, gage_from, by = "sta")
+gage_9098 <- bind_rows(gage_9098, gage_fill) 
+
+# fill missing data for 1990-1992 :: blp_bel <- brsf_co----
+gage_from <- gage_9098 %>% 
+  filter(sta == "brsf_co") %>% 
+  filter(water_year <= 1992) %>% 
+  select(-c(2:4)) %>% 
+  mutate(sta = "blp_bel")
+
+gage_to <- gage_9098 %>% 
+  filter(sta == "blp_bel") %>% 
+  slice(1) %>% 
+  select(1:4)
+
+gage_fill <- full_join(gage_to, gage_from, by = "sta")
+gage_9098 <- bind_rows(gage_9098, gage_fill) 
+
+# fill missing data for 1990-1992 :: lwr_abv <- lwr_ros----  
+gage_from <- gage_9098 %>% 
+  filter(sta == "lwr_ros") %>% 
+  filter(water_year <= 1992) %>% 
+  select(-c(2:4)) %>% 
+  mutate(sta = "lwr_abv")
+
+gage_to <- gage_9098 %>% 
+  filter(sta == "lwr_abv") %>% 
+  slice(1) %>% 
+  select(1:4)
+
+gage_fill <- full_join(gage_to, gage_from, by = "sta")
+gage_9098 <- bind_rows(gage_9098, gage_fill) 
+
+# fill missing data for 1990-1992 :: ros_ros <- lwr_abv----  
+gage_from <- gage_9098 %>% 
+  filter(sta == "lwr_abv") %>% 
+  filter(water_year <= 1992 | 
+           water_year <= 1998) %>% 
+  select(-c(2:4)) %>% 
+  mutate(sta = "ros_ros")
+
+gage_to <- gage_9098 %>% 
+  filter(sta == "ros_ros") %>% 
+  slice(1) %>% 
+  select(1:4)
+
+gage_fill <- full_join(gage_to, gage_from, by = "sta")
+gage_9098 <- bind_rows(gage_9098, gage_fill)  
+
+# fill missing data for 1990-1992 :: whi_slm <- whi_ogl---- 
+gage_from <- gage_9098 %>% 
+  filter(sta == "whi_ogl") %>% 
+  filter(water_year <= 1992 | 
+           water_year <= 1998) %>% 
+  select(-c(2:4)) %>% 
+  mutate(sta = "whi_slm")
+
+gage_to <- gage_9098 %>% 
+  filter(sta == "whi_slm") %>% 
+  slice(1) %>% 
+  select(1:4)
+
+gage_fill <- full_join(gage_to, gage_from, by = "sta")
+gage_9098 <- bind_rows(gage_9098, gage_fill) 
+
+# fill missing data for 1990-1992 :: wkc_wok <- bev_buf---- 
+gage_from <- gage_9098 %>% 
+  filter(sta == "bev_buf") %>% 
+  filter(water_year <= 1992 | 
+          water_year <= 1998) %>% 
+  select(-c(2:4)) %>% 
+  mutate(sta = "wkc_wok")
+
+gage_to <- gage_9098 %>% 
+  filter(sta == "wkc_wok") %>% 
+  slice(1) %>% 
+  select(1:4)
+
+gage_fill <- full_join(gage_to, gage_from, by = "sta")
+gage_9098 <- bind_rows(gage_9098, gage_fill) 
+
+# fill missing data 1990 & 1998   :: bev_abf <- frn_fai----
+gage_from <- gage_9098 %>% 
+  filter(sta == "frn_fai") %>% 
+  filter(water_year == 1990 | 
+           water_year == 1998) %>% 
+  select(-c(2:4)) %>% 
+  mutate(sta = "bev_abf")
+
+gage_to <- gage_9098 %>% 
+  filter(sta == "bev_abf") %>% 
+  slice(1) %>% 
+  select(1:4)
+
+gage_fill <- full_join(gage_to, gage_from, by = "sta")
+gage_9098 <- bind_rows(gage_9098, gage_fill) 
+
+# summarize & clean up  
+gage_9098_sum <- gage_9098 %>% 
+  group_by(sta) %>% 
+  summarize(date_min = min(dec_year), 
+            date_max = max(dec_year),
+            count_yr = mean(count_yr)
+            ) %>% 
+  ungroup() %>% 
+  arrange(count_yr) 
+
+rm(gage_fill, gage_from, gage_sum, gage_to)
 ```
 
+```{r PCA_exploratory_analysis_90-98}
 
- 
-
-```{r PCA_exploratory_analysis -refactored-old}
-# Overview---- 
-# ~~~~~~~~ 
-# PCA is a method to summarize data using fewer variables by 
-# constructing new linear descriptors from variables. The new 
-# linear discriptors describe maximum variation across observations. 
-# The new discriptors can be used to predict, or "reconstruct",
-# observations as well as possible.
-
-# PCA finds the axis the describes the maximum covariance and 
-# projecting all of the observations points onto this line. The line 
-# called the "first principal component" simultanesous describes 
-# maximal variation of values along the line & minimizes the 
-# reconstruction error 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# Examines data from 1993-1997 - wet years with Wounded Knee station  
-
-# Data preparation steps: import data, normalize by watershed area, 
-#     remove missing values, calculate z-scores by BoxCox & 
-#     standardize & center data
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# import data & check----
-pca_input <- import("data/gage_9398.csv") %>% 
-  mutate(date = Date)
-pca_meta <- import("data/gage_meta_9398.csv") 
-
-input_chk <- pca_input %>% 
-  group_by(sta) %>% 
-  summarise(start_wat_yr = min(DecYear), 
-            end_wat_yr = max(DecYear)
-            ) %>% 
-  arrange(desc(start_wat_yr)) %>% 
-  arrange(end_wat_yr) 
-# four stations are 93:97, the other 23 are 93:98
+# Data is from above
+pca_input <- gage_9098 
 
 # Eliminate effects of watershed size----
-# I calculated daily flow depths by dividing flow (cms) by watershed 
+# Calculate daily flow depths by dividing flow (cms) by watershed 
 #    area (sq-km) and multiplying the resultant by the number of 
 #    seconds in a day.  The result is cu-m-d per sq-km.
 
@@ -4745,18 +4848,17 @@ pca_input <- pca_input %>%
   drop_na()  # not really needed in this expression
 
 # Transform using BoxCox to approach normality---- 
-# daily flow data are highly skewed & tend to approach a logrithmic 
-# distribution.  BoxCox transformation utilizes a lamda value to 
-# transform a dataset to approach a normal distribution.
+# Daily flow data are highly skewed.  BoxCox transformation utilizes 
+# a lambda value to transform a dataset to an ~ normal distribution.
 
 # Lambda = 1 is normal distribution (no change), 
 # lambda = 0.5 is a square-root transformation, 
 # lamda = 2 is a square transformation,
 # lambda = 0 is a logrithmic transformation.
 
-lambda_q1 <- BoxCox.lambda(pca_input$q1_depth)   #  q1 ==> 0.010   
-lambda_q7 <- BoxCox.lambda(pca_input$q7_depth)   #  q7 ==> 0.105  
-lambda_q30 <- BoxCox.lambda(pca_input$q30_depth) # q30 ==> 0.264    
+lambda_q1 <- BoxCox.lambda(pca_input$q1_depth)   #  q1 ==> 0.006    
+lambda_q7 <- BoxCox.lambda(pca_input$q7_depth)   #  q7 ==> 0.098   
+lambda_q30 <- BoxCox.lambda(pca_input$q30_depth) # q30 ==> 0.193    
 
 # Standardize data by z-score---- 
 # PCA requires that data are scaled with a mean of zero and standard 
@@ -4779,26 +4881,29 @@ pca_input <- pca_input %>%
   dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
                 everything())
 
- 
 # Calculate PCA matrix & summary info---- 
 # prcomp() requires a dataset with only the variables, split data 
 # into PCA input & names to connect to result 
-pca_meta <- pca_input %>% 
-  select(sta, date, q1_depth, q7_depth, q30_depth) 
 
-pca_input <- pca_input %>%  
-  dplyr::select(q1_depth, q7_depth, q30_depth) 
-
-pca_matrix <- prcomp(pca_input, scale = TRUE) 
-
+pca_matrix <- pca_input %>%  
+  dplyr::select(q1_depth, q7_depth, q30_depth) %>%
+  prcomp(., scale = TRUE)      
+# note that . is passing select(q1_depth, q7_depth, q30_depth)
+  
 # Gather & summarize PCA results----
-# The broom package is used to gather results into tibbles.
-
 # Eigenvectors--results about PC axes
-#pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
+# pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
+
+# A tibble: 3 x 4
+#     PC std.dev percent cumulative perc_init cum_init
+#  <dbl>   <dbl>   <dbl>      <dbl>   <dbl>    <dbl>
+#1     1   1.69  0.947        0.947   0.932    0.932
+#2     2   0.367 0.0448       0.992   0.0586   0.991
+#3     3   0.155 0.00797      1    
+
 
 # PCA variables--the loadings on the PCA axes.  
-#pca_vars <-  tidy(pca_matrix, matrix = "variables") 
+# pca_vars <-  tidy(pca_matrix, matrix = "variables") 
 
 # Drop the 3rd PC-axis because it's not useful 
 #pca_vars <- pca_vars %>% 
@@ -4806,37 +4911,16 @@ pca_matrix <- prcomp(pca_input, scale = TRUE)
 #  rename(var = column) %>% 
 #  mutate(var = as.factor(var)) 
 
-# Bind sample vals to PCA matrix 
-gage_aug <- augment(pca_matrix, data = pca_input) 
-gage_aug <- bind_cols(pca_meta, gage_aug) 
+#  pca_vars
+#   var        PC   value  val_init
+#   <fct>     <dbl>  <dbl>  <dbl>
+# q1_depth      1  0.577    0.577
+# q7_depth      1  0.587    0.591
+# q30_depth     1  0.568    0.563
+# q1_depth      2  0.588    0.577
+# q7_depth      2  0.184    0.193
+# q30_depth     2 -0.788   -0.794
 
-gage_aug <- gage_aug %>% 
-  select(-.fittedPC3, -.rownames, 
-         -q1_depth1, -q7_depth1, -q30_depth1) %>% 
-  mutate(q1_q30_diff = q1_depth - q30_depth) 
-
-# summarize pca of gages
-gage_sum <- gage_aug %>% 
-  group_by(sta) %>% 
-  summarize(PC1_mean = mean(.fittedPC1),
-            PC2_mean = mean(.fittedPC2), 
-            q1_mean = mean(q1_depth), 
-            q7_mean = mean(q7_depth),
-            q30_mean = mean(q30_depth), 
-            q1_q30_mean = mean(q1_q30_diff)) %>% 
-  ungroup() %>% 
-  arrange(q1_q30_mean) %>% 
-  arrange(q7_mean)
-  
-
-# PCA results & interpretation
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# A tibble: 3 x 4
-#     PC std.dev percent cumulative
-#  <dbl>   <dbl>   <dbl>      <dbl>
-#1     1   1.67  0.932        0.932
-#2     2   0.419 0.0586       0.991
-#3     3   0.167 0.00935      1     
 
 ## A tibble: 6 x 3
 #  var          PC  value
@@ -4848,25 +4932,314 @@ gage_sum <- gage_aug %>%
 #5 q7_depth      2  0.193
 #6 q30_depth     2 -0.794
 
-# eigenvecter:
-#   93% of covarience is explained by PCA1 & 6% of varience by PCA2
-# variables:
-#   PC1 - approximately equal loadings of Q1, Q7, Q30;
-#   PC2 - large positive loading of Q1 & large negative loading of Q30  
-#   PC1 is about the hydrologic export of the system with larger
-#     values exporting a greater amount of water 
-#   PC2 is about the contribution of baseflow vs event-flow
+# Bind sample vals to PCA matrix - summarize & clean up
+gage_aug <- augment(pca_matrix, data = pca_input) %>% 
+  select(-c(.rownames, q1_mean:q30_sd, .fittedPC3)) %>% 
+  mutate(q1_q30_diff = q1_depth - q30_depth)      
 
+gage_sum <- gage_aug %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean = mean(.fittedPC1),
+            PC2_mean = mean(.fittedPC2), 
+            q1_mean = mean(q1_depth), 
+            q7_mean = mean(q7_depth),
+            q30_mean = mean(q30_depth), 
+            q1_q30_mean = mean(q1_q30_diff),
+            date_min = min(dec_year), 
+            date_max = max(dec_year) 
+            ) %>% 
+  ungroup() %>% 
+  arrange(PC2_mean) %>% 
+  arrange(PC1_mean)
 
-# clean up Global Environment----
-pca_sum <- full_join(pca_meta, gage_sum, by = "sta")
-
-gage_9398 <- left_join(gage_aug, pca_input, 
-                           by = c("sta", "date")) 
-
-# note:looks like gage_x_raw has same info as gage_x_aug
-rm(lambda_q1, lambda_q7, lambda_q30, pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, pca_matrix, gage_sum, input_chk)
+rm(lambda_q1, lambda_q7, lambda_q30, pca_input, pca_matrix) 
 ```
+
+
+```{r plot_PCA}
+
+# mean eigenvector plot
+ggplot(gage_sum, aes(PC1_mean, PC2_mean)) + 
+  geom_jitter() + 
+  geom_text(aes(label = sta), check_overlap = TRUE, 
+            nudge_y = 0.02) + 
+  theme_classic() + 
+#  scale_x_continuous(limits = c(-3.5, 2)) + 
+  xlab("PC axis 1 mean") +
+  ylab("PC axis 2 mean") 
+
+# transformed variable plot 
+ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) + 
+  geom_jitter() +  
+  geom_text(aes(label = sta), check_overlap = TRUE,  
+              nudge_y = 0.02) + 
+  scale_x_continuous(limits = c(-2.0, 1.5)) + 
+  scale_y_continuous(limits = c(-1, 0.75)) + 
+  geom_density2d() + 
+  geom_vline(xintercept = 0, aes(size = 2)) + 
+  geom_hline(yintercept = 0, aes(size = 1)) + 
+  theme_classic() + 
+  xlab("hydrologic export index") +
+  ylab("stability index") 
+
+# PC1 explanatory plot 
+ggplot(gage_aug, 
+       aes(q7_depth, .fittedPC1, color = factor(sta))) + 
+  geom_jitter() + 
+  theme_classic() +
+  xlab("Q7 depth") +
+  ylab("Fitted PC1") +  
+  theme(legend.position = "bottom") 
+
+#ggplot2::ggsave(path = "figure/", filename = "strm_pca1.png", 
+#                width = 6, height = 6, units = "in")  
+  
+# PC2 explanatory plot
+ggplot(gage_aug, aes(q1_q30_diff, .fittedPC2, 
+                          color = factor(sta))) +
+  geom_jitter() + 
+  theme_classic() +
+  xlab("Q1 depth minus Q30 depth") +
+  ylab("Fitted PC2") +
+  theme(legend.position = "bottom") 
+
+#ggplot2::ggsave(path = "figure/", filename = #"strm_pca1.png", 
+#                width = 6, height = 6, units = "in")  
+
+
+
+#ggplot2::ggsave(path = "figure/", filename = "strm_dens_mean.png", 
+#                width = 6, height = 6, units = "in")  
+
+# create density plot of all points
+ggplot(gage_aug, aes(q7_depth, q1_q30_diff)) +
+  geom_jitter(aes(color = sta, shape = ".")) + 
+  geom_density2d(aes(color = NULL)) + 
+  geom_point(data = gage_sum, mapping = aes(q7_mean, q1_q30_mean)) + 
+  geom_text(data = gage_sum, 
+           mapping = aes(q7_mean, q1_q30_mean, label = sta), 
+            check_overlap = TRUE) + 
+  scale_x_continuous(limits = c(-2, 1.5)) + 
+  scale_y_continuous(limits = c(-1.0, 0.75)) + 
+  geom_vline(xintercept = 0, aes(size = 2)) + 
+  geom_hline(yintercept = 0, aes(size = 1)) + 
+  theme_classic() + 
+  theme(legend.position = "none") 
+
+#ggplot2::ggsave(path = "figure/", filename = "strm_dens_all.png", 
+#                width = 6, height = 6, units = "in")  
+```
+
+
+```{r Model-Based_Clustering-9098} 
+
+# The traditional clustering methods, such as hierarchical clustering 
+# and k-means clustering, are heuristic and are not based on formal  
+# models. An alternative is model-based clustering, which consider the  
+# data as coming from a distribution that is mixture of two or more  
+# clusters (Fraley and Raftery 2002, Fraley #et al. (2012)). 
+# Model-based clustering uses a soft assignment, where each data point 
+# has a probability of belonging to each cluster.  In model-based 
+# clustering, the data is considered as coming from a mixture of 
+# density.  Each component (i.e. cluster) k is modeled by the normal 
+# or Gaussian distribution which is characterized by the parameters: 
+#   μk\mu_k: mean vector, 
+#   ∑k\sum_k: covariance matrix, 
+#   An associated probability in the mixture. Each point has a 
+#     probability of belonging to each cluster.  
+
+# The model parameters can be estimated using the Expectation-
+# Maximization (EM) algorithm initialized by hierarchical model-based 
+# clustering. Each cluster k is centered at the means μk\mu_k, with 
+# increased density for points near the mean.
+# Geometric features (shape, volume, orientation) of each cluster are 
+# determined by the covariance matrix ∑k\sum_k. 
+
+# Different possible parameterizations of ∑k\sum_k are available in 
+# the R package mclust (see ?mclustModelNames).
+# The available model options, in mclust package, are represented by 
+# identifiers including: EII, VII, EEI, VEI, EVI, VVI, EEE, EEV, VEV 
+# and VVV. 
+
+# The first identifier refers to volume, the second to shape and the 
+# third to orientation. E stands for "equal", V for "variable" and I 
+# for "coordinate axes".
+
+# The Mclust package uses maximum likelihood to fit all these models, 
+# with different covariance matrix parameterizations, for a range of 
+# k components.
+
+# The best model is selected using the Bayesian Information Criterion 
+# or BIC. A large BIC score indicates strong evidence for the 
+# corresponding model. 
+
+# Preparing to cluster by the central tendancy
+gage_clust_input <- gage_sum %>% 
+  select(q1_mean:q30_mean)
+
+gage_clust_input_meta <- gage_sum %>% 
+  select(sta)
+
+# apply & summarize model 
+gage_clust_l <- Mclust(gage_clust_input) # Model-based-clustering 
+summary(gage_clust_l) # Print a summary 
+
+#Gaussian finite mixture model fitted by EM algorithm 
+#---------------------------------------------------- 
+
+#Mclust EEV (ellipsoidal, equal volume and shape) 
+# EEV model with 5 components using 93-98 data
+# EEV model with 5 components using 90-98 data
+
+# log.likelihood  n df     BIC      ICL
+#        130.961 27 37   139.976 138.2098
+#        172.397 27 51   176.706 175.8812
+
+#Clustering tables:
+# 1  2  3  4  5  93-98 data
+# 3  7 13  2  2 
+ 
+# 1 2 3 4 5 6 7  90-98 data
+# 2 2 1 5 2 6 9 
+
+
+# Model-based clustering selected a model with five components 
+# (i.e. clusters). The optimal selected model name is VEV model. 
+# That is the five components are ellipsoidal with varying volume, 
+# and orientation, and equal shape. The summary contains also the 
+# clustering table specifying the number of observations in each 
+# clusters.
+
+#gage_clust_l$modelName # Optimal selected model ==> "EEV" 
+#gage_clust_l$G # Optimal number of cluster => 5 
+
+# Extract results to a dataframe & add metadata
+gage_clust <- as.tibble(gage_clust_l$z) 
+gage_clust <- bind_cols(gage_clust_input_meta, gage_clust) 
+
+# remove low probability results
+gage_clust <- gage_clust %>% 
+  gather(key = group, value = prob, -sta) %>% 
+  filter(prob > 0.7) 
+
+# join together summary results & rearrange
+gage_sum <- full_join(gage_sum, gage_clust, 
+                             by = "sta")
+gage_clust <- gage_clust %>% 
+  dplyr::select(sta, group, everything())
+
+# test output & clean up environment
+test <- anti_join(gage_9398_sum, gage_clust, by = "sta")  
+
+rm(gage_clust, gage_clust_input, 
+   gage_clust_input_meta, test)
+```
+
+```{r Clustering_visualization}
+
+# Visualizing model-based clustering
+# Model-based clustering results can be drawn using the base 
+# function plot.Mclust() [in mclust package]. We'll use the 
+# function fviz_mclust() [in factoextra package] to create beautiful 
+# plots based on ggplot2.
+
+# Where the data contain more than two variables, fviz_mclust() 
+# uses a principal component analysis to reduce the dimensionnality 
+# of the data. The first two principal components are used to produce 
+# a scatter plot of the data. However, if you want to plot the data 
+# using only two variables of interest, c("insulin", "sspg"), 
+# you can specify that in the fviz_mclust() function using the 
+# argument choose.vars = c("insulin", "sspg").
+
+library(factoextra)  # this might screw up the select!!!
+
+# BIC values used for choosing the number of clusters 
+fviz_mclust(gage_clust_l, "BIC", palette = "jco") 
+
+# Classification uncertainty 
+# Note: in the uncertainty plot, larger symbols indicate the 
+# more uncertain observations 
+fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
+
+# Classification: plot showing the clustering 
+fviz_mclust(gage_clust_l, "classification", geom = "point", 
+            pointsize = 1.5, palette = "jco") 
+
+#test <- left_join(gage_sum, gage_clust)
+
+
+# plot clusters in PCA space
+ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean, color = as.factor(group))) + 
+  geom_density2d(na.rm = FALSE, contour = TRUE, aes(color = as.factor(group)))  + 
+  geom_jitter() + 
+  geom_text(aes(label = sta), check_overlap = TRUE, 
+              nudge_y = 0.02) + 
+  scale_x_continuous(limits = c(-2, 1.1)) + 
+  scale_y_continuous(limits = c(-1.0, 0.4)) + 
+  theme_classic() 
+
+ #ggplot2::ggsave(path = "figure/", filename = "strm_clust.png", 
+#                width = 6, height = 6, units = "in")  
+
+gage_clust_plot <- gage_9398_sum %>% 
+  select(sta, group, q7_mean, q1_q30_mean) %>% 
+  rename(hydro_exp_coeff = q7_mean) %>% 
+  rename(stability_coeff = q1_q30_mean) %>% 
+  gather(key = parameter, value = value, -sta, -group)
+
+ggplot(gage_clust_plot, aes(group, value)) + 
+  facet_grid(rows = vars(parameter)) + 
+         geom_boxplot() + 
+  theme_bw()
+
+#ggplot2::ggsave(path = "figure/", filename = #"strm_clust_box.png", 
+#                width = 6, height = 3, units = "in")  
+
+gage_clust <- gage_clust %>% 
+  select(group, sta, station_nm, everything()) %>% 
+  arrange(group)
+
+# moderately low hydrologic export, highest Q1-Q30 = stable-low export
+#1     V1 whi_slm          WHITE RIVER AT SLIM BUTTE, SD
+#2     V1 wcc_ogl           WHITE CLAY CR NEAR OGLALA SD
+#3     V1 spr_her              SPRING CR NEAR HERMOSA,SD
+#4     V1 che_was          CHEYENNE RIVER NEAR WASTA, SD
+#5     V1 whi_ogl                 WHITE R NEAR OGLALA SD
+#6     V1 whi_sta            WHITE R NR NE-SD STATE LINE
+
+# average hydrologic export, high Q1-Q30 = stable-average export
+#7     V2 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNEE, SD
+#8     V2 bev_buf          BEAVER CR NEAR BUFFALO GAP,SD
+#9     V2 bat_bhr             BATTLE CR BELOW HERMOSA,SD
+#10    V2 bev_pri          BEAVER CREEK NEAR PRINGLE, SD
+
+# averarage Q1-Q30, highes hydrologic export = GW controlled
+#11    V3 bev_abf     BEAVER CREEK ABOVE BUFFALO GAP, SD
+#12    V3 ros_ros               ROSEBUD CR AT ROSEBUD SD
+#13    V3 lwr_abv          LITTLE WHITE R ABV ROSEBUD SD
+#14    V3 lwr_mar          LITTLE WHITE R NEAR MARTIN,SD
+#15    V3 lcr_bel   LAKE CR BELOW REFUGE NEAR TUTHILL,SD
+#16    V3 lwr_ros         LITTLE WHITE R NEAR ROSEBUD SD
+#17    V3 bat_key             BATTLE CR NEAR KEYSTONE,SD
+#18    V3 rap_far           RAPID CR NEAR FARMINGDALE,SD
+#19    V3 fal_hot               FALL R AT HOT SPRINGS,SD
+#20    V3 bat_her                BATTLE CR AT HERMOSA,SD
+#21    V3 lwr_whi    LITTLE WHITE R BELOW WHITE RIVER,SD
+#22    V3 lcr_vet           LITTLE WHITE R NEAR VETAL,SD
+#23    V3 frn_fai            FRENCH CR ABOVE FAIRBURN SD
+
+# similiar export to V1, but much lower  = flashy-low export
+#24    V4 whi_kad                 WHITE R NEAR KADOKA,SD
+#25    V4 brsf_co    SOUTH FORK BAD R NEAR COTTONWOOD,SD
+#26    V4 blp_bel      BLACK PIPE CREEK NR BELVIDERE, SD
+
+# ephemeral
+#27    V5 hat_edg                HAT CR NEAR EDGEMONT,SD
+#28    V5 hor_oel            HORSEHEAD CR AT OELRICHS,SD
+
+```
+
+
 
 ```{r PCA_exploratory_analysis-old}
 
@@ -5093,290 +5466,6 @@ rm(lambda_q1, lambda_q7, lambda_q30,  gage_9398_meta,
    pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, 
    pca_matrix, gage_sum, sta_chk, gage_9398_raw)
 ```
-
-
-
-
-```{r plot_PCA}
-
-# PC1 explanatory plot 
-ggplot(gage_aug, 
-       aes(q7_depth, .fittedPC1, color = factor(sta))) + 
-  geom_jitter() + 
-  theme_classic() +
-  xlab("Q7 depth") +
-  ylab("Fitted PC1") + 
-  theme(legend.position = "bottom")
-
-#ggplot2::ggsave(path = "figure/", filename = "strm_pca1.png", 
-#                width = 6, height = 6, units = "in")  
-  
-# PC2 explanatory plot
-ggplot(gage_aug, aes(q1_q30_diff, .fittedPC2, 
-                          color = factor(sta))) +
-  geom_jitter() + 
-  theme_classic() +
-  xlab("Q1 depth minus Q30 depth") +
-  ylab("Fitted PC2") +
-  theme(legend.position = "bottom") 
-
-#ggplot2::ggsave(path = "figure/", filename = #"strm_pca1.png", 
-#                width = 6, height = 6, units = "in")  
-
-# mean eigenvector plot
-ggplot(gage_sum, aes(PC1_mean, PC2_mean)) +
-  geom_jitter() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
-            nudge_y = 0.02) + 
-  theme_classic() + 
-#  scale_x_continuous(limits = c(-3.5, 2)) + 
-  xlab("PC axis 1 mean") +
-  ylab("PC axis 2 mean") 
-
-# transformed variable plot
-ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) +
-  geom_jitter() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
-              nudge_y = 0.02) + 
-  scale_x_continuous(limits = c(-2.0, 1.5)) + 
-  scale_y_continuous(limits = c(-1, 0.75)) + 
-  geom_density2d() + 
-  geom_vline(xintercept = 0, aes(size = 2)) + 
-  geom_hline(yintercept = 0, aes(size = 1)) + 
-  theme_classic() + 
-  xlab("hydrologic export index") +
-  ylab("stability index") 
-
-#ggplot2::ggsave(path = "figure/", filename = "strm_dens_mean.png", 
-#                width = 6, height = 6, units = "in")  
-
-# create density plot of all points
-ggplot(gage_9398_aug, aes(q7_depth, q1_q30_diff)) +
-  geom_jitter(aes(color = sta, shape = ".")) + 
-  geom_density2d(aes(color = NULL)) + 
-  geom_point(data = gage_9398_sum, mapping = aes(q7_mean, q1_q30_mean)) + 
-  geom_text(data = gage_9398_sum, 
-           mapping = aes(q7_mean, q1_q30_mean, label = sta), 
-            check_overlap = TRUE) + 
-  scale_x_continuous(limits = c(-2, 1.5)) + 
-  scale_y_continuous(limits = c(-1.0, 0.75)) + 
-  geom_vline(xintercept = 0, aes(size = 2)) + 
-  geom_hline(yintercept = 0, aes(size = 1)) + 
-  theme_classic() + 
-  theme(legend.position = "none") 
-
-#ggplot2::ggsave(path = "figure/", filename = "strm_dens_all.png", 
-#                width = 6, height = 6, units = "in")  
-```
-
-```{r Model-Based_Clustering-9398}
-
-# The traditional clustering methods, such as hierarchical clustering 
-# and k-means clustering, are heuristic and are not based on formal  
-# models. An alternative is model-based clustering, which consider the 
-# data as coming from a distribution that is mixture of two or more  
-# clusters (Fraley and Raftery 2002, Fraley #et al. (2012)). 
-# Model-based clustering uses a soft assignment, where each data point 
-# has a probability of belonging to each cluster.  In model-based 
-# clustering, the data is considered as coming from a mixture of 
-# density.  Each component (i.e. cluster) k is modeled by the normal 
-# or Gaussian distribution which is characterized by the parameters: 
-#   μk\mu_k: mean vector, 
-#   ∑k\sum_k: covariance matrix, 
-#   An associated probability in the mixture. Each point has a 
-#     probability of belonging to each cluster.  
-
-# The model parameters can be estimated using the Expectation-
-# Maximization (EM) algorithm initialized by hierarchical model-based 
-# clustering. Each cluster k is centered at the means μk\mu_k, with 
-# increased density for points near the mean.
-# Geometric features (shape, volume, orientation) of each cluster are 
-# determined by the covariance matrix ∑k\sum_k. 
-
-# Different possible parameterizations of ∑k\sum_k are available in 
-# the R package mclust (see ?mclustModelNames).
-# The available model options, in mclust package, are represented by 
-# identifiers including: EII, VII, EEI, VEI, EVI, VVI, EEE, EEV, VEV 
-# and VVV. 
-
-# The first identifier refers to volume, the second to shape and the 
-# third to orientation. E stands for "equal", V for "variable" and I 
-# for "coordinate axes".
-
-# The Mclust package uses maximum likelihood to fit all these models, 
-# with different covariance matrix parameterizations, for a range of 
-# k components.
-
-# The best model is selected using the Bayesian Information Criterion 
-# or BIC. A large BIC score indicates strong evidence for the 
-# corresponding model. 
-
-# Preparing to cluster by the central tendancy
-gage_clust_9398_input <- gage_9398_sum %>% 
-  select(q1_mean:q30_mean)
-
-gage_clust_9398_input_meta <- gage_9398_sum %>% 
-  select(sta)
-
-# apply & summarize model 
-gage_clust_l <- Mclust(gage_clust_9398_input) # Model-based-clustering 
-summary(gage_clust_l) # Print a summary 
-
-#Gaussian finite mixture model fitted by EM algorithm 
-#---------------------------------------------------- 
-
-#Mclust EEV (ellipsoidal, equal volume and shape) model with 5 components: 
-
-# log.likelihood  n df     BIC      ICL
-#        130.961 27 37 139.976 138.2098
-
-#Clustering table:
-# 1  2  3  4  5 
-# 3  7 13  2  2 
- 
-# Model-based clustering selected a model with five components 
-# (i.e. clusters). The optimal selected model name is VEV model. 
-# That is the five components are ellipsoidal with varying volume, 
-# and orientation, and equal shape. The summary contains also the 
-# clustering table specifying the number of observations in each 
-# clusters.
-
-#gage_clust_l$modelName # Optimal selected model ==> "EEV" 
-#gage_clust_l$G # Optimal number of cluster => 5 
-
-# Extract results to a dataframe & add metadata
-gage_clust <- as.tibble(gage_clust_l$z) 
-gage_clust <- bind_cols(gage_clust_9398_input_meta, gage_clust) 
-
-# remove low probability results
-gage_clust <- gage_clust %>% 
-  gather(key = group, value = prob, -sta) %>% 
-  filter(prob > 0.7) 
-
-# join together summary results & rearrange
-gage_9398_sum <- full_join(gage_9398_sum, gage_clust, 
-                             by = "sta")
-gage_clust <- gage_clust %>% 
-  dplyr::select(sta, group, everything())
-
-# test output & clean up environment
-test <- anti_join(gage_9398_sum, gage_clust, by = "sta")  
-
-rm(gage_clust_l, gage_clust, mc_9398_input, mc_9398_input_meta)
-```
-
-
-
-
-
-
-
-
-
-```{r Clustering_visualization}
-
-# Visualizing model-based clustering
-# Model-based clustering results can be drawn using the base 
-# function plot.Mclust() [in mclust package]. We'll use the 
-# function fviz_mclust() [in factoextra package] to create beautiful 
-# plots based on ggplot2.
-
-# Where the data contain more than two variables, fviz_mclust() 
-# uses a principal component analysis to reduce the dimensionnality 
-# of the data. The first two principal components are used to produce 
-# a scatter plot of the data. However, if you want to plot the data 
-# using only two variables of interest, c("insulin", "sspg"), 
-# you can specify that in the fviz_mclust() function using the 
-# argument choose.vars = c("insulin", "sspg").
-
-library(factoextra)  # this might screw up the select!!!
-
-# BIC values used for choosing the number of clusters 
-fviz_mclust(gage_clust_l, "BIC", palette = "jco") 
-
-# Classification uncertainty 
-# Note: in the uncertainty plot, larger symbols indicate the 
-# more uncertain observations 
-fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
-
-# Classification: plot showing the clustering 
-fviz_mclust(gage_clust_l, "classification", geom = "point", 
-            pointsize = 1.5, palette = "jco") 
-
-test <- left_join(gage_9398_sum, gage_clust)
-
-
-# plot clusters in PCA space
-ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean)) + 
-  geom_density2d(aes(color = group)) + 
-  geom_jitter() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
-              nudge_y = 0.02) + 
-  scale_x_continuous(limits = c(-2, 1.1)) + 
-  scale_y_continuous(limits = c(-1.0, 0.4)) + 
-  theme_classic() 
-
-#ggplot2::ggsave(path = "figure/", filename = "strm_clust.png", 
-#                width = 6, height = 6, units = "in")  
-
-gage_clust_plot <- gage_9398_sum %>% 
-  select(sta, group, q7_mean, q1_q30_mean) %>% 
-  rename(hydro_exp_coeff = q7_mean) %>% 
-  rename(stability_coeff = q1_q30_mean) %>% 
-  gather(key = parameter, value = value, -sta, -group)
-
-ggplot(gage_clust_plot, aes(group, value)) + 
-  facet_grid(rows = vars(parameter)) + 
-         geom_boxplot() + 
-  theme_bw()
-
-#ggplot2::ggsave(path = "figure/", filename = #"strm_clust_box.png", 
-#                width = 6, height = 3, units = "in")  
-
-gage_clust <- gage_clust %>% 
-  select(group, sta, station_nm, everything()) %>% 
-  arrange(group)
-
-# moderately low hydrologic export, highest Q1-Q30 = stable-low export
-#1     V1 whi_slm          WHITE RIVER AT SLIM BUTTE, SD
-#2     V1 wcc_ogl           WHITE CLAY CR NEAR OGLALA SD
-#3     V1 spr_her              SPRING CR NEAR HERMOSA,SD
-#4     V1 che_was          CHEYENNE RIVER NEAR WASTA, SD
-#5     V1 whi_ogl                 WHITE R NEAR OGLALA SD
-#6     V1 whi_sta            WHITE R NR NE-SD STATE LINE
-
-# average hydrologic export, high Q1-Q30 = stable-average export
-#7     V2 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNEE, SD
-#8     V2 bev_buf          BEAVER CR NEAR BUFFALO GAP,SD
-#9     V2 bat_bhr             BATTLE CR BELOW HERMOSA,SD
-#10    V2 bev_pri          BEAVER CREEK NEAR PRINGLE, SD
-
-# averarage Q1-Q30, highes hydrologic export = GW controlled
-#11    V3 bev_abf     BEAVER CREEK ABOVE BUFFALO GAP, SD
-#12    V3 ros_ros               ROSEBUD CR AT ROSEBUD SD
-#13    V3 lwr_abv          LITTLE WHITE R ABV ROSEBUD SD
-#14    V3 lwr_mar          LITTLE WHITE R NEAR MARTIN,SD
-#15    V3 lcr_bel   LAKE CR BELOW REFUGE NEAR TUTHILL,SD
-#16    V3 lwr_ros         LITTLE WHITE R NEAR ROSEBUD SD
-#17    V3 bat_key             BATTLE CR NEAR KEYSTONE,SD
-#18    V3 rap_far           RAPID CR NEAR FARMINGDALE,SD
-#19    V3 fal_hot               FALL R AT HOT SPRINGS,SD
-#20    V3 bat_her                BATTLE CR AT HERMOSA,SD
-#21    V3 lwr_whi    LITTLE WHITE R BELOW WHITE RIVER,SD
-#22    V3 lcr_vet           LITTLE WHITE R NEAR VETAL,SD
-#23    V3 frn_fai            FRENCH CR ABOVE FAIRBURN SD
-
-# similiar export to V1, but much lower  = flashy-low export
-#24    V4 whi_kad                 WHITE R NEAR KADOKA,SD
-#25    V4 brsf_co    SOUTH FORK BAD R NEAR COTTONWOOD,SD
-#26    V4 blp_bel      BLACK PIPE CREEK NR BELVIDERE, SD
-
-# ephemeral
-#27    V5 hat_edg                HAT CR NEAR EDGEMONT,SD
-#28    V5 hor_oel            HORSEHEAD CR AT OELRICHS,SD
-
-```
-
 ```{r EDA-PCA-9015-gages}
 # Examines data from 1993-2017 without 1996 & 2007 
 
