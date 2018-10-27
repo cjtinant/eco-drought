@@ -643,11 +643,7 @@ rm(sta_prep)
 ```
 
 
-
-
 ```{r spi-with-SCI} 
-# import-precip-data----
-
 # The following code calculates SPI using the Standardized 
 # Climate Index (SCI) package.  
 #   SCI is the Standardized Precipitation Index 
@@ -691,6 +687,9 @@ warn_me <- TRUE  # sets explicit warning
 # Set first month for each station 
 first_mon_cot <- 6 
 first_mon_int <- 11 
+first_mon_oel <- 6 
+first_mon_ora <- 5  
+first_mon_rap <- 5 
 
 # prepare station for analysis 
 sta_cot <- sta_raw %>% arrange(date) %>% select(date, cot) 
@@ -727,7 +726,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value)
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~ 
@@ -745,60 +743,35 @@ spi.int <- transformSCI(int, first.mon = first_mon_int,
 spi_int <- as.tibble(spi.int) %>% 
   rename(spi_int = value)
 
-spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
-
 spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~ 
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value)
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~ 
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na() 
-
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
-
-
 # calculate SPI as a list & extract results 
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -806,28 +779,16 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
 
 # Rapid SPI
 #~~~~~~~~~~~~~~~~~~~ 
-# prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
-
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
-
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-# It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -835,8 +796,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
- 
+
 #   1mon-check for warnings from SPI ----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) # M2 (feb) flag => 3
@@ -983,14 +943,6 @@ time_scale <- 2  # sets the length of the averaging period
 
 # Cottonwoods SPI - 2 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare cottonwoods precip for SPI transformation
-
-#sta_cot <- sta_raw %>% 
-#  arrange(date) %>% 
-#  select(date, cot) 
-
-#cot <- as.double(sta_cot$cot) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results 
 
 spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot, distr = distrib, 
@@ -1007,27 +959,16 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value)
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Interior precip for SPI transformation
-first_mon <- 11 # sets the first month 
-
-sta_int <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, int) %>% 
-  drop_na()
-
-int <- as.double(sta_int$int) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.int.l <- fitSCI(int, first.mon = first_mon, distr = distrib, 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.int <- transformSCI(int, first.mon = first_mon, obj = spi.int.l) 
+spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
 
 spi_int <- as.tibble(spi.int) # change the vector into a tibble
 
@@ -1039,51 +980,31 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value)
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na() 
-
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -1091,28 +1012,18 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
-
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
-
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -1120,8 +1031,6 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
- 
 
 #   2mon-check for warnings from SCI----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1255,14 +1164,6 @@ time_scale <- 3  # sets the length of the averaging period
 
 # Cottonwoods SPI - 3
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare cottonwoods precip for SPI transformation
-
-#sta_cot <- sta_raw %>% 
-#  arrange(date) %>% 
-#  select(date, cot) 
-
-#cot <- as.double(sta_cot$cot) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results 
 
 spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
@@ -1279,20 +1180,9 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value)
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Interior precip for SPI transformation
-#first_mon <- 11 # sets the first month 
-
-#sta_int <- sta_raw %>% 
- # arrange(date) %>% 
- # select(date, int) %>% 
-  #drop_na()
-
-#int <- as.double(sta_int$int) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
 spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib,  
                    time.scale = time_scale, p0 = p_zero, 
@@ -1308,55 +1198,34 @@ spi_int <- as.tibble(spi.int) %>%
   rename(spi_int = value)
 
 spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
-
-spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value 
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na() 
-
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -1364,28 +1233,16 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
-
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
-
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-# It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -1393,8 +1250,6 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
- 
 
 #   3mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1410,7 +1265,6 @@ rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap)
 
 #   3mon-clean up & combine the SPI variables---- 
 rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-#rm(cot, int, oel, ora, rap) 
 
 spi <- full_join(spi_cot, spi_int, by = "date") 
 spi <- full_join(spi, spi_oel, by = "date") 
@@ -1550,14 +1404,6 @@ spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Interior precip for SPI transformation
-#first_mon <- 11 # sets the first month 
-
-#sta_int <- sta_raw %>% 
-#  arrange(date) %>% 
-#  select(date, int) %>% 
-#  drop_na()
-
-#int <- as.double(sta_int$int) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
@@ -1578,51 +1424,32 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na() 
-
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -1630,28 +1457,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -1659,7 +1486,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 #   4mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1832,51 +1659,42 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
+#f#irst_mon <- 5 # sets the first month 
 
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na() 
+#sta_ora <- sta_raw %>% 
+ # arrange(date) %>% 
+ # select(date, ora) %>% 
+ # drop_na() 
 
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
+#ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -1884,28 +1702,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -1913,7 +1731,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 
 #   5mon-check for warnings----
@@ -2090,51 +1908,32 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na() 
-
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -2142,28 +1941,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+ # arrange(date) %>% 
+ # select(date, rap) %>% 
+ # drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -2171,7 +1970,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
 
 #   6mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -2352,51 +2151,42 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na() 
+#sta_ora <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, ora) %>% 
+#  drop_na() 
  
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
+#ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
 
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -2404,28 +2194,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -2433,7 +2223,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 
 #   9mon-check for warnings----
@@ -2609,51 +2399,32 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+
 
 # Oral SPI 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na()  
- 
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
-
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -2661,28 +2432,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -2690,7 +2461,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 #   12mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -2855,22 +2626,22 @@ spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
 # Interior SPI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Interior precip for SPI transformation
-first_mon <- 11 # sets the first month 
+#first_mon <- 11 # sets the first month 
 
-sta_int <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, int) %>% 
-  drop_na()
+#sta_int <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, int) %>% 
+#  drop_na()
 
-int <- as.double(sta_int$int) #changes tibble to a vector as double
+#int <- as.double(sta_int$int) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results 
-spi.int.l <- fitSCI(int, first.mon = first_mon, distr = distrib, 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.int <- transformSCI(int, first.mon = first_mon, obj = spi.int.l) 
+spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
 
 spi_int <- as.tibble(spi.int) # change the vector into a tibble
 
@@ -2882,51 +2653,32 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na()  
- 
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -2934,28 +2686,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -2963,7 +2715,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 #   18mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -3127,28 +2879,11 @@ spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Interior precip for SPI transformation
-#first_mon <- 11 # sets the first month 
-
-#sta_int <- sta_raw %>% 
- # arrange(date) %>% 
- # select(date, int) %>% 
-#  drop_na()
-
-#int <- as.double(sta_int$int) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results 
 spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
-
-#spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
-
-#spi_int <- as.tibble(spi.int) # change the vector into a tibble
-
-#spi_int <- spi_int %>% 
- # rename(spi_int = value) # prepare for a later join
 
 # create a matrix with SPI values - used below
 spi.int <- transformSCI(int, first.mon = first_mon_int, 
@@ -3163,51 +2898,31 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na()  
- 
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -3215,28 +2930,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+##  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -3244,7 +2959,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 
 #   24mon-check for warnings----
@@ -3371,7 +3086,6 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-#rm(distrib, first_mon, p_zero, p_zero_cm, scale, time_scale, warn_me)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 30mon- spi-with-SCI-30mo---- 
@@ -3411,17 +3125,10 @@ spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # calculate SPI as a list & extract results 
-spi.int.l <- fitSCI(int, first.mon = first_mon, distr = distrib, 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
-
-#spi.int <- transformSCI(int, first.mon = first_mon, obj = spi.int.l) 
-
-#spi_int <- as.tibble(spi.int) # change the vector into a tibble
-
-#spi_int <- spi_int %>% 
-#  rename(spi_int = value) # prepare for a later join
 
 # create a matrix with SPI values - used below
 spi.int <- transformSCI(int, first.mon = first_mon_int, 
@@ -3436,51 +3143,41 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na()  
+#sta_ora <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, ora) %>% 
+#  drop_na()  
  
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
+#ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
 
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -3488,28 +3185,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -3517,7 +3214,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 
 #   30mon-check for warnings----
@@ -3644,25 +3341,13 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-#rm(distrib, first_mon, p_zero, p_zero_cm, scale, time_scale, warn_me)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 36mon- spi-with-SCI-36mo---- 
-# Notes: ora has an extreme low value & really high skew ????
-
-# set SCI state variables 
 time_scale <- 36  # sets the length of the averaging period 
 
 # Cottonwoods SPI - 36 
-#~~~~~~~~~~~~~~~~~~~~~
-# prepare cottonwoods precip for SPI transformation
-
-#sta_cot <- sta_raw %>% 
-#  arrange(date) %>% 
- # select(date, cot) 
-
-#cot <- as.double(sta_cot$cot) #changes tibble to a vector as double
-
+#~~~~~~~~~~~~~~~~~~~~~ 
 # calculate SPI as a list & extract results 
 
 spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
@@ -3689,13 +3374,6 @@ spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-#spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
-
-#spi_int <- as.tibble(spi.int) # change the vector into a tibble
-
-#spi_int <- spi_int %>% 
-#  rename(spi_int = value) # prepare for a later join
-
 # create a matrix with SPI values - used below
 spi.int <- transformSCI(int, first.mon = first_mon_int, 
                         obj = spi.int.l) 
@@ -3709,51 +3387,31 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na()  
- 
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -3761,28 +3419,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -3790,7 +3448,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 
 #   36mon-check for warnings----
@@ -3917,24 +3575,12 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-#rm(distrib, first_mon, p_zero, p_zero_cm, scale, time_scale, warn_me)
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 42mon- spi-with-SCI-42mo---- 
-
-# set SCI state variables 
 time_scale <- 42  # sets the length of the averaging period 
 
 # Cottonwoods SPI - 42
 #~~~~~~~~~~~~~~~~~~~~~
-# prepare cottonwoods precip for SPI transformation
-
-#sta_cot <- sta_raw %>% 
-#  arrange(date) %>% 
-#  select(date, cot) 
-
-#cot <- as.double(sta_cot$cot) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results 
 
 spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
@@ -3951,7 +3597,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value) 
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -3960,13 +3605,6 @@ spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib,
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
-
-#spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
-
-#spi_int <- as.tibble(spi.int) # change the vector into a tibble
-
-#spi_int <- spi_int %>% 
-#  rename(spi_int = value) # prepare for a later join
 
 # create a matrix with SPI values - used below
 spi.int <- transformSCI(int, first.mon = first_mon_int, 
@@ -3981,51 +3619,31 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
 
 # Oral SPI 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na()  
- 
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
-
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -4033,28 +3651,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -4062,7 +3680,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
 
 #   42mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -4188,27 +3806,13 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-#rm(distrib, first_mon, p_zero, p_zero_cm, scale, time_scale, warn_me)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 48mon- spi-with-SCI-48mo---- 
-
-# Notes: ora has an extreme low value & really high skew ????
-
-# set SCI state variables 
 time_scale <- 48  # sets the length of the averaging period 
-
 
 # Cottonwoods SPI - 48 
 #~~~~~~~~~~~~~~~~~~~~~
-# prepare cottonwoods precip for SPI transformation
-
-#sta_cot <- sta_raw %>% 
-#  arrange(date) %>% 
- # select(date, cot) 
-
-#cot <- as.double(sta_cot$cot) #changes tibble to a vector as double
-
 # calculate SPI as a list & extract results 
 # Note on variable naming convention; the SCI package doesn't like 
 #   snake_case variables
@@ -4236,13 +3840,6 @@ spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-#spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
-
-#spi_int <- as.tibble(spi.int) # change the vector into a tibble
-
-#spi_int <- spi_int %>% 
-#  rename(spi_int = value) # prepare for a later join
-
 # create a matrix with SPI values - used below
 spi.int <- transformSCI(int, first.mon = first_mon_int, 
                         obj = spi.int.l) 
@@ -4255,52 +3852,30 @@ spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
 #rm(sta_int)
 
 # Oelrichs SPI 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare oelrichs precip for SPI transformation
-first_mon <- 6 # sets the first month 
-
-sta_oel <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, oel) %>% 
-  drop_na()
-
-oel <- as.double(sta_oel$oel) #changes tibble to a vector as double
-
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # calculate SPI as a list & extract results
-spi.oel.l <- fitSCI(oel, first.mon = first_mon, distr = distrib, 
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.oel <- transformSCI(oel, first.mon = first_mon, obj = spi.oel.l) 
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(int, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
 
-spi_oel <- as.tibble(spi.oel) # change the vector into a tibble
-
-spi_oel <- spi_oel %>% 
-  rename(spi_oel = value) # prepare for a later join
-
-spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
-rm(sta_oel)
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
 
 # Oral SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# prepare Oral precip for SPI transformation
-first_mon <- 5 # sets the first month 
-
-sta_ora <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, ora) %>% 
-  drop_na()  
- 
-ora <- as.double(sta_ora$ora) #changes tibble to a vector as double 
-
 # calculate SPI as a list & extract results
-spi.ora.l <- fitSCI(ora, first.mon = first_mon, distr = distrib, 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon, obj = spi.ora.l) 
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
 
 spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
 
@@ -4308,28 +3883,28 @@ spi_ora <- spi_ora %>%
   rename(spi_ora = value) # prepare for a later join
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-rm(sta_ora)
+
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare Rapid City precip for SPI transformation 
-first_mon <- 5 # sets the first month 
+#first_mon <- 5 # sets the first month 
 
-sta_rap <- sta_raw %>% 
-  arrange(date) %>% 
-  select(date, rap) %>% 
-  drop_na() 
+#sta_rap <- sta_raw %>% 
+#  arrange(date) %>% 
+#  select(date, rap) %>% 
+#  drop_na() 
 
-rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
+#rap <- as.double(sta_rap$rap) #changes tibble to a vector as double
 
 # calculate SPI as a list & extract results
 # It seems that the SCI package doesn't like snake_case variables
-spi.rap.l <- fitSCI(rap, first.mon = first_mon, distr = distrib, 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon, obj = spi.rap.l) 
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
 
 spi_rap <- as.tibble(spi.rap) 
 
@@ -4337,7 +3912,7 @@ spi_rap <- spi_rap %>%
   rename(spi_rap = value) # prepare for a later join
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
-rm(sta_rap)
+
  
 
 #   48mon-check for warnings----
