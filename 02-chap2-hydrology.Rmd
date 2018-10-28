@@ -63,13 +63,14 @@ library("corrplot")
 
 library("lubridate") # fixes dates 
 library("tidyverse") 
+library("magrittr") # contains easier ways to say things about lists
+
 
 #library("DataExplorer")
 #library("clValid")
 #library("cluster")
 # library("munsell") # https://github.com/cwickham/munsell
 # library("grateful") - not yet ready for R 3.5.0
-#library("magrittr") # contains easier ways to say things about lists
 #library("lintr")
 #library("test_that")
 #library("jsonlite") # Convert between JSON data and R objects
@@ -642,7 +643,6 @@ sta_sum <- sta_prep %>%
 rm(sta_prep)
 ```
 
-
 ```{r spi-with-SCI} 
 # The following code calculates SPI using the Standardized 
 # Climate Index (SCI) package.  
@@ -664,7 +664,7 @@ sta_raw     <- as.tibble(import("data/stations_monthly.csv")) %>%
   mutate(date = ymd(date)) %>%  
   arrange(date) 
  
-# gather data, removes NA vals, spreads & checks for NA
+# checks for NA: gathers data, removes NA vals, & spreads data
 sta_chk <- sta_raw %>% 
   gather(key = "sta", value = "depth", 
          -date, -year, -month) %>% 
@@ -703,15 +703,18 @@ cot <- as.double(sta_cot$cot)
 int <- as.double(sta_int$int) 
 ora <- as.double(sta_ora$ora)
 oel <- as.double(sta_oel$oel) 
-rap <- as.double(sta_rap$rap)
+rap <- as.double(sta_rap$rap) 
+
+# notes: 
+# A note on variable naming convention; the SCI package doesn't like 
+#   snake_case variables
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 1mon-spi-with-SCI-1mo----
-# Cottonwoods SPI - 1
-#~~~~~~~~~~~~~~~~~~~~~ 
+# Cottonwoods SPI
+#~~~~~~~~~~~~~~~~ 
 # calculate SPI as a list & extract results 
-# Note on variable naming convention; the SCI package doesn't like 
-#   snake_case variables
+
 spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot, distr = distrib, 
                    time.scale = time_scale, p0 = p_zero, 
                    p0.center.mass = p_zero_cm, scaling = scale, 
@@ -759,7 +762,7 @@ spi.oel <- transformSCI(int, first.mon = first_mon_oel,
 
 # change to tibble, prepare for join
 spi_oel <- as.tibble(spi.oel) %>% 
-  rename(spi_oel = value)
+  rename(spi_oel = value) 
 
 spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
 
@@ -771,12 +774,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -788,14 +792,49 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   1mon- combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
+#spi_gath <- spi %>% 
+#  select(-cot, -int, -oel, -ora, -rap) %>% # this removes
+#  rename(cot = spi_cot) %>% 
+#  rename(int = spi_int) %>% 
+#  rename(oel = spi_oel) %>%  
+#  rename(ora = spi_ora) %>%  
+#  rename(rap = spi_rap) %>% 
+#  gather(key = sta, value = spi_index, -date) %>% 
+#  drop_na()
+
+
+#   1mon-Pearson Type-III distribution properties---- 
+
+#test new way 
+#test <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+#             spi.ora.l, spi.rap.l) 
+#test2 <- test %>% 
+#  flatten() 
+#test3 <- pluck(test2, 1)
 
 #   1mon-check for warnings from SPI ----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -806,7 +845,6 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
-rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
 # the flag means ML values did not converge
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -819,36 +857,16 @@ rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap)
 # Rap  0.60    5.10    8.90   11.56   15.95   43.40  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
-#   1mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
-#rm(cot, int, oel, ora, rap) 
 
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
 
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
 
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
- 
-#   1mon-Pearson Type-III distribution properties---- 
-# get names for Pearson-III distribution 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
+
+# get names for Pearson-III distribution - done once
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+att_names <- spi.cot.l$dist.para %>% 
+  rownames() %>% 
+  as_data_frame() %>% 
+  rename(property = value) 
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -923,7 +941,6 @@ spi_att <- spi_att %>%
 
 
 #   1mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att1     <- spi_att 
 spi_gath1    <- spi_gath
 spi_check1   <- spi_check
@@ -932,7 +949,7 @@ spi_check1   <- spi_check
 #  filter(property == "shape") %>% 
 #  select(-property) 
 
-rm(att_names, spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_att_skew)
 rm(spi_att, spi_check, spi_gath) 
 
@@ -975,8 +992,7 @@ spi_int <- as.tibble(spi.int) # change the vector into a tibble
 spi_int <- spi_int %>% 
   rename(spi_int = value) # prepare for a later join
 
-spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value 
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1004,12 +1020,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -1021,14 +1038,31 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   2mon- combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
+
 
 #   2mon-check for warnings from SCI----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1039,37 +1073,13 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-#   2mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
- 
-#   2mon-Pearson Type-III distribution properties---- 
+ #   2mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -1144,12 +1154,11 @@ spi_att <- spi_att %>%
 
 
 #   2mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att2     <- spi_att 
 spi_gath2    <- spi_gath
 spi_check2   <- spi_check
 
-rm(att_names, spi_check)  
+rm(spi_check)  
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi)
 rm(spi_att, spi_gath)
@@ -1220,12 +1229,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -1237,14 +1247,33 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+
+#   3mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
+
 
 #   3mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1255,37 +1284,13 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-#   3mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
 
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
- 
 #   3mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -1360,12 +1365,11 @@ spi_att <- spi_att %>%
 
 
 #   3mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att3     <- spi_att 
 spi_gath3    <- spi_gath
 spi_check3   <- spi_check 
 
-rm(att_names, spi_check) 
+rm(spi_check) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi)
 rm(spi_att, spi_gath)
@@ -1391,7 +1395,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value)
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1412,7 +1415,6 @@ spi_int <- as.tibble(spi.int) %>%
   rename(spi_int = value)
 
 spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1441,12 +1443,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -1459,14 +1462,31 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+#   4mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
 
  #   4mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1477,37 +1497,12 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
-
-#   4mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
  
 #   4mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -1581,12 +1576,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   4mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att4     <- spi_att 
 spi_gath4    <- spi_gath
 spi_check4   <- spi_check
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
@@ -1612,7 +1605,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value)
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1631,7 +1623,6 @@ spi_int <- as.tibble(spi.int) %>%
   rename(spi_int = value)
 
 spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1659,12 +1650,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -1676,14 +1668,31 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+
+#   5mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
 
 #   5mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1694,38 +1703,13 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-#   5mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na() 
  
 #   5mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
-
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
   as_data_frame() %>% 
@@ -1798,13 +1782,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   5mon-Clean up Global Environment---- 
-# NOTE: BE CAREFUL WITH THE VALUES FOR THE SAVING OF THE PLOTS 
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att5     <- spi_att 
 spi_gath5    <- spi_gath
 spi_check5   <- spi_check 
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
@@ -1848,7 +1829,6 @@ spi_int <- as.tibble(spi.int) %>%
   rename(spi_int = value)
 
 spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1876,12 +1856,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -1893,14 +1874,31 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+#   6mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
 
 #   6mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -1911,37 +1909,13 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-#   6mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
  
 #   6mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -2015,12 +1989,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   6mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att6     <- spi_att 
 spi_gath6    <- spi_gath
 spi_check6   <- spi_check
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi)
 rm(spi_att, spi_gath)
@@ -2048,7 +2020,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value) 
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2094,12 +2065,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -2111,16 +2083,29 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 
- 
+#   9mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
 
 #   9mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -2131,37 +2116,12 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-#   9mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
- 
 #   9mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -2235,12 +2195,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   9mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att9     <- spi_att 
 spi_gath9    <- spi_gath
 spi_check9   <- spi_check
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath) 
@@ -2310,12 +2268,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -2327,16 +2286,32 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 
- 
+
+#   12mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+
+
 #   12mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
 flag_int <- as.tibble(spi.int.l$dist.para.flag) 
@@ -2346,38 +2321,13 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-
-#   12mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
  
 #   12mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -2451,12 +2401,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   12mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att12     <- spi_att 
 spi_gath12    <- spi_gath
 spi_check12   <- spi_check 
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
@@ -2481,7 +2429,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value) 
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2498,8 +2445,7 @@ spi_int <- as.tibble(spi.int) # change the vector into a tibble
 spi_int <- spi_int %>% 
   rename(spi_int = value) # prepare for a later join
 
-spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value 
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2527,12 +2473,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -2544,14 +2491,29 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   18mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
 
 #   18mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -2562,38 +2524,13 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-
-#   18mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na() 
  
 #   18mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -2667,12 +2604,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   18mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att18     <- spi_att 
 spi_gath18    <- spi_gath
 spi_check18     <- spi_check 
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath) 
@@ -2698,7 +2633,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value) 
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2717,7 +2651,6 @@ spi_int <- as.tibble(spi.int) %>%
   rename(spi_int = value)
 
 spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2745,12 +2678,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -2762,12 +2696,13 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 
@@ -2780,20 +2715,11 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
-rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-#   24mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
+#   24mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") 
 
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
 spi_gath <- spi %>% 
   select(-cot, -int, -oel, -ora, -rap) %>% 
   rename(cot = spi_cot) %>% 
@@ -2804,13 +2730,13 @@ spi_gath <- spi %>%
   gather(key = sta, value = spi_index, -date) %>% 
   drop_na()
  
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+ 
 #   24mon-Pearson Type-III distribution properties---- 
 # get names for Pearson-III distribution 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -2883,13 +2809,11 @@ spi_att <- spi_att %>%
   filter(property != "N.P0") %>% 
   mutate(month = as.integer(month)) 
 
-#   24mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
+#   24mon-Clean up Global Environment---- 
 spi_att24     <- spi_att 
 spi_gath24    <- spi_gath
 spi_check24   <- spi_check 
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
@@ -2916,7 +2840,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value) 
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2962,12 +2885,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -2979,14 +2903,26 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+#   30mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
 
 #   30mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -2997,37 +2933,10 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
-
-#   30mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
  
 #   30mon-Pearson Type-III distribution properties---- 
-# get names for Pearson-III distribution 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -3101,12 +3010,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   30mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att30     <- spi_att 
 spi_gath30    <- spi_gath
 spi_check30   <- spi_check 
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
@@ -3133,7 +3040,6 @@ spi_cot <- as.tibble(spi.cot) %>%
   rename(spi_cot = value) 
 
 spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
-#rm(sta_cot)
 
 # Interior SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -3179,12 +3085,13 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
 
@@ -3196,14 +3103,25 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   36mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
 
 #   36mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -3214,38 +3132,10 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
-
-
-#   36mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
  
 #   36mon-Pearson Type-III distribution properties---- 
-# get names for Pearson-III distribution 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -3319,12 +3209,10 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   36mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att36     <- spi_att 
 spi_gath36    <- spi_gath
 spi_check36   <- spi_check 
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
@@ -3368,7 +3256,6 @@ spi_int <- as.tibble(spi.int) %>%
   rename(spi_int = value)
 
 spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
-#rm(sta_int)
 
 # Oelrichs SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -3396,15 +3283,15 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -3414,15 +3301,25 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
 
+#   42mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
 
 #   42mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -3433,38 +3330,10 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
 
-
-#   42mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
- 
 #   42mon-Pearson Type-III distribution properties---- 
-# get names for Pearson-III distribution 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
 
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
@@ -3542,7 +3411,6 @@ spi_att42     <- spi_att
 spi_gath42    <- spi_gath
 spi_check42   <- spi_check 
 
-rm(att_names) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
@@ -3615,15 +3483,15 @@ spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.ora <- transformSCI(ora, first.mon = first_mon_ora, obj = spi.ora.l) 
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(int, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
 
-spi_ora <- as.tibble(spi.ora) # change the vector into a tibble
-
-spi_ora <- spi_ora %>% 
-  rename(spi_ora = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
 
 spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
-
 
 # Rapid SPI 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -3633,14 +3501,25 @@ spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-spi.rap <- transformSCI(rap, first.mon = first_mon_rap, obj = spi.rap.l) 
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(int, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
 
-spi_rap <- as.tibble(spi.rap) 
-
-spi_rap <- spi_rap %>% 
-  rename(spi_rap = value) # prepare for a later join
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
 
 spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   48mon - combine & gather the SPI variables---- 
+spi <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date")
+
+spi_gath <- spi %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
 
 #   48mon-check for warnings----
 flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
@@ -3651,38 +3530,10 @@ flag_rap <- as.tibble(spi.rap.l$dist.para.flag)
 
 flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
                       flag_ora, flag_rap) 
+
 rm(flag_cot, flag_int, flag_oel, flag_ora, flag_rap) 
-
-#   48mon-clean up & combine the SPI variables---- 
-rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap) 
-
-spi <- full_join(spi_cot, spi_int, by = "date") 
-spi <- full_join(spi, spi_oel, by = "date") 
-spi <- full_join(spi, spi_ora, by = "date") 
-spi <- full_join(spi, spi_rap, by = "date") 
-# could probably use map_df here
-
-rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
-
-# gather SPI variables 
-spi_gath <- spi %>% 
-  select(-cot, -int, -oel, -ora, -rap) %>% 
-  rename(cot = spi_cot) %>% 
-  rename(int = spi_int) %>% 
-  rename(oel = spi_oel) %>%  
-  rename(ora = spi_ora) %>%  
-  rename(rap = spi_rap) %>% 
-  gather(key = sta, value = spi_index, -date) %>% 
-  drop_na()
  
 #   48mon-Pearson Type-III distribution properties---- 
-# get names for Pearson-III distribution 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-att_names <- spi.cot.l$dist.para 
-att_names <- rownames(att_names) 
-att_names <- as_data_frame(att_names) %>% 
-  rename(property = value)
-
 # cottonwood PE3 ~~~~~~~~~~~~~~~~~~
 att_cot <- spi.cot.l$dist.para %>% 
   as_data_frame() %>% 
@@ -3755,7 +3606,6 @@ spi_att <- spi_att %>%
   mutate(month = as.integer(month)) 
 
 #   48mon-Clean up Global Environment----
-#rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 spi_att48     <- spi_att 
 spi_gath48    <- spi_gath
 spi_check48   <- spi_check 
@@ -3764,7 +3614,6 @@ rm(att_names)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 rm(spi, flag_spi, spi_check)
 rm(spi_att, spi_gath)
-
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -3917,8 +3766,7 @@ rm(spi_check, att_list)
 # the NA values by non-closure of  ML estimator for 
 # Interior 1-month SPI for Feb & some odd Oral values  
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # Examine the initial SPI values for outliers----
 ggplot(spi_index, aes(spi_length, spi_index)) + 
   geom_jitter() + 
