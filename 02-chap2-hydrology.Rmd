@@ -44,7 +44,7 @@ TO DO - CHECK SPI FIN3 NAME
 # CHECK PACKAGES
 
 ```{r setup, include=FALSE} 
-knitr::opts_chunk$set(echo = TRUE)  
+knitr::opts_chunk$set(echo = TRUE)   
 options(tibble.print_max = 70) # sets tibble output for printing 
 
 # Sets up the library of packages 
@@ -369,7 +369,7 @@ References
     18. Strunk W (2007) The elements of style. Penguin. 
 ```
 
-```{r SPI_index, eval=FALSE, include=FALSE}
+```{r SPI_index_discuss, eval=FALSE, include=FALSE}
 # The two SCI functions used below are fitSCI & tranformSCI
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #   fitSCI estimates the parameters for transforming a meteorological 
@@ -562,6 +562,32 @@ References
 -->
 ```
 
+```{r CLUSTERING_INFO, eval=FALSE, INCLUDE=FALSE}
+
+
+
+
+Several R packages available from CRAN or Bioconducto perform cluster validation, including: 
+
+|    Package   |    Function(s)   |      Author       |      Notes    |
+|:------------:|:----------------:|:-----------------:|:-------------:|
+|   cclust     | clustIndex()     |    Dimitriadou    | No user guide |
+|     fpc      | cluster.stats()  |       Hennig      | No user guide |
+|              | clusterboot()    |                   |               |
+| clusterRepro |                  | Kapp & Tibshirani | not general   |
+|  clusterSim  |                  | Walesiak & Dudek  | poor user guide |
+|  clusterStab |                  | MacDonald et al.  | narrow vignette |
+|     clue     | cl_validity() +  | Hornik, September |     maybe...    |
+|     e1071    | fclustIndex() ++ | Dimitriadou et al.| 2006  | unk.
+
++ validation for both paritioning methods (“dissimilarity accounted for”) and hierarchical methods (“variance accounted for”) 
+++ fuzzy cluster validation measures.
+
+pam() in recommended pack- age cluster (Rousseeuw, Struyf, Hubert, and Maechler, 2005; Struyf, Hubert, and Rousseeuw, 1996), and Mclust() in package mclust (Fraley, Raftery, and Wehrens, 2005; Fraley and Raftery, 2003), are available as components named cluster, clustering, and classification, 
+
+RWeka (Hornik, Hothorn, and Karatzoglou, 2006), cba (Buchta and Hahsler, 2005), cclust (Dimitriadou, 2005), cluster, e1071 (Dimitriadou, Hornik, Leisch, Meyer, and Weingessel, 2005), flexclust (Leisch, 2006), flexmix (Leisch, 2004), kernlab (Karatzoglou, Smola, Hornik, and Zeileis, 2004), and mclust (and of course, clue itself).
+```
+
 ```{r precip-EDA, include=FALSE, eval=FALSE}
 # Purpose: EDA of precipitation data.
 # Outcome: Differences among stations 1971-2018 are small.
@@ -643,8 +669,8 @@ sta_sum <- sta_prep %>%
 rm(sta_prep)
 ```
 
-```{r spi-with-SCI} 
-# The following code calculates SPI using the Standardized 
+```{r spi-with-SCI, message=FALSE}  
+# The following code calculates SPI using the Standardized  
 # Climate Index (SCI) package.  
 #   SCI is the Standardized Precipitation Index 
 #   SRI is the Standardized Runoff Index (SRI) - used below 
@@ -740,7 +766,7 @@ spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib,
                    p0.center.mass = p_zero_cm, scaling = scale, 
                    warn	= warn_me)
 
-# create a matrix with SPI values - used below
+# create a matrix with SPI values - throws a month 7 NA error.
 spi.int <- transformSCI(int, first.mon = first_mon_int, 
                         obj = spi.int.l) 
 
@@ -2551,6 +2577,47 @@ rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l)
 
 ```{r join_spi_values}
 
+# clean up some of the unneeded variables 
+rm(distrib, p_zero, p_zero_cm, scale, time_scale, warn_me, 
+   sta_cot, sta_int, sta_oel, sta_ora, sta_rap, 
+   cot, int, oel, ora, rap, 
+   first_mon_cot, first_mon_int, first_mon_oel, 
+   first_mon_ora, first_mon_rap) 
+
+# Fix month 7 Interior 1-mo-SCI (this is actually Feb!)
+# finds dates of record - note that uses Mar rather than Feb
+spi_ml_fail <- spi_gath01 %>% 
+  mutate(year = year(date)) %>%              # creates ymd
+  mutate(mon = month(date)) %>% 
+  mutate(day = day(date)) %>% 
+  filter(mon == 3) %>%                       # filters dates for 'int'
+  filter(sta == "int") %>% 
+  mutate(mon = 2) %>% 
+  mutate(date = str_c(year, mon, day, sep = "-")) %>% 
+  mutate(date = ymd(date)) %>%               # creates updated months
+  select(date, sta) %>% 
+  group_by(sta) %>% 
+  summarise(min_date = min(date))            # summarizes to min month
+  
+# calculates the average value for each of the dates
+spi_na_fix <- spi_gath01 %>% 
+  mutate(mon = month(date)) %>% 
+  filter(mon == 2) %>% 
+  spread(key = sta, value = spi_index) %>% 
+  select(-mon) %>% 
+  select(date, everything()) %>% 
+  mutate(spi_index = rowMeans(.[,-1], na.rm = TRUE)) %>% 
+  mutate(sta = "int") 
+
+# filters by the min date for 'int' & prepares to append to spi_gath01
+spi_na_fix <- spi_na_fix %>% 
+  filter(date >= spi_ml_fail$min_date) %>% 
+  select(date, sta, spi_index)
+
+# append the missing values & clean up
+spi_gath01 <- bind_rows(spi_gath01, spi_na_fix) 
+rm(spi_ml_fail, spi_na_fix)
+
 #create a list, join, rename, and gather the SPI_indices 
 spi_index <- list(spi_gath01, spi_gath02, spi_gath03, spi_gath04, 
                    spi_gath05, spi_gath06, spi_gath09, spi_gath12, 
@@ -2558,23 +2625,38 @@ spi_index <- list(spi_gath01, spi_gath02, spi_gath03, spi_gath04,
                    spi_gath42, spi_gath48, spi_gath54, spi_gath60) %>%
   reduce(left_join, by = c("date", "sta")) 
 
+# renames as spi_length variables 
 names(spi_index)[3:18] =
   c("1","2", "3", "4", "5", "6", 
     "9", "12", "18", "24", "30", "36", 
                    "42", "48","54", "60") 
 
+# gather the dataframe 
 spi_index <- spi_index %>% 
   gather(key = spi_length, val = spi_index, -date, -sta) %>% 
   mutate(spi_length = as.integer(spi_length)) 
 
-# check for na values - these are usually a result of start of record
+# remove the joined dataframes
+rm(spi_gath01, spi_gath02, spi_gath03, spi_gath04, 
+                   spi_gath05, spi_gath06, spi_gath09, spi_gath12, 
+                   spi_gath18, spi_gath24, spi_gath30, spi_gath36, 
+                   spi_gath42, spi_gath48, spi_gath54, spi_gath60) 
+
+# check for na values - these are caused by rolling averages
 spi_index_na <- spi_index %>% 
   filter(is.na(spi_index) | 
-           is.na(sta)) 
+           is.na(sta)) %>% 
+  group_by(sta, spi_length) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  mutate(count_dif = spi_length - count) %>% 
+  distinct(count_dif)                     # if ans = 1 then ok
 
+# remove the na values
 spi_index <- spi_index %>% 
   na.omit()
 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # create a dataframe of spi attributes
 spi_att01 <- pluck(spi_list_01, 1) %>% 
   as_tibble(rownames = "property") %>% 
@@ -2694,32 +2776,13 @@ rm(spi_list_01, spi_list_02, spi_list_03, spi_list_04,
                    spi_list_05, spi_list_06, spi_list_09, spi_list_12, 
                    spi_list_18, spi_list_24, spi_list_30, spi_list_36, 
                    spi_list_42, spi_list_48, spi_list_54, spi_list_60) 
-
-rm(distrib, p_zero, p_zero_cm, scale, time_scale, warn_me) 
-
-rm(sta_cot, sta_int, sta_oel, sta_ora, sta_rap) 
-
-rm(cot, int, oel, ora, rap)
-
-rm(first_mon_cot, first_mon_int, first_mon_oel, 
-   first_mon_ora, first_mon_rap) 
-
-rm(spi_gath01, spi_gath02, spi_gath03, spi_gath04, 
-                   spi_gath05, spi_gath06, spi_gath09, spi_gath12, 
-                   spi_gath18, spi_gath24, spi_gath30, spi_gath36, 
-                   spi_gath42, spi_gath48, spi_gath54, spi_gath60) 
+rm(spi_index_na)
 ```
 
-NEED TO FIX MONTH 7 MAXIMUM LIKLIHOOD maximum likelihood estimation failed for month 7 parameters are set to NA.Parameter for month 7 is NA
-
-
-```{r examine-SCI-values, eval=FALSE}
-# This code chunk examines the really large negative values &
-# the NA values by non-closure of  ML estimator for 
-# Interior 1-month SPI for Feb & some odd Oral values  
-
+```{r examine-SCI-values, eval=FALSE} 
+# This code chunk examines & fixes the really large negative values
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# Examine the initial SPI values for outliers----
+# Visualize initial SPI values----
 ggplot(spi_index, aes(as.integer(spi_length), spi_index)) + 
   geom_jitter() +  
   facet_grid(rows = vars(sta)) + 
@@ -2752,18 +2815,12 @@ sta_outlier <- sta_raw %>%
     date == "2007-02-01"
       ) 
 
-
 ggplot(sta_outlier, aes(date, depth, color = factor(sta))) + 
   geom_point() + 
   theme_bw() +
   ggtitle("Plot of outlier years") 
-```
 
-```{r fix-SCI-values}
-# This code chunk fixes the really large negative values & 
-# NA values created by non-closure of ML estimator for  
-# Interior 1-month SPI for Feb 
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # spi_index_typical - calculated above 
 # these are the min SPI vals from Cottonwood during depression 
 #  date       sta   spi_index spi_length 
@@ -2790,15 +2847,6 @@ ggplot(sta_outlier, aes(date, depth, color = factor(sta))) +
 # or the nearest neighbor (Oral <- Oelrichs) - I used mean SPI  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
-# split outliers from typical values & create replace tibble
-spi_index_outlier <- spi_index %>% 
-  filter(spi_index < -4) %>% 
-  as.tibble() 
-
-spi_index_typical <- spi_index %>% 
-  filter(spi_index > -4) %>%
-  arrange(spi_index)
-
 # create replacement values
 spi_index_replace <- spi_index_typical %>%          # pulls outliers
   filter(date == "1977-02-01" &  spi_length == 5   | 
@@ -2814,18 +2862,13 @@ spi_index_replace <- spi_index_typical %>%          # pulls outliers
   summarize(spi_index = mean(spi_index)) %>%
   ungroup()                      # calculates mean values 
 
-
-# join replacement values with outlier dates
+# update replacement values & join with typical values 
 spi_index_replace <- spi_index_outlier %>% 
   select(date, sta) %>% 
   full_join(., spi_index_replace, by = "date")
 
-spi_index2 <- bind_rows(spi_index_typical, spi_index_replace) 
-
-# recheck na values
-spi_index_na <- spi_index2 %>% 
-  filter(is.na(spi_index) | 
-           is.na(sta)) 
+spi_index2 <- bind_rows(spi_index_typical, spi_index_replace) %>% 
+  arrange(sta, spi_length, date)
 
 # check the values after the fix - the outlier values are now fixed 
 # spi_index2
@@ -2843,12 +2886,191 @@ spi_index <- spi_index2 %>%
   arrange(spi_index)
 
 # clean up
-rm(spi_index_na, spi_index_outlier, spi_index_replace, 
+rm(spi_index_outlier, spi_index_replace, 
    spi_index_typical, spi_index2, sta_outlier)
 ```
 
+```{r final-spi-plot} 
+spi_index_plot <- spi_index %>% 
+  filter(date > "1990-01-01")  %>% 
+  filter(spi_length == 1 | 
+           spi_length == 6 |
+           spi_length == 12 | 
+           spi_length == 24 |
+           spi_length == 36 |
+           spi_length == 48 | 
+           spi_length == 60
+         ) %>%
+  mutate(year = year(date))
+
+ggplot(spi_index_plot, aes(year, spi_index)) + 
+  geom_point() + 
+  geom_smooth() + 
+  geom_hline(yintercept = 0, color = "gray") +
+  facet_grid(rows = vars(spi_length), 
+             cols = vars(sta)) +
+  theme_classic() + 
+  ggtitle("SPI Index values for Pine Ridge reservation stations",
+          subtitle = "1990-01-01 to 2018-05-30")
+
+ggplot2::ggsave(filename = "figure/spi_vals.png", 
+                width = 8, height = 8, units = "in") 
+
+# the model shows spi values are highly correlated with only real 
+# difference being the number of years in the calculation.
+# However, individual droughts differ in space & time 
+
+#ggplot(spi_index_plot, aes(date, spi_index)) + 
+#  geom_line() + 
+#  facet_wrap(vars(sta)) + 
+#  theme_classic() +
+#  geom_hline(yintercept = 0) + 
+#  scale_x_date(limits = as.Date(c('1980-01-01','2018-01-01')), 
+#                 date_breaks = "1 year")  
+#labels = date_format("%b-%Y")
+```
+
+```{r spi-correlation-analysis}
+# visually check results
+#spi_index_plot <- spi_index %>% 
+#  filter(spi_length == 12)
+  
+#ggplot(spi_index_plot, aes(date, spi_index)) + 
+#  geom_line() +
+#  facet_wrap(vars(sta)) + 
+#  theme_classic() +
+#  geom_hline(yintercept = 0, aes)
+
+#ggplot2::ggsave(path = "figure/", filename = "spi_1mo.png", 
+#                width = 6, height = 6, units = "in")  
+
+# create correlation matrix inputs
+spi_M <- spi_index %>% 
+  select(-date) %>% 
+  group_by(sta, spi_length) %>% 
+  mutate(grouped_id = row_number()) %>% 
+  spread(key = sta, value = spi_index) %>% 
+  drop_na() %>% 
+  ungroup() %>% 
+  select(-grouped_id) %>% 
+  select(spi_length, cot, int, oel, ora, rap) # ensure vars order 
+
+# create correlation matrix names from the correlation matrix vars
+spi_M_names <- spi_M %>% 
+  filter(spi_length == 1) %>% 
+  cor() %>% 
+  as.tibble() %>% 
+  names() %>% 
+  as.tibble() %>% 
+  slice(-1) %>% 
+  mutate(value2 = value) %>% 
+  mutate(value3 = value) %>%  
+  mutate(value4 = value) %>%
+  mutate(value5 = value) %>% 
+  gather(key, sta2) %>% 
+  select(-key) %>% 
+  rownames_to_column() 
+
+# create second station names column 
+spi_M_names2 <- spi_M_names %>% 
+  arrange(sta2) %>% 
+  rename(sta1 = sta2) %>% 
+  select(-rowname)
+
+# bind the names columns
+spi_M_names <- bind_cols(spi_M_names, spi_M_names2)  
+rm(spi_M_names2)
+
+# create a correlation matrix from SPI vals
+spi_M <- spi_M %>% 
+  split(.$spi_length) %>% 
+  purrr::map_dfr(~ cor(.)) %>% 
+  drop_na() %>% 
+  slice(-1) %>% 
+  rownames_to_column() 
+
+# bind names to the correlation matrix 
+spi_M <- full_join(spi_M_names, spi_M, by = "rowname")
+spi_M <- spi_M %>% 
+  select(sta1, sta2, everything()) %>%
+  select(-rowname)
+  
+# prepare lookup table of lat-lons
+sta_loc <- sta_meta %>% 
+  arrange(name) %>%
+  mutate(sta = c("cot", "int", "oel", "ora", "rap")) %>% 
+  select(sta, lat, lon, dur_year)
+
+# join the 'from' lat lons
+spi_corr <- full_join(spi_M, sta_loc, by = c("sta1" = "sta")) %>% 
+  rename(lat1 = lat) %>% 
+  rename(lon1 = lon) 
+
+# join the 'to' lat lons
+spi_corr <- full_join(spi_corr, sta_loc, by = c("sta2" = "sta")) %>% 
+  rename(lat2 = lat) %>% 
+  rename(lon2 = lon) %>% 
+  mutate(year_dif = abs(dur_year.x - dur_year.y))
+  
+
+# convert the 'to' and 'from' lat-lons to northings & eastings & distance
+lat_to_km <- 111.03 # 1 degree lat to km @ lat 40-degrees 
+lon_to_km <- 85.39  # 1 degree lon to km @ lat 40-degrees 
+  
+spi_corr <- spi_corr %>% 
+  mutate(northing = abs((lat1 - lat2)) * lat_to_km) %>% 
+  mutate(easting = abs((lon1 - lon2)) * lat_to_km) %>% 
+  mutate(distance = sqrt(northing^2 + easting^2)) %>% 
+  select(year_dif, everything()) %>%
+  select(-(lat1:easting)) %>% 
+  mutate(stations = paste(sta1, sta2, sep = "_")) %>% 
+  gather(key = spi_length, value = pears_r, -distance, 
+         -stations, -sta1, -sta2, -year_dif) %>% 
+  filter(distance > 0) %>% 
+  mutate(spi_length = as.double(spi_length))
 
 
+# clean up the global environment 
+rm(spi_M, spi_M_names, sta_loc, lat_to_km, lon_to_km)
+
+# model effect of averaging time & distance on correlation----
+# fit a linear model
+spi_lm <- lm(pears_r ~ distance + spi_length + year_dif, 
+             data = spi_corr)
+
+# augment & gather the original data
+spi_corr_aug <- augment(spi_lm, spi_corr) 
+
+spi_corr_gath <- spi_corr_aug %>% 
+  select(-(sta1:sta2)) %>%
+  select(year_dif:.fitted) %>% 
+  gather(key = factor, val, -stations, -pears_r) %>% 
+  mutate(val = as.double(val))  
+
+# plot the original data and fitted model for SPI----  
+ggplot(spi_corr_gath, aes(val, pears_r)) + 
+  geom_point(aes(color = factor(stations))) +
+  facet_wrap(ncol = 1, vars(factor), scales = "free") +
+    geom_smooth(method = lm) + 
+  theme_classic()
+
+spi_lm_fit <- glance(spi_lm) 
+
+spi_lm_tidy <- tidy(spi_lm) %>% 
+  mutate(
+    low = estimate - std.error,
+    high = estimate + std.error
+  )
+
+# clean-up Global Environment----
+spi_corr <- spi_corr_aug 
+rm(spi_corr_aug, spi_corr_gath, spi_lm ,spi_lm_fit)
+
+
+rm(spi_corr, spi_lm_tidy)
+```
+
+# finalize the diagnostic plots
 ```{r SCI-diagnostic-plots, eval=FALSE}
 # Diagnostic plots of SPI transforms 
 
@@ -2894,669 +3116,6 @@ ggplot2::ggsave(filename = "figure/spi_shape.png",
 # clean up Global Environment----
 rm(spi_location, spi_shape, spi_scale) 
 ```
-
-```{r final-spi-plot} 
-spi_index_plot <- spi_index %>% 
-  filter(date > "1990-01-01")  %>% 
-  filter(spi_length == 1 | 
-           spi_length == 6 |
-           spi_length == 12 | 
-           spi_length == 24 |
-           spi_length == 36 |
-           spi_length == 48 | 
-           spi_length == 60
-         ) %>%
-  mutate(year = year(date))
-
-ggplot(spi_index_plot, aes(year, spi_index)) + 
-  geom_point() + 
-  geom_smooth() + 
-  geom_hline(yintercept = 0, color = "gray") +
-  facet_grid(rows = vars(spi_length), 
-             cols = vars(sta)) +
-  theme_classic() 
-
-ggplot2::ggsave(filename = "figure/spi_vals.png", 
-                width = 8, height = 8, units = "in") 
-
-
-#ggplot(spi_index_plot, aes(date, spi_index)) + 
-#  geom_line() + 
-#  facet_wrap(vars(sta)) + 
-#  theme_classic() +
-#  geom_hline(yintercept = 0) + 
-#  scale_x_date(limits = as.Date(c('1980-01-01','2018-01-01')), 
-#                 date_breaks = "1 year")  
-#labels = date_format("%b-%Y")
-```
-
-```{r spi-correlation-analysis}
-# visually check results
-spi_index_plot <- spi_index %>% 
-  filter(spi_length == 12)
-  
-ggplot(spi_index_plot, aes(date, spi_index)) + 
-  geom_line() +
-  facet_wrap(vars(sta)) + 
-  theme_classic() +
-  geom_hline(yintercept = 0, aes)
-
-#ggplot2::ggsave(path = "figure/", filename = "spi_1mo.png", 
-#                width = 6, height = 6, units = "in")  
-
-# the model shows spi values are highly correlated with only real 
-# difference being the number of years in the calculation.
-# However, individual droughts differ in space & time
-
-# create correlation matrix inputs
-spi_M <- spi_index %>% 
-  select(-date) %>% 
-  group_by(sta, spi_length) %>% 
-  mutate(grouped_id = row_number()) %>% 
-  spread(key = sta, value = spi_index) %>% 
-  drop_na() %>% 
-  ungroup() %>% 
-  select(-grouped_id) %>% 
-  select(spi_length, cot, int, oel, ora, rap) # ensure vars order 
-
-
-# create correlation matrix names from the correlation matrix vars
-spi_M_names <- spi_M %>% 
-  filter(spi_length == 1) %>% 
-  cor() %>% 
-  as.tibble() %>% 
-  names() %>% 
-  as.tibble() %>% 
-  slice(-1) %>% 
-  mutate(value2 = value) %>% 
-  mutate(value3 = value) %>%  
-  mutate(value4 = value) %>%
-  mutate(value5 = value) %>% 
-  gather(key, sta2) %>% 
-  select(-key) %>% 
-  rownames_to_column() 
-
-spi_M_names2 <- spi_M_names %>% 
-  arrange(sta2) %>% 
-  rename(sta1 = sta2) %>% 
-  select(-rowname)
-  
-spi_M_names <- bind_cols(spi_M_names, spi_M_names2)  
-rm(spi_M_names2)
-
-# create a correlation matrix from SPI vals
-spi_M <- spi_M %>% 
-  split(.$spi_length) %>% 
-  purrr::map_dfr(~ cor(.)) %>% 
-  drop_na() %>% 
-  slice(-1) %>% 
-  rownames_to_column() 
-
-# bind names to the correlation matrix 
-spi_M <- full_join(spi_M_names, spi_M, by = "rowname")
-spi_M <- spi_M %>% 
-  select(sta1, sta2, everything()) %>%
-  select(-rowname)
-  
-# prepare lookup table of lat-lons
-sta_loc <- sta_meta %>% 
-  arrange(name) %>%
-  mutate(sta = c("cot", "int", "oel", "ora", "rap")) %>% 
-  select(sta, lat, lon, dur_year)
-
-spi_corr <- full_join(spi_M, sta_loc, by = c("sta1" = "sta")) %>% 
-  rename(lat1 = lat) %>% 
-  rename(lon1 = lon) 
-
-spi_corr <- full_join(spi_corr, sta_loc, by = c("sta2" = "sta")) %>% 
-  rename(lat2 = lat) %>% 
-  rename(lon2 = lon) %>% 
-  mutate(year_dif = abs(dur_year.x - dur_year.y))
-  
-
-# convert the to and from lat-lons to northings & eastings & distance
-lat_to_km <- 111.03 # 1 degree lat to km @ lat 40-degrees 
-lon_to_km <- 85.39  # 1 degree lon to km @ lat 40-degrees 
-  
-spi_corr <- spi_corr %>% 
-  mutate(northing = abs((lat1 - lat2)) * lat_to_km) %>% 
-  mutate(easting = abs((lon1 - lon2)) * lat_to_km) %>% 
-  mutate(distance = sqrt(northing^2 + easting^2)) %>% 
-  select(year_dif, everything()) %>%
-  select(-(lat1:easting)) %>% 
-  mutate(stations = paste(sta1, sta2, sep = "_")) %>% 
-  gather(key = spi_length, value = pears_r, -distance, 
-         -stations, -sta1, -sta2, -year_dif) %>% 
-  filter(distance > 0) %>% 
-  mutate(spi_length = as.double(spi_length))
-
-# model effect of averaging time & distance on correlation----
-# fit a linear model
-spi_lm <- lm(pears_r ~ distance + spi_length + year_dif, 
-             data = spi_corr)
-
-# augment the original data
-spi_corr_aug <- augment(spi_lm, spi_corr) 
-
-# gather the data
-spi_corr_gath <- spi_corr_aug %>% 
-  select(-(sta1:sta2)) %>%
-  select(year_dif:.fitted) %>% 
-  gather(key = factor, val, -stations, -pears_r) %>% 
-  mutate(val = as.double(val))  
-
-# plot the original data and fitted model for SPI----  
-ggplot(spi_corr_gath, aes(val, pears_r)) + 
-  geom_point(aes(color = factor(stations))) +
-  facet_wrap(ncol = 1, vars(factor), scales = "free") +
-    geom_smooth(method = lm) + 
-  theme_classic()
-
-spi_lm_fit <- glance(spi_lm) 
-
-spi_lm_tidy <- tidy(spi_lm) %>% 
-  mutate(
-    low = estimate - std.error,
-    high = estimate + std.error
-  )
-
-# clean-up Global Environment----
-spi_corr <- spi_corr_aug 
-rm(spi_corr_aug, spi_corr_gath, spi_index_plot, spi_lm ,spi_lm_fit, 
-   spi_lm_tidy, spi_M, spi_M_names, sta_loc)
-
-```
-
-
-```{r old_code_2_delete, eval=FALSE}
-# this code chunk joins the various [spi1, spi48] data slices
-
-# get names for Pearson-III distribution - done once
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#att_names <- spi.cot.l$dist.para %>% 
-#  rownames() %>% 
-#  as_data_frame() %>% 
-#  rename(property = value) 
-
-# cottonwood PE3 ~~~~~~~~~~~~~~~~~~
-#att_cot <- spi.cot.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "cot")
-
-#att_cot <- bind_cols(att_names, att_cot)
-
-# interior PE3 ~~~~~~~~~~~~~~~~~~~ 
-#att_int <- spi.int.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "int")
-
-#att_int <- bind_cols(att_names, att_int)
-
-# oelrichs PE3 ~~~~~~~~~~~~~~~~~~~~
-#att_oel <- spi.oel.l$dist.para %>% 
-##  as_data_frame() %>% 
-#  mutate(sta = "oel")
-
-#att_oel <- bind_cols(att_names, att_oel)
-
-# oral PE3 ~~~~~~~~~~~~~~~~~~~~~~~
-#att_ora <- spi.ora.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "ora")
-
-#att_ora <- bind_cols(att_names, att_ora)
-
-# rapid city PE3 ~~~~~~~~~~~~~~~~~~
-#att_rap <- spi.rap.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "rap")
-
-#att_rap <- bind_cols(att_names, att_rap)
-
-# join the rows for PE3 & prepare for gather  
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#spi_att <- bind_rows(att_cot, att_int, att_oel, att_ora, att_rap) %>% 
-#  rename("1" = M1) %>% 
-#  rename("2" = M2) %>% 
-#  rename("3" = M3) %>% 
- # rename("4" = M4) %>% 
-#  rename("5" = M5) %>% 
-#  rename("6" = M6) %>% 
-#  rename("7" = M7) %>% 
-#  rename("8" = M8) %>% 
-#  rename("9" = M9) %>% 
-#  rename("10" = M10) %>% 
-#  rename("11" = M11) %>% 
-#  rename("12" = M12) 
-
-#rm(att_cot, att_int, att_oel, att_ora, att_rap)
-
-#   1mon-check for warnings from SPI ----
-#flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
-#flag_int <- as.tibble(spi.int.l$dist.para.flag) # M2 (feb) flag => 3
-#flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
-#flag_ora <- as.tibble(spi.ora.l$dist.para.flag) 
-#flag_rap <- as.tibble(spi.rap.l$dist.para.flag) 
-
-#flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
-#                      flag_ora, flag_rap) 
-
-# the flag means ML values did not converge
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# Sta  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-# Int  0.30    4.40    9.20   12.53   17.10   70.30 * is the max why?
-# Cot  0.30    4.80   10.40   13.54   18.30   62.00 
-# Oel  0.00    5.85   11.50   12.08   16.40   37.80 
-# Ora  0.00    5.05   10.10   12.35   17.50   42.70 
-# Rap  0.60    5.10    8.90   11.56   15.95   43.40  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
-# gather months for PE3
-#spi_att <- spi_att %>% 
-#  select(sta, property, everything()) %>% 
- # gather(key = month, value = value, -sta, -property) 
-
-# split properties from check vars 
-#spi_check <- spi_att %>% 
- # filter(property == "N" |
- #          property == "P0" |
-#           property == "N.P0") %>% 
- # arrange(property)
-
-#spi_att <- spi_att %>% 
- # filter(property != "N") %>% 
-#  filter(property != "P0") %>% 
-#  filter(property != "N.P0") %>% 
-#  mutate(month = as.integer(month)) 
-# prepare for join- create length
-spi_att1 <-  mutate(spi_att1, spi_length = 1) 
-spi_att2 <-  mutate(spi_att2, spi_length = 2) 
-spi_att3 <-  mutate(spi_att3, spi_length = 3) 
-spi_att4 <-  mutate(spi_att4, spi_length = 4) 
-spi_att5 <-  mutate(spi_att5, spi_length = 5) 
-spi_att6 <-  mutate(spi_att6, spi_length = 6) 
-spi_att9 <-  mutate(spi_att9, spi_length = 9)  
-spi_att12 <- mutate(spi_att12, spi_length = 12)  
-spi_att18 <- mutate(spi_att18, spi_length = 18) 
-spi_att24 <- mutate(spi_att48, spi_length = 24) 
-
-# prepare for join- differenciate values
-spi_att1 <-  mutate(spi_att1, spi1 = value) 
-spi_att2 <-  mutate(spi_att2, spi2 = value) 
-spi_att3 <-  mutate(spi_att3, spi3 = value) 
-spi_att4 <-  mutate(spi_att4, spi4 = value) 
-spi_att5 <-  mutate(spi_att5, spi5 = value) 
-spi_att6 <-  mutate(spi_att6, spi6 = value) 
-spi_att9 <-  mutate(spi_att9, spi9 = value)  
-spi_att12 <- mutate(spi_att12, spi12 = value)  
-spi_att18 <- mutate(spi_att18, spi18 = value) 
-spi_att24 <- mutate(spi_att24, spi24 = value) 
-
-# create a list of the spi_att dataframes
-att_list <- list(spi_att1, spi_att2, spi_att3, 
-                            spi_att4, spi_att5, spi_att6, 
-                            spi_att9, spi_att12, spi_att18, 
-                            spi_att24)
-
-# flatten the list to a dataframe & select values
-spi_att <- flatten_dfc(att_list) %>% 
-  select(sta, spi_length, property, month, spi1, spi2, spi3, spi4, 
-         spi5, spi6, spi9, spi12, spi18, spi24) %>% 
-  gather(key = length, value = spi_value, -spi_length, 
-         -property, -sta, -month) %>% 
-  select(-length)
- 
-
-# join spi check values----
-# prepare for join- create length
-spi_check1 <- mutate(spi_check1, spi_length = 1) 
-spi_check2 <- mutate(spi_check2, spi_length = 2) 
-spi_check3 <- mutate(spi_check3, spi_length = 3) 
-spi_check4 <- mutate(spi_check4, spi_length = 4) 
-spi_check5 <- mutate(spi_check5, spi_length = 5) 
-spi_check6 <- mutate(spi_check6, spi_length = 6) 
-spi_check9 <- mutate(spi_check9, spi_length = 9)  
-spi_check12 <- mutate(spi_check12, spi_length = 12)  
-spi_check18 <- mutate(spi_check18, spi_length = 18) 
-spi_check24 <- mutate(spi_check24, spi_length = 24) 
-
-# bind rows of spi correlations for different averaging periods
-spi_check <- bind_rows(spi_check1, spi_check2) 
-spi_check <- bind_rows(spi_check, spi_check3) 
-spi_check <- bind_rows(spi_check, spi_check4) 
-spi_check <- bind_rows(spi_check, spi_check5) 
-spi_check <- bind_rows(spi_check, spi_check6) 
-spi_check <- bind_rows(spi_check, spi_check9) 
-spi_check <- bind_rows(spi_check, spi_check12) 
-spi_check <- bind_rows(spi_check, spi_check18) 
-spi_check <- bind_rows(spi_check, spi_check24) 
-
-# check non-zero precip vals
-zero_prob_prcp <- spi_check %>% 
-  filter(property != "N") %>% 
-  mutate(value = as.numeric(value)) %>% 
-  mutate(month = as.integer(month)) %>% 
-  drop_na() %>% 
-  filter(property == "P0") %>% 
-  group_by(month, spi_length) %>% 
-  summarize(mean_val_perc = 100 * mean(value)) %>% 
-  filter(mean_val_perc > 0)
-
-# join spi index values & clean up global environment----
-# prepare for join -add lengths & get dataframes to same length
-spi_gath1 <- spi_gath1 %>% 
-  mutate(spi_length = 1) 
-
-spi_gath2 <- spi_gath2 %>% 
-  mutate(spi_length = 2) 
-
-spi_gath3 <- spi_gath3 %>% 
-  mutate(spi_length = 3) 
-
-spi_gath4 <- spi_gath4 %>% 
-  mutate(spi_length = 4) 
-
-spi_gath5 <- spi_gath5 %>% 
-  mutate(spi_length = 5) 
-
-spi_gath6 <- spi_gath6 %>% 
-  mutate(spi_length = 6) 
-
-spi_gath9 <- spi_gath9 %>% 
-  mutate(spi_length = 9) 
-
-spi_gath12 <- spi_gath12 %>% 
-  mutate(spi_length = 12) 
-
-spi_gath18 <- spi_gath18 %>% 
-  mutate(spi_length = 18) 
-
-spi_gath24 <- spi_gath24 %>% 
-  mutate(spi_length = 24)  
-
-# bind rows is probably the easiest approach here to get the 
-# individual dataframes into a single dataframe.  The dataframes are 
-# of different lengths because of the averaging periods
-
-spi_index <- bind_rows(spi_gath1, spi_gath2) 
-spi_index <- bind_rows(spi_index, spi_gath3)  
-spi_index <- bind_rows(spi_index, spi_gath4)  
-spi_index <- bind_rows(spi_index, spi_gath5)  
-spi_index <- bind_rows(spi_index, spi_gath6)  
-spi_index <- bind_rows(spi_index, spi_gath9)  
-spi_index <- bind_rows(spi_index, spi_gath12)  
-spi_index <- bind_rows(spi_index, spi_gath18)  
-spi_index <- bind_rows(spi_index, spi_gath24)  
-
-
-rm(spi_att1, spi_att2, spi_att3, spi_att4, spi_att5, 
-   spi_att6, spi_att9, spi_att12, spi_att18, spi_att24)
-
-rm(spi_check1, spi_check2, spi_check3, spi_check4, 
-   spi_check5, spi_check6, spi_check9, spi_check12, spi_check18, 
-   spi_check24) 
-
-rm(spi_corr_cot, spi_corr_int, spi_corr_oel, spi_corr_ora, 
-   lat_to_km, lon_to_km, sta_loc)
-
-rm(spi_gath1, spi_gath2, spi_gath3, spi_gath4, spi_gath5, 
-   spi_gath6, spi_gath9, spi_gath12, spi_gath18, spi_gath24) 
-
-rm(spi_check, att_list) 
-
-#r precip-clustering, include=FALSE, eval=FALSE
-# Didn't work well...
-
-# Prepare data for exploratory PCA -----------------------------------
-
-# PCA requires that data are scaled with a mean of zero and standard 
-# deviation of unity, e.g. a z-score.  
-
-# The steps are as follows :
-# 1. Transform using BoxCox transformation to approach normality & 
-#    standardize.
-# 2. Drop rows with missing observations from wide data
-#    (e.g. the station records are of different lengths)
-# 3. Apply transformation and the scale data after making the data 
-#    long.
-# 4. Drop intermediate variables & rows with missing observations 
-#    
-
-# BoxCox transformation utilizes a lamda value to transform a dataset 
-# to approach a normal distribution.
-#   lambda = 1 is normal distribution (no change), 
-#   lambda = 0.5 is a square-root transformation, 
-#   lamda = 2 is a square transformation,
-#   lambda = 0 is a logrithmic transformation.
-# find lambda values for BoxCox transformation  
-lambda_prcp <- BoxCox.lambda(sta_grp$depth) 
-
-# lambda vals
-#  prcp ==> 0.108 
-
-# glimpse(sta_scaled) 
-# sta          <chr> "oel", "oel", "oel", "oel", "oel", "oel", "oel"
-# date         <date> 2018-05-01, 2018-04-01, 2018-03-01, 2018-02-01
-# depth        <dbl> 139.8, 33.5, 24.0, 18.3, 13.3, 14.8, 16.5, 19.0.
-# depth_tr     <dbl> 6.528617, 4.270760, 3.792030, 3.415306, 2.985829.
-# depth_scaled <dbl> 1.320188955, 0.340849965, 0.133202243 
-
-sta_mon_wide <- sta_int %>% 
-  mutate(depth_tr = BoxCox(sta_int$depth, lambda_prcp)) %>% 
-  mutate(depth_mean = mean(depth_tr, na.rm = TRUE)) %>% 
-  mutate(depth_sd = sd(depth_tr, na.rm = TRUE)) %>% 
-  mutate(depth_scaled = (depth_tr - depth_mean)/depth_sd) %>% 
-  dplyr::select(-date) %>% 
-  select(-sta_abrev, -mean_depth, -deviation)
-
-sta_mon <- sta_mon_wide %>%  
-  mutate(sta = as.factor(sta)) %>%  
-  select(-depth, -yr_mon, -depth_mean, -depth_sd, -depth_tr, ) %>%
-  spread(month, depth_scaled, convert = TRUE) %>% 
-  drop_na() %>% 
-  rename(jan = "1") %>% 
-  rename(feb = "2") %>% 
-  rename(mar = "3") %>% 
-  rename(apr = "4") %>% 
-  rename(may = "5") %>% 
-  rename(jun = "6") %>% 
-  rename(jul = "7") %>% 
-  rename(aug = "8") %>% 
-  rename(sep = "9") %>% 
-  rename(oct = "10") %>% 
-  rename(nov = "11") %>% 
-  rename(dec = "12") 
-
-# glimpse(sta_mon) 
-# Observations: 230
-# Variables: 14
-# year <int> 1972, 1972, 1972, 1972, 1972, 1973, 1973, 1973, 1973, 
-# sta  <fct> cot, int, oel, ora, rap, cot, int, oel, ora, rap, cot, 
-# jan  <dbl> -1.1705655, -1.8359887, -1.0710896, -0.5540255, -0.781 
-# feb  <dbl> -0.5138541, -1.7302116, -1.1024868, -1.3120703, -0.400 
-# mar  <dbl> -0.49461927, -0.43412364, -0.01338585, -0.13223232, -0 
-# apr  <dbl> -0.1172139, 1.0387562, 0.6274294, 0.3555747, 0.8642143 
-# may  <dbl> 1.37710556, 0.70367637, 0.96166778, 0.84463790, 0.9909 
-# jun  <dbl> 0.63876170, 0.36154511, 1.03170176, 1.35395955, 1.1668 
-# jul  <dbl> 1.1087770, 0.7467736, 0.2690885, 0.3312313, 0.4877920, 
-# aug  <dbl> 0.32709997, 0.79595891, 0.29970391, 0.47757034, 0.7806 
-# sep  <dbl> -0.53364445, -0.99892436, -0.25600144, -0.10249695, -0 
-# oct  <dbl> -0.25151491, -0.25151491, -0.01338585, -0.10981856, -0 
-# nov  <dbl> -0.39471011, -0.39471011, -0.78171073, -0.32692017, -0 
-# dec  <dbl> -0.84271133, -6.16974428, -0.83213761, -1.11880814, -0 
-
-# Select numeric data for PCA input &  names to connect to result 
-# prcomp() requires a dataset with only the variables for the 
-# unsupervised classification 
-
-pca_meta <- sta_mon %>% 
-  select(year, sta)
-pca_input <- sta_mon %>% 
-  select(-year, -sta)
-
-# Calculate PCA matrix & summary info
-pca_matrix <- prcomp(pca_input, scale = TRUE) 
-
-# Gather PCA results----
-# The broom package is used to gather results into tibbles.
-
-# this plots the PCA biplot 
-biplot <- biplot(pca_matrix, scale = 0) 
-
-# Eigenvectors
-pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
-
-# A tibble: 12 x 4
-#      PC std.dev percent cumulative
-#   <dbl>   <dbl>   <dbl>      <dbl>
-# 1     1   1.25   0.130       0.130
-# 2     2   1.20   0.120       0.250
-# 3     3   1.14   0.108       0.357
-# 4     4   1.11   0.103       0.460
-# 5     5   1.07   0.0955      0.556
-# 6     6   1.03   0.0877      0.643
-# 7     7   0.984  0.0807      0.724
-# 8     8   0.924  0.0711      0.795
-# 9     9   0.885  0.0652      0.860
-#10    10   0.846  0.0597      0.92 
-#11    11   0.728  0.0441      0.964
-#12    12   0.656  0.0359      1  
-# This means that 13% of covarience is explained by PCA1 & 
-# 12% of varience by PCA2
-
-# PCA variables 
-# these are the loadings on the PCA axes.  
-pca_vars <-  tidy(pca_matrix, matrix = "variables") 
-pca_vars <- pca_vars %>% 
-  rename(var = column) %>% 
-  mutate(var = as.factor(var)) %>% 
-  arrange(value) %>% 
-  arrange(PC)
-
-pca_rotation <- pca_matrix$rotation
-
-# Bind sample vals to PCA matrix 
-pca_au <- augment(pca_matrix, data = pca_input) %>% 
-  select(jan:.fittedPC3)
-pca_au <- bind_cols(pca_meta, pca_au) 
-rm(pca_meta)
-
-# Calculate mean eigenvectors 
-# this summarizes the individual points by station - used in plots
-pca_summary <- pca_au %>% 
-  group_by(sta) %>% 
-  summarize(PC1_mean = mean(.fittedPC1),
-            PC2_mean = mean(.fittedPC2), 
-            PC3_mean = mean(.fittedPC3), 
-            mar_mean = mean(mar), 
-            apr_mean = mean(apr), 
-            may_mean = mean(may),
-            jun_mean = mean(jun), 
-            jul_mean = mean(jul), 
-            aug_mean = mean(aug),
-            sep_mean = mean(sep), 
-            oct_mean = mean(oct), 
-            nov_mean = mean(nov)) %>% 
-  ungroup()    
-
-
-# PCA Interpretation-------------------------- 
-pca_expl <- pca_vars %>%
-  filter(abs(value) > 0.3) %>% 
-  filter(PC < 4) %>% 
-  filter(var != "dec") %>% 
-  filter(var != "jan") %>% 
-  arrange(value) %>% 
-  arrange(PC)
-
-pca_expl
-# A tibble: 9 x 3
-#  var      PC  value
-#  <fct> <dbl>  <dbl>
-#1 jun       1 -0.612
-#2 mar       1  0.357
-#3 sep       1  0.368
-#4 may       2 -0.485
-#5 aug       2 -0.438
-#6 apr       2  0.330
-#7 mar       2  0.438
-#8 oct       3 -0.540
-#9 may       3 -0.409
-
-# thus PC1 is var in jun vs mar & sep
-#      PC2 is var in may & aug vs apr
-#      PC3 is var in oct & may
-
-#PCA1:PCA2
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC1_mean, PC2_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC1_mean, PC2_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-# PC1:: 
-# Interior has some unusually a dry March & Jun records
-# Cottonwood has some unusually dry Jun & Sept records
-pca_pc1 <- pca_au %>% 
-  select(sta, mar, jun, sep, .fittedPC1) %>% 
-  gather(key = month, value = z_depth, -.fittedPC1, -sta)
-
-ggplot(pca_pc1, aes(.fittedPC1, z_depth, color = sta)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_grid(cols = vars(month))
-
-# PC2:: 
-# Oral & Interior have a slightly wetter May & August
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC2_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC2_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-
-pca_pc2 <- pca_au %>% 
-  select(sta, apr, may, aug, .fittedPC2) %>% 
-  gather(key = month, value = z_depth, -.fittedPC2, -sta)
-
-ggplot(pca_pc2, aes(.fittedPC2, z_depth, color = sta)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_grid(rows = vars(month)) + 
-  theme_classic() 
-
-
-#PCA1:PCA3
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC1_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC1_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-#PCA2:PCA3
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC2_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC2_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-#fviz_pca_ind(prcomp(pca_input), 
-#             title = "PCA - Iris data", 
-#             habillage = pca_meta$sta, 
-#             palette = "jco", geom = "point", 
-#             ggtheme = theme_classic(), 
-#             legend = "bottom")  
-```
-
 
 
 ```{r streamflow-data-organization}  
@@ -4103,7 +3662,6 @@ gage_sum <- gage_aug %>%
 rm(lambda_q1, lambda_q7, lambda_q30, pca_input, pca_matrix) 
 ```
 
-
 ```{r plot_PCA}
 
 # mean eigenvector plot
@@ -4177,7 +3735,6 @@ ggplot(gage_aug, aes(q7_depth, q1_q30_diff)) +
 #ggplot2::ggsave(path = "figure/", filename = "strm_dens_all.png", 
 #                width = 6, height = 6, units = "in")  
 ```
-
 
 ```{r Model-Based_Clustering-9098} 
 
@@ -4974,46 +4531,6 @@ ggplot(gage_clust_plot, aes(group, value)) +
 ```
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-```{r CLUSTERING_INFO, eval=FALSE, INCLUDE=FALSE}
-
-
-
-
-Several R packages available from CRAN or Bioconducto perform cluster validation, including: 
-
-|    Package   |    Function(s)   |      Author       |      Notes    |
-|:------------:|:----------------:|:-----------------:|:-------------:|
-|   cclust     | clustIndex()     |    Dimitriadou    | No user guide |
-|     fpc      | cluster.stats()  |       Hennig      | No user guide |
-|              | clusterboot()    |                   |               |
-| clusterRepro |                  | Kapp & Tibshirani | not general   |
-|  clusterSim  |                  | Walesiak & Dudek  | poor user guide |
-|  clusterStab |                  | MacDonald et al.  | narrow vignette |
-|     clue     | cl_validity() +  | Hornik, September |     maybe...    |
-|     e1071    | fclustIndex() ++ | Dimitriadou et al.| 2006  | unk.
-
-+ validation for both paritioning methods (“dissimilarity accounted for”) and hierarchical methods (“variance accounted for”) 
-++ fuzzy cluster validation measures.
-
-pam() in recommended pack- age cluster (Rousseeuw, Struyf, Hubert, and Maechler, 2005; Struyf, Hubert, and Rousseeuw, 1996), and Mclust() in package mclust (Fraley, Raftery, and Wehrens, 2005; Fraley and Raftery, 2003), are available as components named cluster, clustering, and classification, 
-
-RWeka (Hornik, Hothorn, and Karatzoglou, 2006), cba (Buchta and Hahsler, 2005), cclust (Dimitriadou, 2005), cluster, e1071 (Dimitriadou, Hornik, Leisch, Meyer, and Weingessel, 2005), flexclust (Leisch, 2006), flexmix (Leisch, 2004), kernlab (Karatzoglou, Smola, Hornik, and Zeileis, 2004), and mclust (and of course, clue itself).
-```
-
 ```{r PROBABLY-GARBABE}
 # this is the simplist case approach
 #gage_scale_l <- gage_prep %>% 
@@ -5095,3 +4612,491 @@ $xi−mean(x)sd(x) \frac{x_i - mean(x)}{(x)}$
 Where center(x) can be the mean or the median of x values, and scale(x) can be the standard deviation (SD), the interquartile range, or the MAD (median absolute deviation).
 ```
 
+```{r old_code_2_delete, eval=FALSE}
+# this code chunk joins the various [spi1, spi48] data slices
+
+# get names for Pearson-III distribution - done once
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#att_names <- spi.cot.l$dist.para %>% 
+#  rownames() %>% 
+#  as_data_frame() %>% 
+#  rename(property = value) 
+
+# cottonwood PE3 ~~~~~~~~~~~~~~~~~~
+#att_cot <- spi.cot.l$dist.para %>% 
+#  as_data_frame() %>% 
+#  mutate(sta = "cot")
+
+#att_cot <- bind_cols(att_names, att_cot)
+
+# interior PE3 ~~~~~~~~~~~~~~~~~~~ 
+#att_int <- spi.int.l$dist.para %>% 
+#  as_data_frame() %>% 
+#  mutate(sta = "int")
+
+#att_int <- bind_cols(att_names, att_int)
+
+# oelrichs PE3 ~~~~~~~~~~~~~~~~~~~~
+#att_oel <- spi.oel.l$dist.para %>% 
+##  as_data_frame() %>% 
+#  mutate(sta = "oel")
+
+#att_oel <- bind_cols(att_names, att_oel)
+
+# oral PE3 ~~~~~~~~~~~~~~~~~~~~~~~
+#att_ora <- spi.ora.l$dist.para %>% 
+#  as_data_frame() %>% 
+#  mutate(sta = "ora")
+
+#att_ora <- bind_cols(att_names, att_ora)
+
+# rapid city PE3 ~~~~~~~~~~~~~~~~~~
+#att_rap <- spi.rap.l$dist.para %>% 
+#  as_data_frame() %>% 
+#  mutate(sta = "rap")
+
+#att_rap <- bind_cols(att_names, att_rap)
+
+# join the rows for PE3 & prepare for gather  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#spi_att <- bind_rows(att_cot, att_int, att_oel, att_ora, att_rap) %>% 
+#  rename("1" = M1) %>% 
+#  rename("2" = M2) %>% 
+#  rename("3" = M3) %>% 
+ # rename("4" = M4) %>% 
+#  rename("5" = M5) %>% 
+#  rename("6" = M6) %>% 
+#  rename("7" = M7) %>% 
+#  rename("8" = M8) %>% 
+#  rename("9" = M9) %>% 
+#  rename("10" = M10) %>% 
+#  rename("11" = M11) %>% 
+#  rename("12" = M12) 
+
+#rm(att_cot, att_int, att_oel, att_ora, att_rap)
+
+#   1mon-check for warnings from SPI ----
+#flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
+#flag_int <- as.tibble(spi.int.l$dist.para.flag) # M2 (feb) flag => 3
+#flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
+#flag_ora <- as.tibble(spi.ora.l$dist.para.flag) 
+#flag_rap <- as.tibble(spi.rap.l$dist.para.flag) 
+
+#flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
+#                      flag_ora, flag_rap) 
+
+# the flag means ML values did not converge
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Sta  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# Int  0.30    4.40    9.20   12.53   17.10   70.30 * is the max why?
+# Cot  0.30    4.80   10.40   13.54   18.30   62.00 
+# Oel  0.00    5.85   11.50   12.08   16.40   37.80 
+# Ora  0.00    5.05   10.10   12.35   17.50   42.70 
+# Rap  0.60    5.10    8.90   11.56   15.95   43.40  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# gather months for PE3
+#spi_att <- spi_att %>% 
+#  select(sta, property, everything()) %>% 
+ # gather(key = month, value = value, -sta, -property) 
+
+# split properties from check vars 
+#spi_check <- spi_att %>% 
+ # filter(property == "N" |
+ #          property == "P0" |
+#           property == "N.P0") %>% 
+ # arrange(property)
+
+#spi_att <- spi_att %>% 
+ # filter(property != "N") %>% 
+#  filter(property != "P0") %>% 
+#  filter(property != "N.P0") %>% 
+#  mutate(month = as.integer(month)) 
+# prepare for join- create length
+spi_att1 <-  mutate(spi_att1, spi_length = 1) 
+spi_att2 <-  mutate(spi_att2, spi_length = 2) 
+spi_att3 <-  mutate(spi_att3, spi_length = 3) 
+spi_att4 <-  mutate(spi_att4, spi_length = 4) 
+spi_att5 <-  mutate(spi_att5, spi_length = 5) 
+spi_att6 <-  mutate(spi_att6, spi_length = 6) 
+spi_att9 <-  mutate(spi_att9, spi_length = 9)  
+spi_att12 <- mutate(spi_att12, spi_length = 12)  
+spi_att18 <- mutate(spi_att18, spi_length = 18) 
+spi_att24 <- mutate(spi_att48, spi_length = 24) 
+
+# prepare for join- differenciate values
+spi_att1 <-  mutate(spi_att1, spi1 = value) 
+spi_att2 <-  mutate(spi_att2, spi2 = value) 
+spi_att3 <-  mutate(spi_att3, spi3 = value) 
+spi_att4 <-  mutate(spi_att4, spi4 = value) 
+spi_att5 <-  mutate(spi_att5, spi5 = value) 
+spi_att6 <-  mutate(spi_att6, spi6 = value) 
+spi_att9 <-  mutate(spi_att9, spi9 = value)  
+spi_att12 <- mutate(spi_att12, spi12 = value)  
+spi_att18 <- mutate(spi_att18, spi18 = value) 
+spi_att24 <- mutate(spi_att24, spi24 = value) 
+
+# create a list of the spi_att dataframes
+att_list <- list(spi_att1, spi_att2, spi_att3, 
+                            spi_att4, spi_att5, spi_att6, 
+                            spi_att9, spi_att12, spi_att18, 
+                            spi_att24)
+
+# flatten the list to a dataframe & select values
+spi_att <- flatten_dfc(att_list) %>% 
+  select(sta, spi_length, property, month, spi1, spi2, spi3, spi4, 
+         spi5, spi6, spi9, spi12, spi18, spi24) %>% 
+  gather(key = length, value = spi_value, -spi_length, 
+         -property, -sta, -month) %>% 
+  select(-length)
+ 
+
+# join spi check values----
+# prepare for join- create length
+spi_check1 <- mutate(spi_check1, spi_length = 1) 
+spi_check2 <- mutate(spi_check2, spi_length = 2) 
+spi_check3 <- mutate(spi_check3, spi_length = 3) 
+spi_check4 <- mutate(spi_check4, spi_length = 4) 
+spi_check5 <- mutate(spi_check5, spi_length = 5) 
+spi_check6 <- mutate(spi_check6, spi_length = 6) 
+spi_check9 <- mutate(spi_check9, spi_length = 9)  
+spi_check12 <- mutate(spi_check12, spi_length = 12)  
+spi_check18 <- mutate(spi_check18, spi_length = 18) 
+spi_check24 <- mutate(spi_check24, spi_length = 24) 
+
+# bind rows of spi correlations for different averaging periods
+spi_check <- bind_rows(spi_check1, spi_check2) 
+spi_check <- bind_rows(spi_check, spi_check3) 
+spi_check <- bind_rows(spi_check, spi_check4) 
+spi_check <- bind_rows(spi_check, spi_check5) 
+spi_check <- bind_rows(spi_check, spi_check6) 
+spi_check <- bind_rows(spi_check, spi_check9) 
+spi_check <- bind_rows(spi_check, spi_check12) 
+spi_check <- bind_rows(spi_check, spi_check18) 
+spi_check <- bind_rows(spi_check, spi_check24) 
+
+# check non-zero precip vals
+zero_prob_prcp <- spi_check %>% 
+  filter(property != "N") %>% 
+  mutate(value = as.numeric(value)) %>% 
+  mutate(month = as.integer(month)) %>% 
+  drop_na() %>% 
+  filter(property == "P0") %>% 
+  group_by(month, spi_length) %>% 
+  summarize(mean_val_perc = 100 * mean(value)) %>% 
+  filter(mean_val_perc > 0)
+
+# join spi index values & clean up global environment----
+# prepare for join -add lengths & get dataframes to same length
+spi_gath1 <- spi_gath1 %>% 
+  mutate(spi_length = 1) 
+
+spi_gath2 <- spi_gath2 %>% 
+  mutate(spi_length = 2) 
+
+spi_gath3 <- spi_gath3 %>% 
+  mutate(spi_length = 3) 
+
+spi_gath4 <- spi_gath4 %>% 
+  mutate(spi_length = 4) 
+
+spi_gath5 <- spi_gath5 %>% 
+  mutate(spi_length = 5) 
+
+spi_gath6 <- spi_gath6 %>% 
+  mutate(spi_length = 6) 
+
+spi_gath9 <- spi_gath9 %>% 
+  mutate(spi_length = 9) 
+
+spi_gath12 <- spi_gath12 %>% 
+  mutate(spi_length = 12) 
+
+spi_gath18 <- spi_gath18 %>% 
+  mutate(spi_length = 18) 
+
+spi_gath24 <- spi_gath24 %>% 
+  mutate(spi_length = 24)  
+
+# bind rows is probably the easiest approach here to get the 
+# individual dataframes into a single dataframe.  The dataframes are 
+# of different lengths because of the averaging periods
+
+spi_index <- bind_rows(spi_gath1, spi_gath2) 
+spi_index <- bind_rows(spi_index, spi_gath3)  
+spi_index <- bind_rows(spi_index, spi_gath4)  
+spi_index <- bind_rows(spi_index, spi_gath5)  
+spi_index <- bind_rows(spi_index, spi_gath6)  
+spi_index <- bind_rows(spi_index, spi_gath9)  
+spi_index <- bind_rows(spi_index, spi_gath12)  
+spi_index <- bind_rows(spi_index, spi_gath18)  
+spi_index <- bind_rows(spi_index, spi_gath24)  
+
+
+rm(spi_att1, spi_att2, spi_att3, spi_att4, spi_att5, 
+   spi_att6, spi_att9, spi_att12, spi_att18, spi_att24)
+
+rm(spi_check1, spi_check2, spi_check3, spi_check4, 
+   spi_check5, spi_check6, spi_check9, spi_check12, spi_check18, 
+   spi_check24) 
+
+rm(spi_corr_cot, spi_corr_int, spi_corr_oel, spi_corr_ora, 
+   lat_to_km, lon_to_km, sta_loc)
+
+rm(spi_gath1, spi_gath2, spi_gath3, spi_gath4, spi_gath5, 
+   spi_gath6, spi_gath9, spi_gath12, spi_gath18, spi_gath24) 
+
+rm(spi_check, att_list) 
+
+#r precip-clustering, include=FALSE, eval=FALSE
+# Didn't work well...
+
+# Prepare data for exploratory PCA -----------------------------------
+
+# PCA requires that data are scaled with a mean of zero and standard 
+# deviation of unity, e.g. a z-score.  
+
+# The steps are as follows :
+# 1. Transform using BoxCox transformation to approach normality & 
+#    standardize.
+# 2. Drop rows with missing observations from wide data
+#    (e.g. the station records are of different lengths)
+# 3. Apply transformation and the scale data after making the data 
+#    long.
+# 4. Drop intermediate variables & rows with missing observations 
+#    
+
+# BoxCox transformation utilizes a lamda value to transform a dataset 
+# to approach a normal distribution.
+#   lambda = 1 is normal distribution (no change), 
+#   lambda = 0.5 is a square-root transformation, 
+#   lamda = 2 is a square transformation,
+#   lambda = 0 is a logrithmic transformation.
+# find lambda values for BoxCox transformation  
+lambda_prcp <- BoxCox.lambda(sta_grp$depth) 
+
+# lambda vals
+#  prcp ==> 0.108 
+
+# glimpse(sta_scaled) 
+# sta          <chr> "oel", "oel", "oel", "oel", "oel", "oel", "oel"
+# date         <date> 2018-05-01, 2018-04-01, 2018-03-01, 2018-02-01
+# depth        <dbl> 139.8, 33.5, 24.0, 18.3, 13.3, 14.8, 16.5, 19.0.
+# depth_tr     <dbl> 6.528617, 4.270760, 3.792030, 3.415306, 2.985829.
+# depth_scaled <dbl> 1.320188955, 0.340849965, 0.133202243 
+
+sta_mon_wide <- sta_int %>% 
+  mutate(depth_tr = BoxCox(sta_int$depth, lambda_prcp)) %>% 
+  mutate(depth_mean = mean(depth_tr, na.rm = TRUE)) %>% 
+  mutate(depth_sd = sd(depth_tr, na.rm = TRUE)) %>% 
+  mutate(depth_scaled = (depth_tr - depth_mean)/depth_sd) %>% 
+  dplyr::select(-date) %>% 
+  select(-sta_abrev, -mean_depth, -deviation)
+
+sta_mon <- sta_mon_wide %>%  
+  mutate(sta = as.factor(sta)) %>%  
+  select(-depth, -yr_mon, -depth_mean, -depth_sd, -depth_tr, ) %>%
+  spread(month, depth_scaled, convert = TRUE) %>% 
+  drop_na() %>% 
+  rename(jan = "1") %>% 
+  rename(feb = "2") %>% 
+  rename(mar = "3") %>% 
+  rename(apr = "4") %>% 
+  rename(may = "5") %>% 
+  rename(jun = "6") %>% 
+  rename(jul = "7") %>% 
+  rename(aug = "8") %>% 
+  rename(sep = "9") %>% 
+  rename(oct = "10") %>% 
+  rename(nov = "11") %>% 
+  rename(dec = "12") 
+
+# glimpse(sta_mon) 
+# Observations: 230
+# Variables: 14
+# year <int> 1972, 1972, 1972, 1972, 1972, 1973, 1973, 1973, 1973, 
+# sta  <fct> cot, int, oel, ora, rap, cot, int, oel, ora, rap, cot, 
+# jan  <dbl> -1.1705655, -1.8359887, -1.0710896, -0.5540255, -0.781 
+# feb  <dbl> -0.5138541, -1.7302116, -1.1024868, -1.3120703, -0.400 
+# mar  <dbl> -0.49461927, -0.43412364, -0.01338585, -0.13223232, -0 
+# apr  <dbl> -0.1172139, 1.0387562, 0.6274294, 0.3555747, 0.8642143 
+# may  <dbl> 1.37710556, 0.70367637, 0.96166778, 0.84463790, 0.9909 
+# jun  <dbl> 0.63876170, 0.36154511, 1.03170176, 1.35395955, 1.1668 
+# jul  <dbl> 1.1087770, 0.7467736, 0.2690885, 0.3312313, 0.4877920, 
+# aug  <dbl> 0.32709997, 0.79595891, 0.29970391, 0.47757034, 0.7806 
+# sep  <dbl> -0.53364445, -0.99892436, -0.25600144, -0.10249695, -0 
+# oct  <dbl> -0.25151491, -0.25151491, -0.01338585, -0.10981856, -0 
+# nov  <dbl> -0.39471011, -0.39471011, -0.78171073, -0.32692017, -0 
+# dec  <dbl> -0.84271133, -6.16974428, -0.83213761, -1.11880814, -0 
+
+# Select numeric data for PCA input &  names to connect to result 
+# prcomp() requires a dataset with only the variables for the 
+# unsupervised classification 
+
+pca_meta <- sta_mon %>% 
+  select(year, sta)
+pca_input <- sta_mon %>% 
+  select(-year, -sta)
+
+# Calculate PCA matrix & summary info
+pca_matrix <- prcomp(pca_input, scale = TRUE) 
+
+# Gather PCA results----
+# The broom package is used to gather results into tibbles.
+
+# this plots the PCA biplot 
+biplot <- biplot(pca_matrix, scale = 0) 
+
+# Eigenvectors
+pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
+
+# A tibble: 12 x 4
+#      PC std.dev percent cumulative
+#   <dbl>   <dbl>   <dbl>      <dbl>
+# 1     1   1.25   0.130       0.130
+# 2     2   1.20   0.120       0.250
+# 3     3   1.14   0.108       0.357
+# 4     4   1.11   0.103       0.460
+# 5     5   1.07   0.0955      0.556
+# 6     6   1.03   0.0877      0.643
+# 7     7   0.984  0.0807      0.724
+# 8     8   0.924  0.0711      0.795
+# 9     9   0.885  0.0652      0.860
+#10    10   0.846  0.0597      0.92 
+#11    11   0.728  0.0441      0.964
+#12    12   0.656  0.0359      1  
+# This means that 13% of covarience is explained by PCA1 & 
+# 12% of varience by PCA2
+
+# PCA variables 
+# these are the loadings on the PCA axes.  
+pca_vars <-  tidy(pca_matrix, matrix = "variables") 
+pca_vars <- pca_vars %>% 
+  rename(var = column) %>% 
+  mutate(var = as.factor(var)) %>% 
+  arrange(value) %>% 
+  arrange(PC)
+
+pca_rotation <- pca_matrix$rotation
+
+# Bind sample vals to PCA matrix 
+pca_au <- augment(pca_matrix, data = pca_input) %>% 
+  select(jan:.fittedPC3)
+pca_au <- bind_cols(pca_meta, pca_au) 
+rm(pca_meta)
+
+# Calculate mean eigenvectors 
+# this summarizes the individual points by station - used in plots
+pca_summary <- pca_au %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean = mean(.fittedPC1),
+            PC2_mean = mean(.fittedPC2), 
+            PC3_mean = mean(.fittedPC3), 
+            mar_mean = mean(mar), 
+            apr_mean = mean(apr), 
+            may_mean = mean(may),
+            jun_mean = mean(jun), 
+            jul_mean = mean(jul), 
+            aug_mean = mean(aug),
+            sep_mean = mean(sep), 
+            oct_mean = mean(oct), 
+            nov_mean = mean(nov)) %>% 
+  ungroup()    
+
+
+# PCA Interpretation-------------------------- 
+pca_expl <- pca_vars %>%
+  filter(abs(value) > 0.3) %>% 
+  filter(PC < 4) %>% 
+  filter(var != "dec") %>% 
+  filter(var != "jan") %>% 
+  arrange(value) %>% 
+  arrange(PC)
+
+pca_expl
+# A tibble: 9 x 3
+#  var      PC  value
+#  <fct> <dbl>  <dbl>
+#1 jun       1 -0.612
+#2 mar       1  0.357
+#3 sep       1  0.368
+#4 may       2 -0.485
+#5 aug       2 -0.438
+#6 apr       2  0.330
+#7 mar       2  0.438
+#8 oct       3 -0.540
+#9 may       3 -0.409
+
+# thus PC1 is var in jun vs mar & sep
+#      PC2 is var in may & aug vs apr
+#      PC3 is var in oct & may
+
+#PCA1:PCA2
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC1_mean, PC2_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC1_mean, PC2_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+# PC1:: 
+# Interior has some unusually a dry March & Jun records
+# Cottonwood has some unusually dry Jun & Sept records
+pca_pc1 <- pca_au %>% 
+  select(sta, mar, jun, sep, .fittedPC1) %>% 
+  gather(key = month, value = z_depth, -.fittedPC1, -sta)
+
+ggplot(pca_pc1, aes(.fittedPC1, z_depth, color = sta)) + 
+  geom_point() + 
+  geom_smooth() + 
+  facet_grid(cols = vars(month))
+
+# PC2:: 
+# Oral & Interior have a slightly wetter May & August
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC2_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC2_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+
+pca_pc2 <- pca_au %>% 
+  select(sta, apr, may, aug, .fittedPC2) %>% 
+  gather(key = month, value = z_depth, -.fittedPC2, -sta)
+
+ggplot(pca_pc2, aes(.fittedPC2, z_depth, color = sta)) + 
+  geom_point() + 
+  geom_smooth() + 
+  facet_grid(rows = vars(month)) + 
+  theme_classic() 
+
+
+#PCA1:PCA3
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC1_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC1_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+#PCA2:PCA3
+ggplot() +
+  geom_point(data = pca_summary, 
+             mapping = aes(PC2_mean, PC3_mean)) + 
+    geom_text(data = pca_summary,
+              mapping = aes(PC2_mean, PC3_mean, label = sta), 
+              vjust = 0, hjust = 0) + 
+  theme_classic() 
+
+#fviz_pca_ind(prcomp(pca_input), 
+#             title = "PCA - Iris data", 
+#             habillage = pca_meta$sta, 
+#             palette = "jco", geom = "point", 
+#             ggtheme = theme_classic(), 
+#             legend = "bottom")  
+```
