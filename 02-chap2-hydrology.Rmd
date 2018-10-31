@@ -164,7 +164,7 @@ library("tidyverse")
 a_session <- devtools::session_info() 
 ```
 
-```{r spi_overview eval=FALSE}
+```{r spi_overview eval=FALSE} 
 # overview of steps---- 
 # 2.1    Standardized Precipitation Index 
 # note: SPI package not working; created a test case to send to author
@@ -669,7 +669,7 @@ sta_sum <- sta_prep %>%
 rm(sta_prep)
 ```
 
-```{r spi-with-SCI, message=FALSE}  
+```{r spi-with-SCI, message=FALSE}   
 # The following code calculates SPI using the Standardized  
 # Climate Index (SCI) package.  
 #   SCI is the Standardized Precipitation Index 
@@ -2575,7 +2575,7 @@ rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap)
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 ```
 
-```{r join_spi_values}
+```{r join_spi_values} 
 
 # clean up some of the unneeded variables 
 rm(distrib, p_zero, p_zero_cm, scale, time_scale, warn_me, 
@@ -2779,7 +2779,7 @@ rm(spi_list_01, spi_list_02, spi_list_03, spi_list_04,
 rm(spi_index_na)
 ```
 
-```{r examine-SCI-values, eval=FALSE} 
+```{r examine-SCI-values, eval=FALSE}  
 # This code chunk examines & fixes the really large negative values
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # Visualize initial SPI values----
@@ -2890,7 +2890,7 @@ rm(spi_index_outlier, spi_index_replace,
    spi_index_typical, spi_index2, sta_outlier)
 ```
 
-```{r final-spi-plot} 
+```{r final-spi-plot}  
 spi_index_plot <- spi_index %>% 
   filter(date > "1990-01-01")  %>% 
   filter(spi_length == 1 | 
@@ -3119,25 +3119,94 @@ rm(spi_location, spi_shape, spi_scale)
 
 
 ```{r streamflow-data-organization}  
-#  the streamflow data should be 1990-2016.  However, many stations 
-# have missing periods of record 
+# The streamflow data should be 1990-2016.  However, many stations  
+# have missing periods of record.
+# The end of the 'wet-cycle' is 2002. 
 
-gage_meta_full <- import("data/gage_meta_full.csv") 
-
-gage_meta <- import("data/gage_meta.csv") 
-gage_meta_lt80 <- import("data/gage_lt80_meta.csv") 
-gage_meta_9016 <- import("data/gage_meta_9016.csv")
+# import and append daily flow values > 1990
+gage_cont <- import("data/gage_cont.csv") %>% 
+  clean_names() %>%                                 # N = 437,680
+  filter(water_year >= 1990)                        # n = 217,335  
 
 gage_disc <- import("data/gage_disc.csv") %>% 
-  clean_names() # %>% 
-  filte
+  clean_names() %>%                                 # N = 186,608
+  filter(water_year >= 1990)                        # n =  27,313
 
-  filter(water)
-  mutate(min_yr = case_when(
-    .$min_yr < 1990 ~ 1990,
-    .$min_yr >= 1990 ~ as.double(.$min_yr))) 
+gage_other <- import("data/gage_other.csv") %>% 
+  clean_names() %>%                                 # N = 116,927
+  filter(water_year >= 1990)                        # n =  42,339  
 
-# import gage metadata 
+# bind the gage dfs together, make min & max yr vars, clean up 
+gage <- bind_rows(gage_cont, gage_disc, gage_other)  %>%  
+  distinct() %>%                                    # n = 286,987
+  group_by(sta) %>% 
+  mutate(min_yr = min(water_year)) %>% 
+  mutate(max_yr = max(water_year)) %>% 
+           ungroup()
+
+rm(gage_cont, gage_disc, gage_other) 
+
+# make a summary of mostly complete years
+gage_yr_summary <- gage %>% 
+  group_by(sta, water_year) %>% 
+  summarise(days = n()) %>% 
+  filter(days > 360) %>%              # filters out yrs w/ < 360 days
+  group_by(sta) %>% 
+  summarise(count_yrs_act = n()) %>% 
+  ungroup()
+
+# join count of years, clean up, look at na vals, find expected yrs 
+gage <- full_join(gage, gage_yr_summary, by = "sta") 
+
+gage_sta_na <- gage %>% 
+  filter(is.na()) %>%    # bad river midlands removed
+  distinct(sta) 
+
+gage <- gage %>% 
+    filter(!is.na(count_yrs_act)) %>%     # bad river midlands removed
+   mutate(count_yrs_exp = max_yr - min_yr)             # n = 286,239
+
+rm(gage_yr_summary)
+
+# find and filter stations with missing years
+gage_miss_yr <- gage %>% 
+  filter(count_yrs_exp > count_yrs_act)               # n =  21,208
+
+gage_comp <- gage %>% 
+  filter(count_yrs_exp <= count_yrs_act)              # n = 265,031
+
+# summarize stations & remove very short records
+gage_comp_summary <- gage_comp %>% 
+  group_by(sta) %>% 
+  summarise(min = min(min_yr), 
+            max = max(max_yr)) 
+
+gage_miss_yr_summary <- gage_miss_yr %>% 
+  group_by(sta) %>% 
+  summarise(min = min(min_yr), 
+            max = max(max_yr),
+            yr_count_act = first(count_yrs_act), 
+            yr_count_exp = first(count_yrs_exp)) 
+
+
+
+summary(gage$min_yr)
+#    mutate(min_yr = case_when(
+#    .$water_year < 1990 ~ 1990,
+#    .$water_year >= 1990 ~ as.double(.$water_year))) %>% 
+#  mutate(max_yr = case_when(
+#    .$water_year < 1990 ~ 1990,
+#    .$water_year >= 1990 ~ as.double(.$water_year))) 
+
+
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+gage_meta_full <- import("data/gage_meta_full.csv") 
+
+#gage_meta_lt80 <- import("data/gage_lt80_meta.csv") %>% 
+#gage_meta_9016 <- import("data/gage_meta_9016.csv") %>% 
+
 gage_9016 <- import("data/gage_9016.csv") %>% 
   select(1:4) %>% 
   distinct() 
@@ -3147,10 +3216,6 @@ gage_9015 <- import("data/gage_9015.csv") %>%
   distinct() 
 
 test <- anti_join(gage_9016, gage_9015)
-
-gage_9398 <- import("data/gage_9398.csv") %>% 
-  select(1:4) %>% 
-  distinct()
 
 #  combine records and prepare to look for missing years 
 gage <- bind_rows(gage_9016, test) %>% 
@@ -3164,7 +3229,7 @@ gage <- bind_rows(gage_9016, test) %>%
     )  # fix the starting year for lcr_abv
   ) %>% 
   mutate(count_yr = max_yr - min_yr) # recalculate count
-  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 
 
 
