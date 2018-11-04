@@ -3121,16 +3121,17 @@ rm(spi_location, spi_shape, spi_scale)
 ```{r streamflow-data-organization}  
 # The streamflow data should be 1990-2016.  However, many stations  
 # have missing periods of record.
-# The end of the 'wet-cycle' is 2002. 
+# The 'wet-cycle' transitions to 'dry cycle' in 2002, 
+#    and back in xxxx 
 
 # import and append daily flow values > 1990
 gage_cont <- import("data/gage_cont.csv") %>% 
-  clean_names() %>%                                 # N = 437,680
+  clean_names() %>%                                # N = 437,680
   filter(water_year >= 1990)                        # n = 217,335  
 
 gage_disc <- import("data/gage_disc.csv") %>% 
   clean_names() %>%                                 # N = 186,608
-  filter(water_year >= 1990)                        # n =  27,313
+  filter(water_year >= 1990)                        # n =  27,280 
 
 gage_other <- import("data/gage_other.csv") %>% 
   clean_names() %>%                                 # N = 116,927
@@ -3138,29 +3139,73 @@ gage_other <- import("data/gage_other.csv") %>%
 
 # bind the gage dfs together, make min & max yr vars, clean up 
 gage <- bind_rows(gage_cont, gage_disc, gage_other)  %>%  
-  distinct() %>%                                    # n = 286,987
+  distinct() %>%                                    # n = 286,954
   group_by(sta) %>% 
   mutate(min_yr = min(water_year)) %>% 
   mutate(max_yr = max(water_year)) %>% 
            ungroup()
 
-rm(gage_cont, gage_disc, gage_other) 
-
-# make a summary of mostly complete years
-gage_yr_summary <- gage %>% 
+# find actual count of years
+gage_summary <- gage %>% 
   group_by(sta, water_year) %>% 
   summarise(days = n()) %>% 
-  filter(days > 360) %>%              # filters out yrs w/ < 360 days
   group_by(sta) %>% 
   summarise(count_yrs_act = n()) %>% 
-  ungroup()
+  ungroup()  
 
-# join count of years, clean up, look at na vals, find expected yrs 
-gage <- full_join(gage, gage_yr_summary, by = "sta") 
+# remove stations with < 5 yr records
+gage <- full_join(gage, gage_summary, by = "sta") # n = 286,954 
+rm(gage_cont, gage_disc, gage_other)
 
-gage_sta_na <- gage %>% 
-  filter(is.na()) %>%    # bad river midlands removed
-  distinct(sta) 
+gage <- gage %>% 
+  filter(count_yrs_act >= 5)                      # n = 284,037
+
+# summarize results - find & drop - incomplete years - update  
+gage_summary <- gage %>% 
+  group_by(water_year, sta) %>% 
+  summarise(days_record = n()) %>% 
+  ungroup() 
+
+gage_incomp <- gage_summary %>%   
+  filter(days_record < 340) 
+
+gage <- gage %>%                                  # n = 277,838
+  filter(sta != "bad_mid") %>% 
+  filter(sta != "che_ang")  
+
+gage_summary <- gage %>% 
+  group_by(water_year, sta) %>% 
+  summarise(days_record = n()) %>% 
+  ungroup() 
+
+gage_incomp <- gage_summary %>%   
+  filter(days_record < 340) 
+
+
+# filter the first set of complete stations - starting at 1990
+gage_sum_run01 <- gage_summary %>% 
+  filter(water_year < 2002) %>% 
+  spread(water_year, days_record) %>% 
+  filter(!is.na(`1990`)) %>%   # 26 sta w/ complete recs [1990, 1995]
+  select(sta)
+
+gage_run01 <- inner_join(gage, gage_sum_run01) 
+gage_run01 <- gage_run01 %>%  
+  filter(water_year <= 1995)                   # n = 56,108
+
+# check na vals for missing data & incomplete years
+
+#gage_sta_na <- gage %>% 
+#  filter(is.na(q) | 
+  is.na(count_yrs_act)
+         ) %>%    
+ group_by(sta, water_year) %>% 
+   summarise(q = mean(q))      # bad_mid & 
+
+gage_na <- gage %>% 
+    filter(is.na(count_yrs_act)) %>%     # bad river midlands removed
+   mutate(count_yrs_exp = max_yr - min_yr)             # n = 286,239
+
 
 gage <- gage %>% 
     filter(!is.na(count_yrs_act)) %>%     # bad river midlands removed
@@ -3175,7 +3220,13 @@ gage_miss_yr <- gage %>%
 gage_comp <- gage %>% 
   filter(count_yrs_exp <= count_yrs_act)              # n = 265,031
 
-# summarize stations & remove very short records
+# remove stations with very short records & summarize stations 
+gage_comp <- gage_comp %>% 
+  filter(count_yrs_act >= 5)               # n =  263,209
+
+gage_miss_yr <- gage_miss_yr %>% 
+  filter(count_yrs_act >= 5)               # n =  14,662 
+
 gage_comp_summary <- gage_comp %>% 
   group_by(sta) %>% 
   summarise(min = min(min_yr), 
@@ -3189,8 +3240,11 @@ gage_miss_yr_summary <- gage_miss_yr %>%
             yr_count_exp = first(count_yrs_exp)) 
 
 
+# find missing years 
+gage_miss_spread <- gage_miss_yr %>% 
+  select(sta, water_year, q)
 
-summary(gage$min_yr)
+
 #    mutate(min_yr = case_when(
 #    .$water_year < 1990 ~ 1990,
 #    .$water_year >= 1990 ~ as.double(.$water_year))) %>% 
