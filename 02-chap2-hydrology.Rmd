@@ -44,43 +44,43 @@ TO DO - CHECK SPI FIN3 NAME
 # CHECK PACKAGES
 
 ```{r setup, include=FALSE} 
-knitr::opts_chunk$set(echo = TRUE)   
+knitr::opts_chunk$set(echo = TRUE)    
 options(tibble.print_max = 70) # sets tibble output for printing 
 
 # Sets up the library of packages 
-library("here") # identifies where to save work 
-library("rio") # more robust I/O - to import and clean data 
-library("janitor") # tools to clean dirty data 
-library("broom") # tidies up objects 
+library("here")       # identifies where to save work 
+library("rio")        # more robust I/O - to import and clean data 
+library("janitor")    # tools to clean dirty data 
+library("broom")      # tidies up objects 
+ 
+library("SCI")        # calculates SPI & RDI 
+library("forecast")   # using the BoxCox function
+library("mclust")     # clustering algorithms
+library("factoextra") # creates exploratory plots of clusters 
+library("corrplot")   # creates correlations plots
+library("lubridate")  # fixes dates 
+library("tidyverse")  # data munging, and tidying tools
 
-library("SCI") # calculates SPI & RDI
-library("forecast") # using the BoxCox function
-library("mclust") 
+#library("ggpubr") 
 
-library("factoextra") 
-library("ggpubr") 
-library("corrplot")
-
-library("lubridate") # fixes dates 
-library("tidyverse") 
-#library("magrittr") # contains easier ways to say things about lists
-
-
-#library("DataExplorer")
-#library("clValid")
-#library("cluster")
+# check into before removing
 # library("munsell") # https://github.com/cwickham/munsell
 # library("grateful") - not yet ready for R 3.5.0
+#library("standardize")
+#lmomco <- citation("lmomco")
+#toBibtex(lmomco)
+
+# probably delete from final version
+#library("clValid")
+#library("cluster")
+#library("DataExplorer")
 #library("lintr")
 #library("test_that")
 #library("jsonlite") # Convert between JSON data and R objects
 #library("curl") # Drop-in replacement for base url
 #library("listviewer") # htmlwidget for interactive views of R lists
 # library("SPEI") # Calculates SPI-index # having some issues... 
-#library("standardize")
-#lmomco <- citation("lmomco")
-#toBibtex(lmomco)
-
+#library("magrittr") # contains easier ways to say things about lists
 
 
 # variables 
@@ -602,6 +602,22 @@ References
 # or BIC. A large BIC score indicates strong evidence for the 
 # corresponding model. 
 
+# Visualizing model-based clustering
+# Model-based clustering results can be drawn using the base 
+# function plot.Mclust() [in mclust package]. We'll use the 
+# function fviz_mclust() [in factoextra package] to create beautiful 
+# plots based on ggplot2.
+
+# Where the data contain more than two variables, fviz_mclust() 
+# uses a principal component analysis to reduce the dimensionnality 
+# of the data. The first two principal components are used to produce 
+# a scatter plot of the data. However, if you want to plot the data 
+# using only two variables of interest, c("insulin", "sspg"), 
+# you can specify that in the fviz_mclust() function using the 
+# argument choose.vars = c("insulin", "sspg").
+
+
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Several R packages available from CRAN or Bioconducto perform 
@@ -636,6 +652,7 @@ References
 # flexclust (Leisch, 2006), flexmix (Leisch, 2004), kernlab 
 # (Karatzoglou, Smola, Hornik, and Zeileis, 2004), and mclust 
 # (and of course, clue itself).
+
 ```
 
 ```{r precip-EDA, include=FALSE, eval=FALSE}
@@ -3256,12 +3273,11 @@ rm(gage_meta)
 gage_sum_run01 <- gage_summary %>% 
   filter(water_year < 2002) %>% 
   spread(water_year, days_record) %>% 
-  filter(!is.na(`1990`)) # %>%  # 22 sta w/ complete recs [1990, 1997]
-  #select(sta)
+  filter(!is.na(`1990`)) %>%  # 22 sta w/ complete recs [1990, 1997]
+  select(sta)
 
 # goal of run01 is to find neighbor for 
 # ros_ros -> fal_hot
-
 
 gage_run01 <- inner_join(gage, gage_sum_run01, by = "sta") 
 gage_run01 <- gage_run01 %>%  
@@ -3271,7 +3287,7 @@ gage_run01 <- gage_run01 %>%
 # goal of run02 is to find neighbors for: 
 # bev_abf -> frn_fai
 # bev_pri -> bev_buf 
-# blp_bel ->  ???
+# blp_bel -> whi_kad
 # rap_far -> ros_ros
 # whi_slm -> (whi_ogl + whi_sta)/2
 # whi_sta -> whi_slm
@@ -3300,20 +3316,25 @@ gage_run02 <- gage_run02 %>%
 #  01   1990   1995  48,202    0.0129     0.0110     0.2250
 #  02   1993   1997  48,202    0.0053     0.0102     0.1950
 
-
-
 # run_01 sta: bat_bhr, bat_her, bat_key, bev_buf, brsf_co, che_was, 
 #             fal_hot, frn_fai, hat_edg, hor_oel, lcr_bel, lcr_vet, 
 #             lwr_abv, lwr_mar, lwr_ros, lwr_whi, ros_ros, spr_her, 
 #             wcc_ogl, whi_kad, whi_ogl, whi_sta
 
+# run_02 sta: "bat_bhr", "bat_her", "bat_key", "bev_abf", "bev_buf", 
+#             "bev_pri", "blp_bel", "brsf_co", "che_was", "fal_hot", 
+#             "frn_fai", "hat_edg", "hor_oel", "lcr_bel", "lcr_vet", 
+#             "lwr_abv", "lwr_mar", "lwr_ros", "lwr_whi", "rap_far",  
+#             "ros_ros", "spr_her", "wcc_ogl", "whi_kad", "whi_ogl", 
+#             "whi_slm", "whi_sta", "wkc_wok"
+
 # num   PC1perc PC2perc PC1cum PC2cum
 #  01    0.952   0.043  0.950   0.993     
 #  02    0.938   0.517  0.938   0.990     
 
-pca_eigen
+#pca_eigen
 
-pca_vars 
+#pca_vars 
 
 # run  PC  q1_depth  q7_depth  q30_depth      
 #   01  1    0.577      0.588     0.568 
@@ -3344,7 +3365,6 @@ pca_input <- gage_run02 %>%
 
 pca_input <- pca_input %>% 
   as.tibble() %>% 
-#  clean_names() %>% # puts the names into snake case
   mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
   mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
   mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
@@ -3427,8 +3447,6 @@ gage_pca <- gage_aug %>%
             q7_mean = mean(q7_depth),
             q30_mean = mean(q30_depth), 
             q1_q30_mean = mean(q1_q30_diff)
-#            date_min = min(dec_year), 
-#            date_max = max(dec_year) 
             ) %>% 
   ungroup() %>% 
   arrange(PC2_mean) %>% 
@@ -3441,9 +3459,8 @@ rm(lambda_q1, lambda_q7, lambda_q30, pca_input, pca_matrix,
 
 ```
 
-
 ```{r plot_PCA}
-
+ 
 # mean eigenvector plot
 ggplot(gage_pca, aes(PC1_mean, PC2_mean)) + 
 #  scale_y_reverse() +
@@ -3518,76 +3535,19 @@ ggplot(gage_aug, aes(q7_depth, q1_q30_diff)) +
 ```
 
 ```{r Model-Based_Clustering} 
- 
-# The traditional clustering methods, such as hierarchical clustering 
-# and k-means clustering, are heuristic and are not based on formal  
-# models. An alternative is model-based clustering, which consider the  
-# data as coming from a distribution that is mixture of two or more  
-# clusters (Fraley and Raftery 2002, Fraley #et al. (2012)). 
-# Model-based clustering uses a soft assignment, where each data point 
-# has a probability of belonging to each cluster.  In model-based 
-# clustering, the data is considered as coming from a mixture of 
-# density.  Each component (i.e. cluster) k is modeled by the normal 
-# or Gaussian distribution which is characterized by the parameters: 
-#   μk\mu_k: mean vector, 
-#   ∑k\sum_k: covariance matrix, 
-#   An associated probability in the mixture. Each point has a 
-#     probability of belonging to each cluster.  
+# run02 Mclust VEV (ellipsoidal, equal shape) model with 5 components:  
 
-# The model parameters can be estimated using the Expectation-
-# Maximization (EM) algorithm initialized by hierarchical model-based 
-# clustering. Each cluster k is centered at the means μk\mu_k, with 
-# increased density for points near the mean.
-# Geometric features (shape, volume, orientation) of each cluster are 
-# determined by the covariance matrix ∑k\sum_k. 
+# num  model  log.likeli  n   df     BIC      ICL
+#  01   EEV    147.8495   22  51  138.0558 138.0555
+#  02   VEV    155.2134   28  41  173.8064 173.7889
 
-# Different possible parameterizations of ∑k\sum_k are available in 
-# the R package mclust (see ?mclustModelNames).
-# The available model options, in mclust package, are represented by 
-# identifiers including: EII, VII, EEI, VEI, EVI, VVI, EEE, EEV, VEV 
-# and VVV. 
+# Run 01 - clustering table:
+#1 2 3 4 5 6 7 
+#2 5 4 7 1 1 2 
 
-# The first identifier refers to volume, the second to shape and the 
-# third to orientation. E stands for "equal", V for "variable" and I 
-# for "coordinate axes".
-
-# The Mclust package uses maximum likelihood to fit all these models, 
-# with different covariance matrix parameterizations, for a range of 
-# k components.
-
-# The best model is selected using the Bayesian Information Criterion 
-# or BIC. A large BIC score indicates strong evidence for the 
-# corresponding model. 
-
-# Preparing to cluster by the central tendancy
-gage_clust_input <- gage_sum %>% 
-  select(q1_mean:q30_mean)
-
-gage_clust_input_meta <- gage_sum %>% 
-  select(sta)
-
-# apply & summarize model 
-gage_clust_l <- Mclust(gage_clust_input) # Model-based-clustering 
-summary(gage_clust_l) # Print a summary 
-
-#Gaussian finite mixture model fitted by EM algorithm 
-#---------------------------------------------------- 
-
-#Mclust EEV (ellipsoidal, equal volume and shape) 
-# EEV model with 5 components using 93-98 data
-# EEV model with 5 components using 90-98 data
-
-# log.likelihood  n df     BIC      ICL
-#        130.961 27 37   139.976 138.2098
-#        172.397 27 51   176.706 175.8812
-
-#Clustering tables:
-# 1  2  3  4  5  93-98 data
-# 3  7 13  2  2 
- 
-# 1 2 3 4 5 6 7  90-98 data
-# 2 2 1 5 2 6 9 
-
+#Run 02 - clustering table 
+# 1  2  3  4  5 
+# 3  4  6 13  2 
 
 # Model-based clustering selected a model with five components 
 # (i.e. clusters). The optimal selected model name is VEV model. 
@@ -3596,8 +3556,20 @@ summary(gage_clust_l) # Print a summary
 # clustering table specifying the number of observations in each 
 # clusters.
 
-#gage_clust_l$modelName # Optimal selected model ==> "EEV" 
+#gage_clust_l$modelName # Optimal selected model ==> "VEV" 
 #gage_clust_l$G # Optimal number of cluster => 5 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Preparing to cluster by the central tendancy
+gage_clust_input <- gage_pca %>% 
+  select(q1_mean:q30_mean)
+
+gage_clust_input_meta <- gage_pca %>% 
+  select(sta)
+
+# apply & summarize model 
+gage_clust_l <- Mclust(gage_clust_input) # Model-based-clustering 
+summary(gage_clust_l) # Print a summary 
 
 # Extract results to a dataframe & add metadata
 gage_clust <- as.tibble(gage_clust_l$z) 
@@ -3609,37 +3581,21 @@ gage_clust <- gage_clust %>%
   filter(prob > 0.7) 
 
 # join together summary results & rearrange
-gage_sum <- full_join(gage_sum, gage_clust, 
+gage_pca <- full_join(gage_pca, gage_clust, 
                              by = "sta")
 gage_clust <- gage_clust %>% 
   dplyr::select(sta, group, everything())
 
 # test output & clean up environment
-test <- anti_join(gage_9398_sum, gage_clust, by = "sta")  
+#test <- anti_join(gage_9398_sum, gage_clust, by = "sta")  
 
-rm(gage_clust, gage_clust_input, 
-   gage_clust_input_meta, test)
+rm(gage_clust_input, gage_clust_input_meta, gage_clust)
 ```
 
 ```{r Clustering_visualization}
 
-# Visualizing model-based clustering
-# Model-based clustering results can be drawn using the base 
-# function plot.Mclust() [in mclust package]. We'll use the 
-# function fviz_mclust() [in factoextra package] to create beautiful 
-# plots based on ggplot2.
 
-# Where the data contain more than two variables, fviz_mclust() 
-# uses a principal component analysis to reduce the dimensionnality 
-# of the data. The first two principal components are used to produce 
-# a scatter plot of the data. However, if you want to plot the data 
-# using only two variables of interest, c("insulin", "sspg"), 
-# you can specify that in the fviz_mclust() function using the 
-# argument choose.vars = c("insulin", "sspg").
-
-library(factoextra)  # this might screw up the select!!!
-
-# BIC values used for choosing the number of clusters 
+# BIC values used for choosing the number of clusters  
 fviz_mclust(gage_clust_l, "BIC", palette = "jco") 
 
 # Classification uncertainty 
@@ -3651,14 +3607,12 @@ fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
 fviz_mclust(gage_clust_l, "classification", geom = "point", 
             pointsize = 1.5, palette = "jco") 
 
-#test <- left_join(gage_sum, gage_clust)
-
-
 # plot clusters in PCA space
-ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean, color = as.factor(group))) + 
+ggplot(gage_pca, 
+       aes(q7_mean, q1_q30_mean, color = as.factor(group))) + 
   geom_density2d(na.rm = FALSE, contour = TRUE, aes(color = as.factor(group)))  + 
   geom_jitter() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
+  geom_text(aes(label = sta, color = "blk"), check_overlap = TRUE, 
               nudge_y = 0.02) + 
   scale_x_continuous(limits = c(-2, 1.1)) + 
   scale_y_continuous(limits = c(-1.0, 0.4)) + 
@@ -3667,7 +3621,7 @@ ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean, color = as.factor(group))) +
  #ggplot2::ggsave(path = "figure/", filename = "strm_clust.png", 
 #                width = 6, height = 6, units = "in")  
 
-gage_clust_plot <- gage_9398_sum %>% 
+gage_clust_plot <- gage_pca %>% 
   select(sta, group, q7_mean, q1_q30_mean) %>% 
   rename(hydro_exp_coeff = q7_mean) %>% 
   rename(stability_coeff = q1_q30_mean) %>% 
@@ -3681,9 +3635,17 @@ ggplot(gage_clust_plot, aes(group, value)) +
 #ggplot2::ggsave(path = "figure/", filename = #"strm_clust_box.png", 
 #                width = 6, height = 3, units = "in")  
 
-gage_clust <- gage_clust %>% 
+
+
+
+#?gage_clust <- gage_clust %>% 
   select(group, sta, station_nm, everything()) %>% 
   arrange(group)
+
+
+
+
+
 
 # moderately low hydrologic export, highest Q1-Q30 = stable-low export
 #1     V1 whi_slm          WHITE RIVER AT SLIM BUTTE, SD
@@ -3727,9 +3689,57 @@ gage_clust <- gage_clust %>%
 
 ```{r fill_missing_data_wet_years}
 # overview----
-# find nearest neighbors for stations with missing data
-# also, drop stations with very short records: 
-#     nio_bbb, nio_gor, nio_abb, cas_hot
+# find nearest neighbors for stations with missing data 
+ 
+gage_run02_pca <- gage_pca %>% 
+  arrange(sta) %>% 
+  arrange(group) %>% 
+  select(sta, group, everything())
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# goal of run02 is to find groups for: 
+# bev_abf -> frn_fai, V4
+# bev_pri -> bev_buf, V2 
+# blp_bel -> whi_kad, V1
+# rap_far -> ros_ros, V4
+# ros_ros -> fal_hot, V4 
+# whi_slm -> (whi_ogl + whi_sta)/2, V3
+# whi_sta -> whi_slm, V3
+# wkc_wok -> bat_bhr, V2
+
+gage_group_run02 <- 
+  
+  
+gage      <- gage %>% 
+  select(sta, date, q, q7, q30, log_q, everything()) 
+
+
+
+gage_nested <- gage %>% 
+  select(1:14) %>%
+   group_by(date, group) %>% 
+   nest() 
+
+
+# use the split assign etc.
+gage_V1   <- gage %>% 
+  filter(group == "V1") %>%
+  group_by(date) %>% 
+  summarise(q          = mean(q),
+            q7         = mean(q7), 
+            q30        = mean(q30), 
+            log_q      = mean(log_q),
+            julian     = mean(julian), 
+            month      = mean(month), 
+            day        = mean(day),  
+            dec_year   = mean(dec_year), 
+            month_seq  = mean(month_seq),  
+            dec_year   = mean(dec_year), 
+            water_year = mean(water_year), 
+            i          = mean(i)
+            )
+
+
 
 # table of nearest neighbors by PCA above by water year
 # station  1990-1992  1992   1998  neighbor
@@ -3741,6 +3751,29 @@ gage_clust <- gage_clust %>%
 # wkc_wok      y        n      y    bev_buf
 # bev_abf      n        y      y    frn_fai
 # rap_far      n        y      n    fal_hot 
+
+# goal of run01 is to find neighbor for 
+# ros_ros -> fal_hot
+
+gage_run01 <- inner_join(gage, gage_sum_run01, by = "sta") 
+gage_run01 <- gage_run01 %>%  
+  filter(water_year <= 1997)                   # n = 48,202
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# goal of run02 is to find neighbors for: 
+# bev_abf -> frn_fai
+# bev_pri -> bev_buf 
+# blp_bel -> whi_kad
+# rap_far -> ros_ros
+# whi_slm -> (whi_ogl + whi_sta)/2
+# whi_sta -> whi_slm
+# wkc_wok -> bat_bhr
+
+bev_abf <- gage %>% 
+  filter(sta == "bev_abf") 
+
+gage_summary <- gage %>% 
+  group_by()
 
 # import data----
 gage_9092 <- import("data/gage_9016.csv") %>% 
