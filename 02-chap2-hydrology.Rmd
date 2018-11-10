@@ -3191,8 +3191,6 @@ rm(spi_location, spi_shape, spi_scale)
 #    and back in xxxx 
 
 # import and append daily flow values > 1990 
-gage_meta <- import("data/gage_meta_full.csv") 
-
 gage_cont <- import("data/gage_cont.csv") %>%  
   clean_names() %>%                                # N = 437,680
   filter(water_year >= 1990) %>%                   # n = 217,335  
@@ -3213,63 +3211,87 @@ gage_other <- import("data/gage_other.csv") %>%
   select( -c(julian:month_seq, i)) %>% 
   select(sta, water_year, everything())
 
-# import estimates from s prior run 
-#gage_est_9091 <- import(file = "data/gage_flow_9091.csv") %>%  #run02
-#  select(-c(group, contrib_drain_area_va)) %>% 
-#  mutate(qualifier = "est")
+# import estimates from prior run 
+gage_est_9092 <- import(file = "data/gage_est_9092.csv")  #run02
+                                               # n =    4255 obs
 
 # bind the gage dfs together, make min & max yr vars - clean up
 gage <- bind_rows(gage_cont, gage_disc, 
-                  gage_other)  %>%  
-  distinct() %>%                              # orig  n = 286,954
-  group_by(sta) %>%                           # run02 n = 289,144
+                  gage_other, gage_est_9092)  %>% # orig  n = 286,954
+  group_by(sta) %>%                               # run02 n = 290,254
   mutate(min_yr = min(water_year)) %>% 
   mutate(max_yr = max(water_year)) %>% 
-           ungroup()
-rm(gage_cont, gage_disc, gage_other, gage_est_9091)                    
+           ungroup() %>% 
+  distinct() %>% 
+  filter(!is.na(q30))
+rm(gage_cont, gage_disc, gage_other, gage_est_9092)      
+
+# test the data for duplicates
+gage_test <- gage %>%  
+  group_by(sta, water_year) %>% 
+  summarize(count = n()) %>% 
+  ungroup() %>% 
+  filter(
+    sta != "bad_mid" & 
+    sta != "sna_dou" & 
+    sta != "che_ang") %>% 
+  arrange(count)
+
+# check for & split duplicates
+#gage_test_sum <- gage %>% 
+#  group_by(sta, date) %>% 
+#  summarise(days_record = n()) %>% 
+#  filter(days_record == 2)
+
+#gage_test_over <- semi_join(gage, gage_test_sum) 
+rm(gage_test)
 
 # find actual count of years - post1990  
 gage_summary <- gage %>%                               # N = 44 sta
-  group_by(sta) %>%                              # orig  n = 39 sta 
-  summarise(min_yr = min(water_year),            # run02 n = 36 sta 
+  group_by(sta) %>%                              # orig  n = 40 sta 
+  summarise(min_yr = min(water_year),            # run02 n = 33 sta 
             max_yr = max(water_year)
             ) %>% 
   ungroup() %>% 
   mutate(count_years_act = max_yr - min_yr) %>% 
-  filter(count_years_act > 5)                           
+  filter(count_years_act >= 5) %>% 
+  filter(
+    sta != "bad_mid" &         # incomplete days        
+    sta != "che_ang" &         # incomplete days
+    sta != "whi_cra" &         # run01 - dropped for short rec.
+    sta != "che_was" &         # run01 - dropped for >> area    
+    sta != "cas_hot" & 
+    sta != "sna_bur" & 
+    sta != "sna_dou")            
  
 # remove stations with < 5 yr records - clean up 
 gage <- semi_join(gage, gage_summary, by = "sta")  # orig n = 275,281 
-                                                  # run02 n = 277,471
-# drop other stations with issues  
-gage <- gage %>%                                           
-  filter(sta != "bad_mid") %>%       # incomplete days
-  filter(sta != "che_ang") %>%       # incomplete days
-  filter(sta != "che_was") %>%       # run01 - dropped for >> area 
-  filter(sta != "whi_cra")           # run01 - dropped for short rec.
-
-# update gage summary & separate out incomplete years of record
-gage_summary <- gage %>%                      # orig  n = 713 obs
+                                                  # run02 n = 263,005
+# update gage summary 
+gage_summary <- gage %>%                      # orig  n = 713 obs?
   group_by(sta, water_year) %>%               # run02 n = 719 obs 
   summarise(days_record = n()) %>%          
   ungroup()                         
 
-gage_incomp_years <- gage %>%                 # orig  n = 15 obs 
-  group_by(sta, water_year) %>%               # run02 n = 15 obs
+# find & split stations-years with incomplete days of record 
+gage_incomp <- gage %>%                       # orig  n = 16 obs 
+  group_by(sta, water_year) %>%               # run02 n = 12 obs
   summarise(days_record = n()) %>%            # 
   ungroup() %>% 
   filter(days_record < 365)                           
 
-# split stations-years with incomplete days of record 
-gage_incomp_years <- semi_join(gage, gage_incomp_years, 
-                               by = c("sta", "water_year"))
-  
+gage_incomp <- semi_join(gage, gage_incomp, 
+                         by = c("sta", "water_year")) %>% 
+  filter(!is.na(q30))                         # orig n  = 2742 obs 
+                                              # run02 n = 2582 obs
+
 gage <- full_join(gage, gage_summary, 
                   by = c("sta", "water_year")) %>% # orig  n = 254,945 
-  filter(days_record >= 365)                      # run02  n = 257,135    
+  filter(days_record >= 365)                      # run01  n = 256,771    
+                                                  # run02  n = 260,423
 
-# filter metadata to active stations 
-# & add area to gage & gage_incomp_year 
+# add area to gage & gage_incomp_year 
+gage_meta <- import("data/gage_meta_full.csv") 
 gage_meta <- semi_join(gage_meta, gage_summary, by = "sta")
 
 gage <- full_join(gage, gage_meta, 
@@ -3277,15 +3299,10 @@ gage <- full_join(gage, gage_meta,
   select(date, sta, q, log_q:q30, water_year, contrib_drain_area_va, 
          qualifier)
 
-gage_incomp_years <- full_join(gage_incomp_years, gage_meta, 
-                  by = "sta") %>% 
+gage_incomp <- full_join(gage_incomp, gage_meta, by = "sta") %>% 
   select(date, sta, q, log_q:q30, 
          water_year, contrib_drain_area_va, 
          qualifier)
-
-# set up a road-map
-gage_summary_sp <- gage_summary %>% 
-  spread(water_year, days_record) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # fix missing station vals - run 01
@@ -3300,7 +3317,6 @@ gage_run01 <- inner_join(gage, gage_run01, by = "sta") %>%
   filter(water_year <= 1997)                   #        n = 63,187
 
 # run01 outcome - dropped cas_hot, sna_bur, & che_was
-rm(gage_run01)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # fix missing station vals - run 02
@@ -3308,74 +3324,73 @@ rm(gage_run01)
 gage_run02 <- gage_summary %>% 
   filter(water_year < 2002) %>% 
   spread(water_year, days_record) %>% 
-  filter(!is.na(`1992`)) %>%  # 28 sta w/ complete recs [1992, 1997]
-  select(sta)         # run03 - 28 sta w/ complete recs [1992, 1997]
+  filter(!is.na(`1993`)) %>%  # 27 sta w/ complete recs [1992, 1997]
+  select(sta)                 # blp_bel & wkn_wok have na in 92
 
-gage_run02 <- inner_join(gage, gage_run02, by = "sta") 
-gage_run02 <- gage_run02 %>%  
-  filter(water_year <= 1997) %>%              ##       n = 47,476 
-  filter(water_year >= 1993)                  #        n = 47,476
-                                   # blp_bel & wkn_wok have na in 92
 
-# update road-map to show only stations with data in 1993
-gage_summary_sp <- gage_summary %>% 
+gage_run02 <- inner_join(gage, gage_run02, by = "sta") %>%  
+  filter(water_year <= 1997) %>%              ##        
+  filter(water_year >= 1993)                  #        n = 49,302
+
+# update summary to show only stations with data in 1993
+gage_run02_sum <- gage_summary %>% 
   spread(water_year, days_record) %>% 
   select(sta:'1993') %>% 
-  rename(wy_1990 = '1990') %>% 
-  rename(wy_1991 = '1991') %>% 
-  rename(wy_1992 = '1992') %>% 
   rename(wy_1993 = '1993') %>% 
-  filter(!is.na(wy_1993))
+  filter(!is.na(wy_1993)) %>% 
+  gather(key = water_year, val = days_record,-sta) %>% 
+  mutate(water_year = as.integer(water_year)) %>% 
+  filter(!is.na(water_year)) %>% 
+  mutate() %>% 
+  mutate(days_record = case_when(
+    is.na(days_record) ~ 0,
+    TRUE ~ as.numeric(days_record)))                  # n = 81 obs
+
+gage_incomp_run02 <- semi_join(gage_incomp, gage_run02_sum, 
+                  by = c("sta", "water_year")) %>%  # n = 781 obs
+  filter(!is.na(date)) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # fix missing station vals - run 03
-# need to fill in missing data
+# use 2008-2015 to get the rest of the stations with missing vals
+# show a roadmap 
 
-
-# set up to identify lcr_abv during drought years: [1997, 2002]
-# also need to add data for partial missing years:
-#     bev_pri-1991, blp_bel-1992,lcr_abv-1996, lwr_abv-2000, 
-
-# prepare for run03 by creating a set of stations w/o NA values
 gage_run03 <- gage_summary %>% 
-  filter(water_year <= 2002) %>% 
-  filter(water_year >= 1997) %>% 
   spread(water_year, days_record) %>% 
-  filter(!is.na(`1997`)) %>%  
-  filter(!is.na(`1998`)) %>%
-  filter(!is.na(`2002`)) %>%   
-    select(sta)      # run03 - 22 sta w/ complete recs [1997, 2002]
+  select(-c('1990':'2007', '2016', '2017')) %>%
+  filter(!is.na(`2008`)) %>%  # 26 sta w/ complete recs [2008, 2015]
+  select(sta)               
 
-gage_run03 <- inner_join(gage, gage_run03, by = "sta") 
-gage_run03 <- gage_run03 %>%  
-  filter(water_year <= 2002) %>%            
-  filter(water_year >= 1997)                  #        n = 48,202 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_run03 <- inner_join(gage, gage_run03, by = "sta") %>%  
+  filter(water_year <= 1997) %>%              ##        
+  filter(water_year >= 1993)                  #        n = 36,885
+
+# update summary to show only stations with data in 2008 
+gage_run03_sum <- gage_summary %>% 
+  spread(water_year, days_record) %>% 
+  select(-c('1990':'2007', '2016', '2017')) %>%
+  filter(!is.na(`2008`)) %>%  # 26 sta w/ complete recs [2008, 2015]
+  gather(key = water_year, val = days_record,-sta) %>% 
+  mutate(water_year = as.integer(water_year)) %>% 
+  filter(!is.na(water_year)) %>%
+  mutate(days_record = case_when(
+    is.na(days_record) ~ 0,
+    TRUE ~ as.numeric(days_record)))                  # n = 208 obs
+
+gage_run03_incomp <- semi_join(gage_incomp, gage_run03_sum, 
+                  by = c("sta", "water_year")) %>%  # n = 336 obs
+  filter(!is.na(date)) 
 
 # gage_input changes with each run...  sorry!
-gage_input <- gage_run02 
-rm(gage_run02)
-
-# name check
-# gage - the complete set of flow & metadata for 1990-2018 stations 
-# gage_meta - complete set of metadata for 27 stations
-# gage_summary - stations, water_year, days record 
-# gage_clust - station groups & PCA_means 
-
-# gage_miss_names - ? 
-# gage_mod <- stations, groups, PCA & probabilities 
-# incomp_days - missing days for stations by year
-# partial days - partial year data for runs 
-
-
-
+gage_input <- gage_run03 
+rm(gage_meta, gage_run01, gage_run02, gage_run03)
+rm(gage_incomp_run02, gage_run02_sum)
 ```
 
-```{r PCA_exploratory_analysis}
+```{r PCA_exploratory_analysis} 
 # this dataframe is used to calculate PCA & cluster stations 
 # this is used for estimating missing values & for the final 
 # cluster analysis 
-
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # prepare data 
@@ -3486,7 +3501,8 @@ gage_pca_sum <- gage_pca %>%
 
 # num  min_yr max_yr  n_obs  lambda_q1  lambda_q7  lambda_q30
 #  01   1990   1995  48,202    0.0129     0.0110     0.2250
-#  02   1993   1997  49,302    0.0073     0.0101     0.1960
+#  02   1993   1997  49,302    0.0083     0.0103     0.1975
+#  03   2008   2015  36,885    0.0102     0.0895     0.1684
 
 # run_01 sta: bat_bhr, bat_her, bat_key, bev_buf, brsf_co, che_was, 
 #             fal_hot, frn_fai, hat_edg, hor_oel, lcr_bel, lcr_vet, 
@@ -3500,20 +3516,29 @@ gage_pca_sum <- gage_pca %>%
 #             "spr_her", "wcc_ogl", "whi_kad", "whi_ogl", 
 #             "whi_sta", "wkc_wok", "whi_slm" 
 
+# run_03 sta: "bat_bhr", "bat_her", "bat_key", "bev_buf",
+#             "bev_pri", "blp_bel", "brsf_co", "fal_hot",  "frn_fai"
+#             "hat_edg", "hor_oel", "lcr_abv", "lcr_bel", "lcr_vet" 
+#             "lwr_mar", "lwr_ros", "lwr_whi", "rap_far"
+#             "whi_kad", "whi_ogl", "whi_sta"
+#  new:       "che_buf", "che_red", "che_sce","whi_int", "whi_whi"
 pca_eigen
 # num   PC1perc PC2perc PC1cum PC2cum 
 #  01    0.952   0.043  0.950   0.993     
-#  02    0.939   0.051  0.939   0.990     
+#  02    0.939   0.052  0.939   0.990     
+#  03    0.941   0.492  0.941   0.991
 
 pca_vars 
 # run  PC  q1_depth  q7_depth  q30_depth      
 #   01  1    0.577      0.589     0.568 
-#   01  2   -0.597     -0.171     0.784  
+#   01  2    0.597      0.171    -0.784  
 #   02  1    0.577      0.589     0.566    
-#   02  2    0.589      0.180    -0.788  
+#   02  2    0.590      0.179    -0.787   
+#   03  1    0.578      0.588     0.566    
+#   03  2    0.572      0.203    -0.795   
 
 # eigenvecter:
-#   95% of covarience is explained by PCA1 & 4% of varience by PCA2
+#   45% of covarience is explained by PCA1 & 5% of varience by PCA2
 # variables:
 #   PC1 - approximately equal loadings of Q1, Q7, Q30;
 #   PC2 - large opposite loadings of Q1 & Q30  
@@ -3561,28 +3586,22 @@ gage_mod <- gage_mod %>%
   select(-c(q:q30_tr)) %>% 
   select(-eigen_dist) 
 
-rm(gage_clust_meta, gage_pca_sum, gage_pca) 
+rm(gage_clust_meta, gage_pca_sum, gage_pca, gage_input) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#Mclust EEV (ellipsoidal, equal volume and shape) model with 5
+#Mclust EEV (ellipsoidal, equal volume and shape) model with 5-6
 #components:   
 
 # num  model  log.likeli  n   df     BIC      ICL
 #  01   EEV    147.8495   22  51  138.0558 138.0555
-#  02   EEV    166.7266   26  44  190.097  190.0732
+#  02   EEV    146.324    27  37  170.7021 169.4785
+#  03   EEV    141.1276   21  44  141.1276 141.1248
 
 # Run 01 - clustering table:
-
-#1 2 3 4 5 6 7 
-#2 5 2 4 1 1 2 
-
-#Run 02 Clustering table:
-# 1  2  3  4  5 
-# 7  5  2 11  2 
-
-#1 2 3 4 5 6 - new after changing some boundary conditions
-#5 5 2 4 8 2
-
+# clusters: 1  2  3  4  5  6  7 
+# run01:    2  5  2  4  1  1  2 
+# run02:    7  5  2 11  2 
+# run03:    4  2  3  8  2  2 
 
 # Model-based clustering selected a model with five components 
 # (i.e. clusters). The optimal selected model name is VEV model. 
@@ -3594,38 +3613,44 @@ rm(gage_clust_meta, gage_pca_sum, gage_pca)
 #gage_clust_l$modelName # Optimal selected model ==> "VEV" 
 #gage_clust_l$G # Optimal number of cluster => 5 
 
-
-
 ```
 
 ```{r fill_missing_data_wet_years_run02, eval=FALSE}
 rm(gage_clust_l) 
 
-# overview 
+# name check 
+# gage            - complete daily flow data [1990-2018] 
+# gage_clust      - station groups & PCA_means 
+# gage_incomp     - daily flows from partial years  
+# gage_mod        - daily flows + PCA + cluster group 
 
-# 1. make roadmap of sta with missing & partial years
-gage_part_miss_yr <- gage_summary_sp %>% 
-  gather(key = year, val = days_record, -sta) %>% 
-  filter(is.na(days_record)| 
-           days_record <365) %>% 
-  spread(year, days_record)
+# vars to add together
+# gage_group        - by-group est daily flows for missing-year data 
+# gage_group_part   - by-group est daily flows for partial-year data 
+# gage_incomp_run02 - measured daily flows for partial year data
 
-# attach station groups to the station - missing year pairs
-gage_part_miss_yr <- full_join(gage_clust, gage_part_miss_yr, 
+# temporary variables:
+# gage_meta       - complete set of metadata for 26 stations ??remove?
+# gage_part_miss  - station groups + days of record 
+# gage_summary    - stations, water_year, days record to assist 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. identify groups for missing & partial year-station pairs 
+gage_part_miss <- gage_run02_sum %>% 
+  filter(days_record < 365) %>% 
+  spread(water_year, days_record)                     # n = 15 obs
+
+gage_part_miss <- inner_join(gage_clust, gage_part_miss, 
                                by = "sta") %>% 
-  select(-c(PC1_mean:q1_q30_mean)) %>% 
-  select(-c(eigen_dist, prob))
+  select(-c(PC1_mean:prob)) %>%                       # n = 12 obs
+  gather(key = water_year, value = days_record, -sta, -group) %>% 
+  filter(!is.na(days_record))  %>% 
+  mutate(water_year = as.integer(water_year))
 
-#  spread(water_year, days_record) %>% 
-# gather(key = water_year, val = days_record, -sta) %>% 
-# select(-days_record) %>% 
-#  mutate(grouped_id = row_number()) %>%
- # spread(water_year, sta) %>% 
-#  select('1990':'2002') 
-
-# 2. make df of streamflow by group & filter for missing water years
-gage_grouped <- inner_join(gage, gage_clust, by = "sta") %>% 
-  select(date:group) %>% 
+# 2. create by-group daily flow estimates for missing yr-sta pairs
+#    [1990, 1992] 
+gage_group <- inner_join(gage, gage_clust, by = "sta") %>% 
+  select(date:group) %>%             
   group_by(date, group) %>% 
   summarise(q          = mean(q, na.rm = TRUE), 
             log_q      = mean(log_q, na.rm = TRUE),
@@ -3634,87 +3659,98 @@ gage_grouped <- inner_join(gage, gage_clust, by = "sta") %>%
             water_year = mean(water_year),
             contrib_drain_area_va = 
               round(mean(contrib_drain_area_va), 
-                    digits = 0)
+                    digits = 0)                 # summarizes by group 
             ) %>% 
-  ungroup() %>% 
-  filter(water_year == 1990 | 
+  ungroup() %>%                                     # n = 5480 obs
+  filter(water_year == 1990 |                  
            water_year == 1991 | 
-           water_year == 1992  
-           )
-  
-#gage_grouped <- bind_rows(gage, gage_incomp_years)
+           water_year == 1992) 
 
-# Find 1990 missing stations---- 
-# 1. identify stations with missing data in 1990
-#gage_miss_1990 <- as.data.frame(gage_sum_miss_yr$'1990') %>% 
-#  rename(sta = 1) %>% 
-#  filter(!is.na(.)) 
+gage_group <- inner_join(gage_group, gage_part_miss, 
+                  by = c("group", "water_year")     # n = 4382 obs     
+                  ) %>%    # keeps daily flow data for miss yr-sta              
+  select(sta, everything()) 
 
-gage_miss_1990 <- semi_join(gage_clust, 
-                            gage_miss_1990, by = "sta") %>% 
-  select(group, sta)
+# split missing year data from incomplete year data
+gage_group_part <- gage_group %>%                   # n = 1462 obs 
+  filter(days_record != 0) %>% 
+  select(-c(group, days_record)) %>%           # prepares for join 
+  mutate(qualifier = "g")
 
-# 2. subset streamflows for water-year 1990 for  
-gage_flow_1990 <- gage_grouped %>% 
-  filter(water_year == 1990) 
+gage_group <- gage_group %>%                # update n after split
+  filter(days_record == 0) %>%                      # n = 2920 obs 
+  select(-c(group, days_record)) %>%           # prepares for join  
+    mutate(qualifier = "g")
 
-# 3. join missing stations to 1990 streamflow data
-gage_flow_1990 <- full_join(gage_miss_1990, gage_flow_1990) %>% 
-  filter(!is.na(sta)) 
+# join together the bits & clean up
+gage_9092_est <- bind_rows(gage_group, gage_group_part, 
+                           gage_incomp_run02)       # n = 5233 obs
+rm(gage_group, gage_group_part, gage_incomp_run02, 
+   gage_run02_sum, gage_part_miss)
 
-rm(gage_miss_1990)
+# check for & split duplicates
+gage_est_9092_sum <- gage_est_9092 %>% 
+  group_by(sta, date) %>% 
+  summarise(days_record = n())  
 
-# Find 1991 missing stations---- 
+gage_est_over <- full_join(gage_est_9092, gage_est_9092_sum) %>% 
+  filter(days_record == 2) 
 
-# 1. identify stations with missing data for 1991
-gage_miss_1991 <- as.data.frame(gage_sum_miss_yr$'1991') %>% 
-  rename(sta = 1) %>% 
-  filter(!is.na(.))     # gets the 1991 missing stations
+gage_est_under <- anti_join(gage_est_9092, gage_est_over)
 
-gage_miss_1991 <- semi_join(gage_clust, 
-                            gage_miss_1991, by = "sta") %>% 
-  select(group, sta)
+# filter out duplicates & join
+gage_est_over <- gage_est_over %>% 
+  filter(qualifier == "A") 
 
-# 2. subset streamflows for run02 stations for water-year 1991 
-gage_flow_1991 <- gage_grouped %>% 
-  filter(water_year == 1991) 
+gage_est_9092 <- bind_rows(gage_est_over, gage_est_under) %>% 
+  select(-days_record) %>% 
+  distinct()
 
-# 3. join missing stations to 1991 streamflow data
-gage_flow_1991 <- full_join(gage_miss_1991, gage_flow_1991) %>% 
-  filter(!is.na(sta))
+rm(gage_est_9092_sum, gage_est_over, gage_est_under)
 
-rm(gage_miss_1991)
 
-# append and join to date values
-gage_flow_est <- bind_rows(gage_flow_1990, gage_flow_1991) 
+export(gage_est_9092, file = "data/gage_est_9092.csv") 
 
-# clean up 
 
-export(gage_flow_est, file = "data/gage_flow_9091.csv") 
-
-rm(gage_flow_1990, gage_flow_1991)
-rm(lambda_q1, lambda_q30, lambda_q7)
+#rm(lambda_q1, lambda_q30, lambda_q7)
 ```
 
-```{r fill_missing_data_wet_years_run03}
+```{r fill_missing_data_wet_years_run03, eval=FALSE}
 rm(gage_clust_l) 
 
-# 1. make roadmap of sta with missing years
-gage_sum_miss_yr <- gage_summary %>% 
-  spread(water_year, days_record) %>% 
-  filter_if(is.integer, any_vars(is.na(.))) %>% 
-  gather(key = water_year, val = days_record, -sta) %>% 
-  filter(is.na(days_record)) %>% 
-  select(-days_record) %>% 
-  mutate(grouped_id = row_number()) %>%
-  spread(water_year, sta) %>% 
-  select('1990':'2002') 
+# name check 
+# gage            - complete daily flow data [1990-2018] 
+# gage_clust      - station groups & PCA_means 
+# gage_incomp     - daily flows from partial years  
+# gage_mod        - daily flows + PCA + cluster group 
 
-# 2. make df of streamflow by group after rejoining incomp data 
-gage_grouped <- bind_rows(gage, gage_incomp_years)
+# vars to add together
+# gage_group        - by-group est daily flows for missing-year data 
+# gage_group_part   - by-group est daily flows for partial-year data 
+# gage_incomp_run02 - measured daily flows for partial year data
 
-gage_grouped <- inner_join(gage_grouped, gage_clust, by = "sta") %>% 
-  select(date:group) %>% 
+# temporary variables:
+# gage_meta       - complete set of metadata for 26 stations ??remove?
+# gage_part_miss  - station groups + days of record 
+# gage_summary    - stations, water_year, days record to assist 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. identify groups for missing & partial year-station pairs 
+gage_part_miss <- gage_run02_sum %>% 
+  filter(days_record < 365) %>% 
+  spread(water_year, days_record)                     # n = 15 obs
+
+gage_part_miss <- inner_join(gage_clust, gage_part_miss, 
+                               by = "sta") %>% 
+  select(-c(PC1_mean:prob)) %>%                       # n = 12 obs
+  gather(key = water_year, value = days_record, -sta, -group) %>% 
+  filter(!is.na(days_record))  %>% 
+  mutate(water_year = as.integer(water_year))
+
+# 2. create by-group daily flow estimates for missing yr-sta pairs
+#    [1990, 1992] 
+gage_group <- inner_join(gage, gage_clust, by = "sta") %>% 
+  select(date:group) %>%             
   group_by(date, group) %>% 
   summarise(q          = mean(q, na.rm = TRUE), 
             log_q      = mean(log_q, na.rm = TRUE),
@@ -3723,64 +3759,63 @@ gage_grouped <- inner_join(gage_grouped, gage_clust, by = "sta") %>%
             water_year = mean(water_year),
             contrib_drain_area_va = 
               round(mean(contrib_drain_area_va), 
-                    digits = 0)
+                    digits = 0)                 # summarizes by group 
             ) %>% 
-  ungroup() 
+  ungroup() %>%                                     # n = 5480 obs
+  filter(water_year == 1990 |                  
+           water_year == 1991 | 
+           water_year == 1992) 
 
-# Find 1990 missing stations---- 
-# 1. identify stations with missing data in 1990
-gage_miss_1990 <- as.data.frame(gage_sum_miss_yr$'1990') %>% 
-  rename(sta = 1) %>% 
-  filter(!is.na(.)) 
+gage_group <- inner_join(gage_group, gage_part_miss, 
+                  by = c("group", "water_year")     # n = 4382 obs     
+                  ) %>%    # keeps daily flow data for miss yr-sta              
+  select(sta, everything()) 
 
-gage_miss_1990 <- semi_join(gage_clust, 
-                            gage_miss_1990, by = "sta") %>% 
-  select(group, sta)
+# split missing year data from incomplete year data
+gage_group_part <- gage_group %>%                   # n = 1462 obs 
+  filter(days_record != 0) %>% 
+  select(-c(group, days_record)) %>%           # prepares for join 
+  mutate(qualifier = "g")
 
-# 2. subset streamflows for water-year 1990 for  
-gage_flow_1990 <- gage_grouped %>% 
-  filter(water_year == 1990) 
+gage_group <- gage_group %>%                # update n after split
+  filter(days_record == 0) %>%                      # n = 2920 obs 
+  select(-c(group, days_record)) %>%           # prepares for join  
+    mutate(qualifier = "g")
 
-# 3. join missing stations to 1990 streamflow data
-gage_flow_1990 <- full_join(gage_miss_1990, gage_flow_1990) %>% 
-  filter(!is.na(sta)) 
+# join together the bits & clean up
+gage_9092_est <- bind_rows(gage_group, gage_group_part, 
+                           gage_incomp_run02)       # n = 5233 obs
+rm(gage_group, gage_group_part, gage_incomp_run02, 
+   gage_run02_sum, gage_part_miss)
 
-rm(gage_miss_1990)
+# check for & split duplicates
+gage_est_9092_sum <- gage_est_9092 %>% 
+  group_by(sta, date) %>% 
+  summarise(days_record = n())  
 
-# Find 1991 missing stations---- 
+gage_est_over <- full_join(gage_est_9092, gage_est_9092_sum) %>% 
+  filter(days_record == 2) 
 
-# 1. identify stations with missing data for 1991
-gage_miss_1991 <- as.data.frame(gage_sum_miss_yr$'1991') %>% 
-  rename(sta = 1) %>% 
-  filter(!is.na(.))     # gets the 1991 missing stations
+gage_est_under <- anti_join(gage_est_9092, gage_est_over)
 
-gage_miss_1991 <- semi_join(gage_clust, 
-                            gage_miss_1991, by = "sta") %>% 
-  select(group, sta)
+# filter out duplicates & join
+gage_est_over <- gage_est_over %>% 
+  filter(qualifier == "A") 
 
-# 2. subset streamflows for run02 stations for water-year 1991 
-gage_flow_1991 <- gage_grouped %>% 
-  filter(water_year == 1991) 
+gage_est_9092 <- bind_rows(gage_est_over, gage_est_under) %>% 
+  select(-days_record) %>% 
+  distinct()
 
-# 3. join missing stations to 1991 streamflow data
-gage_flow_1991 <- full_join(gage_miss_1991, gage_flow_1991) %>% 
-  filter(!is.na(sta))
+rm(gage_est_9092_sum, gage_est_over, gage_est_under)
 
-rm(gage_miss_1991)
 
-# append and join to date values
-gage_flow_est <- bind_rows(gage_flow_1990, gage_flow_1991) 
+export(gage_est_9092, file = "data/gage_est_9092.csv") 
 
-# clean up 
 
-export(gage_flow_est, file = "data/gage_flow_9091.csv") 
-
-rm(gage_flow_1990, gage_flow_1991)
-rm(lambda_q1, lambda_q30, lambda_q7)
+#rm(lambda_q1, lambda_q30, lambda_q7)
 ```
 
-
-```{r Clustering_visualization}
+```{r Clustering_visualization} 
 
 # plot clusters in PCA space 
 ggplot(gage_clust,  
@@ -3912,1600 +3947,3 @@ ggplot(gage_aug, aes(q7_depth, q1_q30_diff)) +
 #                width = 6, height = 6, units = "in")  
 ```
 
-```{r old-code-delete-soon}
-# prepare by-group streamflow depths for groups
-#gage_pred_run02 <- gage_mod %>% 
-#  select(group:q30_depth) %>% 
-#  select(-sta) %>% 
-#  gather(key = dur, value = depth, -group, -date) %>% 
-#  group_by(group, date, dur) %>% 
-#    summarise(depth_ave = mean(depth)) %>% 
-#  spread(dur, depth_ave) %>% 
-#  ungroup() 
-
-#date_vals  <- gage %>% 
-#  select(date, julian, month, day, dec_year, 
-#         month_seq, water_year, qualifier) %>% 
-#  distinct(date, .keep_all = TRUE )
-
-
- 
-# table of nearest neighbors by PCA above by water year
-# station  1990-1992  1992   1998  neighbor
-# bev_prix      y        n      n    bev_buf
-# blp_belx      y        n      n    brsf_co
-# lwr_abv      y        n      n    lwr_ros
-# ros_ros      y        n      y    lwr_abv
-# whi_slmx      y        n      y    whi_ogl
-# wkc_wokx      y        n      y    bev_buf
-# bev_abfx      n        y      y    frn_fai
-# rap_farx      n        y      n    fal_hot 
-
-
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# goal of run02 is to find neighbors for: 
-# bev_abf -> frn_fai
-# bev_pri -> bev_buf 
-# blp_bel -> whi_kad
-# rap_far -> ros_ros
-# whi_slm -> (whi_ogl + whi_sta)/2
-# whi_sta -> whi_slm
-# wkc_wok -> bat_bhr
-
-bev_abf <- gage %>% 
-  filter(sta == "bev_abf") 
-
-gage_summary <- gage %>% 
-  group_by()
-
-# import data----
-gage_9092 <- import("data/gage_9016.csv") %>% 
-  clean_names() %>% 
-  select(c("sta", "min_yr", "max_yr", "count_yr", "date", "i", 
-           "julian", "month", "day", "dec_year", "month_seq", 
-           "water_year", "qualifier", "log_q", "q", "q7", "q30", 
-           "contrib_drain_area_va")) %>% 
-  filter(water_year < 1993) 
-
-gage_9398 <- import("data/gage_9398.csv") %>% 
-  clean_names() %>% 
-  select(c("sta", "min_yr", "max_yr", "count_yr", "date", "i", 
-           "julian", "month", "day", "dec_year", "month_seq", 
-           "water_year", "qualifier", "log_q", "q", "q7", "q30", 
-           "contrib_drain_area_va")) 
-
-gage_9098 <- bind_rows(gage_9092, gage_9398) %>% 
-  distinct() %>%            # tests to ensure no duplicates
-  mutate(min_yr = case_when(
-    .$min_yr < 1990 ~ 1990,
-    .$min_yr >= 1990 ~ as.double(.$min_yr))) %>%  # updated min yr
-  mutate(min_yr = case_when(
-      sta == "lcr_abv" ~ 1996, 
-      TRUE ~ .$min_yr
-    )  # fix min year for lcr_abv
-  ) %>% 
-  mutate(count_yr = max_yr - min_yr) %>%      # recalculate count 
-  filter(sta != "nio_bbb") %>% 
-  filter(sta != "nio_gor") %>% 
-  filter(sta != "nio_abb") %>% 
-  filter(sta != "cas_hot") %>% 
-  filter(sta != "whi_cra")  # these are very short records 
-
-rm(gage_9092, gage_9398) 
-
-# fill missing data for 1990-1992 :: bev_pri <- bev_buf---- 
-gage_from <- gage_9098 %>% 
-  filter(sta == "bev_buf") %>% 
-  filter(water_year <= 1992) %>% 
-  select(-c(2:4)) %>% 
-  mutate(sta = "bev_pri")
-
-gage_to <- gage_9098 %>% 
-  filter(sta == "bev_pri") %>% 
-  slice(1) %>% 
-  select(1:4)
-
-gage_fill <- full_join(gage_to, gage_from, by = "sta")
-gage_9098 <- bind_rows(gage_9098, gage_fill) 
-
-# fill missing data for 1990-1992 :: blp_bel <- brsf_co----
-gage_from <- gage_9098 %>% 
-  filter(sta == "brsf_co") %>% 
-  filter(water_year <= 1992) %>% 
-  select(-c(2:4)) %>% 
-  mutate(sta = "blp_bel")
-
-gage_to <- gage_9098 %>% 
-  filter(sta == "blp_bel") %>% 
-  slice(1) %>% 
-  select(1:4)
-
-gage_fill <- full_join(gage_to, gage_from, by = "sta")
-gage_9098 <- bind_rows(gage_9098, gage_fill) 
-
-# fill missing data for 1990-1992 :: lwr_abv <- lwr_ros----  
-gage_from <- gage_9098 %>% 
-  filter(sta == "lwr_ros") %>% 
-  filter(water_year <= 1992) %>% 
-  select(-c(2:4)) %>% 
-  mutate(sta = "lwr_abv")
-
-gage_to <- gage_9098 %>% 
-  filter(sta == "lwr_abv") %>% 
-  slice(1) %>% 
-  select(1:4)
-
-gage_fill <- full_join(gage_to, gage_from, by = "sta")
-gage_9098 <- bind_rows(gage_9098, gage_fill) 
-
-# fill missing data for 1990-1992 :: ros_ros <- lwr_abv----  
-gage_from <- gage_9098 %>% 
-  filter(sta == "lwr_abv") %>% 
-  filter(water_year <= 1992 | 
-           water_year <= 1998) %>% 
-  select(-c(2:4)) %>% 
-  mutate(sta = "ros_ros")
-
-gage_to <- gage_9098 %>% 
-  filter(sta == "ros_ros") %>% 
-  slice(1) %>% 
-  select(1:4)
-
-gage_fill <- full_join(gage_to, gage_from, by = "sta")
-gage_9098 <- bind_rows(gage_9098, gage_fill)  
-
-# fill missing data for 1990-1992 :: whi_slm <- whi_ogl---- 
-gage_from <- gage_9098 %>% 
-  filter(sta == "whi_ogl") %>% 
-  filter(water_year <= 1992 | 
-           water_year <= 1998) %>% 
-  select(-c(2:4)) %>% 
-  mutate(sta = "whi_slm")
-
-gage_to <- gage_9098 %>% 
-  filter(sta == "whi_slm") %>% 
-  slice(1) %>% 
-  select(1:4)
-
-gage_fill <- full_join(gage_to, gage_from, by = "sta")
-gage_9098 <- bind_rows(gage_9098, gage_fill) 
-
-# fill missing data for 1990-1992 :: wkc_wok <- bev_buf---- 
-gage_from <- gage_9098 %>% 
-  filter(sta == "bev_buf") %>% 
-  filter(water_year <= 1992 | 
-          water_year <= 1998) %>% 
-  select(-c(2:4)) %>% 
-  mutate(sta = "wkc_wok")
-
-gage_to <- gage_9098 %>% 
-  filter(sta == "wkc_wok") %>% 
-  slice(1) %>% 
-  select(1:4)
-
-gage_fill <- full_join(gage_to, gage_from, by = "sta")
-gage_9098 <- bind_rows(gage_9098, gage_fill) 
-
-# fill missing data 1990 & 1998   :: bev_abf <- frn_fai----
-gage_from <- gage_9098 %>% 
-  filter(sta == "frn_fai") %>% 
-  filter(water_year == 1990 | 
-           water_year == 1998) %>% 
-  select(-c(2:4)) %>% 
-  mutate(sta = "bev_abf")
-
-gage_to <- gage_9098 %>% 
-  filter(sta == "bev_abf") %>% 
-  slice(1) %>% 
-  select(1:4)
-
-gage_fill <- full_join(gage_to, gage_from, by = "sta")
-gage_9098 <- bind_rows(gage_9098, gage_fill) 
-
-# summarize & clean up  
-gage_9098_sum <- gage_9098 %>% 
-  group_by(sta) %>% 
-  summarize(date_min = min(dec_year), 
-            date_max = max(dec_year),
-            count_yr = mean(count_yr)
-            ) %>% 
-  ungroup() %>% 
-  arrange(count_yr) 
-
-rm(gage_fill, gage_from, gage_sum, gage_to)
-
-# moderately low hydrologic export, highest Q1-Q30 = stable-low export
-#1     V1 whi_slm          WHITE RIVER AT SLIM BUTTE, SD
-#2     V1 wcc_ogl           WHITE CLAY CR NEAR OGLALA SD
-#3     V1 spr_her              SPRING CR NEAR HERMOSA,SD
-#4     V1 che_was          CHEYENNE RIVER NEAR WASTA, SD
-#5     V1 whi_ogl                 WHITE R NEAR OGLALA SD
-#6     V1 whi_sta            WHITE R NR NE-SD STATE LINE
-
-# average hydrologic export, high Q1-Q30 = stable-average export
-#7     V2 wkc_wok WOUNDED KNEE CREEK AT WOUNDED KNEE, SD
-#8     V2 bev_buf          BEAVER CR NEAR BUFFALO GAP,SD
-#9     V2 bat_bhr             BATTLE CR BELOW HERMOSA,SD
-#10    V2 bev_pri          BEAVER CREEK NEAR PRINGLE, SD
-
-# averarage Q1-Q30, highes hydrologic export = GW controlled
-#11    V3 bev_abf     BEAVER CREEK ABOVE BUFFALO GAP, SD
-#12    V3 ros_ros               ROSEBUD CR AT ROSEBUD SD
-#13    V3 lwr_abv          LITTLE WHITE R ABV ROSEBUD SD
-#14    V3 lwr_mar          LITTLE WHITE R NEAR MARTIN,SD
-#15    V3 lcr_bel   LAKE CR BELOW REFUGE NEAR TUTHILL,SD
-#16    V3 lwr_ros         LITTLE WHITE R NEAR ROSEBUD SD
-#17    V3 bat_key             BATTLE CR NEAR KEYSTONE,SD
-#18    V3 rap_far           RAPID CR NEAR FARMINGDALE,SD
-#19    V3 fal_hot               FALL R AT HOT SPRINGS,SD
-#20    V3 bat_her                BATTLE CR AT HERMOSA,SD
-#21    V3 lwr_whi    LITTLE WHITE R BELOW WHITE RIVER,SD
-#22    V3 lcr_vet           LITTLE WHITE R NEAR VETAL,SD
-#23    V3 frn_fai            FRENCH CR ABOVE FAIRBURN SD
-
-# similiar export to V1, but much lower  = flashy-low export
-#24    V4 whi_kad                 WHITE R NEAR KADOKA,SD
-#25    V4 brsf_co    SOUTH FORK BAD R NEAR COTTONWOOD,SD
-#26    V4 blp_bel      BLACK PIPE CREEK NR BELVIDERE, SD
-
-# ephemeral
-#27    V5 hat_edg                HAT CR NEAR EDGEMONT,SD
-#28    V5 hor_oel            HORSEHEAD CR AT OELRICHS,SD
-
-
-
-```
-
-```{r old-code-check}
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#gage_meta_full <- import("data/gage_meta_full.csv") 
-
-#gage_meta_lt80 <- import("data/gage_lt80_meta.csv") %>% 
-#gage_meta_9016 <- import("data/gage_meta_9016.csv") %>% 
-
-#gage_9016 <- import("data/gage_9016.csv") %>% 
-#  select(1:4) %>% 
-#  distinct() 
-
-#gage_9015 <- import("data/gage_9015.csv") %>% 
-#  select(1:4) %>% 
-#  distinct() 
-
-#test <- anti_join(gage_9016, gage_9015)
-
-#  combine records and prepare to look for missing years 
-#gage <- bind_rows(gage_9016, test) %>% 
-#  distinct() %>% 
-#  mutate(min_yr = case_when(
-#    .$min_yr < 1990 ~ 1990,
-#    .$min_yr >= 1990 ~ as.double(.$min_yr))) %>% 
-#  mutate(min_yr = case_when(
-#      sta == "lcr_abv" ~ 1996, 
-#      TRUE ~ .$min_yr
-#    )  # fix the starting year for lcr_abv
-#  ) %>% 
-#  mutate(count_yr = max_yr - min_yr) # recalculate count
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-
-# split to stations with missing & nonmissing data
-#gage_miss <- gage %>% 
-#  filter(count_yr < 27) %>% 
-#  mutate(completeness = "missing") 
-
-#gage_comp <- anti_join(gage, gage_miss) 
-
-#gage_comp <- gage_comp %>% 
-#    mutate(completeness = "complete") 
-
-# Fix missing early years - 1991:1992 
-
-#gage_miss <- gage_miss %>% 
-#  mutate(
-#    completeness = case_when(
-#      min_yr == 1991 ~ "1_fix 91-92", 
-#      min_yr == 1992 ~ "1_fix 91-92", 
-#            TRUE ~ .$completeness
-#    )
-#) 
-
-# clean global environment 
-#rm(gage_9016, gage_9398, gage)
-
-# next stations to fix
-#gage_yr_max_lt04 <- gage_yr_miss %>% 
-#  filter(max_yr < 2004) %>% 
-#  as.tibble()
-
-# gage_yr_max_lt04 # these are stations missing years after 1997 
-# A tibble: 4 x 4 
-# sta     min_yr max_yr count_yr
-#  <chr>    <dbl>  <int>    <dbl>
-#1 whi_slm   1990   1997        7
-#2 wcc_ogl   1990   1999        9
-#3 bev_abf   1991   1997        6
-#4 wkc_wok   1992   1997        5
-
-
-```
-
-```{r PCA_exploratory_analysis_90-98}
-
-# Data is from above
-pca_input <- gage_9098 
-
-# Eliminate effects of watershed size----
-# Calculate daily flow depths by dividing flow (cms) by watershed 
-#    area (sq-km) and multiplying the resultant by the number of 
-#    seconds in a day.  The result is cu-m-d per sq-km.
-
-pca_input <- pca_input %>% 
-  as.tibble() %>% 
-  clean_names() %>% # puts the names into snake case
-  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
-  mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>%
-  drop_na()  # not really needed in this expression
-
-# Transform using BoxCox to approach normality---- 
-# Daily flow data are highly skewed.  BoxCox transformation utilizes 
-# a lambda value to transform a dataset to an ~ normal distribution.
-
-# Lambda = 1 is normal distribution (no change), 
-# lambda = 0.5 is a square-root transformation, 
-# lamda = 2 is a square transformation,
-# lambda = 0 is a logrithmic transformation.
-
-lambda_q1 <- BoxCox.lambda(pca_input$q1_depth)   #  q1 ==> 0.006    
-lambda_q7 <- BoxCox.lambda(pca_input$q7_depth)   #  q7 ==> 0.098   
-lambda_q30 <- BoxCox.lambda(pca_input$q30_depth) # q30 ==> 0.193    
-
-# Standardize data by z-score---- 
-# PCA requires that data are scaled with a mean of zero and standard 
-# deviation of unity, e.g. a z-score.  This could be done within the 
-# PCA, but I did it manually.
-
-pca_input <- pca_input %>% 
-  mutate(q1_tr = BoxCox(.$q1_depth,lambda_q1)) %>%
-  mutate(q7_tr = BoxCox(.$q7_depth,lambda_q7)) %>% 
-  mutate(q30_tr = BoxCox(.$q30_depth,lambda_q30)) %>%
-  mutate(q1_mean = mean(q1_tr, na.rm = TRUE)) %>%   # means
-  mutate(q7_mean = mean(q7_tr, na.rm = TRUE)) %>%   
-  mutate(q30_mean = mean(q30_tr, na.rm = TRUE)) %>% # sds
-  mutate(q1_sd = sd(q1_tr, na.rm = TRUE)) %>% 
-  mutate(q7_sd = sd(q7_tr, na.rm = TRUE)) %>% 
-  mutate(q30_sd = sd(q30_tr, na.rm = TRUE)) %>%  
-  mutate(q1_depth = (q1_tr - q1_mean)/q1_sd) %>% # transfroms the data
-  mutate(q7_depth = (q7_tr - q7_mean)/q7_sd) %>% 
-  mutate(q30_depth = (q30_tr - q30_mean)/q30_sd) %>% 
-  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
-                everything())
-
-# Calculate PCA matrix & summary info---- 
-# prcomp() requires a dataset with only the variables, split data 
-# into PCA input & names to connect to result 
-
-pca_matrix <- pca_input %>%  
-  dplyr::select(q1_depth, q7_depth, q30_depth) %>%
-  prcomp(., scale = TRUE)      
-# note that . is passing select(q1_depth, q7_depth, q30_depth)
-  
-# Gather & summarize PCA results----
-# Eigenvectors--results about PC axes
-# pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
-
-# A tibble: 3 x 4
-#     PC std.dev percent cumulative perc_init cum_init
-#  <dbl>   <dbl>   <dbl>      <dbl>   <dbl>    <dbl>
-#1     1   1.69  0.947        0.947   0.932    0.932
-#2     2   0.367 0.0448       0.992   0.0586   0.991
-#3     3   0.155 0.00797      1    
-
-
-# PCA variables--the loadings on the PCA axes.  
-# pca_vars <-  tidy(pca_matrix, matrix = "variables") 
-
-# Drop the 3rd PC-axis because it's not useful 
-#pca_vars <- pca_vars %>% 
-#  filter(PC != 3) %>% 
-#  rename(var = column) %>% 
-#  mutate(var = as.factor(var)) 
-
-#  pca_vars
-#   var        PC   value  val_init
-#   <fct>     <dbl>  <dbl>  <dbl>
-# q1_depth      1  0.577    0.577
-# q7_depth      1  0.587    0.591
-# q30_depth     1  0.568    0.563
-# q1_depth      2  0.588    0.577
-# q7_depth      2  0.184    0.193
-# q30_depth     2 -0.788   -0.794
-
-
-## A tibble: 6 x 3
-#  var          PC  value
-#  <fct>     <dbl>  <dbl>
-#1 q1_depth      1  0.577
-#2 q7_depth      1  0.591
-#3 q30_depth     1  0.563
-#4 q1_depth      2  0.577
-#5 q7_depth      2  0.193
-#6 q30_depth     2 -0.794
-
-# Bind sample vals to PCA matrix - summarize & clean up
-gage_aug <- augment(pca_matrix, data = pca_input) %>% 
-  select(-c(.rownames, q1_mean:q30_sd, .fittedPC3)) %>% 
-  mutate(q1_q30_diff = q1_depth - q30_depth)      
-
-gage_sum <- gage_aug %>% 
-  group_by(sta) %>% 
-  summarize(PC1_mean = mean(.fittedPC1),
-            PC2_mean = mean(.fittedPC2), 
-            q1_mean = mean(q1_depth), 
-            q7_mean = mean(q7_depth),
-            q30_mean = mean(q30_depth), 
-            q1_q30_mean = mean(q1_q30_diff),
-            date_min = min(dec_year), 
-            date_max = max(dec_year) 
-            ) %>% 
-  ungroup() %>% 
-  arrange(PC2_mean) %>% 
-  arrange(PC1_mean)
-
-rm(lambda_q1, lambda_q7, lambda_q30, pca_input, pca_matrix) 
-```
-
-```{r PCA_exploratory_analysis-old}
-
-# Examines data from 1993-1998 - wet years with Wounded Knee station  
-
-# Data preparation steps: import data, normalize by watershed area, 
-#     remove missing values, calculate z-scores by BoxCox & 
-#     standardize & center data
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-# import data----
-
-gage_9398_raw <- import("data/gage_9398.csv") 
-
-
-# The original data is saved in a long format with rows as daily 
-# observations and columns as variables
-
-# glimpse(gage_9398_raw)
-# Variables: 26
-# count_yr              <int> 67, 67, 67... count of years of record
-# sta                   <chr> "bat_bhr"...  station name
-# site_no               <int> 6406500...    USGS site number 
-# station_nm            <chr> "BATTLE CR BELOW HERMOSA,SD"... 
-# dec_lat_va            <dbl> 43.72543...   latitude 
-# dec_long_va           <dbl> -102.9061...  longitude 
-# state_cd              <int> 46, 46...     fips? code for State  
-# county_cd             <int> 103, 103...   fips? code for County  
-# alt_va                <dbl> 2800.32...    altitude in feet 
-# drain_area_va         <dbl> 284, 284...   drainage area in sq mi. 
-# contrib_drain_area_va <dbl> 284, 284...   contrib. da in sq mi.
-# min_yr                <int> 1951...       first year of record 
-# max_yr                <int> 2017...       last year of record 
-# Date                  <chr> "1991-10-01"  date 
-# i                     <int> 2191, 2192... count from 1st day of rec. 
-# Q                     <dbl> 0.12518933... discharge in cms
-# Julian                <int> 51772...      Julian calendar date  
-# Month                 <int> 10, 10...     month 
-# Day                   <int> 275, 276...   day  
-# DecYear               <dbl> 1991.749...   decimal year  
-# MonthSeq              <int> 1702...       NA 
-# waterYear             <int> 1992...       water year 
-# Qualifier             <chr> "A", "A"...   data quality code  
-# LogQ                  <dbl> -2.077928...  log of zero-adj discharge 
-# Q7                    <dbl> 0.14420207... 7-day moving average  
-# Q30                   <dbl> 0.1342507...  30-day moving average 
-
-# check gages----
-# check gage data -- Should probably dig into this some more!
-sta_chk <- gage_9398_raw %>% 
-  group_by(sta) %>% 
-  summarise(start_wat_yr = min(waterYear), 
-            end_wat_yr = max(waterYear)) %>% 
-  arrange(desc(start_wat_yr)) %>% 
-  arrange(end_wat_yr)
-
-# PCA method discussion----
-# Overview 
-# ~~~~~~~~ 
-# PCA is a method to summarize data using fewer variables by 
-# constructing new linear descriptors from variables. The new 
-# linear discriptors describe maximum variation across observations. 
-# The new discriptors can be used to predict, or "reconstruct",
-# observations as well as possible.
-
-# PCA finds the axis the describes the maximum covariance and 
-# projecting all of the observations points onto this line. The line 
-# called the "first principal component" simultanesous describes 
-# maximal variation of values along the line & minimizes the 
-# reconstruction error 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# Prepare data for exploratory PCA----
-# 2. Eliminate the effects of different sizes of watersheds:  
-#    I calculated daily flow depths by dividing flow (cms) by watershed 
-#    area (sq-km) and multiplying the resultant by the number of 
-#    seconds in a day.  The result is cu-m-d per sq-km.
-
-gage_depth <- gage_9398_raw %>% 
-  as.tibble() %>% 
-  clean_names() %>% 
-  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
-  mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>%
-  drop_na()
-
-# 3. Transform using BoxCox to approach normality 
-# daily flow data are highly skewed & tend to approach a logrithmic 
-# distribution.  BoxCox transformation utilizes a lamda value to 
-# transform a dataset to approach a normal distribution.
-# Lambda = 1 is normal distribution (no change), 
-# lambda = 0.5 is a square-root transformation, 
-# lamda = 2 is a square transformation,
-# lambda = 0 is a logrithmic transformation.
-
-# find lambda values for BoxCox transformation  
-lambda_q1 <- BoxCox.lambda(gage_depth$q1_depth)   #  q1 ==> 0.010   
-lambda_q7 <- BoxCox.lambda(gage_depth$q7_depth)   #  q7 ==> 0.105  
-lambda_q30 <- BoxCox.lambda(gage_depth$q30_depth) # q30 ==> 0.264    
-
-# 4.Standardize data by z-score---- 
-# PCA requires that data are scaled with a mean of zero and standard 
-# deviation of unity, e.g. a z-score.  This could be done within the 
-# PCA, but I did it manually.
-
-# Apply transformation and scale data
-gage_depth <- gage_depth %>% 
-  mutate(q1_tr = BoxCox(gage_depth$q1_depth,lambda_q1)) %>%
-  mutate(q7_tr = BoxCox(gage_depth$q7_depth,lambda_q7)) %>% 
-  mutate(q30_tr = BoxCox(gage_depth$q30_depth,lambda_q30)) %>%
-  mutate(q1_mean = mean(q1_tr, na.rm = TRUE)) %>% 
-  mutate(q1_sd = sd(q1_tr, na.rm = TRUE)) %>% 
-  mutate(q1_depth = (q1_tr - q1_mean)/q1_sd) %>% 
-  mutate(q7_mean = mean(q7_tr, na.rm = TRUE)) %>% 
-  mutate(q7_sd = sd(q7_tr, na.rm = TRUE)) %>% 
-  mutate(q7_depth = (q7_tr - q7_mean)/q7_sd) %>% 
-  mutate(q30_mean = mean(q30_tr, na.rm = TRUE)) %>% 
-  mutate(q30_sd = sd(q30_tr, na.rm = TRUE)) %>% 
-  mutate(q30_depth = (q30_tr - q30_mean)/q30_sd) %>% 
-  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
-                everything())
-
- 
-# Select numeric data for PCA---- 
-# ~~~~~~~~~~~~~~~~~~~
-# prcomp() requires a dataset with only the variables.  
-# Below splits data into PCA input & names to connect to result 
-
-pca_input <- gage_depth %>%  
-  dplyr::select(q1_depth, q7_depth, q30_depth) 
-
-pca_meta <- gage_depth %>% 
-  select(sta, date, q1_depth, q7_depth, q30_depth) 
-
-# Calculate PCA matrix & summary info
-pca_matrix <- prcomp(pca_input, scale = TRUE) 
-
-# this plots the PCA biplot--takes a LONG time
-# biplot(gage_pc, scale = 0)
-
-# Gather & summarize PCA results----
-# The broom package is used to gather results into tibbles.
-
-# Eigenvectors--results about PC axes
-pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
-
-# PCA variables--the loadings on the PCA axes.  
-pca_vars <-  tidy(pca_matrix, matrix = "variables") 
-
-# Drop the 3rd PC-axis because it's not useful 
-pca_vars <- pca_vars %>% 
-  filter(PC != 3) %>% 
-  rename(var = column) %>% 
-  mutate(var = as.factor(var)) 
-
-# Bind sample vals to PCA matrix 
-gage_aug <- augment(pca_matrix, data = pca_input) 
-gage_aug <- bind_cols(pca_meta, gage_aug) 
-
-gage_aug <- gage_aug %>% 
-  select(-.fittedPC3, -.rownames, 
-         -q1_depth1, -q7_depth1, -q30_depth1) %>% 
-  mutate(q1_q30_diff = q1_depth - q30_depth) 
-
-# summarize pca of gages
-gage_sum <- gage_aug %>% 
-  group_by(sta) %>% 
-  summarize(PC1_mean = mean(.fittedPC1),
-            PC2_mean = mean(.fittedPC2), 
-            q1_mean = mean(q1_depth), 
-            q7_mean = mean(q7_depth),
-            q30_mean = mean(q30_depth), 
-            q1_q30_mean = mean(q1_q30_diff)) %>% 
-  ungroup() %>% 
-  arrange(q1_q30_mean) %>% 
-  arrange(q7_mean)
-  
-pca_eigen 
-# PCA results & interpretation
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# A tibble: 3 x 4
-#     PC std.dev percent cumulative
-#  <dbl>   <dbl>   <dbl>      <dbl>
-#1     1   1.67  0.932        0.932
-#2     2   0.419 0.0586       0.991
-#3     3   0.167 0.00935      1     
-
-pca_vars 
-## A tibble: 6 x 3
-#  var          PC  value
-#  <fct>     <dbl>  <dbl>
-#1 q1_depth      1  0.577
-#2 q7_depth      1  0.591
-#3 q30_depth     1  0.563
-#4 q1_depth      2  0.577
-#5 q7_depth      2  0.193
-#6 q30_depth     2 -0.794
-
-
-# The PCA explains the following: 
-# eigenvecter:
-#   93% of covarience is explained by PCA1 & 6% of varience by PCA2
-# variables:
-#   PC1 - approximately equal loadings of Q1, Q7, Q30;
-#   PC2 - large positive loading of Q1 & large negative loading of Q30  
-#   PC1 is about the hydrologic export of the system with larger
-#     values exporting a greater amount of water 
-#   PC2 is about the contribution of baseflow vs event-flow
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# clean up Global Environment----
-gage_9398_sum <- full_join(gage_9398_meta, gage_sum, by = "sta")
-
-gage_9398_raw <- gage_9398_raw %>% 
-  mutate(date = Date) 
-
-gage_9398_aug <- left_join(gage_aug, gage_9398_raw, 
-                           by = c("sta", "date")) 
-
-# note:looks like gage_x_raw has same info as gage_x_aug
-rm(lambda_q1, lambda_q7, lambda_q30,  gage_9398_meta, 
-   pca_eigen, pca_meta, pca_vars, gage_aug, pca_input, 
-   pca_matrix, gage_sum, sta_chk, gage_9398_raw)
-```
-```{r EDA-PCA-9015-gages}
-# Examines data from 1993-2017 without 1996 & 2007 
-
-gage_9015_meta <- import("data/gage_meta_9015.csv") 
-gage_9015_raw <- import("data/gage_9015.csv") 
-
-gage_9015_sum <- gage_9015_raw %>% 
-  group_by(sta) %>%  
-  summarise(start_yr = min(waterYear), 
-            end_yr = max(waterYear)) 
-
-gage_9015_sum 
-# A tibble: 21 x 3
-#   sta     start_yr end_yr
-#   <chr>      <dbl>  <dbl>
-# 1 bat_bhr     1990   2015
-# 2 bat_her     1990   2015
-# 3 bev_buf     1990   2015
-# 4 brsf_co     1990   2015
-# 5 che_buf     2008   2015
-# 6 che_was     1990   2015
-# 7 fal_hot     1990   2015
-# 8 frn_fai     1990   2015
-# 9 hat_edg     1990   2015
-#10 hor_oel     1990   2015
-#11 lcr_abv     1997   2015
-#12 lcr_bel     1990   2015
-#13 lcr_vet     1990   2015
-#14 lwr_mar     1990   2015
-#15 lwr_ros     1990   2015
-#16 lwr_whi     1990   2015
-#17 rap_far     1991   2015
-#18 whi_int     2003   2015
-#19 whi_kad     1990   2015
-#20 whi_ogl     1990   2015
-#21 whi_sta     1990   2015
-
-
-# Eliminate the effects of different sizes of watersheds & 
-# remove missing values created by rolling averages
-
-gage_9015_depth <- gage_9015_raw %>% 
-  as.tibble() %>% 
-  clean_names() %>% 
-  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
-  mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  %>%
-  drop_na() 
-
-# Transform using BoxCox to approach normality 
-
-# find lambda values for BoxCox transformation  
-lambda_q1 <- BoxCox.lambda(gage_9015_depth$q1_depth)   # q1 ==>  0.009   
-lambda_q7 <- BoxCox.lambda(gage_9015_depth$q7_depth)   # q7 ==>  0.113   
-lambda_q30 <- BoxCox.lambda(gage_9015_depth$q30_depth) # q30 ==> 0.214  
-
-# 5.Standardize data by z-score:
-# PCA requires that data are scaled with a mean of zero and standard 
-# deviation of unity, e.g. a z-score.  This could be done within the 
-# PCA, but I did it manually.
-
-# Apply transformation and scale data
-gage_9015_depth <- gage_9015_depth %>% 
-  mutate(q1_tr = BoxCox(gage_9015_depth$q1_depth,lambda_q1)) %>%
-  mutate(q7_tr = BoxCox(gage_9015_depth$q7_depth,lambda_q7)) %>% 
-  mutate(q30_tr = BoxCox(gage_9015_depth$q30_depth,lambda_q30)) %>%
-  mutate(q1_mean = mean(q1_tr, na.rm = TRUE)) %>% 
-  mutate(q1_sd = sd(q1_tr, na.rm = TRUE)) %>% 
-  mutate(q1_depth = (q1_tr - q1_mean)/q1_sd) %>% 
-  mutate(q7_mean = mean(q7_tr, na.rm = TRUE)) %>% 
-  mutate(q7_sd = sd(q7_tr, na.rm = TRUE)) %>% 
-  mutate(q7_depth = (q7_tr - q7_mean)/q7_sd) %>% 
-  mutate(q30_mean = mean(q30_tr, na.rm = TRUE)) %>% 
-  mutate(q30_sd = sd(q30_tr, na.rm = TRUE)) %>% 
-  mutate(q30_depth = (q30_tr - q30_mean)/q30_sd) %>% 
-  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
-                everything())
-
-# Conduct exploratory PCA---- 
-
-# Select numeric data 
-# ~~~~~~~~~~~~~~~~~~~
-# prcomp() requires a dataset with only the variables.  
-# Below splits data into PCA input & names to connect to result 
-
-pca_input <- gage_9015_depth %>%  
-  dplyr::select(q1_depth, q7_depth, q30_depth) 
-
-pca_meta <- gage_9015_depth %>% 
-  select(sta, date, q1_depth, q7_depth, q30_depth) 
-
-# Calculate PCA matrix & summary info
-pca_matrix <- prcomp(pca_input, scale = TRUE) 
-
-# Gather & summarize PCA results----
-# The broom package is used to gather results into tibbles.
-
-# Eigenvectors--results about PC axes
-pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
-
-# PCA variables--the loadings on the PCA axes.  
-pca_vars <-  tidy(pca_matrix, matrix = "variables") 
-
-# Drop the 3rd PC-axis because it's not useful 
-pca_vars <- pca_vars %>% 
-  filter(PC != 3) %>% 
-  rename(var = column) %>% 
-  mutate(var = as.factor(var)) 
-
-# Bind sample vals to PCA matrix 
-gage_9015_aug <- augment(pca_matrix, data = pca_input) 
-gage_9015_aug <- bind_cols(pca_meta, gage_9015_aug) 
-
-gage_9015_aug <- gage_9015_aug %>% 
-  select(-.fittedPC3, -.rownames, 
-         -q1_depth1, -q7_depth1, -q30_depth1) %>% 
-  mutate(q1_q30_diff = q1_depth - q30_depth) 
-
-# summarize pca of gages
-gage_9015_sum <- gage_9015_aug %>% 
-  group_by(sta) %>% 
-  summarize(PC1_mean = mean(.fittedPC1),
-            PC2_mean = mean(.fittedPC2), 
-            q1_mean = mean(q1_depth), 
-            q7_mean = mean(q7_depth),
-            q30_mean = mean(q30_depth), 
-            q1_q30_mean = mean(q1_q30_diff)) %>% 
-  ungroup() %>% 
-  arrange(q1_q30_mean) %>% 
-  arrange(q7_mean)
-  
-pca_eigen
-# A tibble: 3 x 4
-#     PC std.dev percent cumulative
-#  <dbl>   <dbl>   <dbl>      <dbl>
-#1     1   1.69  0.948        0.948
-#2     2   0.369 0.0454       0.993
-#3     3   0.141 0.00659      1    
-
-pca_vars
-# A tibble: 6 x 3
-#  var          PC  value
-#  <fct>     <dbl>  <dbl>
-#1 q1_depth      1  0.577
-#2 q7_depth      1  0.588
-#3 q30_depth     1  0.567
-#4 q1_depth      2  0.596
-#5 q7_depth      2  0.172
-#6 q30_depth     2 -0.784
-
-# clean up Global Environment----
-gage_9015_sum <- full_join(gage_9015_meta, gage_9015_sum)
-
-rm(lambda_q1, lambda_q7, lambda_q30, gage_9015_depth, gage_9015_meta, 
-   pca_eigen, pca_meta, pca_vars, pca_input, pca_matrix)
-
-
-# plot PCA----
-# PC1 explanatory plot
-ggplot(gage_9015_aug, aes(q7_depth, .fittedPC1, color = factor(sta))) + 
-  geom_jitter() + 
-  theme_classic() +
-  xlab("Q7 depth") +
-  ylab("Fitted PC1") + 
-  theme(legend.position = "bottom")
-  
-# PC2 explanatory plot
-ggplot(gage_9015_aug, aes(q1_q30_diff, .fittedPC2, color = factor(sta))) +
-  geom_jitter() + 
-  theme_classic() +
-  xlab("Q1 depth minus Q30 depth") +
-  ylab("Fitted PC2") +
-  theme(legend.position = "bottom") 
-
-# mean eigenvector plot
-ggplot(gage_9015_sum, aes(PC1_mean, PC2_mean)) +
-  geom_jitter() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
-            nudge_y = 0.02) + 
-  theme_classic() + 
-  scale_x_continuous(limits = c(-3.5, 2)) + 
-  xlab("PC axis 1 mean") +
-  ylab("PC axis 2 mean") 
-
-
-gage_9015_sum <- gage_9015_sum %>% 
-  mutate(period = "2000-15") 
-
-gage_9398_sum <- gage_9398_sum %>% 
-  mutate(period = "1993-98") 
-
-gage_sum <- bind_rows(gage_9398_sum, gage_9015_sum)
-
-# transformed variable plot
-#ggplot(gage_9015_sum, aes(q7_mean, q1_q30_mean)) +
-#  geom_jitter() + 
-#  geom_density2d() + 
-#  geom_text(aes(label = sta), check_overlap = TRUE, 
-#              nudge_y = 0.02) + 
-#  scale_x_continuous(limits = c(-2.5, 2)) + 
-#  scale_y_continuous(limits = c(-1, 0.75)) + 
-#  geom_vline(xintercept = 0, aes(size = 2)) + 
-#  geom_hline(yintercept = 0, aes(size = 1)) + 
-#  theme_classic() + 
-#  xlab("Average transformed Q7 depth") +
-#  ylab("Transformed Q1 and Q30 average difference") 
-
-
-# 
-ggplot(gage_sum, aes(q7_mean, q1_q30_mean)) + 
-  facet_wrap(ncol = 2, vars(period)) + 
-  geom_jitter() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
-              nudge_y = 0.02) + 
-  scale_x_continuous(limits = c(-2.5, 2)) + 
-  scale_y_continuous(limits = c(-1, 0.75)) + 
-  geom_density2d() + 
-  geom_vline(xintercept = 0, aes(size = 2)) + 
-  geom_hline(yintercept = 0, aes(size = 1)) + 
-  theme_classic() + 
-  xlab("hydrologic export index") +
-  ylab("stability index") 
-
-
-
-
-```
-
-```{r Model-Based_Clustering-9015}
-# creates models for 2003-2017 waterYears
-
-# create density plots----
-
-# create density plot of centroids 
-#ggplot(gage_9015_sum, aes(q7_mean, q1_q30_mean)) +
-#  geom_jitter() + 
-#  geom_density2d() + 
-#  geom_text(aes(label = sta), check_overlap = TRUE, 
-#              nudge_y = 0.02) + 
-#  scale_x_continuous(limits = c(-2, 1)) + 
-#  geom_vline(xintercept = 0, aes(size = 2)) + 
-#  geom_hline(yintercept = 0, aes(size = 1)) + 
-#  theme_classic() 
-
-
-# Preparing to cluster by the central tendancy
-mc_input <- gage_9015_sum %>% 
-  select(q1_mean:q30_mean)
-
-mc_input_meta <- gage_9015_sum %>% 
-  select(sta)
-
-gage_clust_l <- Mclust(mc_input) # Model-based-clustering 
-summary(gage_clust_l) # Print a summary 
-
-#---------------------------------------------------- 
-#Gaussian finite mixture model fitted by EM algorithm 
-#---------------------------------------------------- 
-
-#Mclust EEV (ellipsoidal, equal volume and shape) model with 3 components: 
-
-# log.likelihood  n df      BIC      ICL
-#       90.50279 21 23 110.9816 110.9624
-
-#Clustering table:
-# 1  2  3 
-# 7 11  3 
-
-gage_clust_l$modelName # Optimal selected model ==> "EEV" 
-gage_clust_l$G # Optimal number of cluster => 3 
-
-# Take a look at the results
-gage_clust <- as.tibble(gage_clust_l$z) 
-gage_clust <- bind_cols(mc_input_meta, gage_clust) 
-
-gage_clust <- gage_clust %>% 
-  gather(key = group, value = prob, -sta) %>% 
-  filter(prob > 0.8) 
-
-gage_clust <- full_join(gage_9015_sum, gage_clust, by = "sta")
-gage_clust <- gage_clust %>% 
-  select(sta, group, everything())
-
-# Visualizing model-based clustering
-
-# BIC values used for choosing the number of clusters 
-fviz_mclust(gage_clust_l, "BIC", palette = "jco") 
-
-# Classification uncertainty 
-# Note: in the uncertainty plot, larger symbols indicate the 
-# more uncertain observations 
-fviz_mclust(gage_clust_l, "uncertainty", palette = "jco")
-
-# Classification: plot showing the clustering 
-fviz_mclust(gage_clust_l, "classification", geom = "point", 
-            pointsize = 1.5, palette = "jco") 
-
-# Plot clusters in PCA space
-ggplot(gage_9398_sum, aes(q7_mean, q1_q30_mean, color = group)) +
-  geom_jitter() + 
-  geom_density2d() + 
-  geom_text(aes(label = sta), check_overlap = TRUE, 
-              nudge_y = 0.02) + 
-  scale_x_continuous(limits = c(-2, 1.6)) + 
-  scale_y_continuous(limits = c(-0.8, 0.55)) + 
-  geom_vline(xintercept = 0, aes(size = 2)) + 
-  geom_hline(yintercept = 0, aes(size = 1)) + 
-  theme_classic() 
-
-gage_clust_plot <- gage_9398_sum %>% 
-  select(sta, group, q7_mean, q1_q30_mean) %>% 
-  rename(hydro_exp_coeff = q7_mean) %>% 
-  rename(stability_coeff = q1_q30_mean) %>% 
-  gather(key = parameter, value, -sta, -group) 
-
-
-ggplot(gage_clust_plot, aes(group, value)) + 
-  facet_grid(rows = vars(parameter)) + 
-         geom_boxplot() + 
-  theme_bw()
-
-# This is OLD!
-# Cluster 1: High hydrologic export 
-#   BATTLE CR BELOW HERMOSA,SD
-#   BEAVER CR NEAR BUFFALO GAP,SD
-#   FRENCH CR ABOVE FAIRBURN SD
-#   WOUNDED KNEE CREEK AT WOUNDED KNEE, SD
-# Cluster 2: Very high hydrologic export - highest gw 
-#   BATTLE CR AT HERMOSA,SD
-#   BATTLE CR NEAR KEYSTONE,SD
-#   BEAVER CREEK ABOVE BUFFALO GAP, SD
-#   FALL R AT HOT SPRINGS,SD 
-#   LAKE CR BELOW REFUGE NEAR TUTHILL,SD 
-#   LITTLE WHITE R NEAR VETAL,SD
-#   LITTLE WHITE R ABV ROSEBUD SD
-#   LITTLE WHITE R NEAR MARTIN,SD
-#   LITTLE WHITE R NEAR ROSEBUD SD
-#   LITTLE WHITE R BELOW WHITE RIVER,SD
-#   RAPID CR NEAR FARMINGDALE,SD
-#   ROSEBUD CR AT ROSEBUD SD
-# Cluster 3: Moderate hydrologic export; low flashiness
-#   BEAVER CREEK NEAR PRINGLE, SD 
-#   CHEYENNE RIVER NEAR WASTA, SD 
-#   SPRING CR NEAR HERMOSA,SD
-#   WHITE CLAY CR NEAR OGLALA SD
-#   WHITE R NEAR OGLALA SD
-#   WHITE RIVER AT SLIM BUTTE, SD
-#   WHITE R NR NE-SD STATE LINE
-# Cluster 4: Moderate hydrologic export; higher flashiness
-#   BLACK PIPE CREEK NR BELVIDERE, SD
-#   SOUTH FORK BAD R NEAR COTTONWOOD,SD
-#   WHITE R NEAR KADOKA,SD
-# Cluster 5: Very low hydrologic export coefficient; flashy - ephemeral
-#   HAT CR NEAR EDGEMONT,SD
-#   HORSEHEAD CR AT OELRICHS,SD 
-```
-
-
-```{r PROBABLY-GARBABE}
-# this is the simplist case approach
-#gage_scale_l <- gage_prep %>% 
-#  select(sta, q_depth, date) %>% 
-#  mutate(q_mean = mean(q_depth)) %>% 
-#  mutate(q_sd = sd(q_depth)) %>% 
-#  mutate(q_scaled = (q_depth - q_mean)/q_sd) %>% 
-#  select(sta, q_scaled, date)
-
-# calculate summary values
-gage_sum <- gage_scale_l %>% 
-  group_by(sta) %>% 
-  summarise(mean = mean(q_scaled),
-            sd = sd(q_scaled)) %>%
-    ungroup()
-
-# standardize the variables
-gage_scale1_l <- gage_prep %>% 
-  select(sta, q_depth, date) %>% 
-  mutate(q_mean = mean(q_depth)) %>% 
-  mutate(q_sd = sd(q_depth)) %>% 
-  mutate(q_scaled = (q_depth - q_mean)/q_sd) %>% 
-  mutate(avg_period = "1") %>% 
-  mutate(sta_type = paste(sta, avg_period, sep = "")) %>% 
-  select(sta_type, q_scaled, date)
-
-gage_scale7_l <- gage_prep %>%  
- filter(!is.na(q7_depth)) %>% 
-  mutate(q7_mean = mean(q7_depth)) %>% 
-  mutate(q7_sd = sd(q7_depth)) %>% 
-  mutate(q7_scaled = (q7_depth - q7_mean)/q7_sd) %>% 
-  mutate(avg_period = "7") %>% 
-  mutate(sta_type = paste(sta, avg_period, sep = "")) %>% 
-  select(sta_type, q7_scaled, date)
-    
-gage_scale30_l <- gage_prep %>% 
-  filter(!is.na(q30_depth)) %>% 
-  mutate(q30_mean = mean(q30_depth)) %>% 
-  mutate(q30_sd = sd(q30_depth)) %>% 
-  mutate(q30_scaled = (q30_depth - q30_mean)/q30_sd) %>% 
-  mutate(avg_period = "30") %>% 
-  mutate(sta_type = paste(sta, avg_period, sep = "")) %>% 
-  select(sta_type, q30_scaled, date)
-
-# spread the long variables
-gage_scale1 <- gage_scale_l %>% 
-  spread(sta_type, q_scaled) 
-
-gage_scale7 <- gage_scale7_l %>% 
-  spread(sta_type, q7_scaled) 
-
-gage_scale30 <- gage_scale30_l %>% 
-  spread(sta_type, q30_scaled) 
-
-gage_scale <- full_join(gage_scale1, gage_scale7)
-gage_scale <- full_join(gage_scale, gage_scale30)
-
-rm(gage_scale_l, gage_scale1, gage_scale1_l, gage_scale7, 
-   gage_scale7_l, gage_scale30, gage_scale30_l)
-
-# A check on the data finds Wounded Knee Creek has ~11% NA values
-#plot_missing(gage_scale)
-
-check_sta <- gage_scale %>% 
-  select(wkc_wok30, date) %>% 
-  filter(is.na(wkc_wok30))
-
-# drop the NA values (num obs drops from 2192 to 1916)
-gage_scale <- gage_scale %>% 
-  drop_na() 
-
-gage_scale_l <- gage_scale %>%
-  gather(key = )
-
-
-$xi−center(x)scale(x) \frac{x_i - center(x)}{scale(x)}$
-$xi−mean(x)sd(x) \frac{x_i - mean(x)}{(x)}$
-
-Where center(x) can be the mean or the median of x values, and scale(x) can be the standard deviation (SD), the interquartile range, or the MAD (median absolute deviation).
-```
-
-```{r old_code_2_delete, eval=FALSE}
-# this code chunk joins the various [spi1, spi48] data slices
-
-# get names for Pearson-III distribution - done once
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#att_names <- spi.cot.l$dist.para %>% 
-#  rownames() %>% 
-#  as_data_frame() %>% 
-#  rename(property = value) 
-
-# cottonwood PE3 ~~~~~~~~~~~~~~~~~~
-#att_cot <- spi.cot.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "cot")
-
-#att_cot <- bind_cols(att_names, att_cot)
-
-# interior PE3 ~~~~~~~~~~~~~~~~~~~ 
-#att_int <- spi.int.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "int")
-
-#att_int <- bind_cols(att_names, att_int)
-
-# oelrichs PE3 ~~~~~~~~~~~~~~~~~~~~
-#att_oel <- spi.oel.l$dist.para %>% 
-##  as_data_frame() %>% 
-#  mutate(sta = "oel")
-
-#att_oel <- bind_cols(att_names, att_oel)
-
-# oral PE3 ~~~~~~~~~~~~~~~~~~~~~~~
-#att_ora <- spi.ora.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "ora")
-
-#att_ora <- bind_cols(att_names, att_ora)
-
-# rapid city PE3 ~~~~~~~~~~~~~~~~~~
-#att_rap <- spi.rap.l$dist.para %>% 
-#  as_data_frame() %>% 
-#  mutate(sta = "rap")
-
-#att_rap <- bind_cols(att_names, att_rap)
-
-# join the rows for PE3 & prepare for gather  
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#spi_att <- bind_rows(att_cot, att_int, att_oel, att_ora, att_rap) %>% 
-#  rename("1" = M1) %>% 
-#  rename("2" = M2) %>% 
-#  rename("3" = M3) %>% 
- # rename("4" = M4) %>% 
-#  rename("5" = M5) %>% 
-#  rename("6" = M6) %>% 
-#  rename("7" = M7) %>% 
-#  rename("8" = M8) %>% 
-#  rename("9" = M9) %>% 
-#  rename("10" = M10) %>% 
-#  rename("11" = M11) %>% 
-#  rename("12" = M12) 
-
-#rm(att_cot, att_int, att_oel, att_ora, att_rap)
-
-#   1mon-check for warnings from SPI ----
-#flag_cot <- as.tibble(spi.cot.l$dist.para.flag) 
-#flag_int <- as.tibble(spi.int.l$dist.para.flag) # M2 (feb) flag => 3
-#flag_oel <- as.tibble(spi.oel.l$dist.para.flag) 
-#flag_ora <- as.tibble(spi.ora.l$dist.para.flag) 
-#flag_rap <- as.tibble(spi.rap.l$dist.para.flag) 
-
-#flag_spi <- bind_rows(flag_cot, flag_int, flag_oel, 
-#                      flag_ora, flag_rap) 
-
-# the flag means ML values did not converge
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# Sta  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-# Int  0.30    4.40    9.20   12.53   17.10   70.30 * is the max why?
-# Cot  0.30    4.80   10.40   13.54   18.30   62.00 
-# Oel  0.00    5.85   11.50   12.08   16.40   37.80 
-# Ora  0.00    5.05   10.10   12.35   17.50   42.70 
-# Rap  0.60    5.10    8.90   11.56   15.95   43.40  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
-# gather months for PE3
-#spi_att <- spi_att %>% 
-#  select(sta, property, everything()) %>% 
- # gather(key = month, value = value, -sta, -property) 
-
-# split properties from check vars 
-#spi_check <- spi_att %>% 
- # filter(property == "N" |
- #          property == "P0" |
-#           property == "N.P0") %>% 
- # arrange(property)
-
-#spi_att <- spi_att %>% 
- # filter(property != "N") %>% 
-#  filter(property != "P0") %>% 
-#  filter(property != "N.P0") %>% 
-#  mutate(month = as.integer(month)) 
-# prepare for join- create length
-spi_att1 <-  mutate(spi_att1, spi_length = 1) 
-spi_att2 <-  mutate(spi_att2, spi_length = 2) 
-spi_att3 <-  mutate(spi_att3, spi_length = 3) 
-spi_att4 <-  mutate(spi_att4, spi_length = 4) 
-spi_att5 <-  mutate(spi_att5, spi_length = 5) 
-spi_att6 <-  mutate(spi_att6, spi_length = 6) 
-spi_att9 <-  mutate(spi_att9, spi_length = 9)  
-spi_att12 <- mutate(spi_att12, spi_length = 12)  
-spi_att18 <- mutate(spi_att18, spi_length = 18) 
-spi_att24 <- mutate(spi_att48, spi_length = 24) 
-
-# prepare for join- differenciate values
-spi_att1 <-  mutate(spi_att1, spi1 = value) 
-spi_att2 <-  mutate(spi_att2, spi2 = value) 
-spi_att3 <-  mutate(spi_att3, spi3 = value) 
-spi_att4 <-  mutate(spi_att4, spi4 = value) 
-spi_att5 <-  mutate(spi_att5, spi5 = value) 
-spi_att6 <-  mutate(spi_att6, spi6 = value) 
-spi_att9 <-  mutate(spi_att9, spi9 = value)  
-spi_att12 <- mutate(spi_att12, spi12 = value)  
-spi_att18 <- mutate(spi_att18, spi18 = value) 
-spi_att24 <- mutate(spi_att24, spi24 = value) 
-
-# create a list of the spi_att dataframes
-att_list <- list(spi_att1, spi_att2, spi_att3, 
-                            spi_att4, spi_att5, spi_att6, 
-                            spi_att9, spi_att12, spi_att18, 
-                            spi_att24)
-
-# flatten the list to a dataframe & select values
-spi_att <- flatten_dfc(att_list) %>% 
-  select(sta, spi_length, property, month, spi1, spi2, spi3, spi4, 
-         spi5, spi6, spi9, spi12, spi18, spi24) %>% 
-  gather(key = length, value = spi_value, -spi_length, 
-         -property, -sta, -month) %>% 
-  select(-length)
- 
-
-# join spi check values----
-# prepare for join- create length
-spi_check1 <- mutate(spi_check1, spi_length = 1) 
-spi_check2 <- mutate(spi_check2, spi_length = 2) 
-spi_check3 <- mutate(spi_check3, spi_length = 3) 
-spi_check4 <- mutate(spi_check4, spi_length = 4) 
-spi_check5 <- mutate(spi_check5, spi_length = 5) 
-spi_check6 <- mutate(spi_check6, spi_length = 6) 
-spi_check9 <- mutate(spi_check9, spi_length = 9)  
-spi_check12 <- mutate(spi_check12, spi_length = 12)  
-spi_check18 <- mutate(spi_check18, spi_length = 18) 
-spi_check24 <- mutate(spi_check24, spi_length = 24) 
-
-# bind rows of spi correlations for different averaging periods
-spi_check <- bind_rows(spi_check1, spi_check2) 
-spi_check <- bind_rows(spi_check, spi_check3) 
-spi_check <- bind_rows(spi_check, spi_check4) 
-spi_check <- bind_rows(spi_check, spi_check5) 
-spi_check <- bind_rows(spi_check, spi_check6) 
-spi_check <- bind_rows(spi_check, spi_check9) 
-spi_check <- bind_rows(spi_check, spi_check12) 
-spi_check <- bind_rows(spi_check, spi_check18) 
-spi_check <- bind_rows(spi_check, spi_check24) 
-
-# check non-zero precip vals
-zero_prob_prcp <- spi_check %>% 
-  filter(property != "N") %>% 
-  mutate(value = as.numeric(value)) %>% 
-  mutate(month = as.integer(month)) %>% 
-  drop_na() %>% 
-  filter(property == "P0") %>% 
-  group_by(month, spi_length) %>% 
-  summarize(mean_val_perc = 100 * mean(value)) %>% 
-  filter(mean_val_perc > 0)
-
-# join spi index values & clean up global environment----
-# prepare for join -add lengths & get dataframes to same length
-spi_gath1 <- spi_gath1 %>% 
-  mutate(spi_length = 1) 
-
-spi_gath2 <- spi_gath2 %>% 
-  mutate(spi_length = 2) 
-
-spi_gath3 <- spi_gath3 %>% 
-  mutate(spi_length = 3) 
-
-spi_gath4 <- spi_gath4 %>% 
-  mutate(spi_length = 4) 
-
-spi_gath5 <- spi_gath5 %>% 
-  mutate(spi_length = 5) 
-
-spi_gath6 <- spi_gath6 %>% 
-  mutate(spi_length = 6) 
-
-spi_gath9 <- spi_gath9 %>% 
-  mutate(spi_length = 9) 
-
-spi_gath12 <- spi_gath12 %>% 
-  mutate(spi_length = 12) 
-
-spi_gath18 <- spi_gath18 %>% 
-  mutate(spi_length = 18) 
-
-spi_gath24 <- spi_gath24 %>% 
-  mutate(spi_length = 24)  
-
-# bind rows is probably the easiest approach here to get the 
-# individual dataframes into a single dataframe.  The dataframes are 
-# of different lengths because of the averaging periods
-
-spi_index <- bind_rows(spi_gath1, spi_gath2) 
-spi_index <- bind_rows(spi_index, spi_gath3)  
-spi_index <- bind_rows(spi_index, spi_gath4)  
-spi_index <- bind_rows(spi_index, spi_gath5)  
-spi_index <- bind_rows(spi_index, spi_gath6)  
-spi_index <- bind_rows(spi_index, spi_gath9)  
-spi_index <- bind_rows(spi_index, spi_gath12)  
-spi_index <- bind_rows(spi_index, spi_gath18)  
-spi_index <- bind_rows(spi_index, spi_gath24)  
-
-
-rm(spi_att1, spi_att2, spi_att3, spi_att4, spi_att5, 
-   spi_att6, spi_att9, spi_att12, spi_att18, spi_att24)
-
-rm(spi_check1, spi_check2, spi_check3, spi_check4, 
-   spi_check5, spi_check6, spi_check9, spi_check12, spi_check18, 
-   spi_check24) 
-
-rm(spi_corr_cot, spi_corr_int, spi_corr_oel, spi_corr_ora, 
-   lat_to_km, lon_to_km, sta_loc)
-
-rm(spi_gath1, spi_gath2, spi_gath3, spi_gath4, spi_gath5, 
-   spi_gath6, spi_gath9, spi_gath12, spi_gath18, spi_gath24) 
-
-rm(spi_check, att_list) 
-
-#r precip-clustering, include=FALSE, eval=FALSE
-# Didn't work well...
-
-# Prepare data for exploratory PCA -----------------------------------
-
-# PCA requires that data are scaled with a mean of zero and standard 
-# deviation of unity, e.g. a z-score.  
-
-# The steps are as follows :
-# 1. Transform using BoxCox transformation to approach normality & 
-#    standardize.
-# 2. Drop rows with missing observations from wide data
-#    (e.g. the station records are of different lengths)
-# 3. Apply transformation and the scale data after making the data 
-#    long.
-# 4. Drop intermediate variables & rows with missing observations 
-#    
-
-# BoxCox transformation utilizes a lamda value to transform a dataset 
-# to approach a normal distribution.
-#   lambda = 1 is normal distribution (no change), 
-#   lambda = 0.5 is a square-root transformation, 
-#   lamda = 2 is a square transformation,
-#   lambda = 0 is a logrithmic transformation.
-# find lambda values for BoxCox transformation  
-lambda_prcp <- BoxCox.lambda(sta_grp$depth) 
-
-# lambda vals
-#  prcp ==> 0.108 
-
-# glimpse(sta_scaled) 
-# sta          <chr> "oel", "oel", "oel", "oel", "oel", "oel", "oel"
-# date         <date> 2018-05-01, 2018-04-01, 2018-03-01, 2018-02-01
-# depth        <dbl> 139.8, 33.5, 24.0, 18.3, 13.3, 14.8, 16.5, 19.0.
-# depth_tr     <dbl> 6.528617, 4.270760, 3.792030, 3.415306, 2.985829.
-# depth_scaled <dbl> 1.320188955, 0.340849965, 0.133202243 
-
-sta_mon_wide <- sta_int %>% 
-  mutate(depth_tr = BoxCox(sta_int$depth, lambda_prcp)) %>% 
-  mutate(depth_mean = mean(depth_tr, na.rm = TRUE)) %>% 
-  mutate(depth_sd = sd(depth_tr, na.rm = TRUE)) %>% 
-  mutate(depth_scaled = (depth_tr - depth_mean)/depth_sd) %>% 
-  dplyr::select(-date) %>% 
-  select(-sta_abrev, -mean_depth, -deviation)
-
-sta_mon <- sta_mon_wide %>%  
-  mutate(sta = as.factor(sta)) %>%  
-  select(-depth, -yr_mon, -depth_mean, -depth_sd, -depth_tr, ) %>%
-  spread(month, depth_scaled, convert = TRUE) %>% 
-  drop_na() %>% 
-  rename(jan = "1") %>% 
-  rename(feb = "2") %>% 
-  rename(mar = "3") %>% 
-  rename(apr = "4") %>% 
-  rename(may = "5") %>% 
-  rename(jun = "6") %>% 
-  rename(jul = "7") %>% 
-  rename(aug = "8") %>% 
-  rename(sep = "9") %>% 
-  rename(oct = "10") %>% 
-  rename(nov = "11") %>% 
-  rename(dec = "12") 
-
-# glimpse(sta_mon) 
-# Observations: 230
-# Variables: 14
-# year <int> 1972, 1972, 1972, 1972, 1972, 1973, 1973, 1973, 1973, 
-# sta  <fct> cot, int, oel, ora, rap, cot, int, oel, ora, rap, cot, 
-# jan  <dbl> -1.1705655, -1.8359887, -1.0710896, -0.5540255, -0.781 
-# feb  <dbl> -0.5138541, -1.7302116, -1.1024868, -1.3120703, -0.400 
-# mar  <dbl> -0.49461927, -0.43412364, -0.01338585, -0.13223232, -0 
-# apr  <dbl> -0.1172139, 1.0387562, 0.6274294, 0.3555747, 0.8642143 
-# may  <dbl> 1.37710556, 0.70367637, 0.96166778, 0.84463790, 0.9909 
-# jun  <dbl> 0.63876170, 0.36154511, 1.03170176, 1.35395955, 1.1668 
-# jul  <dbl> 1.1087770, 0.7467736, 0.2690885, 0.3312313, 0.4877920, 
-# aug  <dbl> 0.32709997, 0.79595891, 0.29970391, 0.47757034, 0.7806 
-# sep  <dbl> -0.53364445, -0.99892436, -0.25600144, -0.10249695, -0 
-# oct  <dbl> -0.25151491, -0.25151491, -0.01338585, -0.10981856, -0 
-# nov  <dbl> -0.39471011, -0.39471011, -0.78171073, -0.32692017, -0 
-# dec  <dbl> -0.84271133, -6.16974428, -0.83213761, -1.11880814, -0 
-
-# Select numeric data for PCA input &  names to connect to result 
-# prcomp() requires a dataset with only the variables for the 
-# unsupervised classification 
-
-pca_meta <- sta_mon %>% 
-  select(year, sta)
-pca_input <- sta_mon %>% 
-  select(-year, -sta)
-
-# Calculate PCA matrix & summary info
-pca_matrix <- prcomp(pca_input, scale = TRUE) 
-
-# Gather PCA results----
-# The broom package is used to gather results into tibbles.
-
-# this plots the PCA biplot 
-biplot <- biplot(pca_matrix, scale = 0) 
-
-# Eigenvectors
-pca_eigen <-  tidy(pca_matrix, matrix = "pcs") 
-
-# A tibble: 12 x 4
-#      PC std.dev percent cumulative
-#   <dbl>   <dbl>   <dbl>      <dbl>
-# 1     1   1.25   0.130       0.130
-# 2     2   1.20   0.120       0.250
-# 3     3   1.14   0.108       0.357
-# 4     4   1.11   0.103       0.460
-# 5     5   1.07   0.0955      0.556
-# 6     6   1.03   0.0877      0.643
-# 7     7   0.984  0.0807      0.724
-# 8     8   0.924  0.0711      0.795
-# 9     9   0.885  0.0652      0.860
-#10    10   0.846  0.0597      0.92 
-#11    11   0.728  0.0441      0.964
-#12    12   0.656  0.0359      1  
-# This means that 13% of covarience is explained by PCA1 & 
-# 12% of varience by PCA2
-
-# PCA variables 
-# these are the loadings on the PCA axes.  
-pca_vars <-  tidy(pca_matrix, matrix = "variables") 
-pca_vars <- pca_vars %>% 
-  rename(var = column) %>% 
-  mutate(var = as.factor(var)) %>% 
-  arrange(value) %>% 
-  arrange(PC)
-
-pca_rotation <- pca_matrix$rotation
-
-# Bind sample vals to PCA matrix 
-pca_au <- augment(pca_matrix, data = pca_input) %>% 
-  select(jan:.fittedPC3)
-pca_au <- bind_cols(pca_meta, pca_au) 
-rm(pca_meta)
-
-# Calculate mean eigenvectors 
-# this summarizes the individual points by station - used in plots
-pca_summary <- pca_au %>% 
-  group_by(sta) %>% 
-  summarize(PC1_mean = mean(.fittedPC1),
-            PC2_mean = mean(.fittedPC2), 
-            PC3_mean = mean(.fittedPC3), 
-            mar_mean = mean(mar), 
-            apr_mean = mean(apr), 
-            may_mean = mean(may),
-            jun_mean = mean(jun), 
-            jul_mean = mean(jul), 
-            aug_mean = mean(aug),
-            sep_mean = mean(sep), 
-            oct_mean = mean(oct), 
-            nov_mean = mean(nov)) %>% 
-  ungroup()    
-
-
-# PCA Interpretation-------------------------- 
-pca_expl <- pca_vars %>%
-  filter(abs(value) > 0.3) %>% 
-  filter(PC < 4) %>% 
-  filter(var != "dec") %>% 
-  filter(var != "jan") %>% 
-  arrange(value) %>% 
-  arrange(PC)
-
-pca_expl
-# A tibble: 9 x 3
-#  var      PC  value
-#  <fct> <dbl>  <dbl>
-#1 jun       1 -0.612
-#2 mar       1  0.357
-#3 sep       1  0.368
-#4 may       2 -0.485
-#5 aug       2 -0.438
-#6 apr       2  0.330
-#7 mar       2  0.438
-#8 oct       3 -0.540
-#9 may       3 -0.409
-
-# thus PC1 is var in jun vs mar & sep
-#      PC2 is var in may & aug vs apr
-#      PC3 is var in oct & may
-
-#PCA1:PCA2
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC1_mean, PC2_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC1_mean, PC2_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-# PC1:: 
-# Interior has some unusually a dry March & Jun records
-# Cottonwood has some unusually dry Jun & Sept records
-pca_pc1 <- pca_au %>% 
-  select(sta, mar, jun, sep, .fittedPC1) %>% 
-  gather(key = month, value = z_depth, -.fittedPC1, -sta)
-
-ggplot(pca_pc1, aes(.fittedPC1, z_depth, color = sta)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_grid(cols = vars(month))
-
-# PC2:: 
-# Oral & Interior have a slightly wetter May & August
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC2_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC2_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-
-pca_pc2 <- pca_au %>% 
-  select(sta, apr, may, aug, .fittedPC2) %>% 
-  gather(key = month, value = z_depth, -.fittedPC2, -sta)
-
-ggplot(pca_pc2, aes(.fittedPC2, z_depth, color = sta)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_grid(rows = vars(month)) + 
-  theme_classic() 
-
-
-#PCA1:PCA3
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC1_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC1_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-#PCA2:PCA3
-ggplot() +
-  geom_point(data = pca_summary, 
-             mapping = aes(PC2_mean, PC3_mean)) + 
-    geom_text(data = pca_summary,
-              mapping = aes(PC2_mean, PC3_mean, label = sta), 
-              vjust = 0, hjust = 0) + 
-  theme_classic() 
-
-#fviz_pca_ind(prcomp(pca_input), 
-#             title = "PCA - Iris data", 
-#             habillage = pca_meta$sta, 
-#             palette = "jco", geom = "point", 
-#             ggtheme = theme_classic(), 
-#             legend = "bottom")  
-```
