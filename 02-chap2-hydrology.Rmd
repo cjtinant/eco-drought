@@ -3213,14 +3213,14 @@ gage_other <- import("data/gage_other.csv") %>%
   select( -c(julian:month_seq, i)) %>% 
   select(sta, water_year, everything())
 
-# import estimates from prior runs 
-gage_est_9091 <- import(file = "data/gage_flow_9091.csv") %>%  #run02
-  select(-c(group, contrib_drain_area_va)) %>% 
-  mutate(qualifier = "est")
+# import estimates from s prior run 
+#gage_est_9091 <- import(file = "data/gage_flow_9091.csv") %>%  #run02
+#  select(-c(group, contrib_drain_area_va)) %>% 
+#  mutate(qualifier = "est")
 
 # bind the gage dfs together, make min & max yr vars - clean up
 gage <- bind_rows(gage_cont, gage_disc, 
-                  gage_other, gage_est_9091)  %>%  
+                  gage_other)  %>%  
   distinct() %>%                              # orig  n = 286,954
   group_by(sta) %>%                           # run02 n = 289,144
   mutate(min_yr = min(water_year)) %>% 
@@ -3246,10 +3246,10 @@ gage <- gage %>%
   filter(sta != "bad_mid") %>%       # incomplete days
   filter(sta != "che_ang") %>%       # incomplete days
   filter(sta != "che_was") %>%       # run01 - dropped for >> area 
-  filter(sta != "whi_cra")           # run02 - dropped for short rec.
+  filter(sta != "whi_cra")           # run01 - dropped for short rec.
 
 # update gage summary & separate out incomplete years of record
-gage_summary <- gage %>%                      # orig  n = 716 obs
+gage_summary <- gage %>%                      # orig  n = 713 obs
   group_by(sta, water_year) %>%               # run02 n = 719 obs 
   summarise(days_record = n()) %>%          
   ungroup()                         
@@ -3265,7 +3265,7 @@ gage_incomp_years <- semi_join(gage, gage_incomp_years,
                                by = c("sta", "water_year"))
   
 gage <- full_join(gage, gage_summary, 
-                  by = c("sta", "water_year")) %>% # orig  n = 256,040 
+                  by = c("sta", "water_year")) %>% # orig  n = 254,945 
   filter(days_record >= 365)                      # run02  n = 257,135    
 
 # filter metadata to active stations 
@@ -3282,6 +3282,10 @@ gage_incomp_years <- full_join(gage_incomp_years, gage_meta,
   select(date, sta, q, log_q:q30, 
          water_year, contrib_drain_area_va, 
          qualifier)
+
+# set up a road-map
+gage_summary_sp <- gage_summary %>% 
+  spread(water_year, days_record) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # fix missing station vals - run 01
@@ -3309,16 +3313,24 @@ gage_run02 <- gage_summary %>%
 
 gage_run02 <- inner_join(gage, gage_run02, by = "sta") 
 gage_run02 <- gage_run02 %>%  
-  filter(water_year <= 1997) %>%              ##       n = 49,302  
+  filter(water_year <= 1997) %>%              ##       n = 47,476 
   filter(water_year >= 1993)                  #        n = 47,476
                                    # blp_bel & wkn_wok have na in 92
+
+# update road-map to show only stations with data in 1993
+gage_summary_sp <- gage_summary %>% 
+  spread(water_year, days_record) %>% 
+  select(sta:'1993') %>% 
+  rename(wy_1990 = '1990') %>% 
+  rename(wy_1991 = '1991') %>% 
+  rename(wy_1992 = '1992') %>% 
+  rename(wy_1993 = '1993') %>% 
+  filter(!is.na(wy_1993))
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # fix missing station vals - run 03
 # need to fill in missing data
-# set up a road-map
-gage_summary_sp <- gage_summary %>% 
-  spread(water_year, days_record)
+
 
 # set up to identify lcr_abv during drought years: [1997, 2002]
 # also need to add data for partial missing years:
@@ -3341,8 +3353,8 @@ gage_run03 <- gage_run03 %>%
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # gage_input changes with each run...  sorry!
-gage_input <- gage_run03 
-rm(gage_run03)
+gage_input <- gage_run02 
+rm(gage_run02)
 
 # name check
 # gage - the complete set of flow & metadata for 1990-2018 stations 
@@ -3591,23 +3603,28 @@ rm(gage_clust_l)
 
 # overview 
 
-# fill missing data - run02----
+# 1. make roadmap of sta with missing & partial years
+gage_part_miss_yr <- gage_summary_sp %>% 
+  gather(key = year, val = days_record, -sta) %>% 
+  filter(is.na(days_record)| 
+           days_record <365) %>% 
+  spread(year, days_record)
 
-# 1. make roadmap of sta with missing years
-gage_sum_miss_yr <- gage_summary %>% 
-  spread(water_year, days_record) %>% 
-  filter_if(is.integer, any_vars(is.na(.))) %>% 
-  gather(key = water_year, val = days_record, -sta) %>% 
-  filter(is.na(days_record)) %>% 
-  select(-days_record) %>% 
-  mutate(grouped_id = row_number()) %>%
-  spread(water_year, sta) %>% 
-  select('1990':'2002') 
+# attach station groups to the station - missing year pairs
+gage_part_miss_yr <- full_join(gage_clust, gage_part_miss_yr, 
+                               by = "sta") %>% 
+  select(-c(PC1_mean:q1_q30_mean)) %>% 
+  select(-c(eigen_dist, prob))
 
-# 2. make df of streamflow by group after rejoining incomp data 
-gage_grouped <- bind_rows(gage, gage_incomp_years)
+#  spread(water_year, days_record) %>% 
+# gather(key = water_year, val = days_record, -sta) %>% 
+# select(-days_record) %>% 
+#  mutate(grouped_id = row_number()) %>%
+ # spread(water_year, sta) %>% 
+#  select('1990':'2002') 
 
-gage_grouped <- inner_join(gage_grouped, gage_clust, by = "sta") %>% 
+# 2. make df of streamflow by group & filter for missing water years
+gage_grouped <- inner_join(gage, gage_clust, by = "sta") %>% 
   select(date:group) %>% 
   group_by(date, group) %>% 
   summarise(q          = mean(q, na.rm = TRUE), 
@@ -3619,13 +3636,19 @@ gage_grouped <- inner_join(gage_grouped, gage_clust, by = "sta") %>%
               round(mean(contrib_drain_area_va), 
                     digits = 0)
             ) %>% 
-  ungroup() 
+  ungroup() %>% 
+  filter(water_year == 1990 | 
+           water_year == 1991 | 
+           water_year == 1992  
+           )
+  
+#gage_grouped <- bind_rows(gage, gage_incomp_years)
 
 # Find 1990 missing stations---- 
 # 1. identify stations with missing data in 1990
-gage_miss_1990 <- as.data.frame(gage_sum_miss_yr$'1990') %>% 
-  rename(sta = 1) %>% 
-  filter(!is.na(.)) 
+#gage_miss_1990 <- as.data.frame(gage_sum_miss_yr$'1990') %>% 
+#  rename(sta = 1) %>% 
+#  filter(!is.na(.)) 
 
 gage_miss_1990 <- semi_join(gage_clust, 
                             gage_miss_1990, by = "sta") %>% 
