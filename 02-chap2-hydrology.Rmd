@@ -1023,7 +1023,7 @@ library("factoextra") # creates exploratory plots of clusters
 library("corrplot")   # creates correlations plots
 library("lubridate")  # fixes dates 
 library("tidyverse")  # data munging, and tidying tools
-
+library("magrittr")   # easier ways to work with lists
 # color packages
 library(colorspace) 
 
@@ -3600,7 +3600,6 @@ ggplot2::ggsave(filename = "figure/spi_shape.png",
 rm(spi_location, spi_shape, spi_scale) 
 ```
 
-
 ```{r streamflow-fix-NA}    
 # Stream flow is being analyzed over a period of 1990-2016.   
 # This code chunk fixes some NA values for Q7 & Q30  
@@ -4637,7 +4636,6 @@ ggplot(gage_summary, aes(PC1_mean, PC2_mean)) +
                show.legend = FALSE) 
 ```
 
-
 ```{r sri_prepare_raw_data}   
 # Calculate Standardized Runoff Index (SRI) using the Standardized    
 # Climate Index (SCI) package.    
@@ -4723,31 +4721,32 @@ ggtitle("Weather stations near Pine Ridge Reservation, SD",
 
 ```
 
-```{r}
+```{r gage_visualization} 
+# NEXT STEPS - FIND OUT WHY THERE ARE INFINATE VALUES ON Y-AXIS
 ggplot(gage_sri, aes(position, q_log)) + 
   facet_grid(.~sta) + 
   geom_point() + 
   geom_smooth(method = "lm") +
   theme_bw() +
-ggtitle("Weather stations near Pine Ridge Reservation, SD", 
-          subtitle = "1909-2018") + 
+ggtitle("Representitive streams near Pine Ridge Reservation, SD", 
+          subtitle = "1990-2018") + 
   xlab("Frequency of occurrance") +
-  ylab("Monthly depth in mm") +
+  ylab("WHAT IS THIS UNIT???") +
   scale_y_sqrt() +
   ylab("Depth in mm")
 ```
 
-
 ```{r gage_lmoment_ratios}
 # calculate lmoment ratios by mapping a list made up of 'gage_sri' vals
 
-# arrange 'gage_sri'
+# arrange 'gage_sri' 
+# Note that we might consider Weiss 1964 bias value of 1.018 for L1 
 gage_sri <- gage_sri %>% 
   arrange(sta)
 
 lmom_sri <- gage_sri %>%  
   split(.$sta) %>% 
-  map(~ lmoms(.$q)) %>% 
+  map(~ lmoms(.$q_log)) %>% 
   transpose() %>% 
   as_tibble() %>% 
   select(lambdas, ratios) %>% 
@@ -4766,23 +4765,21 @@ lmom_sri <- gage_sri %>%
   rename(L_CV = T2) %>%  
   rename(L_skew = T3) %>% 
   rename(L_kurtosis = T4) %>% 
-  select(sta, L1, L_CV, L_skew, L_kurtosis) 
+  select(sta, L1, L_CV, L_skew, L_kurtosis, everything()) 
 
-# Note that we might consider Weiss 1964 bias value of 1.018 for L1
-
-# get the length of the dataset
-gage_count <- gage_grp %>%
+# get the length of the dataset - ?????
+clust_count <- lmom_sri %>%
   count(sta)  
 
-# join the number of years to the station
-lmom_sta <- left_join(lmom_sta, sta_count, by = "station")
+# join the number of years to the station - ?????
+lmom_sri <- left_join(lmom_sri, clust_count, by = "sta")
 
-# calculate weighted means for regional L-moments 
-L1  <- weighted.mean(lmom_sta$L1, lmom_sta$n)
-L_CV  <- weighted.mean(lmom_sta$L_CV, lmom_sta$n)
-L_skew  <- weighted.mean(lmom_sta$L_skew, lmom_sta$n)
-L_kurtosis  <- weighted.mean(lmom_sta$L_kurtosis, lmom_sta$n)
-n       <- sum(lmom_sta$n)
+# calculate weighted means for regional L-moments -?????
+L1  <- weighted.mean(lmom_sri$L1, lmom_sri$n) 
+L_CV  <- weighted.mean(lmom_sri$L_CV, lmom_sri$n)
+L_skew  <- weighted.mean(lmom_sri$L_skew, lmom_sri$n)
+L_kurtosis  <- weighted.mean(lmom_sri$L_kurtosis, lmom_sri$n)
+n       <- sum(lmom_sri$n)
 
 # combine the output into a single weighted mean
 int1     <- cbind(L1, L_CV)
@@ -4873,15 +4870,16 @@ ggplot() +
   geom_line(data = lmom_theo, aes(L_skew, L_kurtosis, 
                                   group = distribution, 
                                   linetype = distribution)) +
-  geom_point(data = lmom_sta, aes(L_skew, L_kurtosis)) +
+  geom_point(data = lmom_sri, aes(L_skew, L_kurtosis)) +
   geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, 
                                   size = 2, show.legend = NA)) +
   theme_bw() + 
- # xlim(0.25, 0.5) +
- # ylim(0, 0.25) +
-  xlim(0, 0.5) +
-  ylim(0, 0.5) +
-  ggtitle("L-moment diagram for monthly precipitation depth", 
+
+#  xlim(0, 0.5) +  - these for precip
+#  ylim(0, 0.5) +
+xlim(-0.25, 0.5) +
+# ylim(0.3, 0.75) +
+  ggtitle("L-moment diagram for average monthly logrithm of streamflow depth", 
           subtitle = "Weather stations near Pine Ridge Reservation, 1909-2018")
 
 #ggplot2::ggsave(filename = "lmom_plot.png", 
@@ -4889,27 +4887,8 @@ ggplot() +
 ```
 
 
-```{r library, include=FALSE, message=FALSE} 
-# Sets up the library of packages 
-library("lmomco") # lmoments to find distribution 
-library("tidyverse")
-library("magrittr") # contains easier ways to say things about lists
-library("here") # identifies where to save work 
-library("rio") # more robust I/O - to import and clean data
-library("lubridate") # fixes dates 
-library("SPEI") # Calculates SPI-index
-library("jsonlite") # Convert between JSON data and R objects
-library("curl") # Drop-in replacement for base url
-library("listviewer") # htmlwidget for interactive views of R lists
-library("janitor") # tools to clean dirty data 
-
-#lmomco <- citation("lmomco")
-#toBibtex(lmomco)
-
-# Session Info
-a_session <- devtools::session_info()
-
-```
+# START HERE
+# USE LOG PE3 
 
 
 ```{r sri_prepare_raw_data2}   
@@ -6787,6 +6766,14 @@ rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
 rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 ```
+
+
+
+
+
+
+
+
 
 ```{r Clustering_visualization} 
 
