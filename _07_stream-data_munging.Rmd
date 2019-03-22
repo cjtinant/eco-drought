@@ -73,171 +73,122 @@ library("dataRetrieval") # USGS data import
 
 ```
 
-```{r import_daily_flow_active, eval=FALSE} 
-
-# Loads USGS gage data for active stations individually, bind_cols & 
-# exports data to a folder.  Gage IDs identified by USGS watermapper.  
-# The data needs to be saved as two smaller files to be uploaded on GitHub.
-# 
-#   Egret::readNWISDaily(siteNumber, parameterCd = "00060", startDate = "",
-#      endDate = "", interactive = TRUE, convert = TRUE) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# 1. create a list of gages
-# add an end date to remove provisional data & gaps in vals
-startDate    <- "" # blank gets earliest date
-endDate      <- "2017-09-30"
-parameter_cd <- "00060" 
-# ~~~~~~~~~~~~~~~~~~~~~ 
-
-gage_cont_top_nm <-  tibble(sta = c("bad_mid", "bat_bhr", "brsf_co", "blp_bel", 
-                                 "bev_buf", "bev_pri","che_red", "che_sce", 
-                                 "hat_edg","hor_oel", "lcr_bel", 
-                                 "lcr_vet", "lwr_mar", "lwr_ros"),  
-                  site_no = c("06441000", "06406500", "06402500", "06402430", 
-                              "06447230", "06440200", "06402600", "06403700", 
-                              "06408650", "06423500", "06400000", 
-                              "06400875", "06449000", "06449100"))  
-
-gage_cont_bot_nm <-  tibble(sta = c("lwr_whi", "rap_far", "wcc_ogl", "whi_int", 
-                                 "whi_kad", "whi_ogl", "whi_slm", "whi_sta", 
-                                 "whi_whi", "wkc_wok", "che_buf", "che_was", 
-                                 "whi_roc"), 
-                  site_no = c("06447500", "06449500", "06450500", "06421500", 
-                              "06445980", "06446100", "06446500", "06447000", 
-                              "06446000", "06446200", "06445700", "06445685",
-                              "06447450")) 
-
-
-# 2. get flow data from USGS using purrr:map
-gage_cont_top <- gage_cont_top_nm %>% 
-  split(.$site_no)  %>% # from base R
-  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
-                      parameter_cd, startDate, endDate), .id = "site_no") 
-
-gage_cont_bot <- gage_cont_bot_nm %>% 
-  split(.$site_no)  %>% # from base R
-  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
-                      parameter_cd, startDate, endDate), .id = "site_no") 
-
-# 3. add short-names to dataframe
-gage_cont_top <- full_join(gage_cont_top_nm, gage_cont_top) 
-
-# this removes some bad data at the start:
-fal_hot <- readNWISDaily("06402000", parameter_cd, "1947-06-01", endDate,
-                         convert = TRUE) %>% 
-  mutate(sta = "fal_hot") %>% 
-  mutate(site_no = "06402000") 
-
-gage_cont_top <- rbind(gage_cont_top, fal_hot)
-rm(fal_hot)
-
-# export daily flows to data folder
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-export(gage_cont_top, "data/gage_cont_top.csv") 
-export(gage_cont_bot, "data/gage_cont_bot.csv") 
-
-# 4. bind top and bottom data & create a summary
-gage_cont <- bind_rows(gage_cont_top, gage_cont_bot)  
-
-rm(gage_cont_top, gage_cont_bot)  
-
-gage_summary_cont <- gage_cont %>% 
-  group_by(sta) %>% 
-  summarize(site_no = first(site_no)) %>% 
-  mutate(type = "active") 
-```
-
-
-
-```{r import_daily_flow_discontinued_EGRET, eval=FALSE} 
-# 1. load individual gages
-gage_disc_nm <-  tibble(sta = c("ant_gor",  "brnf_ph",  "bea_eli", "bev_abf", 
-                                "bor_cha", "cas_hot", "che_hot", "hor_aoe", 
-                                "lcr_abv", "lwr_abv", "min_kil", "nio_abb", 
-                                "nio_bbb", "nio_col", "nio_cod", "nio_dun", 
-                                "nio_hay", "rap_cre", "ros_ros", "sna_bur", 
-                                "sna_dou", "sna_mer", "spr_stf", "whi_cha", 
-                                "whi_cra", "whi_wht"), 
-                  site_no = c("06458000", "06440500", "06458500", "06402470", 
-                              "06445590", "06400497", "06400500", "06400870", 
-                              "06448000", "06449300", "06460900", "06454500", 
-                              "06455500", "06457000", "06459000", "06455900", 
-                              "06456500", "06422000", "06449400", "06459500", 
-                              "06459175", "06459200", "06449250", "06445500", 
-                              "06444000", "06445000")) 
-
-# 2. get flow data from USGS using purrr:map
-gage_disc <- gage_disc_nm %>% 
-  split(.$site_no)  %>% # from base R
-  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
-                      parameter_cd, startDate, endDate), .id = "site_no") 
-
-# 3. add short-names to dataframe
-gage_disc <- full_join(gage_disc_nm, gage_disc) 
-
-# this removes some bad data at the start:
-fre_fai <- readNWISDaily("06403500", parameter_cd, "1946-01-14", endDate) %>%
-  mutate(sta = "fre_fai") %>% 
-  mutate(site_no = "06403500") 
-
-gage_disc <- rbind(gage_disc, fre_fai)
-rm(fre_fai)
-
-# export daily flows to data folder
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-export(gage_disc, "data/gage_disc.csv") 
-
-# summarize & join
-gage_summary_disc <- gage_disc %>% 
-  group_by(sta) %>% 
-  summarize(site_no = first(site_no)) %>% 
-  mutate(type = "discontinued")
-```
-
-
-
-
-
-
-
-
-
-
-# List of possible extra sites - list was iteratively constructed
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# A tibble: 6 x 2
-#   sta     site_no station_nm                                   
-# * <chr>     <int> <chr>          
-#1 che_ang 06401500 CHEYENNE R BELOW ANGOSTURA DAM,SD
-#2 frn_fai 06403300 FRENCH CR ABOVE FAIRBURN SD      
-#3 bat_key 06404000 BATTLE CR NEAR KEYSTONE,SD       
-#4 bat_bhr 06406000 BATTLE CR AT HERMOSA,SD          
-#5 spr_her 06408500 SPRING CR NEAR HERMOSA,SD        
-#6 nio_gor 06457500 NIOBRARA RIVER NEAR GORDON, NEBR.
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# this is what was done to find the stations above: 
-
-
 ```{r import_daily_flow_overlooked, eval=FALSE} 
 
 # this code chunk checks for "missed" stations.  
 # for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# 1. join gage summary data 
-gage_summary <- bind_rows(gage_summary_cont, gage_summary_disc) 
-
-rm(gage_summary_cont, gage_summary_disc) 
-
-# 1. find other possible sites by bounding box 
-# bBox = acontiguous range of decimal latitude and longitude, starting with the west longitude, then the south latitude, then the east longitude, and then the north latitude with each value separated by a comma. 
+# 1. find  possible sites by bounding box 
+# bBox = a contiguous range of decimal latitude and longitude, starting with the west longitude, then the south latitude, then the east longitude, and then the north latitude with each value separated by a comma. 
 # https://waterservices.usgs.gov/rest/Site-Service.html#bBox 
 # the Pine Ridge Reservation boundary is c(-103, 43, -100, 43.7)
 
-poss_sites <- whatNWISsites(bBox = c(-103.5, 42.5, -99.5, 44.2), 
-                       parameterCd = "00060", hasDataTypeCd = "dv") 
+gage_poss <- whatNWISsites(bBox = c(-103.5, 42.5, -99.5, 44.2), 
+                       parameterCd = "00060", hasDataTypeCd = "dv") %>% 
+  arrange(site_no)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. get metadata 
+# this needs to be run in parts because some project numbers are stored 
+#     as integers & others are stored as characters 
+# this code could be improved on possibly by map2 to convert 'project_no' to 
+#     a character 
+
+gage_meta_poss_01 <- gage_poss %>% 
+    slice(1:3) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_02 <- gage_poss %>% 
+    slice(4) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_03 <- gage_poss %>% 
+    slice(5:11) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_04 <- gage_poss %>% 
+    slice(12) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_05 <- gage_poss %>% 
+    slice(13:63) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_06 <- gage_poss %>% 
+    slice(64) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_07 <- gage_poss %>% 
+    slice(65:103) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_08 <- gage_poss %>% 
+    slice(104) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_09 <- gage_poss %>% 
+    slice(105:109) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_10 <- gage_poss %>% 
+    slice(110) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_11 <- gage_poss %>% 
+    slice(111:115) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 3. join gage metadata & drop the partial metadata 
+# this could be improved on by passing a for loop for naming...
+gage_meta_poss <- bind_rows(gage_meta_poss_01, gage_meta_poss_02, 
+                            gage_meta_poss_03, gage_meta_poss_04,  
+                            gage_meta_poss_05, gage_meta_poss_06, 
+                            gage_meta_poss_07, gage_meta_poss_08, 
+                            gage_meta_poss_09, gage_meta_poss_10, 
+                            gage_meta_poss_11)  
+
+rm(gage_meta_poss_01, gage_meta_poss_02, 
+                            gage_meta_poss_03, gage_meta_poss_04,  
+                            gage_meta_poss_05, gage_meta_poss_06, 
+                            gage_meta_poss_07, gage_meta_poss_08, 
+                            gage_meta_poss_09, gage_meta_poss_10, 
+                            gage_meta_poss_11)  
+
+
+
+
+
+
+
 
 # 2. remove sites we already collected
 poss_sites <- anti_join(poss_sites, gage_summary, by = "site_no") 
@@ -269,17 +220,7 @@ test <- poss_sites %>%
         
         
         
-        lm(mpg ~ wt, data = .)) %>%
-  map(summary) %>%
-  map_dbl("r.squared")
-
-test2 <- mtcars %>%
-  split(.$cyl) #%>% # from base R
-  
-
-map(~ lm(mpg ~ wt, data = .)) %>%
-  map(summary) %>%
-  map_dbl("r.squared")
+ 
 
 
 # g. clean dataframe to fit the area
@@ -366,6 +307,299 @@ gage_other_summary <- gage_other %>%
   mutate(type = "other)
 
 ``` 
+
+
+```{r import_daily_flow_active, eval=FALSE} 
+
+# Loads USGS gage data for active stations individually, bind_cols & 
+# exports data to a folder.  Gage IDs identified by USGS watermapper.  
+# The data needs to be saved as two smaller files to be uploaded on GitHub.
+# 
+#   Egret::readNWISDaily(siteNumber, parameterCd = "00060", startDate = "",
+#      endDate = "", interactive = TRUE, convert = TRUE) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. create a list of active gages & get metadata
+# add an end date to remove provisional data & gaps in vals 
+startDate    <- "" # blank gets earliest date 
+endDate      <- "2017-09-30" 
+parameter_cd <- "00060" 
+# ~~~~~~~~~~~~~~~~~~~~~ 
+
+gage_nm_cont_top <-  tibble(sta = c("bad_mid", "bat_bhr", "brsf_co", "blp_bel", 
+                                 "bev_buf", "bev_pri","che_red", "che_sce", 
+                                 "che_was", "hat_edg","hor_oel", "lcr_bel", 
+                                 "che_buf", "lwr_vet"),  
+                  site_no = c("06441000", "06406500", "06440200", "06447230",
+                              "06402500", "06402430", "06403700", "06408650", 
+                              "06423500", "06400000", "06400875", "06449000",
+                              "06402600", "06449100"))  
+
+# need to spilt metadata into chunks to get from USGS
+gage_nm_cont_top_1 <- gage_nm_cont_top %>% 
+  slice(1:6)  
+
+gage_nm_cont_top_2 <- gage_nm_cont_top %>% 
+  slice(7:8)  
+
+gage_nm_cont_top_3 <- gage_nm_cont_top %>% 
+  slice(9:14)  
+
+# get metadata
+gage_meta_cont_top_1 <- gage_nm_cont_top_1 %>% 
+  split(.$site_no)  %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+gage_meta_cont_top_2 <- gage_nm_cont_top_2 %>% 
+  split(.$site_no)  %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+gage_meta_cont_top_3 <- gage_nm_cont_top_3 %>% 
+  split(.$site_no)  %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+# fix data & join metadata 
+gage_meta_cont_top_2 <- gage_meta_cont_top_2 %>% 
+  mutate(inventory_dt = as.character(inventory_dt))
+
+gage_meta_cont_top <- bind_rows(gage_meta_cont_top_1, gage_meta_cont_top_2, 
+                                gage_meta_cont_top_3)
+
+gage_meta_cont_top <- full_join(gage_nm_cont_top, gage_meta_cont_top, 
+                                by = "site_no")  
+
+rm(gage_nm_cont_top_1, gage_nm_cont_top_2, gage_nm_cont_top_3)  
+rm(gage_meta_cont_top_1, gage_meta_cont_top_2, gage_meta_cont_top_3) 
+rm(gage_nm_cont_top) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+gage_nm_cont_bot <-  tibble(sta = c("lwr_mar", "lwr_ros", "lwr_whi", "rap_far", 
+                                     "whi_kad", "whi_ogl", "whi_slm", "whi_sta",
+                                     "whi_int", "wkc_wok", "whi_roc",
+                                     "whi_whi", "wcc_ogl"), 
+                  site_no = c("06447500", "06449500", "06450500", "06421500", 
+                              "06447000", "06446000", "06445700", "06445685", 
+                              "06446500", "06446100", "06446200",  
+                              "06447450", "06445980"))
+
+
+
+                                 ""
+#gage_nm_cont_bot <- gage_nm_cont_bot %>% 
+  slice(1:14)
+
+gage_meta_cont_bot <- gage_nm_cont_bot %>% 
+  split(.$site_no)  %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+gage_meta_cont_bot <- full_join(gage_nm_cont_bot, gage_meta_cont_bot, 
+                                by = "site_no")  
+
+
+gage_meta_cont <- bind_rows(gage_meta_cont_top, gage_meta_cont_bot)
+
+
+
+
+gage_disc_nm <-  tibble(sta = c("ant_gor",  "brnf_ph",  "bea_eli", "bev_abf", 
+                                "bor_cha", "cas_hot", "che_hot", "hor_aoe", 
+                                "lcr_abv", "lwr_abv", "min_kil", "nio_abb", 
+                                "nio_bbb", "nio_col", "nio_cod", "nio_dun", 
+                                "nio_hay", "rap_cre", "ros_ros", "sna_bur", 
+                                "sna_dou", "sna_mer", "spr_stf", "whi_cha", 
+                                "whi_cra", "whi_wht"), 
+                  site_no = c("06458000", "06440500", "06458500", "06402470", 
+                              "06445590", "06400497", "06400500", "06400870", 
+                              "06448000", "06449300", "06460900", "06454500", 
+                              "06455500", "06457000", "06459000", "06455900", 
+                              "06456500", "06422000", "06449400", "06459500", 
+                              "06459175", "06459200", "06449250", "06445500", 
+                              "06444000", "06445000")) 
+
+# 2. get flow data from USGS using purrr:map & add short-names to dataframe
+# continuous gages 
+gage_cont_top <- gage_cont_top_nm %>% 
+  split(.$site_no)  %>% # from base R 
+  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
+                      parameter_cd, startDate, endDate), .id = "site_no") 
+
+gage_cont_bot <- gage_cont_bot_nm %>% 
+  split(.$site_no)  %>% # from base R 
+  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
+                      parameter_cd, startDate, endDate), .id = "site_no") 
+
+gage_disc <- gage_disc_nm %>%  
+  split(.$site_no)  %>% # from base R 
+  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
+                      parameter_cd, startDate, endDate), .id = "site_no") 
+
+
+gage_cont_top <- full_join(gage_cont_top_nm, gage_cont_top, by = "site_no")  
+gage_cont_bot <- full_join(gage_cont_bot_nm, gage_cont_bot, by = "site_no") 
+gage_disc <- full_join(gage_disc_nm, gage_disc, by = "site_no") 
+
+# adding these separately removes some bad data at the start: 
+fal_hot <- readNWISDaily("06402000", parameter_cd, "1947-06-01", endDate, 
+                         convert = TRUE) %>% 
+  mutate(sta = "fal_hot") %>% 
+  mutate(site_no = "06402000") 
+
+fre_fai <- readNWISDaily("06403500", parameter_cd, "1946-01-14", endDate) %>% 
+  mutate(sta = "fre_fai") %>% 
+  mutate(site_no = "06403500") 
+
+gage_cont_top <- rbind(gage_cont_top, fal_hot) 
+gage_disc <- rbind(gage_disc, fre_fai) 
+
+rm(fal_hot, fre_fai) 
+
+# 3. export daily flows to data folder 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+export(gage_cont_top, "data/gage_cont_top.csv") 
+export(gage_cont_bot, "data/gage_cont_bot.csv") 
+export(gage_disc, "data/gage_disc.csv") 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 4. bind top and bottom data 
+gage_cont<- bind_rows(gage_cont_top, gage_cont_bot)  
+rm(gage_cont_top, gage_cont_bot) 
+
+gage_summary_cont <- gage_cont %>% 
+  group_by(sta) %>% 
+  summarize(site_no = first(site_no)) %>% 
+  mutate(type = "active") 
+
+gage_summary_disc <- gage_disc %>% 
+  group_by(sta) %>% 
+  summarize(site_no = first(site_no)) %>% 
+  mutate(type = "discontinued") 
+
+gage_summary <- rbind(gage_summary_cont, gage_summary_disc) 
+
+rm(gage_summary_cont, gage_summary_disc) 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 4. create summaries to check data 
+gage_nm <- rbind(gage_cont_bot_nm, gage_cont_top_nm, gage_disc_nm) %>% 
+  rename(sta_nm = sta) 
+
+rm(gage_cont_bot_nm, gage_cont_top_nm, gage_disc_nm) 
+
+gage_summary <- full_join(gage_nm, gage_summary, by = "site_no") 
+  
+gage_summary <- gage_summary %>% 
+  select(sta_nm, sta, everything) 
+```
+
+
+```{r import_metadata, eval=FALSE} 
+# downloads the metadata from USGS 
+# need to download in groups & coerce to fix chars & intigers in some vars
+
+# 1. get  metadata from USGS using purrr:map
+gage_summary1 <- gage_summary %>% 
+  slice(1:20) 
+
+gage_summary2 <- gage_summary %>% 
+  slice(21:23) 
+
+gage_summary3 <- gage_summary %>% 
+  slice(24:29) 
+
+gage_summary4 <- gage_summary %>% 
+  slice(30:50) 
+
+gage_summary5 <- gage_summary %>% 
+  slice(51:55) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+gage_meta1 <- gage_summary1 %>% 
+  split(.$site_no)  %>% # from base R
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+gage_meta2 <- gage_summary2 %>% 
+  split(.$site_no)  %>% # from base R
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+gage_meta3 <- gage_summary3 %>% 
+  split(.$site_no)  %>% # from base R
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+gage_meta4 <- gage_summary4 %>% 
+  split(.$site_no)  %>% # from base R
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+gage_meta5 <- gage_summary5 %>% 
+  split(.$site_no)  %>% # from base R
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) 
+
+# bind metadata into a single tibble 
+gage_meta <- rbind(gage_meta1, gage_meta2, 
+                   gage_meta3, gage_meta4, gage_meta5) 
+
+# clean up 
+rm(gage_meta1, gage_meta2, gage_meta3, gage_meta4, gage_meta5) 
+
+rm(gage_summary1, gage_summary2, gage_summary3, 
+   gage_summary4, gage_summary5, gage_nm) 
+
+gage_summary <- gage_summary %>% 
+  select(-sta_nm)
+
+# 2. check the short names
+gage_meta <- full_join(gage_summary, gage_meta, by = "site_no") 
+
+gage_meta <- gage_meta %>% 
+  select(sta, station_nm, everything())
+
+# ant_gor - no metadata?
+
+06402470 is bev_buf 
+06447230 is blp_bel
+
+```
+
+
+```{r clean_active_disc_sites}
+# prepare for reducing the gages 
+gage_cont_disc <- bind_rows(gage_cont, gage_disc) 
+
+gage_cont_disc <- gage_cont_disc %>% 
+  filter(waterYear > 1990) 
+
+gage_summary <- semi_join(gage_summary, gage_cont_discby = c("site_no"))  
+
+test <- readNWISsite(siteNumber="06421500")
+
+06421500
+
+```
+
+
+
+
+
+
+
+# List of possible extra sites - list was iteratively constructed
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# A tibble: 6 x 2
+#   sta     site_no station_nm                                   
+# * <chr>     <int> <chr>          
+#1 che_ang 06401500 CHEYENNE R BELOW ANGOSTURA DAM,SD
+#2 frn_fai 06403300 FRENCH CR ABOVE FAIRBURN SD      
+#3 bat_key 06404000 BATTLE CR NEAR KEYSTONE,SD       
+#4 bat_bhr 06406000 BATTLE CR AT HERMOSA,SD          
+#5 spr_her 06408500 SPRING CR NEAR HERMOSA,SD        
+#6 nio_gor 06457500 NIOBRARA RIVER NEAR GORDON, NEBR.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# this is what was done to find the stations above: 
+
+
+
 
 ```{r import_dailyflow_EGRET-bearLodge, eval=FALSE}
 # long story, but Bear in the Lodge streamflow is restricted.  So,
