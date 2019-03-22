@@ -73,9 +73,10 @@ library("dataRetrieval") # USGS data import
 
 ```
 
-```{r import_daily_flow_overlooked, eval=FALSE} 
+```{r import_daily_flow_metadata, eval=FALSE} 
 
-# this code chunk checks for "missed" stations.  
+# this code chunk finds all sites within a bounding box 
+# adds the metadata, then filters no data sites for 1990- 2018 water years 
 # for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -184,9 +185,50 @@ rm(gage_meta_poss_01, gage_meta_poss_02,
                             gage_meta_poss_11)  
 
 
+rm(gage_poss) 
+
+# 4. export metadata to data folder 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+export(gage_meta_poss, "data/gage_meta_poss.csv") 
+```
 
 
+```{r clean_daily_flow_metadata, eval=FALSE}
+# cleans the metadata that was imported
 
+# 1. make a tibble of metadata codes 
+meta_cd <- enframe(names(gage_meta_poss), name = NULL) 
+
+# 2. remove codes not needed for this project 
+gage_meta <- gage_meta_poss %>% 
+  select(-site_tp_cd) %>% # all streams so delete 
+  select(-c(lat_va, long_va)) %>% # in DMS so delete 
+  select(-c(coord_meth_cd, coord_acy_cd)) %>% # coord method & agency, so delete 
+  select(-c(coord_datum_cd, dec_coord_datum_cd)) %>% # NAD83 or NAD27 
+  select(-c(district_cd, country_cd)) %>% # Congressional dist & Country 
+  select(-c(land_net_ds, map_nm, map_scale_fc)) %>%  # refers to USGS maps 
+  select(-c(alt_meth_cd, alt_datum_cd, alt_acy_va)) %>% #%>% # altitude metadata  
+  select(-c(basin_cd, topo_cd, instruments_cd)) %>% 
+  select(-c(construction_dt)) %>% 
+  select(-c(tz_cd, local_time_fg)) %>% # daily data, so NA 
+  select(-c(gw_file_cd, nat_aqfr_cd, aqfr_cd)) %>% # aquifer data, so NA 
+  select(-c(well_depth_va, hole_depth_va, depth_src_cd)) 
+
+rm(gage_meta_poss)
+```
+
+```{r remove_not_useful_stations, eval=FALSE}
+# remove gages that do not meet standards or in crystaline or karst catchments 
+gage_meta_fin <- gage_meta %>% 
+  filter(reliability_cd != "M") %>% # M is minimal data 
+  filter(!str_detect(station_nm, 'DAM|DITCH|DRAIN')) %>% # upstream control 
+  filter(!str_detect(station_nm, 
+                     'CUSTER|KEYSTONE|HILL CITY|HAYWARD')) %>% 
+  # crystaline catchments 
+  filter(!str_detect(station_nm, 'CLEGHORN')) %>% # karstic? spring 
+  filter(!str_detect(station_nm, 'BOXELDER|LIME')) %>% # karstic 
+  filter(!str_detect(station_nm, 'RAPID'))  # Rapid Creek & upper Spring Creek 
+```
 
 
 
@@ -194,10 +236,6 @@ rm(gage_meta_poss_01, gage_meta_poss_02,
 poss_sites <- anti_join(poss_sites, gage_summary, by = "site_no") 
 
 
-# 3. remove karstic & crystaline sites & sites with upstream control
-poss_sites <- poss_sites %>% 
-  filter(!str_detect(station_nm, 
-                     'BOXELDER|CUSTER|KEYSTONE|CLEGHORN|DAM|DITCH|LIME|DRAIN')) 
 
 
 
