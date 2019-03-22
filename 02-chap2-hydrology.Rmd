@@ -1,6 +1,6 @@
 
-Title (13-words or less): Relating Precipitation and Hydrologic Drought in a Semi-arid Climate with gSSURO Data  
-Subtitle: Pine Ridge Reservation and surrounding Areas in Southwestern South Dakota 
+Title (13-words or less): Hydrological Drought Assessment of Heterogenious Catchments with Short Periods of Record  
+
 
 ```{r good-housekeeping_projects}
 # Recommendations of Wilson et al. (2017):
@@ -1009,7 +1009,9 @@ rm(sta_prep)
 ```{r setup, include=FALSE, warning=FALSE}   
 knitr::opts_chunk$set(echo = TRUE)       
 options(tibble.print_max = 70) # sets tibble output for printing   
- 
+
+# suppressMessages(require("package")) # check into this - should fix dplyr 
+
 # Set up the package library------------------------------------ 
 library("here")       # identifies where to save work  
 library("rio")        # more robust I/O - to import and clean data 
@@ -1027,8 +1029,21 @@ library("magrittr")   # easier ways to work with lists
 # color packages
 library(colorspace) 
 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+why_to_write <- function() 
+{today <- today(tzone = "")
+defense <- ymd("2019-05-22") 
+until <- defense - today
+print(paste("You have", until, "days until your PhD defense"
+            ))
+}
+why_to_write()
 
-# for spatial analysis------------------------------------------------ 
+# thoughts & ideas ---- 
+#library("clValid")
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# for spatial analysis----------------------------------------------- 
 #library("biogeo")     #  Functions for error detection & correction 
                       # in point-data datasets. 
                       # Includes functions for parsing & converting 
@@ -1043,18 +1058,14 @@ library(colorspace)
 # lmomco <- citation("lmomco")
 # toBibtex(lmomco) 
 # library(pdftools)
-
 # probably delete from final version
-#library("clValid")
-#library("cluster")
+
 #library("DataExplorer")
 #library("lintr")
 #library("test_that")
 #library("jsonlite") # Convert between JSON data and R objects
 #library("curl") # Drop-in replacement for base url
 #library("listviewer") # htmlwidget for interactive views of R lists
-# library("SPEI") # Calculates SPI-index # having some issues... 
-#library("magrittr") # contains easier ways to say things about lists
 
 # Session Info
 a_session <- devtools::session_info() 
@@ -4663,7 +4674,8 @@ gage_sri <- gage_sri %>%
     year(date)
          )) %>% 
   unite("yr_mon", c("year","mon")) %>% 
-# upscale to monthly average flows
+
+  # upscale to monthly average flows
   group_by(sta, yr_mon) %>% 
   summarize(q = mean(q)) %>% 
   ungroup() %>% 
@@ -4676,7 +4688,7 @@ gage_sri <- gage_sri %>%
   mutate(position = pp(q)) %>% 
   ungroup() %>% 
 # find log-Q 
-  mutate(q_log = log(q))
+  mutate(q_log10 = log10(q))
 
 # clean up
 rm(gage, gage_clust_hull, gage_reps, gage_summary, gage_chk) 
@@ -4684,7 +4696,7 @@ rm(gage, gage_clust_hull, gage_reps, gage_summary, gage_chk)
 
 ```{r stream-flow_boxplot, include=FALSE, eval=FALSE} 
 # plot the precip data as a boxplot
-ggplot(gage_sri, aes(as.factor(sta), q)) +
+ggplot(gage_sri, aes(as.factor(sta), q_log10)) +
   geom_violin() +
   geom_boxplot() +
 #  scale_y_sqrt() +
@@ -4701,8 +4713,8 @@ ggplot(gage_sri, aes(as.factor(sta), q)) +
 #                width = 6, height = 6, units = "in")
 ```
 
-```{r gage_plotting_postion, include=FALSE, eval=FALSE} 
-
+```{r gage_plotting_postion-DELETE, include=FALSE, eval=FALSE} 
+# DELETE THIS!!!
 # plot q as a function of plotting position
 ggplot(gage_sri, aes(position, q)) + 
   facet_grid(.~sta) + 
@@ -4723,7 +4735,7 @@ ggtitle("Weather stations near Pine Ridge Reservation, SD",
 
 ```{r gage_visualization} 
 # NEXT STEPS - FIND OUT WHY THERE ARE INFINATE VALUES ON Y-AXIS
-ggplot(gage_sri, aes(position, q_log)) + 
+ggplot(gage_sri, aes(position, q)) + 
   facet_grid(.~sta) + 
   geom_point() + 
   geom_smooth(method = "lm") +
@@ -4731,9 +4743,12 @@ ggplot(gage_sri, aes(position, q_log)) +
 ggtitle("Representitive streams near Pine Ridge Reservation, SD", 
           subtitle = "1990-2018") + 
   xlab("Frequency of occurrance") +
-  ylab("WHAT IS THIS UNIT???") +
-  scale_y_sqrt() +
-  ylab("Depth in mm")
+  ylab("Mean monthly discharge [log-cu m/sec]") +
+  scale_y_log10() 
+
+ggplot2::ggsave(filename = "figure/draft_streamflow.png", 
+                width = 6, height = 6, units = "in")
+
 ```
 
 ```{r gage_lmoment_ratios}
@@ -4889,7 +4904,6 @@ xlim(-0.25, 0.5) +
 
 # START HERE
 # USE LOG PE3 
-
 
 ```{r sri_prepare_raw_data2}   
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
@@ -6766,9 +6780,6 @@ rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
 rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
 rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
 ```
-
-
-
 
 
 
