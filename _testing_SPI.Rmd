@@ -1,0 +1,304 @@
+---
+title: "Testing-SPI-index"
+author: "Charles Jason Tinant"
+date: "8/27/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r testing, include=FALSE, eval=FALSE}
+# Mini-library
+library("tidyverse") 
+library("lubridate") 
+library("rio") 
+library("SPEI")
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# load data
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) %>% 
+  arrange(date)
+  
+# prepare date for joining later
+Date <- sta_mon %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Use a single station - cot
+sta_cot_ts <- sta_mon %>% 
+  select(cot) %>%
+  ts(end = c(2018, 05), frequency = 12)
+
+spi_list  <- spi(sta_cot_ts, 1, 
+                 distribution = 'PearsonIII', na.rm = TRUE) 
+
+spi1_coeff_cot <- as.tibble(spi_list$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi1_cot_ts <- as.tibble(spi_list$fitted)  
+spi1_cot_ts <- bind_cols(Date, spi1_cot_ts) 
+
+# Results
+ as.tibble(summary(spi1_cot_ts))
+#   Var1  Var2        n                     
+#   <chr> <chr>       <fct>                 
+# 1 ""    "     date" "Min.   :1909-06-01  "
+# 2 ""    "     date" "1st Qu.:1936-08-24  "
+# 3 ""    "     date" "Median :1963-11-16  "
+# 4 ""    "     date" "Mean   :1963-11-16  "
+# 5 ""    "     date" "3rd Qu.:1991-02-08  "
+# 6 ""    "     date" "Max.   :2018-05-01  "
+# 7 ""    "     cot"  "Min.   :-2.40240  "  
+# 8 ""    "     cot"  "1st Qu.:-0.69324  "  
+# 9 ""    "     cot"  "Median : 0.02341  "  
+#10 ""    "     cot"  "Mean   : 0.01383  "  
+#11 ""    "     cot"  "3rd Qu.: 0.68317  "  
+#12 ""    "     cot"  "Max.   : 3.30822  "  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare data for testing Lubridate object
+sta_cot_lub <- sta_mon %>% 
+  select(cot) 
+
+spi_list  <- spi(sta_cot_lub, 1, 
+                 distribution = 'PearsonIII', na.rm = TRUE) 
+ 
+spi1_coeff_cot_lub <- as.tibble(spi_list$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi1_cot_lub <- as.tibble(spi_list$fitted) 
+spi1_cot_lub <- bind_cols(Date, spi1_cot_lub) 
+rm(sta_cot_lub)
+
+# Results
+as.tibble(summary(spi1_cot_lub))
+# A tibble: 12 x 3
+#   Var1  Var2        n                     
+#   <chr> <chr>       <fct>                 
+# 1 ""    "     date" "Min.   :1909-06-01  "
+# 2 ""    "     date" "1st Qu.:1936-08-24  "
+# 3 ""    "     date" "Median :1963-11-16  "
+# 4 ""    "     date" "Mean   :1963-11-16  "
+# 5 ""    "     date" "3rd Qu.:1991-02-08  "
+# 6 ""    "     date" "Max.   :2018-05-01  "
+# 7 ""    "     cot"  "Min.   :-2.40240  "  
+# 8 ""    "     cot"  "1st Qu.:-0.69324  "  
+# 9 ""    "     cot"  "Median : 0.02341  "  
+#10 ""    "     cot"  "Mean   : 0.01383  "  
+#11 ""    "     cot"  "3rd Qu.: 0.68317  "  
+#12 ""    "     cot"  "Max.   : 3.30822  "   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Use lubridate-created object for date for a batch process
+# results are as above for 'cot' but have -Inf for 'rap' 
+
+# prepare data for batch
+sta_all <- sta_mon %>% 
+  select(-c(date, year, month))  
+ 
+spi_list  <- spi(sta_all, 1,  
+                 distribution = 'PearsonIII', na.rm = TRUE) 
+
+spi1_coeff_all <- as.tibble(spi_list$coefficients) %>% 
+  t() %>% as.tibble() 
+
+spi1_all <- as.tibble(spi_list$fitted) 
+spi1_all <- bind_cols(Date, spi1_all) 
+
+# Selected Results
+summary(spi1_all$cot)
+#     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+# -2.40240 -0.69324  0.02341  0.01383  0.68317  3.30822 
+
+summary(spi1_all$date)
+# Min.      1st Qu.       Median     Mean      3rd Qu.       Max.
+# "1909-06-01" "36-08-24" "63-11-16" "63-11-16" "91-02-08" "2018-05-01" 
+summary(spi1_all$rap)
+#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+#   -Inf -0.6472  0.0022    -Inf  0.6657  2.9000     467 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Use only 'rap' including NA vals 
+# Summary: It looks like the "bug" is in handling the na.rm?
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare data for 'rap' only
+sta_rap <- sta_mon %>% 
+  select(rap) 
+
+spi_list  <- spi(sta_rap, 1, 
+                 distribution = 'PearsonIII', na.rm = TRUE) 
+
+spi1_coeff_rap <- as.tibble(spi_list$coefficients) %>% 
+  t() %>% as.tibble()  
+
+spi1_rap <- as.tibble(spi_list$fitted) 
+spi1_rap <- bind_cols(Date, spi1_rap) 
+
+# Results
+as.tibble(summary(spi1_rap))
+# A tibble: 14 x 3
+#   Var1  Var2        n                     
+#   <chr> <chr>       <fct>                 
+# 1 ""    "     date" "Min.   :1909-06-01  "
+# 2 ""    "     date" "1st Qu.:1936-08-24  " 
+# 3 ""    "     date" "Median :1963-11-16  "
+# 4 ""    "     date" "Mean   :1963-11-16  "
+# 5 ""    "     date" "3rd Qu.:1991-02-08  "
+# 6 ""    "     date" "Max.   :2018-05-01  "
+# 7 ""    "     date" NA                    
+# 8 ""    "     rap"  "Min.   :   -Inf  "   
+# 9 ""    "     rap"  "1st Qu.:-0.6472  "   
+#10 ""    "     rap"  "Median : 0.0022  "   
+#11 ""    "     rap"  "Mean   :   -Inf  "   
+#12 ""    "     rap"  "3rd Qu.: 0.6657  "   
+#13 ""    "     rap"  "Max.   : 2.9000  "   
+#14 ""    "     rap"  "NA's   :467  "  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Use only 'rap' without NA vals 
+# Summary: I'm confused about the bug!
+
+# prepare data for 'rap' without NA only
+sta_rap <- sta_mon %>% 
+  select(rap, date) %>%
+  filter(rap != is.na(rap))
+
+# update date for joining later
+Date_rap <- sta_rap %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+# drop date
+sta_rap <- sta_rap %>% select(-date)
+
+spi_list  <- spi(sta_rap, 1, 
+                 distribution = 'PearsonIII', na.rm = TRUE) 
+
+spi1_coeff_rap <- as.tibble(spi_list$coefficients) %>% 
+  t() %>% as.tibble()  
+
+spi1_rap <- as.tibble(spi_list$fitted) 
+spi1_rap <- bind_cols(Date_rap, spi1_rap) 
+
+spi1_rap <- spi1_rap %>%
+  rename(spi1 = rap) %>%
+  arrange(spi1) 
+
+spi1_rap <- bind_cols(sta_rap, spi1_rap) 
+spi_rap_test <- spi1_rap
+```
+
+```{r testing2, include=FALSE, eval=FALSE}
+# this is a new test to check on why differences between two ways of 
+# calculating code
+
+sta_rap3 <- sta_mon %>%
+  arrange(date) %>%
+  slice(468:1308) %>%
+  select(date, rap)
+
+spi_list  <- spi(sta_rap3[, 'rap'], 1, 
+                 distribution = 'PearsonIII') 
+
+spi1_rap3 <- as.tibble(spi_list$fitted) 
+
+spi1_rap3 <- bind_cols(spi1_rap3, sta_rap3)
+
+ggplot(spi1_rap3, aes(rap, rap1)) +
+  geom_point()
+
+
+# prepare data for 'rap' without NA only
+sta_rap1 <- sta_mon %>% 
+  select(rap, date) %>%
+  filter(rap != is.na(rap)) %>%
+  arrange(date) # This might be the issue!
+
+# update date for joining later
+Date_rap1 <- sta_rap1 %>% 
+  select(date) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+# drop date
+#sta_rap1 <- sta_rap1 %>% select(-date)
+
+# calculate SPI
+spi_list  <- spi(sta_rap1[, 'rap'], 1, 
+                 distribution = 'PearsonIII') 
+
+#spi1_coeff_rap <- as.tibble(spi_list$coefficients) %>% 
+#  t() %>% as.tibble()  
+
+spi1_rap1 <- as.tibble(spi_list$fitted) 
+spi1_rap1 <- bind_cols(Date_rap1, spi1_rap1) 
+
+spi1_rap1 <- spi1_rap1 %>%
+  rename(spi1 = rap) %>%
+  arrange(spi1)
+
+spi1_rap1 <- bind_cols(sta_rap1, spi1_rap1) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Second approach 
+sta_trans <- sta_mon %>% 
+  select(date, year, month, rap) %>% 
+  arrange(date) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# Pull apart the NA and non-NA vals
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#   1. Split the raw data into two parts at 1948-05-01
+  sta_ge49      <- sta_trans %>% filter(year >= 1949) # yr above
+  sta_48m05     <- sta_trans %>% filter(year == 1948 & month >= 5)
+sta_rap2         <- bind_rows(sta_ge49, sta_48m05) # this is active
+  rm(sta_ge49, sta_48m05)
+# remove year and month
+sta_rap2 <- sta_rap2 %>%
+  select(date, rap)
+#  2. Save NA observations  
+  sta_lt48      <- sta_trans %>% filter(year < 1948)
+  sta_48m01_m05 <- sta_trans %>% filter(year == 1948 & month < 5)
+sta_NA          <- bind_rows(sta_lt48, sta_48m01_m05) # this is not
+  rm(sta_lt48, sta_48m01_m05, sta_trans)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# Calculate Rapid City SPI 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+spi1_rap2  <- spi(sta_rap2[,'rap'],  1, distribution = 'PearsonIII') 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# save & rename coefficients 
+# THIS CODE COULD BE DONE MUCH BETTER! 
+#spi_1rap_coeff <- as.tibble(spi_1rap$coefficients) %>% 
+ # t() %>% as.tibble() 
+
+#spi_1rap_coeff <- rownames_to_column(spi_1rap_coeff, "month")
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# save SPI values as a Tibble
+spi1_rap2 <- as.tibble(spi1_rap2$fitted) %>% 
+  mutate(duration = 1)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Why does sta_rap1 have 839 $ sta_rap2 have 841???
+
+summary(sta_rap1$date)
+#  Min.      1st Qu.       Median         Mean      3rd Qu. 
+#"1948-05-01" "1965-11-16" "1983-05-01" "1983-05-03" "2000-10-16" 
+#        Max. 
+#"2018-05-01" 
+summary(sta_rap2$date)
+#        Min.      1st Qu.       Median         Mean      3rd Qu. 
+#"1948-05-01" "1965-11-01" "1983-05-01" "1983-05-02" "2000-11-01" 
+#        Max. 
+#"2018-05-01" 
+sta_rap1_a <- sta_rap1 %>% 
+  arrange(date) %>%
+  slice(131:150)
+sta_rap2_a <- sta_rap2 %>%
+  arrange(date) %>%
+  slice(131:150)
+
+test_a <- full_join(sta_rap1_a, sta_rap2_a, by = "date")
+test_a <- test_a %>%
+  mutate(dif = rap.y - rap.x)
+
+```
+
