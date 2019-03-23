@@ -1,0 +1,449 @@
+---
+title: "stream_data_munging"
+author: "Charles Jason Tinant"
+date: "4/11/2018"
+output: pdf_document
+---
+
+<!--
+## Variable naming convention:   
+
+  for USGS functions: EGRET & dataRetrieval:
+startDate    Beginning date for downloading USGS gage data
+endDate      End date for downloading USGS gage data
+parameter_cd USGS parameter codes
+
+xxx_yyy      individual gage names xxx = stream & yyy = location
+
+gage         USGS stream gages with daily values 
+    _dv       daily values; used for the first set of gages selected
+    _meta     metadata; without a modifier is the set after initial site removal
+    _poss     possible; used for finding initial stations & metadata  
+    _pos      possible & shorter length; used for shortened initial metadata
+    _yr       year 
+    _summ     summary 
+    _incomp   incomplete; used for records 
+    _sum2     summary of a summary 
+
+meta_cd      metadata code - used to check on gage metadata 
+-->
+
+```{r setup, include=FALSE, message=FALSE}  
+#knitr::opts_chunk$set(echo = FALSE)  
+options(tibble.print_max = 70) # sets tibble output for printing  
+
+# Sets up the library of packages   
+library("here") # identifies where to save work  
+library("EGRET") # Exploration and Graphics for RivEr Trends 
+library("rio") # more robust I/O - to import and clean data  
+library("lubridate") # easier dates 
+library("tidyverse") 
+library("janitor") # tools for examining and cleaning dirty data  
+library("dataRetrieval") # USGS data import  
+```
+
+```{r import_daily_flow_metadata, eval=FALSE} 
+
+# this code chunk finds all sites within a bounding box 
+# adds the metadata, then filters no data sites for 1990- 2018 water years 
+# for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. find  possible sites by bounding box 
+# bBox = a contiguous range of decimal latitude and longitude, starting with the west longitude, then the south latitude, then the east longitude, and then the north latitude with each value separated by a comma. 
+# https://waterservices.usgs.gov/rest/Site-Service.html#bBox 
+# the Pine Ridge Reservation boundary is c(-103, 43, -100.2, 43.8)
+
+gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6), 
+                       parameterCd = "00060", hasDataTypeCd = "dv") %>% 
+  arrange(site_no)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. get metadata 
+# this needs to be run in parts because some project numbers are stored 
+#     as integers & others are stored as characters 
+# this code could be improved on possibly by map2 to convert 'project_no' to 
+#     a character 
+
+gage_meta_poss_01 <- gage_poss %>% 
+    slice(1:6) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_02 <- gage_poss %>% 
+    slice(7) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_03 <- gage_poss %>% 
+    slice(8:16) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_04 <- gage_poss %>% 
+    slice(17) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_05 <- gage_poss %>% 
+    slice(18:93) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_06 <- gage_poss %>% 
+    slice(94) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_07 <- gage_poss %>% 
+    slice(95:141) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_08 <- gage_poss %>% 
+    slice(142) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_09 <- gage_poss %>% 
+    slice(143:147) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_10 <- gage_poss %>% 
+    slice(148) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_11 <- gage_poss %>% 
+    slice(149:155) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 3. join gage metadata & drop the partial sites 
+# this could be improved on by passing a for loop for naming...
+gage_meta_poss <- bind_rows(gage_meta_poss_01, gage_meta_poss_02, 
+                            gage_meta_poss_03, gage_meta_poss_04,  
+                            gage_meta_poss_05, gage_meta_poss_06, 
+                            gage_meta_poss_07, gage_meta_poss_08, 
+                            gage_meta_poss_09, gage_meta_poss_10, 
+                            gage_meta_poss_11)  
+
+rm(gage_meta_poss_01, gage_meta_poss_02, 
+                            gage_meta_poss_03, gage_meta_poss_04,  
+                            gage_meta_poss_05, gage_meta_poss_06, 
+                            gage_meta_poss_07, gage_meta_poss_08, 
+                            gage_meta_poss_09, gage_meta_poss_10, 
+                            gage_meta_poss_11)   
+
+rm(gage_poss) 
+
+# 4. export metadata to data folder 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+export(gage_meta_poss, "data/gage_meta_poss.csv")  
+```
+
+```{r clean_daily_flow_metadata, eval=FALSE}
+# cleans the imported metadata 
+
+# 1. make a tibble of metadata codes 
+meta_cd <- enframe(names(gage_meta_poss), name = NULL) 
+
+# 2. remove codes not needed for this project 
+gage_meta_pos <- gage_meta_poss %>% 
+  select(-site_tp_cd) %>% # all streams so delete 
+  select(-c(lat_va, long_va)) %>% # in DMS so delete 
+  select(-c(coord_meth_cd, coord_acy_cd)) %>% # coord method & agency, so delete 
+  select(-c(coord_datum_cd, dec_coord_datum_cd)) %>% # NAD83 or NAD27 
+  select(-c(district_cd, country_cd)) %>% # Congressional dist & Country 
+  select(-c(land_net_ds, map_nm, map_scale_fc)) %>%  # refers to USGS maps 
+  select(-c(alt_meth_cd, alt_datum_cd, alt_acy_va)) %>% #%>% # altitude metadata  
+  select(-c(basin_cd, topo_cd, instruments_cd)) %>% 
+  select(-c(construction_dt)) %>% 
+  select(-c(tz_cd, local_time_fg)) %>% # daily data, so NA 
+  select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>% 
+  # aquifer data, so NA 
+  select(-c(well_depth_va, hole_depth_va, depth_src_cd)) 
+```
+
+```{r remove_not_useful_stations, eval=FALSE}
+# remove gages that do not meet standards or in crystaline or karst catchments 
+gage_meta <- gage_meta_pos %>%   
+  mutate(reliability_cd = replace_na(reliability_cd, 0)) %>% # otherwise drops NA
+  filter(reliability_cd != "M") %>% # M is minimal data 
+  filter(!str_detect(station_nm, 'DAM|DITCH|DRAIN')) %>% # upstream control 
+  filter(!str_detect(station_nm, 
+                     'CUSTER|KEYSTONE|HILL CITY|HAYWARD')) %>% 
+  # crystaline catchments 
+  filter(!str_detect(station_nm, 
+                     'LEAD|DEADWOOD|WHITEWOOD')) %>%   
+  filter(!str_detect(station_nm, 'CLEGHORN')) %>% # karstic? spring 
+  filter(!str_detect(station_nm, 'BOXELDER|LIME')) %>% # karstic 
+  filter(!str_detect(station_nm, 'RAPID')) %>%   # Rapid Creek & upper Spring Creek 
+  filter(!str_detect(station_nm, 'MISSOURI'))
+
+# 4. export metadata to data folder after fixing leading zero
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+gage_meta <- gage_meta %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+  select(-reliability_cd) %>% 
+  mutate(length = str_length(site_no)) %>% 
+  filter(length <= 8) %>%   # removes two provisional sites
+  mutate(site_no = as.character(site_no)) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) %>% 
+  select(-length)
+
+export(gage_meta, "data/gage_meta.csv") 
+
+```
+
+```{r import_daily_flow, eval=FALSE} 
+
+# Loads USGS gage data for active stations individually, bind_cols & 
+# exports data to a folder.  Gage IDs identified by USGS watermapper.  
+# The data needs to be saved as two smaller files to be uploaded on GitHub. 
+# 
+#   Egret::readNWISDaily(siteNumber, parameterCd = "00060", startDate = "",
+#      endDate = "", interactive = TRUE, convert = TRUE) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. create a list of active gages & get metadata for water year 1990-2018 
+startDate    <- "" # note that blank gets earliest date 
+# for some reason, adding a value here causes an error...
+# Error in names(data) <- c("agency", "site", "dateTime", "value", "code") : 
+#  'names' attribute [5] must be the same length as the vector [3]
+# add an end date to remove provisional data & gaps in vals 
+endDate      <- "2018-09-30" 
+parameter_cd <- "00060" 
+# ~~~~~~~~~~~~~~~~~~~~~ 
+
+# load the metadata 
+gage_meta <- import("data/gage_meta.csv", setclass = "tibble") %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) 
+
+# remove short sites with provisional data
+gage_meta <- gage_meta %>%  
+  filter(site_no != "06461150"& 
+         site_no != "06463670"& 
+         site_no != "06461595") 
+
+# remove Long Pine Creek near Riverview, Nebr. 
+#   needs to be called separately or it creates an error 
+lon_riv <- gage_meta %>% 
+  filter(site_no == "06463500") 
+
+gage_meta <- gage_meta %>%  
+  filter(site_no != "06463500") 
+
+# get daily values & join
+gage_dv_01 <- gage_meta %>% 
+#  slice(1:88) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
+                          parameter_cd, startDate, endDate), .id = "site_no") 
+
+gage_dv_02 <- lon_riv %>%  
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
+                          parameter_cd, startDate, endDate), .id = "site_no") 
+
+gage_dv <- bind_rows(gage_dv_01, gage_dv_02)
+
+# clean up & export
+rm(endDate, parameter_cd, startDate, gage_meta_poss, gage_meta_pos, meta_cd, 
+   gage_dv_01, gage_dv_02, lon_riv) 
+
+export(gage_dv, "data/gage_dv.csv") 
+```
+
+```{r clean_daily_flow, eval=FALSE} 
+# this code chunk removes dates prior to water year 1990, NA values, 
+#     other bits
+
+# 1. load the metadata & daily flows 
+gage_meta <- read_csv("data/gage_meta.csv") %>% 
+  mutate(state_cd = as.character(state_cd)) %>% 
+  mutate(huc_cd = as.character(huc_cd)) 
+
+gage_dv <- read_csv("data/gage_dv.csv")  
+  
+# 2. remove dates prior to water year 1990 & NA vals
+gage_dv <- gage_dv %>% 
+  filter(waterYear >= 1980)  %>% 
+  filter(Q != is.na(Q)) # remove NA discharge values from record  
+
+# 3. filter out sites with < 5 years
+# create a summary variable for number of years 
+gage_yr_summ <- gage_dv %>% 
+  group_by(site_no) %>% 
+  summarise(min_year = min(waterYear),
+            max_year = max(waterYear), 
+            num_year = n_distinct(waterYear))
+
+# join the num_year variable
+gage_dv <- left_join(gage_dv, gage_yr_summ, by = "site_no")
+
+# filter less than five years
+gage_dv <- gage_dv %>% 
+  filter(num_year > 5) 
+
+
+# 4. remove Northern Black Hills stations
+gage_dv <- gage_dv %>% 
+  filter(site_no != "06438000") %>% 
+  filter(site_no != "06437000") 
+
+
+# 5. remove East River stations
+gage_dv <- gage_dv %>% 
+  filter(site_no != "06442718")
+
+
+# 6. remove streams with substantial missing data
+# identify serially incomplete observations 
+gage_incomp <- gage_dv %>% 
+  group_by(site_no, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
+  ungroup() %>% 
+  filter(waterYear > 1990) %>% 
+  arrange(site_no, waterYear, i_count) 
+
+# remove streams with few years from 1990 - 2015 
+gage_dv <- gage_dv %>% 
+  filter(site_no != "06441000") %>% 
+  filter(site_no != "06442000") %>% 
+  filter(site_no != "06442500") %>% 
+  filter(site_no != "06463080") %>% 
+  filter(site_no != "06455500") %>% 
+  filter(site_no != "06444000") %>% 
+  filter(site_no != "06439300") %>% 
+  filter(site_no != "06454500") %>% 
+  filter(site_no != "06400497") %>% 
+  filter(site_no != "06461000") %>% 
+  filter(site_no != "06462500") %>% 
+  filter(site_no != "06459500") %>% 
+  filter(site_no != "06457500") %>%   
+  filter(site_no != "06454100") %>%   
+  filter(site_no != "06459175") %>%    
+  filter(site_no != "06462000")   
+
+
+# 7. join daily flow & metadata
+gage_meta <- semi_join(gage_meta, gage_dv, by = "site_no") 
+gage_dv <- left_join(gage_dv, gage_meta, by = "site_no") 
+
+# 8. remove WY 2018 for QA purposes 
+gage_dv <- gage_dv %>% 
+  filter(waterYear != "2018")
+
+# 8. check results 
+gage_incomp <- gage_dv %>% 
+  group_by(station_nm, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
+  ungroup() %>% 
+  filter(waterYear > 1990) %>% 
+  arrange(station_nm, waterYear, i_count) 
+
+gage_yr_summ <- gage_dv %>% 
+  group_by(site_no) %>% 
+  summarise(station_nm = first(station_nm), 
+            min_year = min(waterYear),
+            max_year = max(waterYear), 
+            num_year = n_distinct(waterYear)) %>% 
+  ungroup() %>% 
+  arrange(station_nm) 
+
+gage_yr_sum2 <- gage_yr_summ %>% 
+  summarise(number_sta = n(), 
+            ave_year = mean(num_year)) 
+
+gage_ck  <- gage_dv %>% 
+  distinct()  
+
+gage_qual <- gage_dv %>% 
+  filter(Qualifier == "P"|
+         Qualifier == "P:e") %>% 
+  distinct(station_nm) 
+
+gage_qual_cd <- gage_dv %>% 
+  distinct(Qualifier) 
+``` 
+
+```{r create-short-names}
+a 
+gage_nm_short <- tibble(site_no = c(06441500, 06406000, 06406500, 06446700,
+06402500, 06402470, 06402430, 06447230,
+06402600, 06438500, 06403700, 06408650,
+06423500, 06425500, 06424000, 06402000,
+06403300, 06400000, 06400875, 06464500,
+06464100, 06448000, 06449000, 06449300,
+06450500, 06447500, 06449500, 06449100,
+06463500, 06463720, 06461500, 06441110,
+06449400, 06440200, 06408500, 06445980,
+06446500, 06447000, 06452000, 06446000,
+06445685, 06445700, 06447450, 06446100),
+sta = c("bad_fpi", "bat_her", "bat_bhr", "blc_wan",
+"bev_buf", "bev_abf", "bev_pri", "blp_bel",
+"che_buf", "che_pla", "che_red", "che_sce",
+"che_was", "elk_elm", "elk_rob", "fal_hot",
+"frn_fai", "hat_edg", "hor_oel", "key_wew",
+"key_key", "lcr_abv", "lcr_bel", "lwr_aro",
+"lwr_whi", "lwr_mar", "lwr_ros", "lwr_vet",
+"lon_riv", "nio_mar", "nio_spa", "plu_hay",
+"ros_ros", "brsf_co", "spr_her", "wcc_ogl",
+"whi_int", "whi_kad", "whi_oac", "whi_ogl",
+"whi_sta", "whi_slm", "whi_whi", "wkc_wok")) %>%
+mutate(site_no = as.character(site_no)) %>%
+mutate(site_no = zeroPad(site_no, 8)) 
+
+gage_dv <- full_join(gage_dv, gage_nm_short, by = "site_no")
+
+rm(gage_ck, gage_incomp, gage_meta, gage_nm_short, gage_qual, gage_qual_cd,
+gage_yr_sum2, gage_yr_summ)
+
+
+```
+
+```{r}
+abc
+```
+
+```{r create_post1980_subset}
+
+# 2. remove post-1990 stations w/o full years----
+
+gage_comp <- gage %>% 
+  group_by(sta, waterYear) %>%  
+  count() %>% 
+  arrange(n) %>% 
+  ungroup() %>% 
+  filter(n >= 364) %>%
+  group_by(sta) %>%
+  count() %>% 
+  ungroup() %>% 
+  rename(yrs_post80 = nn) %>% 
+  arrange(yrs_post80)
+
+gage_yr_summ
+```
+
