@@ -1,0 +1,82 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library, include=FALSE, message=FALSE} 
+# Sets up the library of packages 
+library("lubridate") # fixes dates 
+library("tidyverse") 
+library("janitor") # cleans data
+library("SPEI") # Calculates SPI-index
+library("knitr") # for generating tables
+
+# Session Info
+a_session <- devtools::session_info()
+```
+
+```{r wichita_check}
+data("wichita")
+
+wichita_ts <- ts(wichita[,-c(1,2)], end = c(2011,10), frequency = 12)
+spi1_list_gam <- spi(wichita_ts[,'PRCP'], 1)
+spi1_list_pe3 <- spi(wichita_ts[,'PRCP'], scale = 1, 
+                                  distribution = 'PearsonIII')
+
+spi1_wich_gam  <- as.tibble(spi1_list_gam$fitted)
+spi1_wich_pe3  <- as.tibble(spi1_list_pe3$fitted)
+
+# clean up date
+wich2 <- clean_names(wichita) %>% 
+  select(year, month, prcp) %>% 
+  mutate(day = 1) 
+wich2$date <- with(wich2, ymd(sprintf('%04d%02d%02d', 
+                                          year, month, day)))
+
+# join vars
+intc1 <- bind_cols(wich2, spi1_wich_gam) %>%
+  rename(spi1_gam = "Series 1") %>%
+  select(date, prcp, spi1_gam)
+rm(spi1_wich_gam)
+
+wichita_fin <- bind_cols(intc1, spi1_wich_pe3) %>%
+  rename(spi1_pe3 = "Series 1") %>%
+  arrange(spi1_pe3)
+  
+rm(intc1, spi1_wich_pe3, wichita_ts) 
+kable(wichita_fin)
+
+```
+
+```{r}
+ggplot(wichita_fin, aes(prcp, spi1_gam)) +
+  geom_point() +
+  ggtitle("Wichita Data Set")
+```
+
+```{r}
+# Compute potential evapotranspiration (PET) and climatic water balance (BAL)
+wichita$PET <- thornthwaite(wichita$TMED, 37.6475) 
+wichita$BAL <- wichita$PRCP-wichita$PET
+
+# Convert to a ts (time series) object for convenience
+wichita <- ts(wichita[,-c(1,2)], end=c(2011,10), frequency=12)
+plot(wichita)
+
+# One and tvelwe-months SPEI
+spei1_list <- spei(wichita[,'BAL'], 1)
+
+spei1 <- as.tibble(spei1_list$fitted)
+
+wichita_fin2 <- bind_cols(wichita_fin, spei1) %>%
+  rename(spei1 = "Series 1") %>%
+  arrange(spi1_pe3)
+
+ggplot(wichita_fin2, aes(prcp, spei1)) +
+  geom_point()
+```
+
+```{r}
+methods(SPI)
+```
+
