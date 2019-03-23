@@ -29,6 +29,8 @@ gage         USGS stream gages with daily values
     _poss    possible; used for finding initial stations & metadata  
     _pos     possible & shorter length; used for shortened initial metadata
     _
+
+meta_cd      metadata code - used to check on gage metadata 
 -->
 
 ```{r setup, include=FALSE, message=FALSE}  
@@ -43,15 +45,6 @@ library("lubridate") # easier dates
 library("tidyverse") 
 library("janitor") # tools for examining and cleaning dirty data  
 library("dataRetrieval") # USGS data import  
-
-#library("cowplot") # Streamlined plot theme & annotations 
-# library("drake") # gen.purpose computational engine for data analys
-# library("DataExplorer") # quick look at NA vals 
-# library('jsonlite') # tools for working with lists   
-# library("magrittr") # provides aliases for easier reading 
-# library("friendlyeval") 
-#gage_cont <- import(file = "data/gage_cont.csv")
-
 ```
 
 ```{r import_daily_flow_metadata, eval=FALSE} 
@@ -172,9 +165,8 @@ rm(gage_poss)
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
 ```
 
-
 ```{r clean_daily_flow_metadata, eval=FALSE}
-# cleans the metadata that was imported
+# cleans the imported metadata 
 
 # 1. make a tibble of metadata codes 
 meta_cd <- enframe(names(gage_meta_poss), name = NULL) 
@@ -333,13 +325,34 @@ gage_dv <- gage_dv %>%
 gage_dv <- gage_dv %>% 
   filter(site_no != "06442718")
 
+# 6. remove streams with substantial missing data
+# identify serially incomplete observations 
+gage_incomp <- gage_dv %>% 
+  group_by(station_nm, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
+  ungroup() %>% 
+  filter(waterYear > 1990) %>% 
+  arrange(station_nm, waterYear, i_count) 
 
-# 5. join daily flow & metadata
+# remove streams with a large number of incomplete observations 
+gage_dv <- gage_dv %>% 
+  filter(site_no != "06441000") 
+
+# 7. join daily flow & metadata
 gage_meta <- semi_join(gage_meta, gage_dv, by = "site_no") 
 gage_dv <- left_join(gage_dv, gage_meta, by = "site_no") 
 
 
-# check results 
+# 8. check results 
+gage_incomp <- gage_dv %>% 
+  group_by(station_nm, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
+  ungroup() %>% 
+  filter(waterYear > 1990) %>% 
+  arrange(station_nm, waterYear, i_count) 
+
 gage_yr_summ <- gage_dv %>% 
   group_by(site_no) %>% 
   summarise(station_nm = first(station_nm), 
@@ -352,7 +365,10 @@ gage_yr_summ <- gage_dv %>%
 
 gage_yr_sum2 <- gage_yr_summ %>% 
   summarise(number_sta = n(), 
-            ave_year = mean(num_year))
+            ave_year = mean(num_year)) 
+
+gage_ck  <- gage_dv %>% 
+  distinct()  
 ``` 
 
 ```{r create-short-names}
@@ -366,7 +382,7 @@ gage_nm_short <- tibble(sta = c("hor_oel", fal
 
 
 06441500	BAD R NEAR FORT PIERRE,SD	1990             bad_fpi
-06441000	BAD R NEAR MIDLAND,SD	1991	               bad_mid
+
 06406000	BATTLE CR AT HERMOSA,SD	1990	             bat_her
 06406500	BATTLE CR BELOW HERMOSA,SD	1990	         bat_bhr
 06446700	BEAR IN THE LODGE CR NEAR WANBLEE,SD	1993 blc_wan	
@@ -424,142 +440,6 @@ gage_nm_short <- tibble(sta = c("hor_oel", fal
 
 
 
-```{r import_dailyflow_EGRET-bearLodge, eval=FALSE}
-# long story, but Bear in the Lodge streamflow is restricted.  So,
-# need to find another approach to getting the data. 
-# one way is annual reports - but only to 2013
-# Need to email the webmaster to get streamflow data.
-# https://waterdata.usgs.gov/sd/nwis/inventory/?site_no=06446700&agency_cd= 
-
-#blc_wan <- readNWISDaily("06446700") # this not working! 
-#blc_wan <- blc_wan %>%
-#  mutate(sta = blc_wan) %>%
-#  mutate(site_no = "06446700")
-
-```
-
-```{r import_gage_metadata, eval=FALSE} 
-  # for some reason Long Pine Creek near Riverview, Nebr. wasn't selected above.
-#      most likely because the station is NPS rather than USGS.
-
-# import daily streamflow datasets  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#gage_cont_top <- import("data/gage_cont_top.csv") 
-#gage_disc <- import("data/gage_disc.csv") 
-#gage_othr <- import("data/gage_other.csv") 
- 
-# check for duplicate data  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-gage_cont_ck  <- gage_cont %>% 
-  distinct(sta, site_no) 
-
-gage_dist_ck  <- gage_disc %>% 
-  distinct(sta, site_no) 
-
-gage_othr_ck  <- gage_othr %>% 
-  distinct(sta, site_no) 
-
-gage_names <- bind_rows(gage_cont_ck, gage_dist_ck) 
-gage_names <- bind_rows(gage_names, gage_othr_ck) 
-
-rm(gage_cont_ck, gage_dist_ck, gage_othr_ck) 
-
-# join data & import metadata 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
-gage_full  <- bind_rows(gage_cont, gage_disc)  
-gage_full  <- bind_rows(gage_full, gage_othr) 
-
-# gage$site_no is brought in as an integer but needs to be 8-dig char 
-gage_full <- gage_full %>% 
-  mutate(sta = as.character(sta)) %>%  
-  mutate(site_no = zeroPad(site_no, 8)) %>% 
-  select(site_no, sta, everything()) 
-
-# reduces the set down to a small number to reduce API calls 
-gage_id <- gage_full %>% 
-  distinct(site_no, sta) 
-
-# iterate across a list of gage ids by purrr::map  
-# & get gage metadata using dataRetrieval::readNWISsite 
-gage_meta_list <- map(gage_id$site_no, readNWISsite) 
-
-# extract the wanted dataframe items from the list 
-
-gage_meta <- gage_meta_list %>% 
-  map_df(rbind, 
-               c("site_no", "station_nm", "site_tp_cd", "dec_lat_va", 
-                 "dec_long_va", "dec_coord_datum_cd", "state_cd", 
-                 "county_cd", "alt_va", "alt_datum_cd", "huc_cd", 
-                 "drain_area_va", "contrib_drain_area_va")) 
-
-# and clean up
-gage_meta <- gage_meta %>% 
-  filter(agency_cd == "USGS") %>% 
-  select(-agency_cd)  %>% 
-  select(-country_cd) %>% 
-  select(-(site_tp_cd:long_va)) %>% 
-  select(-(coord_meth_cd:coord_acy_cd)) %>% 
-  select(-district_cd) %>% 
-  select(-(map_nm:map_scale_fc)) %>% 
-  select(-(alt_meth_cd:alt_acy_va)) %>% 
-  select(-(basin_cd:inventory_dt)) %>% 
-  select(-(tz_cd:project_no)) %>% 
-  select(dec_lat_va, dec_long_va, alt_va, drain_area_va, 
-         contrib_drain_area_va, state_cd, county_cd, huc_cd,
-         land_net_ds, everything()) %>% 
-  select(station_nm, site_no, everything()) %>% 
-  mutate(dec_lat_va = as.numeric(dec_lat_va)) %>% 
-  mutate(dec_long_va = as.numeric(dec_long_va)) %>%   
-  mutate(alt_va = as.numeric(alt_va)) %>%   
-  mutate(drain_area_va = as.numeric(drain_area_va)) %>%  
-  mutate(contrib_drain_area_va = as.numeric(contrib_drain_area_va)) %>% 
-  mutate(contrib_drain_area_va = as.numeric(contrib_drain_area_va)) 
-
-rm(gage_meta_list) 
-
-# join the abbreviation to the metadata 
-gage_meta <- gage_meta %>%  
-  full_join(gage_id, gage_meta, by = "site_no") 
-
-gage_meta <- gage_meta %>% 
-  select(sta, everything()) 
-
-# check on integrity of the data by looking at counts 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-ck_sta <- gage_meta %>% 
-  distinct(sta) 
-
-ck_num <- gage_meta %>% 
-  distinct(site_no) 
-
-ck_sta_num <- gage_meta %>% 
-  distinct(sta, site_no) 
-
-ck_nam <- gage_meta %>% 
-  distinct(station_nm) 
-
-ck_sta_nam <- gage_meta %>% 
-  distinct(sta, station_nm) 
-
-num_nam <- gage_meta %>% 
-  distinct(site_no, station_nm) 
-
-ck_sta_nam_num <- gage_meta %>% 
-  distinct(sta, site_no, station_nm) 
-
-# export dataframes of the largest population of gages 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# export(gage, "data/gage_full.csv") # too big for GitHub 
-# export(gage_meta, "data/gage_meta_full.csv")  
-
-# create a table to show abbreviation, site no & station name 
-gage_table <- gage_meta %>% 
-  select(sta, site_no, station_nm) %>% 
-  as.tibble() 
-
-
-```
 
 ```{r clean_daily flow} 
 # this code chunk checks and removes gages w/o useful characteristics
@@ -573,65 +453,7 @@ gage_table <- gage_meta %>%
 # 3. Remove streams with substantial missing data 
 # 4. Investigate remaining stations 
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# 1. Assemble a set of all possible recorded streamflows----
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_meta_full <- import("data/gage_meta_full.csv") %>% 
-  arrange(sta) 
 
-gage_cont <- import("data/gage_cont.csv") 
-gage_disc <- import("data/gage_disc.csv") 
-gage_othr <- import("data/gage_other.csv") 
-
-# Assemble a complete set of stations identifed in prior steps
-gage_full  <- bind_rows(gage_cont, gage_disc, gage_othr)  
-
-gage_full <- gage_full %>% 
-  arrange(sta) %>% 
-  select(site_no, sta, Date, i, everything()) 
-
-# check results - should be 61 stations; yes
-check_sta <- gage_full %>% 
-  distinct(sta)
-rm(gage_cont, gage_disc, gage_othr, check_sta)  
-
-# calculate the minimun and maximum years in the series in metadata
-gage_yr <- gage_full %>% 
-  group_by(sta) %>% 
-  summarize(min_yr = min(waterYear), 
-            max_yr = max(waterYear)) %>% 
-  mutate(count_yr = 1 + max_yr - min_yr)
-
-gage_meta_full <- full_join(gage_meta_full, gage_yr, by = "sta")
-
-gage_meta_full <- gage_meta_full %>% 
-  arrange(count_yr) %>% 
-#  select(-c(site_tp_cd, dec_coord_datum_cd, alt_datum_cd, huc_cd)) %>% 
-   as.tibble() %>% 
-   select(count_yr, everything())
-
-# join together gage & gage metadata information
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-gage_full <- full_join(gage_meta_full, gage_full, by = c("site_no", 
-                                                         "sta"))
-rm(gage_yr)
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# 2. Remove streams prior to 1990 from the analysis series----
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# identify old stations (<1990): n = 17 stations
-gage_meta_drop <- gage_meta_full %>% 
-  filter(max_yr < 1990) 
-
-# identify stations for analysis: n = 44 stations; 17 + 44 = 61
-gage_meta <- gage_meta_full %>% 
-  filter(max_yr > 1989) # 44 sta
-
-gage <- gage_full %>% 
-    filter(max_yr > 1989) # 670,492 
-
-gage_drop <- gage_full %>% 
-  filter(max_yr <= 1988)  #  70,723
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 3. Remove streams with substantial missing data----
