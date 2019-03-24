@@ -1,95 +1,87 @@
 
 Title (13-words or less): Hydrological Drought Assessment of Heterogenious Catchments with Short Periods of Record  
 
+<!--
+## Variable naming convention:   
 
+
+
+gage         USGS stream gages with daily values 
+    _dv       daily values; used for the first set of gages selected
+    _meta     metadata; without a modifier is the set after initial site removal
+
+-->
+
+```{r setup, include=FALSE, message=FALSE}  
+#knitr::opts_chunk$set(echo = FALSE)  
+options(tibble.print_max = 70) # sets tibble output for printing  
+
+# Sets up the library of packages   
+library("here") # identifies where to save work  
+library("EGRET") # Exploration and Graphics for RivEr Trends 
+library("rio") # more robust I/O - to import and clean data  
+library("lubridate") # easier dates 
+library("tidyverse") 
+library("janitor") # tools for examining and cleaning dirty data  
+library("dataRetrieval") # USGS data import  
+```
 
 ```{r streamflow-fix-NA}    
-# Stream flow is being analyzed over a period of 1990-2016.   
+# Stream flow is being analyzed over a period of Water Year 1980-2017.   
 # This code chunk fixes some NA values for Q7 & Q30  
 # at the start of record 
 
-# import and append daily flow values > 1990 
-gage_cont <- import("data/gage_cont.csv") %>%  
-  clean_names() %>%                                # N = 437,680
-  filter(water_year >= 1990) %>%                   # n = 217,335  
-  select( -c(julian:month_seq, site_no, i)) %>%
-  select(sta, water_year, everything()) 
-  
-gage_disc <- import("data/gage_disc.csv") %>% 
-  clean_names() %>%                               # N = 186,608
-  filter(water_year >= 1990) %>%                  # n =  27,280 
-  select(date:sta)  %>%
-  select( -c(julian:month_seq, i)) %>% 
-  select(sta, water_year, everything()) %>%       # remove 'P' na vals
-  filter(qualifier != "P")                        # n =  27,252
+# 1. import gage daily values 
+gage_dv_part01 <- read_csv("data/gage_dv_part01.csv") %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+    mutate(county_cd = as.character(county_cd))   
+gage_dv_part02 <- read_csv("data/gage_dv_part02.csv") %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+    mutate(county_cd = as.character(county_cd)) 
+gage_dv_part03 <- read_csv("data/gage_dv_part03.csv") %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+    mutate(county_cd = as.character(county_cd)) 
 
-gage_other <- import("data/gage_other.csv") %>% 
-  clean_names() %>%                                 # N = 116,927
-  filter(water_year >= 1990) %>%                    # n =  42,339  
-  select(date:sta) %>% 
-  select( -c(julian:month_seq, i)) %>% 
-  select(sta, water_year, everything()) 
 
-# bind the gage dfs together, make min & max yr vars - clean up
-gage_complete <- bind_rows(gage_cont, gage_disc, gage_other) %>% 
-  group_by(sta) %>%                               # n = 286,723  
-  filter(!is.na(q30))   # drops some NA vals from start of record 
+# 2. join daily values & clean up
+gage_dv_all <- bind_rows(gage_dv_part01, gage_dv_part02, gage_dv_part03) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) %>% 
+  mutate(state_cd = as.character(state_cd)) %>% 
+  mutate(huc_cd = as.character(huc_cd)) %>% 
+  select(sta, Date, Q, everything()) %>% 
+  group_by(sta) %>%                               
+  filter(!is.na(Q30)) %>%          # drops NA vals from start of record 
+  ungroup() 
 
-# find actual count of years - post1990  
-gage_summary <- gage_complete %>%                      # N = 44 sta
-  group_by(sta) %>%                                    # n = 32 sta 
-  summarise(min_yr = min(water_year),            
-            max_yr = max(water_year)             
-            ) %>% 
+# 3. remove metadata from discharge values 
+gage_meta <- gage_dv_all %>% 
+  select(sta, min_year:contrib_drain_area_va) %>% 
+  distinct() 
+
+
+# 4. check for incomplete year records 
+gage_incomp <- gage_dv_all %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(i_count = n()) %>% 
+  filter(i_count <= 364) %>% 
   ungroup() %>% 
-  mutate(count_years_act = max_yr - min_yr) %>% 
-  filter(count_years_act >= 5) %>% 
-  filter(
-    sta != "bad_mid"  &      # incomplete days        
-    sta != "che_ang"  &      # incomplete days
-    sta != "whi_cra"  &      # dropped for short rec.
-    sta != "che_was"  &      # dropped for >> area    
-    sta != "cas_hot"  &      # dropped for short rec.
-    sta != "bat_key"  &      # dropped for crystaline geology
-    sta != "sna_bur"  &      # dropped for short rec.
-    sta != "sna_dou"  &      # dropped for short rec.
-    sta != "che_sce")        # dropped for upstream flow control (dam)
- 
-# remove stations with < 5 yr records - clean up 
-gage_complete <- semi_join(gage_complete, gage_summary, 
-                           by = "sta")                   # n = 245,440 
-                                                  
-# update gage summary 
-gage_summary <- gage_complete %>%                        # n = 689 obs
-  group_by(sta, water_year) %>%                 
-  summarise(days_record = n()) %>%                  
-  ungroup()                                   
+  filter(waterYear > 1990) %>% 
+  arrange(sta, waterYear, i_count) 
 
-# clean up
-rm(gage_other, gage_cont, gage_disc)    
+gage_dv_all <- full_join(gage_dv_all, gage_incomp, 
+                     by = c("sta", "waterYear")) %>% 
+  arrange(sta, Date) 
 
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# test the data for duplicates & remove duplicate vals
-gage_test <- gage_complete %>%  
-  group_by(sta, water_year) %>% 
-  summarize(count = n()) %>% 
-  ungroup() %>% 
-  filter(count > 366) 
-
-export(gage_complete, file = "data/gage_inputs.csv") 
-
-# fix low flows----
+# 4. fix low flows ---- needed for the PCA  
 # this code chunk fixes low flow values by:
 #   1) substituting 0.01 cfs for zero-flow values &
 #   2) log_q is removed from the data 
-
-gage_orig <- import(file = "data/gage_inputs.csv") 
-
-gage_orig <- gage_orig %>% 
-  select(-log_q) %>% 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+gage_dv_gath <- gage_dv_all %>% 
+  select(-LogQ) %>% 
   gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs
-         -c(sta, water_year, date, qualifier)) 
+         -c(sta, waterYear, date, qualifier)) 
 
 gage_low <- gage_orig %>% 
   filter(q_val < 0.01) %>%               
@@ -131,7 +123,22 @@ gage_test <- gage_orig %>%
 
 export(gage_orig, file = "data/gage_inputs.csv") 
 
+# 4. test the data for duplicates & remove duplicate vals
+gage_test <- gage_dv_all %>%  
+  group_by(sta, waterYear) %>% 
+  summarize(count = n()) %>% 
+  ungroup() %>% 
+  filter(count > 366) 
+
 ```
+
+# 5. separate incomplete years from full years 
+gage_dv_incomp <- gage_dv_all %>% 
+  filter(!is.na(i_count)) 
+
+gage_dv <- gage_dv_all %>% 
+  filter(is.na(i_count)) 
+
 
 ```{r streamflow-data-organization}    
 # Stream flow is being analyzed over a period of 1990-2016.       
