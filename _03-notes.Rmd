@@ -2,6 +2,108 @@
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+```{r streamflow-data-organization-prior}    
+# This is the prior code that was used in the analysis...
+# Stream flow is analyzed over a period of 1990-2016.       
+# This code chunk identifies missing gage-year combinations    
+# An iterative approach is used to identify cluster memberships &  
+# fill missing years with the streamflow depths of the nearest   
+# neighbor in the group.   
+
+# The 'wet-cycle' transitions to 'dry cycle' in 2002  
+
+# import and append daily flow values > 1990 
+gage_orig       <- import(file = "data/gage_inputs.csv")   # n = 245,440 obs 
+  
+# import estimates from prior runs 
+gage_est_9002a  <- import(file = "data/gage_est_9002a.csv") %>% 
+  select(-contrib_drain_area_va) 
+                                                      # run01 n =  12,783 obs 
+
+gage_est_0317a  <- import(file = "data/gage_est_0317a.csv")  %>% 
+  select(-contrib_drain_area_va)                      # run02 n =     731 obs
+
+gage_est_9002b  <- import(file = "data/gage_est_9002b.csv")  %>% 
+ select(-contrib_drain_area_va)                       # run03 n =   9,972 obs
+
+gage_est_0317b  <- import(file = "data/gage_est_0317b.csv")  %>% 
+  select(-contrib_drain_area_va)                      # run04 n =   1,634 obs
+
+gage_est_9017a  <- import(file = "data/gage_est_9017a.csv") %>% 
+  select(-contrib_drain_area_va)                      # run05 n =   9,496 obs
+
+gage_est_9017b  <- import(file = "data/gage_est_9017b.csv") 
+                                                      # run06 n =  15,064 obs
+
+gage_est_9017c  <- import(file = "data/gage_est_9017c.csv") %>% 
+  select(-contrib_drain_area_va)                      # run07 n =  21,916 obs
+
+# bind the gage dfs together, make min & max yr vars - clean up
+gage <- bind_rows(gage_orig, gage_est_9002a, gage_est_0317a,  
+                  gage_est_9002b, gage_est_0317b, gage_est_9017a,  
+                gage_est_9017b, gage_est_9017c) 
+                                               # orig  n = 249,247 obs    
+                                               # run01 n = 258,281  
+                                               # run02 n = 258,954 
+                                               # run03 n = 268,926 
+                                               # run04 n = 270,560   
+                                               # run04 n = 280,056   
+                                               # run06 n = 295,120      
+                                               # run07 n = 317,036   
+
+rm(gage_est_9002a, gage_est_0317a, gage_est_9002b, gage_est_0317b, 
+   gage_est_9017a, gage_est_9017b, gage_est_9017c, gage_orig)
+
+# update gage summary complete days of record 
+gage_summary <- gage %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_record = n()) %>%                   
+  ungroup()                                    
+
+# find & split stations-years with incomplete days of record 
+gage_incomp <- gage %>%                          
+  group_by(sta, water_year) %>%                     
+  summarise(days_record = n()) %>%              
+  ungroup() %>%                                     
+  filter(days_record < 365)                           
+
+gage_incomp <- semi_join(gage, gage_incomp, 
+                         by = c("sta", "water_year")) 
+                                               # run00 n =   3,279 obs 
+                                               # run01 n =   1,454 obs 
+                                               # run02 n =   1,454 obs 
+                                               # run03 n =     834 obs 
+                                               # run04 n =     642 obs 
+                                               # run05 n =     642 obs 
+                                               # run06 n =       0 obs 
+                                               # run07 n =       0 obs
+# add area to gage & gage_incomp_year 
+gage_meta <- import("data/gage_meta_full.csv") 
+gage_meta <- semi_join(gage_meta, gage_summary, by = "sta")
+
+gage <- full_join(gage, gage_meta, 
+                  by = "sta") %>% 
+  select(date, sta, q, q7, q30, water_year, qualifier, 
+         contrib_drain_area_va)
+
+gage_incomp <- full_join(gage_incomp, gage_meta, by = "sta") %>% 
+  select(date, sta, q, q7, q30, 
+         water_year, contrib_drain_area_va, 
+         qualifier) %>% 
+  filter(!is.na(q)) 
+
+# check on observations 
+gage_sum <- gage_summary %>% 
+  spread(water_year, days_record) 
+
+# once the missing vals are complete, then 
+
+gage_input <- gage    
+
+rm(gage_incomp, gage_meta)
+```
+
 ```{r library, include=FALSE, message=FALSE}
 # Sets up the library of packages 
 library("tidyverse")
