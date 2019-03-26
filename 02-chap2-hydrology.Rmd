@@ -27,10 +27,8 @@ library("dataRetrieval") # USGS data import
 
 # 1. load daily flow data 
 gage_dv <- read_csv("data/gage_dv.csv") %>% 
-  clean_names() %>% 
-  select(-log_q) %>%    # going to censor below so will be incorrect 
-  distinct()            # somehow there are 4 dups for 'che_pla' 
-
+  clean_names() 
+  
 # 2. fix low flows ---- this step needed for the PCA  
 #   EGRET calculates a "better" zero-flow value, but causes issues with results
 #   this code chunk fixes low flow values by substituting 0.01 cfs 
@@ -84,75 +82,79 @@ rm(gage_ck, gage_dv_ck, gage_dv_gath, gage_dv_high, gage_dv_low)
 perc_records_incomp <- 100* count(gage_dv_incomp) / (count(gage_dv) + count(gage_dv_incomp))
 ``` 
 
-```{r streamflow-pca_run_01}    
-# Stream flow is analyzed for 1980 - 2017 
 
-# This code chunk identifies missing gage-year combinations    
-# An iterative approach is used to fill missing years with the 
-#streamflow depths of the nearest neighbor in the group.   
-
-gage_run_01 <- read_csv("data/gage_mod_input.csv") %>% 
-  select(-Qualifier) %>% 
-  clean_names()
-attr(gage_dv_run_01, 'spec') <- NULL     # removes attribute data 
-
-
-
-
-
-# The 'wet-cycle' transitions to 'dry cycle' in 2002  
-
-# 1. 
-
-
-
-# update gage summary complete days of record 
-gage_summary <- gage %>%                          
+```{r prepare_for_pca}
+# check for complete days of record 
+gage_summary <- gage_dv %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
   ungroup()                                    
 
-# find & split stations-years with incomplete days of record 
-gage_incomp <- gage %>%                          
-  group_by(sta, water_year) %>%                     
-  summarise(days_record = n()) %>%              
-  ungroup() %>%                                     
-  filter(days_record < 365)                           
+# add catchment area to gage_dv & gage 
+gage_meta <- import("data/gage_dv_meta.csv")  %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) 
 
-gage_incomp <- semi_join(gage, gage_incomp, 
-                         by = c("sta", "water_year")) 
-                                               # run00 n =   3,279 obs 
-                                               # run01 n =   1,454 obs 
-                                               # run02 n =   1,454 obs 
-                                               # run03 n =     834 obs 
-                                               # run04 n =     642 obs 
-                                               # run05 n =     642 obs 
-                                               # run06 n =       0 obs 
-                                               # run07 n =       0 obs
-# add area to gage & gage_incomp_year 
-gage_meta <- import("data/gage_meta_full.csv") 
-gage_meta <- semi_join(gage_meta, gage_summary, by = "sta")
+gage_contrib_area <- gage_meta %>% 
+  select(sta, drain_area_va, contrib_drain_area_va) %>% 
+  mutate(contrib_drain_area_va = 
+           contrib_drain_area_va %>% 
+             is.na %>%
+             ifelse(drain_area_va, contrib_drain_area_va)) %>% 
+  select(-drain_area_va)
 
-gage <- full_join(gage, gage_meta, 
-                  by = "sta") %>% 
-  select(date, sta, q, q7, q30, water_year, qualifier, 
-         contrib_drain_area_va)
 
-gage_incomp <- full_join(gage_incomp, gage_meta, by = "sta") %>% 
-  select(date, sta, q, q7, q30, 
-         water_year, contrib_drain_area_va, 
-         qualifier) %>% 
-  filter(!is.na(q)) 
+gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") 
+gage_dv_incomp <- left_join(gage_dv_incomp, gage_contrib_area,   by = "sta") 
 
-# check on observations 
+# check on observations & clean up Global Environment
 gage_sum <- gage_summary %>% 
   spread(water_year, days_record) 
+rm(gage_contrib_area)
+```
 
-# once the missing vals are complete, then 
+```{r streamflow-pca_run_01}    
+# Overall
+# Stream flow overall is analyzed for 1980 - 2017 
+# The 'wet-cycle' of the 1990s transitions to 'dry cycle' in 2002  
 
-gage_input <- gage    
+# this run is for 1993-1997 
+# selected to find group membership for short-year station 'wkc_wok'
 
-rm(gage_incomp, gage_meta)
+# 
+sta_run_01 <- gage_sum %>% 
+  select(sta, '1993':'1997') %>% 
+  drop_na() %>% 
+  select(sta)  
+
+# mutates depth to cu-m/km-day
+pca_input_run_01 <- semi_join(gage_dv,  sta_run_01, by = "sta") %>% 
+  filter(water_year == 1993|
+           water_year == 1994|
+           water_year == 1995|
+           water_year == 1996|
+           water_year == 1997) %>% 
+  as.tibble() %>% 
+  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
+  mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
+  mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
+  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  
+
+pca_input_run_01 <- pca_input_run_01 %>% 
+  select(-c(contrib_drain_area_va, water_year, incomp_yr)) 
+
+#  Transform using BoxCox to approach normality---- 
+# Daily flow data are highly skewed.  BoxCox transformation utilizes 
+# a lambda value to transform a dataset to an ~ normal distribution.
+
+# Lambda = 1 is normal distribution (no change), 
+# lambda = 0.5 is a square-root transformation, 
+# lamda = 2 is a square transformation,
+# lambda = 0 is a logrithmic transformation.
+
+lambda_q1  <- BoxCox.lambda(pca_input$q1_depth)   
+lambda_q7  <- BoxCox.lambda(pca_input$q7_depth)   
+lambda_q30 <- BoxCox.lambda(pca_input$q30_depth)     
 ```
 
 ```{r find_missing_vals_run, eval=FALSE}  
