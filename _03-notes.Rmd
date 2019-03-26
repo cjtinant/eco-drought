@@ -1385,3 +1385,1878 @@ Ledger and others simulated the effect prolonged drought on the structure and fu
 # (Karatzoglou, Smola, Hornik, and Zeileis, 2004), and mclust 
 # (and of course, clue itself).
 
+```{r sri_prepare_raw_data2}   
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# Initial values for SCI calculations 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+time_scale <- 1  # sets the length of the averaging period 
+distrib <- "pe3" # sets the distribution type 
+p_zero <- TRUE   # sets a function to reduce zero-precip bias
+p_zero_cm <- TRUE # ?????
+scale <- "sd"    # scales input by subtract mean & divide by sd
+warn_me <- TRUE  # sets explicit warning
+
+# Set first month for each station 
+first_mon_cot <- 6 
+first_mon_int <- 11 
+first_mon_oel <- 6 
+first_mon_ora <- 5  
+first_mon_rap <- 5 
+
+# prepare station for analysis 
+sta_cot <- sta_raw %>% arrange(date) %>% select(date, cot) 
+sta_int <- sta_raw %>% arrange(date) %>% select(date, int) 
+sta_ora <- sta_raw %>% arrange(date) %>% select(date, ora) 
+sta_oel <- sta_raw %>% arrange(date) %>% select(date, oel) 
+sta_rap <- sta_raw %>% arrange(date) %>% select(date, rap) 
+
+ # change tibble to a vector as double
+cot <- as.double(sta_cot$cot)
+int <- as.double(sta_int$int) 
+ora <- as.double(sta_ora$ora)
+oel <- as.double(sta_oel$oel) 
+rap <- as.double(sta_rap$rap) 
+
+# notes: 
+# A note on variable naming convention; the SCI package doesn't like 
+#   snake_case variables 
+# 1 month spi - Int did not close on february
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1mon-spi-with-SCI-1mo----
+# Cottonwoods SPI
+#~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value)
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - throws a month 7 NA error.
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results 
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI
+#~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   1mon- combine & gather the SPI variables---- 
+spi_gath01 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_01 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 2mon-spi-with-SCI-2mo----
+
+# set SCI state variables 
+time_scale <- 2  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 2 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value)
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
+
+spi_int <- as.tibble(spi.int) # change the vector into a tibble
+
+spi_int <- spi_int %>% 
+  rename(spi_int = value) # prepare for a later join
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value 
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value)
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   2mon- combine & gather the SPI variables---- 
+spi_gath02 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_02 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 3mon-spi-with-SCI---- 
+time_scale <- 3  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 3
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value)
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib,  
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value 
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   3mon - combine & gather the SPI variables---- 
+spi_gath03 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_03 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 4mon-spi-with-SCI-4mo----
+# notes:  ORAL HAS ONE SPI VAL OF -8
+time_scale <- 4  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 4
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value)
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare Interior precip for SPI transformation
+
+# calculate SPI as a list & extract results
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+#   4mon - combine & gather the SPI variables---- 
+spi_gath04 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_04 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+#   5mon-spi-with-SCI-5mo----
+# notes: ora has an extreme low value & really high skew 
+time_scale <- 5  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 5 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value)
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+
+#   5mon - combine & gather the SPI variables---- 
+spi_gath05 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_05 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 6mon-spi-with-SCI-6mo---- 
+ time_scale <- 6  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 6
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+#   6mon - combine & gather the SPI variables---- 
+spi_gath06 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_06 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#   9mon-spi-with-SCI-9mo----
+# Notes: ora has an extreme low value & really high skew ??
+
+# set SCI state variables 
+time_scale <- 9  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 9 
+#~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   9mon - combine & gather the SPI variables---- 
+spi_gath09 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_09 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 12mon- spi-with-SCI-12mo----
+time_scale <- 12  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 12
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)  
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results  
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value 
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+#   12mon - combine & gather the SPI variables---- 
+spi_gath12 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_12 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 18mon-spi-with-SCI-18mo----
+time_scale <- 18  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 18
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+spi.int <- transformSCI(int, first.mon = first_mon_int, obj = spi.int.l) 
+
+spi_int <- as.tibble(spi.int) # change the vector into a tibble
+
+spi_int <- spi_int %>% 
+  rename(spi_int = value) # prepare for a later join
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value 
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   18mon - combine & gather the SPI variables---- 
+spi_gath18 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_18 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 24mon- spi-with-SCI-24mo---- 
+time_scale <- 24  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 24
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   24mon - combine & gather the SPI variables---- 
+spi_gath24 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_24 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 30mon- spi-with-SCI-30mo---- 
+time_scale <- 30  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 30 
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+
+#   30mon - combine & gather the SPI variables---- 
+spi_gath30 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_30 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 36mon- spi-with-SCI-36mo---- 
+time_scale <- 36  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 36 
+#~~~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   36mon - combine & gather the SPI variables---- 
+spi_gath36 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_36 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 42mon- spi-with-SCI-42mo---- 
+time_scale <- 42  # sets the length of the averaging period 
+
+# Cottonwoods SPI - 42
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   42mon - combine & gather the SPI variables---- 
+spi_gath42 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_42 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 48mon- spi-with-SCI-48mo---- 
+time_scale <- 48  # sets the length of the averaging period 
+
+# Cottonwoods SPI -  
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value 
+
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   48mon - combine & gather the SPI variables---- 
+spi_gath48 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_48 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# 54mon- spi-with-SCI-54mo---- 
+time_scale <- 54  # sets the length of the averaging period 
+
+# Cottonwoods SPI  
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value 
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   54mon - combine & gather the SPI variables---- 
+spi_gath54 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_54 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 60mon- spi-with-SCI-60mo---- 
+time_scale <- 60  # sets the length of the averaging period 
+
+# Cottonwoods SPI  
+#~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+
+spi.cot.l <- fitSCI(cot, first.mon = first_mon_cot , distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me) 
+
+# create a matrix with SPI values - used below
+spi.cot <- transformSCI(cot, first.mon = first_mon_cot, 
+                        obj = spi.cot.l) 
+
+# change to tibble, prepare for join
+spi_cot <- as.tibble(spi.cot) %>% 
+  rename(spi_cot = value) 
+
+spi_cot <- bind_cols(sta_cot, spi_cot) # bind date, depth, SPI value
+
+# Interior SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results 
+spi.int.l <- fitSCI(int, first.mon = first_mon_int, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.int <- transformSCI(int, first.mon = first_mon_int, 
+                        obj = spi.int.l) 
+
+# change to tibble, prepare for join
+spi_int <- as.tibble(spi.int) %>% 
+  rename(spi_int = value)
+
+spi_int <- bind_cols(sta_int, spi_int) # bind date, depth, SPI value
+
+# Oelrichs SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# calculate SPI as a list & extract results
+spi.oel.l <- fitSCI(oel, first.mon = first_mon_oel, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.oel <- transformSCI(oel, first.mon = first_mon_oel, 
+                        obj = spi.oel.l) 
+
+# change to tibble, prepare for join
+spi_oel <- as.tibble(spi.oel) %>% 
+  rename(spi_oel = value) 
+
+spi_oel <- bind_cols(sta_oel, spi_oel) # bind date, depth, SPI value 
+
+# Oral SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.ora.l <- fitSCI(ora, first.mon = first_mon_ora, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.ora <- transformSCI(ora, first.mon = first_mon_ora, 
+                        obj = spi.ora.l) 
+
+# change to tibble, prepare for join
+spi_ora <- as.tibble(spi.ora) %>% 
+  rename(spi_ora = value) 
+
+spi_ora <- bind_cols(sta_ora, spi_ora) # bind date, depth, SPI value
+
+# Rapid SPI 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# calculate SPI as a list & extract results
+spi.rap.l <- fitSCI(rap, first.mon = first_mon_rap, distr = distrib, 
+                   time.scale = time_scale, p0 = p_zero, 
+                   p0.center.mass = p_zero_cm, scaling = scale, 
+                   warn	= warn_me)
+
+# create a matrix with SPI values - used below
+spi.rap <- transformSCI(rap, first.mon = first_mon_rap, 
+                        obj = spi.rap.l) 
+
+# change to tibble, prepare for join
+spi_rap <- as.tibble(spi.rap) %>% 
+  rename(spi_rap = value) 
+
+spi_rap <- bind_cols(sta_rap, spi_rap) # bind date, depth, SPI value
+
+#   60mon - combine & gather the SPI variables---- 
+spi_gath60 <- list(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) %>% 
+  reduce(left_join, by = "date") %>% 
+  select(date, starts_with("spi")) %>% # selects the spi vals
+  gather(key = sta, value = spi_index, -date) %>% 
+  mutate(sta = str_remove_all(.$sta, "spi_")) %>% 
+  drop_na() 
+
+#   create a list of lists
+spi_list_60 <- list(spi.cot.l, spi.int.l, spi.oel.l, 
+             spi.ora.l, spi.rap.l) %>% 
+  flatten() 
+
+# remove the spi vectors & individual dataframes
+rm(spi.cot, spi.int, spi.oel, spi.ora, spi.rap)
+rm(spi_cot, spi_int, spi_oel, spi_ora, spi_rap) 
+rm(spi.cot.l, spi.int.l, spi.oel.l, spi.ora.l, spi.rap.l) 
+```
