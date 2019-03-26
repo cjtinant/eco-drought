@@ -271,21 +271,21 @@ gage_dv <- bind_rows(gage_dv_01, gage_dv_02)
 rm(endDate, parameter_cd, startDate, gage_meta_poss, gage_meta_pos, meta_cd, 
    gage_dv_01, gage_dv_02, lon_riv) 
 
-export(gage_dv, "data/gage_dv.csv") 
+#export(gage_dv, "data/gage_dv.csv") 
 ```
 
 ```{r clean_daily_flow, eval=FALSE} 
-# this code chunk removes dates prior to water year 1990, NA values, 
+# this code chunk removes dates prior to water year 1980, NA values, 
 #     other bits
 
 # 1. load the metadata & daily flows 
-gage_meta <- read_csv("data/gage_meta.csv") %>% 
-  mutate(state_cd = as.character(state_cd)) %>% 
-  mutate(huc_cd = as.character(huc_cd)) 
+#gage_meta <- read_csv("data/gage_meta.csv") %>% 
+#  mutate(state_cd = as.character(state_cd)) %>% 
+#  mutate(huc_cd = as.character(huc_cd)) 
 
 gage_dv <- read_csv("data/gage_dv.csv")  
   
-# 2. remove dates prior to water year 1990 & NA vals
+# 2. remove dates prior to water year 1980 & NA vals
 gage_dv <- gage_dv %>% 
   filter(waterYear >= 1980)  %>% 
   filter(Q != is.na(Q)) # remove NA discharge values from record  
@@ -390,18 +390,20 @@ gage_qual_cd <- gage_dv %>%
 ``` 
 
 ```{r create-short-names}
+# adds short names to the gage_dv tibble  
 
-gage_nm_short <- tibble(site_no = c(06441500, 06406000, 06406500, 06446700,
-06402500, 06402470, 06402430, 06447230,
-06402600, 06438500, 06403700, 06408650,
-06423500, 06425500, 06424000, 06402000,
-06403300, 06400000, 06400875, 06464500,
-06464100, 06448000, 06449000, 06449300,
-06450500, 06447500, 06449500, 06449100,
-06463500, 06463720, 06461500, 06441110,
-06449400, 06440200, 06408500, 06445980,
-06446500, 06447000, 06452000, 06446000,
-06445685, 06445700, 06447450, 06446100),
+gage_nm_short <- tibble(site_no = 
+                          c(06441500, 06406000, 06406500, 06446700, 
+                            06402500, 06402470, 06402430, 06447230, 
+                            06402600, 06438500, 06403700, 06408650, 
+                            06423500, 06425500, 06424000, 06402000, 
+                            06403300, 06400000, 06400875, 06464500, 
+                            06464100, 06448000, 06449000, 06449300, 
+                            06450500, 06447500, 06449500, 06449100, 
+                            06463500, 06463720, 06461500, 06441110, 
+                            06449400, 06440200, 06408500, 06445980, 
+                            06446500, 06447000, 06452000, 06446000, 
+                            06445685, 06445700, 06447450, 06446100), 
 sta = c("bad_fpi", "bat_her", "bat_bhr", "blc_wan",
 "bev_buf", "bev_abf", "bev_pri", "blp_bel",
 "che_buf", "che_pla", "che_red", "che_sce",
@@ -421,18 +423,350 @@ gage_dv <- full_join(gage_dv, gage_nm_short, by = "site_no")
 rm(gage_ck, gage_incomp, gage_meta, gage_nm_short, gage_qual, gage_qual_cd,
 gage_yr_sum2, gage_yr_summ)
 
-# save data - note it needs to be split into two parts
+# save data - note it needs to be split into three parts
 gage_dv_part01 <- gage_dv %>% 
   slice(1:199999) 
 gage_dv_part02 <- gage_dv %>% 
-  slice(200000:438224)
+  slice(200000:299999) 
+gage_dv_part03 <- gage_dv %>% 
+  slice(300000:438224) 
+
 export(gage_dv_part01, "data/gage_dv_part01.csv") 
-export(gage_dv_part02, "data/gage_dv_part02.csv")
+export(gage_dv_part02, "data/gage_dv_part02.csv")  
+export(gage_dv_part03, "data/gage_dv_part03.csv") 
 ```
 
-```{r}
-abc
+```{r remove_NA_data_and_incomplete_years}    
+# Stream flow is being analyzed over a period of Water Year 1980-2017.   
+
+# 1. import gage daily values 
+gage_dv_part01 <- read_csv("data/gage_dv_part01.csv") %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+    mutate(county_cd = as.character(county_cd))   
+gage_dv_part02 <- read_csv("data/gage_dv_part02.csv") %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+    mutate(county_cd = as.character(county_cd)) 
+gage_dv_part03 <- read_csv("data/gage_dv_part03.csv") %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+    mutate(county_cd = as.character(county_cd)) 
+
+
+# 2. join daily values 
+gage_dv_all <- bind_rows(gage_dv_part01, gage_dv_part02, gage_dv_part03) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) %>% 
+  mutate(state_cd = as.character(state_cd)) %>% 
+  mutate(huc_cd = as.character(huc_cd)) 
+rm(gage_dv_part01, gage_dv_part02, gage_dv_part03) 
+
 ```
+
+```{r fix_minor_missing_days}
+# four station-years were missing 5 or fewer days -- most likely at the 
+# end of the recording record 
+
+# 1. check for incomplete year records 
+gage_yr_incomp <- gage_dv_all %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(days_record = n()) %>% 
+  filter(days_record <= 364) %>% 
+  ungroup() %>% 
+  arrange(sta, waterYear, days_record) 
+
+# add the incomplete var to the active dataframe - NA means complete year
+gage_dv_all <- full_join(gage_dv_all, gage_yr_incomp, 
+                     by = c("sta", "waterYear")) 
+
+# 2. find years with less than 365 days 
+gage_yr_gt_360 <- gage_yr_incomp %>% 
+  filter(days_record > 360) 
+
+# A tibble: 4 x 3
+#  sta     waterYear days_record
+#  <chr>       <int>       <int>
+#1 che_pla      1995         364
+#2 che_pla      2010         361
+#3 wcc_ogl      1981         364
+#4 wcc_ogl      1999         364 
+
+# 3. get record with missing value -- che_pla_1995 
+che_pla_1995 <- gage_dv_all %>% 
+  filter(sta == "che_pla") %>% 
+  filter(waterYear == "1995") 
+
+# get a default record  
+default_1995 <- gage_dv_all %>% 
+  filter(sta == "whi_ogl") %>% 
+  filter(waterYear == "1995") %>%  
+  select(Date) 
+
+# find and replace the missing value using the prior day value 
+che_pla_1995_miss <- full_join(che_pla_1995, default_1995, by = "Date") %>% 
+  filter(is.na(Q)) 
+
+che_pla_1995_fix <- che_pla_1995 %>% 
+  filter(Date == che_pla_1995_miss$Date - 1) %>% 
+  mutate(Date = che_pla_1995_miss$Date) 
+
+# update the active record 
+gage_dv_all <- bind_rows(gage_dv_all, che_pla_1995_fix) 
+rm(che_pla_1995, che_pla_1995_miss, default_1995, che_pla_1995_fix) 
+
+
+# 4. get record with missing value -- wcc_ogl_1981
+wcc_ogl_1981 <- gage_dv_all %>% 
+  filter(sta == "wcc_ogl") %>% 
+  filter(waterYear == "1981") 
+
+# get a default record  
+default_1981 <- gage_dv_all %>% 
+  filter(sta == "che_pla") %>% 
+  filter(waterYear == "1981") %>%  
+  select(Date) 
+
+# find and replace the missing value using the prior day value 
+wcc_ogl_1981_miss <- full_join(wcc_ogl_1981, default_1981, by = "Date") %>% 
+  filter(is.na(Q)) 
+
+wcc_ogl_1981_fix <- wcc_ogl_1981 %>% 
+  filter(Date == wcc_ogl_1981_miss$Date - 1) %>% 
+  mutate(Date = wcc_ogl_1981_miss$Date) 
+
+# update the active record 
+gage_dv_all <- bind_rows(gage_dv_all, wcc_ogl_1981_fix) 
+rm(wcc_ogl_1981, wcc_ogl_1981_miss, default_1981, wcc_ogl_1981_fix) 
+
+
+# 5. get record with missing value -- wcc_ogl_1999
+wcc_ogl_1999 <- gage_dv_all %>% 
+  filter(sta == "wcc_ogl") %>% 
+  filter(waterYear == "1999") 
+
+# get a default record  
+default_1999 <- gage_dv_all %>% 
+  filter(sta == "bev_pri") %>% 
+  filter(waterYear == "1999") %>%  
+  select(Date) 
+
+# find and replace the missing value using the prior day value 
+wcc_ogl_1999_miss <- full_join(wcc_ogl_1999, default_1999, by = "Date") %>% 
+  filter(is.na(Q)) 
+
+wcc_ogl_1999_fix <- wcc_ogl_1999 %>% 
+  filter(Date == wcc_ogl_1999_miss$Date - 1) %>% 
+  mutate(Date = wcc_ogl_1999_miss$Date) 
+
+# update the active record 
+gage_dv_all <- bind_rows(gage_dv_all, wcc_ogl_1999_fix) 
+rm(wcc_ogl_1999, wcc_ogl_1999_miss, default_1999, wcc_ogl_1999_fix) 
+
+
+# 6. get record with missing value -- che_pla_2010 
+che_pla_2010 <- gage_dv_all %>% 
+  filter(sta == "che_pla") %>% 
+  filter(waterYear == "2010") 
+
+# get a default record  
+default_2010 <- gage_dv_all %>% 
+  filter(sta == "whi_ogl") %>% 
+  filter(waterYear == "2010") %>%  
+  select(Date) 
+
+# find and replace the missing value using the prior day value 
+che_pla_2010_miss <- full_join(che_pla_2010, default_2010, by = "Date") %>% 
+  filter(is.na(Q)) 
+
+che_pla_2010_fix <- che_pla_2010_miss %>% 
+  split($)
+  filter(Date == che_pla_2010_miss$Date - 1) %>% 
+  mutate(Date = che_pla_2010_miss$Date) 
+
+# update the active record 
+gage_dv_all <- bind_rows(gage_dv_all, che_pla_2010_fix) 
+rm(che_pla_2010, che_pla_2010_miss, default_2010, che_pla_2010_fix) 
+
+
+
+
+
+
+
+
+
+
+
+
+
+# check work 
+gage_yr_gt_360 <- gage_dv_all %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(days_record = n()) %>% 
+  filter(days_record <= 364) %>% 
+  ungroup() %>% 
+  arrange(sta, waterYear, days_record) %>% 
+  filter(days_record > 360) 
+```
+
+
+
+# 3. remove metadata from discharge values 
+gage_meta <- gage_dv_all %>% 
+  select(sta, min_year:contrib_drain_area_va) %>% 
+  distinct() 
+
+gage_dv_all <- gage_dv_all %>% 
+  select(-(min_year:contrib_drain_area_va))
+
+
+# 4. remove NA values using Q30 -- start of record missing values
+# separate the NA values into a new folder 
+gage_dv_incomp_Q30 <- gage_dv_all %>% 
+    select(sta, Date, Q, everything()) %>% 
+  filter(is.na(Q30))           # gets NA vals for Q30 from start of record 
+
+# remove the NA values from the active dataset 
+gage_dv <- gage_dv_all %>% 
+  select(sta, Date, Q, everything()) %>% 
+  filter(!is.na(Q30))           # drops NA vals for Q30 at start of record
+
+
+
+
+
+```
+
+
+
+
+
+# 1. check for incomplete year records 
+gage_yr_incomp <- gage_dv_all %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(days_record = n()) %>% 
+  filter(days_record <= 364) %>% 
+  ungroup() %>% 
+  arrange(sta, waterYear, days_record) 
+
+# add the incomplete var to the active dataframe - NA means complete year
+gage_dv <- full_join(gage_dv, gage_yr_incomp, 
+                     by = c("sta", "waterYear")) 
+
+
+# filter the incomplete years & add records with Q30 NA
+gage_dv_incomp_ck <- gage_dv %>% 
+    filter(!is.na(days_record)) %>% 
+  filter(days_record < 365) # collects daily flows for years with NA vals
+
+gage_dv <- gage_dv %>% 
+    filter(is.na(days_record)) %>% # removes daily flows for years with NA vals 
+    filter(days_record > 365) %>%
+    select(-days_record)                # drops the incomplete check value 
+
+gage_dv_incomp <- bind_rows(gage_dv_incomp, gage_dv_incomp_ck) 
+rm(gage_dv_incomp_ck)
+
+# data check
+gage_summary <- gage_dv %>%                          
+  group_by(sta, waterYear) %>%                  
+  summarise(days_record = n()) %>%                   
+  ungroup()        
+
+gage_
+
+
+perc_records_incomp <- 100* count(gage_dv_incomp) / count(gage_dv) 
+
+# 6. check for NA values 
+gage_dv_ck <- gage_dv %>% 
+  filter(is.na(Date)) 
+
+gage_dv <- gage_dv %>% 
+  drop_na()
+
+gage_sites <- gage_dv %>% 
+  distinct(sta)       # doublecheck the agortithm
+```
+
+```{r prepare_dv_data_for_analysis}
+# fix low flows ---- this step needed for the PCA  
+#   EGRET calculates a "better" zero-flow value, but causes issues with results
+#   this code chunk fixes low flow values by substituting 0.01 cfs 
+#   for zero-flow values  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
+# 1. clean the global environment 
+rm(gage_incomp, perc_records_incomp, gage_sites, gage_dv_ck)  
+
+
+# 2. remove unneeded date data 
+#     Egret calculates several values related to date.  These are not needed 
+#     for subsequent analysis 
+gage_date_data <- gage_dv %>% 
+  select(Date, site_no, Julian, Month, Day, DecYear, MonthSeq, i) 
+
+gage_dv_ck <- gage_dv %>%    # using a different var name to check length later 
+  select(sta, Date, waterYear, Q, Q7, Q30, Qualifier)
+
+
+# 3. censor zero flows to 0.01 cfs
+# gather the different flow values 
+gage_dv_gath_ck <- gage_dv_ck %>%  # using diff var name to check length later 
+  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs
+         -c(sta, waterYear, Date, Qualifier)) 
+
+# filter & censor zero flows 
+gage_dv_low <- gage_dv_gath_ck %>% 
+  filter(q_val < 0.01) %>%               
+  mutate(q_val = 0.01) 
+
+# filter non-zero flows 
+gage_dv_high <- gage_dv_gath_ck %>% 
+  filter(q_val >= 0.01) %>% 
+  mutate(q_val = round(q_val, 2))
+
+# join the zero and non-zero together 
+gage_dv_gath <- bind_rows(gage_dv_high, gage_dv_low) 
+
+# spread out the different flows 
+gage_dv <- gage_dv_gath %>% 
+  spread(q_type, q_val) 
+
+
+# 4. check the data for duplicates 
+gage_ck <- gage_dv %>%  
+  group_by(sta, waterYear) %>% 
+  summarize(count = n()) %>% 
+  ungroup() %>% 
+  filter(count > 366) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# to work on later: 
+# for the low flow to show it was censored
+#  mutate(Qualifier = case_when(      # causes duplication when spreading 
+#    Qualifier == "A"   ~ "Ac",       # example A for Q : Ac for Q7 & Q30 
+#    Qualifier == "A:<" ~ "A:<c",     # creates two rows...
+#    Qualifier == "A:e"  ~ "A:ec", 
+#    TRUE ~ "check"))
+# another approach    
+    #  ))
+#  spread(Qualifier, q_val) #%>% 
+#    rename("Ac" = "A") %>%      # changes names to 'c' for censored
+#    rename("A:<c" = "A:<") %>% 
+#    rename("A:ec" = "A:e") %>% 
+#  gather(Qualifier, q_val, -c(sta, waterYear, Date, q_type)) %>% 
+#  filter(!is.na(q_val))
+```
+
+```{r export_input_data}
+# clean up global environment
+rm(gage_ck, gage_dv_all, gage_dv_ck, gage_dv_gath, gage_dv_gath_ck, 
+   gage_dv_high, gage_dv_low, gage_dv_part01, gage_dv_part02, gage_dv_part03) 
+
+export(gage_dv, "data/gage_mod_input.csv")  # model input for below
+export(gage_date_data, "data/gage_mod_dates.csv") # date data for model input 
+export(gage_meta, "data/gage_mod_meta.csv")  # metadata for model input
+export(gage_dv_incomp, "data/gage_dv_incomp_yr.csv") # incomplete yr dv vals 
+```
+
 
 
 
