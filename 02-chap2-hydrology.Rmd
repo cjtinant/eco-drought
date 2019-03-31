@@ -167,24 +167,22 @@ gage_dv <- gage_dv %>%
 # years 1991-1995
 
 # input data 
-yr_min <- '1991' 
-yr_max <- '1995'
+yr_min <- 1991
+yr_max <- 1995
 last_dv <- gage_dv 
+run_name <- "run_01" 
 
 # 1. find stations 1991-1995 
-gage_run_01 <- year_sum %>% 
-  select(sta, yr_min:yr_max) %>% 
+pca_run <- year_sum %>% 
+  select(sta, as.character(yr_min):as.character(yr_max)) %>% 
   drop_na() %>% 
   select(sta)  
 
-pca_input <- semi_join(gage_dv,  gage_run_01, by = "sta") %>% 
-  as.tibble() %>% 
+pca_input <- semi_join(last_dv,  pca_run, by = "sta") %>% 
+  as_tibble() %>% 
   select(-c(contrib_drain_area_va, incomp_yr)) %>%
-  filter(water_year <= as.integer(yr_min) & 
-           water_year <= as.integer(yr_max))
-
-
-
+  filter(water_year <= yr_min & 
+           water_year <= yr_max)
 
 # 2. Transform using BoxCox to approach normality---- 
 # Daily flow data are highly skewed.  BoxCox transformation utilizes 
@@ -195,16 +193,16 @@ pca_input <- semi_join(gage_dv,  gage_run_01, by = "sta") %>%
 # lamda = 2 is a square transformation,
 # lambda = 0 is a logrithmic transformation.
 
-lambda_q1  <- BoxCox.lambda(pca_input_run_01$q1_depth)   
-lambda_q7  <- BoxCox.lambda(pca_input_run_01$q7_depth)   
-lambda_q30 <- BoxCox.lambda(pca_input_run_01$q30_depth)     
+lambda_q1  <- BoxCox.lambda(pca_input$q1_depth)   
+lambda_q7  <- BoxCox.lambda(pca_input$q7_depth)   
+lambda_q30 <- BoxCox.lambda(pca_input$q30_depth)     
 
 # 3. Standardize data by z-score---- 
 # PCA requires that data are scaled with a mean of zero and standard 
 # deviation of unity, e.g. a z-score.  This could be done within the 
 # PCA, but I did it manually. 
 
-pca_input_run_01 <- pca_input_run_01 %>% 
+pca_input <- pca_input %>% 
   mutate(q1_tr = BoxCox(.$q1_depth,lambda_q1)) %>%
   mutate(q7_tr = BoxCox(.$q7_depth,lambda_q7)) %>% 
   mutate(q30_tr = BoxCox(.$q30_depth,lambda_q30)) %>%
@@ -221,50 +219,39 @@ pca_input_run_01 <- pca_input_run_01 %>%
                 everything()) %>% 
   select(-c(q1_mean:q30_sd))  
 
+
 # 4. Calculate PCA matrix & summary info---- 
 # prcomp() requires a dataset with only the variables, split data 
 # into PCA input & names to connect to result 
+# note: '.' is passing select(q1_depth, q7_depth, q30_depth) 
 
-pca_check <- pca_input_run_01 %>% 
-  as.tibble() %>%
-  select(sta:water_year) %>% 
-  gather(key = flow_type, val = cms, -sta, -date, -water_year) %>% 
-  group_by(sta, water_year) %>%  
-  summarise(count = n())      # note this throws a warning - it is ok 
-
-pca_matrix <- pca_input_run_01 %>%  
-  dplyr::select(q1_depth, q7_depth, q30_depth) %>%
+pca_matrix <- pca_input %>%  
+  select(q1_depth, q7_depth, q30_depth) %>%
   prcomp(., scale = TRUE)      
-# note that . is passing select(q1_depth, q7_depth, q30_depth) 
+
 
 # 5. Gather & summarize PCA results----
 # Eigenvectors--results about PC axes
-pca_eigen_run_01 <-  tidy(pca_matrix, matrix = "pcs") 
-
-pca_eigen_run_01 <- pca_eigen_run_01 %>% 
-  mutate(name = "run_01") 
+pca_eigen <-  tidy(pca_matrix, matrix = "pcs") %>% 
+  mutate(name = run_name) 
 
 # PCA variables--the loadings on the PCA axes.  
 # & drop the 3rd PC-axis because it's not useful 
 
-pca_vars_run_01 <-  tidy(pca_matrix, matrix = "variables") %>% 
+pca_vars <-  tidy(pca_matrix, matrix = "variables") %>% 
   filter(PC != 3) %>% 
   rename(var = column) %>% 
-  mutate(var = as.factor(var)) 
-
-pca_vars_run_01 <- pca_vars_run_01 %>% 
+  mutate(var = as.factor(var)) %>% 
   mutate(name = "run_01") 
 
 # Bind sample vals to PCA matrix 
-pca_run_01 <- augment(pca_matrix, data = pca_input_run_01) %>% 
+pca_run <- augment(pca_matrix, data = pca_input) %>% 
   select(-c(.rownames, .fittedPC3)) %>% 
-      mutate(q1_q30_diff = q1_depth - q30_depth)      
-
-pca_run_01 <- pca_run_01 %>% 
+      mutate(q1_q30_diff = q1_depth - q30_depth) %>% 
   mutate(name = "run_01") 
 
 #  summarize the run 
-pca_sum_run_01 <- pca_run_01 %>% 
+pca_sum <- pca_run %>% 
   group_by(sta) %>% 
   summarize(PC1_mean    = mean(.fittedPC1),
             PC2_mean    = mean(.fittedPC2), 
@@ -277,25 +264,28 @@ pca_sum_run_01 <- pca_run_01 %>%
   arrange(PC2_mean) %>% 
   arrange(PC1_mean) %>% 
   mutate(eigen_dist = sqrt(PC1_mean^2 + PC2_mean^2)) %>% 
-  arrange(eigen_dist) 
+  arrange(eigen_dist) %>% 
+  mutate(name = run_name) 
 
-pca_sum_run_01 <- pca_sum_run_01%>% 
-  mutate(name = "run_01") 
 
 # 6. clean up 
 lambda_q1 <- enframe(lambda_q1)    
 lambda_q7 <- enframe(lambda_q7) 
 lambda_q30 <- enframe(lambda_q30)  
 
-lambda_vals_01 <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
+lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
   select(-c(name1, name2)) %>% 
   rename(lambda_q1  = value) %>% 
   rename(lambda_q7  = value1) %>% 
   rename(lambda_q30 = value2) %>% 
-  mutate(name = "run_01")
+  mutate(name = "run_01") 
 
-rm(lambda_q1, lambda_q7, lambda_q30, pca_input_run_01, pca_matrix, 
-   pca_check)
+pca_eigen_vals <- pca_eigen  
+
+
+  
+rm(lambda_q1, lambda_q7, lambda_q30, pca_matrix, 
+   pca_check) 
 ```
 
 ```{r fill_using_pca_run_01} 
@@ -303,10 +293,20 @@ rm(lambda_q1, lambda_q7, lambda_q30, pca_input_run_01, pca_matrix,
 # This prepares missing data --  for short-year station 'plu_hay'
 # the PCA years are 1991-1995 & going to extend to 1988-1998
 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# input data 
+yr_min <- 1991
+yr_max <- 1995
+miss_min <- 1988 
+miss_max <- 1998
+last_dv <- gage_dv 
+run_name <- "run_01" 
+#
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 1.  prepare to join lead and lag stations using station pairs from last pca 
 # create a summary table 
-gage_pairs_01 <- pca_sum_run_01 %>% 
+gage_pairs <- pca_sum %>% 
   mutate(sta_lead = lead(sta, 
                      order_by = PC1_mean)) %>%   # creates a lead col
   mutate(sta_lag = lag(sta, 
@@ -314,7 +314,7 @@ gage_pairs_01 <- pca_sum_run_01 %>%
 select(sta, PC1_mean, PC2_mean, sta_lead, sta_lag) 
 
 # 1.1 add lead PCA information to summary table 
-gage_pairs_01.01 <- left_join(gage_pairs_01, gage_pairs_01, 
+gage_pairs.01 <- left_join(gage_pairs, gage_pairs, 
                            by = c("sta" = "sta_lead")) %>% 
   select(-c(sta.y, sta_lag.y)) %>% 
   rename(PC1_mean.sta = PC1_mean.x) %>% 
@@ -324,40 +324,41 @@ gage_pairs_01.01 <- left_join(gage_pairs_01, gage_pairs_01,
   rename(sta_lag = sta_lag.x)   
 
 # 1.2 add lag PCA information to summary table & clean up 
-gage_pairs_01 <- left_join(gage_pairs_01.01, gage_pairs_01, 
+gage_pairs <- left_join(gage_pairs.01, gage_pairs, 
                            by = c("sta" = "sta_lag")) %>% 
   rename(sta_lead = sta_lead.x) %>% 
   select(-c(sta.y, sta_lead.y)) %>% 
   rename(PC1_mean.lag = PC1_mean) %>% 
   rename(PC2_mean.lag = PC2_mean) 
 
-rm(gage_pairs_01.01) 
+rm(gage_pairs.01) 
 
 # 2. find complete gages looking forward and backward 
-gage_comp_01_bkwd <- year_sum %>% 
-  select(sta, '1988':'1990') %>% 
+gage_comp_bkwd <- year_sum %>% 
+  select(sta, as.character(miss_min):as.character(miss_min + 2)) %>% 
   drop_na() %>% 
   select(sta)   
 
-gage_comp_01_fwd <- year_sum %>% 
-  select(sta, '1996':'1998') %>% 
+gage_comp_fwd <- year_sum %>% 
+  select(sta, as.character(miss_max - 2):as.character(miss_max)) %>% 
   drop_na() %>% 
   select(sta) 
 
 # 3. find missing gages looking backward and forward & clean up
-gage_miss_01_bkwd <- anti_join(gage_run_01, gage_comp_01_bkwd, 
+gage_miss_bkwd <- anti_join(pca_run, gage_comp_bkwd, 
                                by = "sta")  
-gage_miss_01_fwd <- anti_join(gage_run_01, gage_comp_01_fwd, 
+
+gage_miss_fwd <- anti_join(pca_run, gage_comp_fwd, 
                               by = "sta") 
 
-gage_miss_01 <- bind_rows(gage_miss_01_bkwd, gage_miss_01_fwd) %>% 
+gage_miss <- bind_rows(gage_miss_bkwd, gage_miss_fwd) %>% 
   distinct() 
 
-rm(gage_comp_01_bkwd, gage_comp_01_fwd, gage_miss_01_bkwd, gage_miss_01_fwd)
+rm(gage_comp_bkwd, gage_comp_fwd, gage_miss_bkwd, gage_miss_fwd)
 
 
 # 4. select stations to fill the missing stations 
-gage_miss_01 <- semi_join(gage_pairs_01, gage_miss_01, by = "sta") %>% 
+gage_miss <- semi_join(gage_pairs, gage_miss, by = "sta") %>% 
   mutate(PC1_diff.lead = abs(PC1_mean.sta - PC1_mean.lead)) %>%  
   mutate(PC2_diff.lead = abs(PC2_mean.sta - PC2_mean.lead)) %>%  
   mutate(PC1_diff.lag = abs(PC1_mean.sta - PC1_mean.lag)) %>%  
@@ -370,25 +371,25 @@ gage_miss_01 <- semi_join(gage_pairs_01, gage_miss_01, by = "sta") %>%
 
 
 # 5. get the daily flow data to fill the missing stations 
-gage_miss_01 <- gage_miss_01 %>% 
+gage_miss <- gage_miss %>% 
   select(sta, sta_fill) 
 
-gage_fill_run_01 <- left_join(gage_dv, gage_miss_01, 
+gage_fill <- left_join(last_dv, gage_miss, 
                                    by = c("sta" = "sta_fill")) %>% 
   select(-c(contrib_drain_area_va)) %>% 
   rename(orig_contr_area_km = contrib_drain_area_km) %>% 
   rename(sta_fill = sta) %>% 
   rename(sta = sta.y) %>% 
   filter(!is.na(sta)) %>% 
-  filter(between(water_year, 1990, 2000)) %>% 
-  filter(!between(water_year, 1993, 1997)) %>% 
+  filter(between(water_year, miss_min, miss_max)) %>% 
+  filter(!between(water_year, yr_min, yr_max)) %>% 
   select(-c(q1_depth:q30_depth)) %>% 
   rename(q_orig   = q) %>% 
   rename(q7_orig  = q7) %>% 
   rename(q30_orig = q30) 
 
 # calculate ratio between contributing areas & make new flow
-gage_fill_run_01 <- left_join(gage_fill_run_01, gage_contrib_area, 
+gage_fill <- left_join(gage_fill, gage_contrib_area, 
                              by = "sta") %>% 
   mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
   mutate(area_ratio = contrib_drain_area_km/orig_contr_area_km) %>% 
@@ -403,64 +404,51 @@ gage_fill_run_01 <- left_join(gage_fill_run_01, gage_contrib_area,
                           digits = 2)) 
 
 # prepare to join 
-gage_fill_run_01 <- gage_fill_run_01 %>% 
+gage_fill <- gage_fill %>% 
   select(sta, date, water_year, incomp_yr, q, q30, q7, contrib_drain_area_va, 
          contrib_drain_area_km, q1_depth, q7_depth, q30_depth, sta_fill) 
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-test <- gage_fill_run_01 %>%                          
-  group_by(sta, water_year) %>%                  
-  summarise(days_record = n()) %>%                   
-  ungroup() 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 # 6. find possible duplicated stations 
-gage_fill_dups_01 <- semi_join(gage_dv, gage_miss_01, 
+gage_fill_dups <- semi_join(last_dv, gage_miss, 
                                    by = ("sta")) %>% 
-  mutate(sta_fill = "ZZ") %>% 
-  filter(between(water_year, 1990, 2000)) 
+  filter(between(water_year, miss_min, miss_max)) 
 
 # 7. remove duplicated stations
-gage_fill_run_01 <- anti_join(gage_fill_run_01, gage_fill_dups_01, 
+gage_fill <- anti_join(gage_fill, gage_fill_dups, 
                   by = c("sta", "water_year")) %>% 
   select(-sta_fill)
 
-gage_dv_run_01 <- bind_rows(gage_dv, gage_fill_run_01) %>% 
+gage_dv_01 <- bind_rows(last_dv, gage_fill) %>% 
   distinct()
 
+last_dv <- gage_dv_01 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-test <- gage_dv_run_01 %>%                          
+test <- gage_dv_01 %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
   ungroup() 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 8. check results 
-year_summary_01 <- gage_dv_run_01 %>%                          
+year_summary <- last_dv %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
   ungroup() 
 
-year_sum_01 <- year_summary_01 %>% 
+year_sum <- year_summary_ck %>% 
   spread(water_year, days_record) 
 
-year_length_01 <- year_summary_01 %>% 
+year_length_ck <- year_summary %>% 
   group_by(sta) %>% 
   summarise(years_record = n()) %>%                   
   ungroup() 
 
 # 9. update results
-year_length <- full_join(year_length, year_length_01, 
+year_length <- full_join(year_length, year_length_ck, 
                   by = "sta") %>% 
   rename(years_rec_orig = years_record.x) %>% 
   rename(years_rec_01 = years_record.y) %>% 
   arrange(years_rec_01) 
-
-year_summary <- full_join(year_summary, year_summary_01, 
-                  by = c("sta", "water_year")) %>% 
-  rename(days_rec_01 = days_record.x) %>% 
-  rename(days_rec_02 = days_record.y) %>% 
-  arrange(desc(days_rec_02)) 
 ```
 
 ```{r streamflow-pca_run_02}
