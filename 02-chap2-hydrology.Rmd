@@ -62,18 +62,18 @@ https://rdrr.io/cran/BayesFactor/f/vignettes/manual.Rmd#help
 
 ```{r test_mancova}
 # use corrr 
-install.packages("corrr") 
-library(corrr) 
+#install.packages("corrr") 
+#library(corrr) 
 
-test <- gage_dv %>% 
-  select(q1_depth:q30_depth)
-test %>%
-  corrr::correlate() %>%
+#test <- gage_dv %>% 
+#  select(q1_depth:q30_depth)
+#test %>%
+#  corrr::correlate() %>%
   # Re-arrange a correlation data frame 
   # to group highly correlated variables closer together.
-  corrr::rearrange(method = "MDS", absolute = FALSE) %>%
-  corrr::shave() %>% 
-  corrr::rplot(shape = 19, colors = c("red", "green")) #%>%
+#  corrr::rearrange(method = "MDS", absolute = FALSE) %>%
+#  corrr::shave() %>% 
+#  corrr::rplot(shape = 19, colors = c("red", "green")) #%>%
  # ggplot2::ggsave(
 #    filename = here::here("images", "mtcars_correlationplot.png"),
 #    width = 5,
@@ -84,7 +84,7 @@ test %>%
 ```
 
 ```{r setup, include=FALSE, message=FALSE}  
-#knitr::opts_chunk$set(echo = FALSE)  
+#knitr::opts_chunk$set(echo = FALSE)   
 options(tibble.print_max = 70) # sets tibble output for printing  
 
 # Sets up the library of packages   
@@ -161,7 +161,7 @@ gage_dv <- gage_dv %>%
 
 ```{r prepare_for_pca-run01, message=FALSE}
 
-# 1. check for complete days of record & years of record 
+# 1. check for complete days of record & years of record  
 year_summary <- gage_dv %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
@@ -355,9 +355,18 @@ rm(lambda_q1, lambda_q7, lambda_q30, pca_matrix)
 ```{r fill_using_pca_run_01} 
 
 # this run is find missing records for short-year station 'plu_hay' & friends. 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# input additional data - see PCA above
-miss_min <- yr_min - 3  
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# update input data  
+miss_min <- yr_min %>% 
+  as_tibble() %>% 
+  mutate(value = case_when(yr_min == 1980 ~ 1980,
+            yr_max == 1981 ~ 1980, 
+            yr_max == 1982 ~ 1980, 
+            TRUE ~ yr_min - 3) 
+  ) %>% 
+  as_vector(.$value)  
+
 miss_max <- yr_max %>% 
   as_tibble() %>% 
   mutate(value = case_when(yr_max == 2017 ~ 2017,
@@ -366,32 +375,32 @@ miss_max <- yr_max %>%
             TRUE ~ yr_max + 3) 
   ) %>% 
   as_vector(.$value)  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 # 1.  prepare to join lead and lag stations using station pairs from last pca 
-# create a summary table 
+# create a summary table
 gage_pairs <- pca_sum %>% 
   mutate(sta_lead = lead(sta, 
-                     order_by = PC1_mean)) %>%   # creates a lead col
+                     order_by = PC1_mean)) %>%   # creates a lead col 
   mutate(sta_lag = lag(sta, 
                      order_by = PC1_mean)) %>%   # creates a  lag col 
 select(sta, PC1_mean, PC2_mean, sta_lead, sta_lag) 
 
-# 1.1 add lead PCA information to summary table 
+# 1.1 add lead PCA information to summary table -updated 
 gage_pairs_01 <- left_join(gage_pairs, gage_pairs, 
-                           by = c("sta" = "sta_lead")) %>% 
-  select(-c(sta.y, sta_lag.y)) %>% 
+                           by = c("sta_lead" = "sta")) %>% 
   rename(PC1_mean.sta = PC1_mean.x) %>% 
   rename(PC2_mean.sta = PC2_mean.x) %>% 
+  select(-c(sta_lead.y, sta_lag.y)) %>% 
   rename(PC1_mean.lead = PC1_mean.y) %>% 
   rename(PC2_mean.lead = PC2_mean.y) %>% 
   rename(sta_lag = sta_lag.x)   
 
-# 1.2 add lag PCA information to summary table & clean up 
+# 1.2 add lag PCA information to summary table & clean up - updated 
 gage_pairs <- left_join(gage_pairs_01, gage_pairs, 
-                           by = c("sta" = "sta_lag")) %>% 
+                           by = c("sta_lag" = "sta")) %>% 
   rename(sta_lead = sta_lead.x) %>% 
-  select(-c(sta.y, sta_lead.y)) %>% 
+  select(-c(sta_lead.y,sta_lag.y)) %>% 
   rename(PC1_mean.lag = PC1_mean) %>% 
   rename(PC2_mean.lag = PC2_mean) 
 
@@ -425,8 +434,8 @@ rm(gage_comp_bkwd, gage_comp_fwd, gage_miss_bkwd, gage_miss_fwd)
 gage_miss <- semi_join(gage_pairs, gage_miss, by = "sta") %>% 
   mutate(PC1_diff.lead = abs(PC1_mean.sta - PC1_mean.lead)) %>%  
   mutate(PC2_diff.lead = abs(PC2_mean.sta - PC2_mean.lead)) %>%  
-  mutate(PC1_diff.lag = abs(PC1_mean.sta - PC1_mean.lag)) %>%  
-  mutate(PC2_diff.lag = abs(PC2_mean.sta - PC2_mean.lag)) %>% 
+  mutate(PC1_diff.lag = abs(PC1_mean.sta  - PC1_mean.lag)) %>%  
+  mutate(PC2_diff.lag = abs(PC2_mean.sta  - PC2_mean.lag)) %>% 
   mutate(sta_fill = if_else(
     PC1_diff.lead < PC1_diff.lag, 
     sta_lead, sta_lag)
@@ -509,33 +518,20 @@ year_length <- full_join(year_length, year_length_ck,
   rename(years_rec_orig = years_record.x) %>% 
   rename(years_rec_01 = years_record.y) %>% 
   arrange(years_rec_01) 
-
 ``` 
 
 ```{r streamflow-pca_run_02}    
 
-# this run is find missing records for short-year station 'whi_slm' & friends. 
+# this run is find missing records for short-year station
+# 'wkn_wok' & friends. 
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# update input data  
-miss_min <- yr_min %>% 
-  as_tibble() %>% 
-  mutate(value = case_when(yr_min == 1980 ~ 1980,
-            yr_max == 1981 ~ 1980, 
-            yr_max == 1982 ~ 1980, 
-            TRUE ~ yr_min - 3) 
-  ) %>% 
-  as_vector(.$value)  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# input data for code chunk 
+yr_min <- 1993    
+yr_max <- 1997                                 
+run_name <- "run_02" 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
-miss_max <- yr_max %>% 
-  as_tibble() %>% 
-  mutate(value = case_when(yr_max == 2017 ~ 2017,
-            yr_max == 2016 ~ 2017, 
-            yr_max == 2015 ~ 2017, 
-            TRUE ~ yr_max + 3) 
-  ) %>% 
-  as_vector(.$value)  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 # 1. find stations 
 pca_run <- year_sum %>% 
@@ -640,15 +636,26 @@ vals_pca    <- bind_rows(vals_pca, pca_vars)
 vals_lambda <- bind_rows(vals_lambda, lambda_vals) 
   
 rm(lambda_q1, lambda_q7, lambda_q30, pca_matrix) 
+
+beep(sound = 10)  
 ```
 
 ```{r fill_using_pca_run_02} 
 
-# this run is find missing records for short-year station 'wkn_wok' & friends. 
+# this run is fill missing records for short-year station 
+# 'wkn_wok' & friends. 
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# additional input data 
 # update input data  
-miss_min <- yr_min - 3  
+miss_min <- yr_min %>% 
+  as_tibble() %>% 
+  mutate(value = case_when(yr_min == 1980 ~ 1980,
+            yr_max == 1981 ~ 1980, 
+            yr_max == 1982 ~ 1980, 
+            TRUE ~ yr_min - 3) 
+  ) %>% 
+  as_vector(.$value)  
+
 miss_max <- yr_max %>% 
   as_tibble() %>% 
   mutate(value = case_when(yr_max == 2017 ~ 2017,
@@ -657,32 +664,32 @@ miss_max <- yr_max %>%
             TRUE ~ yr_max + 3) 
   ) %>% 
   as_vector(.$value)  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 # 1.  prepare to join lead and lag stations using station pairs from last pca 
-# create a summary table 
+# create a summary table
 gage_pairs <- pca_sum %>% 
   mutate(sta_lead = lead(sta, 
-                     order_by = PC1_mean)) %>%   # creates a lead col
+                     order_by = PC1_mean)) %>%   # creates a lead col 
   mutate(sta_lag = lag(sta, 
                      order_by = PC1_mean)) %>%   # creates a  lag col 
 select(sta, PC1_mean, PC2_mean, sta_lead, sta_lag) 
 
-# 1.1 add lead PCA information to summary table 
+# 1.1 add lead PCA information to summary table -updated 
 gage_pairs_01 <- left_join(gage_pairs, gage_pairs, 
-                           by = c("sta" = "sta_lead")) %>% 
-  select(-c(sta.y, sta_lag.y)) %>% 
+                           by = c("sta_lead" = "sta")) %>% 
   rename(PC1_mean.sta = PC1_mean.x) %>% 
   rename(PC2_mean.sta = PC2_mean.x) %>% 
+  select(-c(sta_lead.y, sta_lag.y)) %>% 
   rename(PC1_mean.lead = PC1_mean.y) %>% 
   rename(PC2_mean.lead = PC2_mean.y) %>% 
   rename(sta_lag = sta_lag.x)   
 
-# 1.2 add lag PCA information to summary table & clean up 
+# 1.2 add lag PCA information to summary table & clean up - updated 
 gage_pairs <- left_join(gage_pairs_01, gage_pairs, 
-                           by = c("sta" = "sta_lag")) %>% 
+                           by = c("sta_lag" = "sta")) %>% 
   rename(sta_lead = sta_lead.x) %>% 
-  select(-c(sta.y, sta_lead.y)) %>% 
+  select(-c(sta_lead.y,sta_lag.y)) %>% 
   rename(PC1_mean.lag = PC1_mean) %>% 
   rename(PC2_mean.lag = PC2_mean) 
 
@@ -775,7 +782,7 @@ gage_fill <- anti_join(gage_fill, gage_fill_dups,
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # need to input here! 
-gage_dv_02 <- bind_rows(last_dv, gage_fill) %>% 
+gage_dv_02 <- bind_rows(last_dv, gage_fill) %>%  
   distinct()
 
 last_dv <- gage_dv_02 
@@ -804,11 +811,12 @@ year_length <- full_join(year_length, year_length_ck,
 
 ```{r streamflow-pca_run_03}    
 
-# this run is find missing records for short-year station 'whi_slm' & friends. 
+# this run is find missing records for short-year station 
+# 'chi_sci' & friends. 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~
-# input data for code chunk
-yr_min <- 1992 
-yr_max <- 2000 
+# input data for code chunk 
+yr_min <- 2008 
+yr_max <- 2017 
 run_name <- "run_03" 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -915,11 +923,15 @@ vals_pca    <- bind_rows(vals_pca, pca_vars)
 vals_lambda <- bind_rows(vals_lambda, lambda_vals) 
 
 rm(lambda_q1, lambda_q7, lambda_q30, pca_matrix) 
-```
+
+beep(sound = 10) 
+``` 
 
 ```{r fill_using_pca_run_03} 
 
-# this run is find missing records for short-year station 'whi_slm' & friends. 
+# this run is find missing records for short-year station 
+# 'che_sce' & 'che_buf' are same year and most similiar... 
+# added code to use che_red with che_sce
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # update input data  
@@ -931,8 +943,8 @@ miss_min <- yr_min %>%
             TRUE ~ yr_min - 3) 
   ) %>% 
   as_vector(.$value)  
-
-miss_max <- yr_max %>% 
+   
+miss_max <- yr_max %>%  
   as_tibble() %>% 
   mutate(value = case_when(yr_max == 2017 ~ 2017,
             yr_max == 2016 ~ 2017, 
@@ -943,29 +955,29 @@ miss_max <- yr_max %>%
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 # 1.  prepare to join lead and lag stations using station pairs from last pca 
-# create a summary table 
+# create a summary table
 gage_pairs <- pca_sum %>% 
   mutate(sta_lead = lead(sta, 
-                     order_by = PC1_mean)) %>%   # creates a lead col
+                     order_by = PC1_mean)) %>%   # creates a lead col 
   mutate(sta_lag = lag(sta, 
                      order_by = PC1_mean)) %>%   # creates a  lag col 
 select(sta, PC1_mean, PC2_mean, sta_lead, sta_lag) 
 
-# 1.1 add lead PCA information to summary table 
+# 1.1 add lead PCA information to summary table -updated 
 gage_pairs_01 <- left_join(gage_pairs, gage_pairs, 
-                           by = c("sta" = "sta_lead")) %>% 
-  select(-c(sta.y, sta_lag.y)) %>% 
+                           by = c("sta_lead" = "sta")) %>% 
   rename(PC1_mean.sta = PC1_mean.x) %>% 
   rename(PC2_mean.sta = PC2_mean.x) %>% 
+  select(-c(sta_lead.y, sta_lag.y)) %>% 
   rename(PC1_mean.lead = PC1_mean.y) %>% 
   rename(PC2_mean.lead = PC2_mean.y) %>% 
   rename(sta_lag = sta_lag.x)   
 
-# 1.2 add lag PCA information to summary table & clean up 
+# 1.2 add lag PCA information to summary table & clean up - updated 
 gage_pairs <- left_join(gage_pairs_01, gage_pairs, 
-                           by = c("sta" = "sta_lag")) %>% 
+                           by = c("sta_lag" = "sta")) %>% 
   rename(sta_lead = sta_lead.x) %>% 
-  select(-c(sta.y, sta_lead.y)) %>% 
+  select(-c(sta_lead.y,sta_lag.y)) %>% 
   rename(PC1_mean.lag = PC1_mean) %>% 
   rename(PC2_mean.lag = PC2_mean) 
 
@@ -1007,6 +1019,14 @@ gage_miss <- semi_join(gage_pairs, gage_miss, by = "sta") %>%
   ) %>% 
   select(sta, sta_fill, everything())
 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# because gage_miss is an endless loop, added this code to overcome 
+gage_miss <- gage_miss %>% 
+  mutate(sta_fill = case_when(
+    sta == "che_sce" ~ "che_red",
+    TRUE ~ sta_fill 
+  ))
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 5. get the daily flow data to fill the missing stations 
 gage_miss <- gage_miss %>% 
@@ -1087,11 +1107,13 @@ year_length <- full_join(year_length, year_length_ck,
 
 ```{r streamflow-pca_run_04}    
 
-# this run is find missing records for short-year station 'che_sce' & friends. 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~
-# input data for code chunk
-yr_min <- 2008  
-yr_max <- 2017              # this is the max yr!
+# this run is find missing records for short-year station 
+# bev_abf
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# input data for code chunk 
+yr_min <- 1991  
+yr_max <- 2000             
 run_name <- "run_04" 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -1197,8 +1219,12 @@ vals_pca    <- bind_rows(vals_pca, pca_vars)
 vals_lambda <- bind_rows(vals_lambda, lambda_vals) 
 
 rm(lambda_q1, lambda_q7, lambda_q30, pca_matrix) 
+
+beep(sound = 10)
 ``` 
 
+
+START HERE! 
 ```{r fill_using_pca_run_04} 
 
 # this run is find missing records for short-year station 'che_sce' & friends.
@@ -1207,15 +1233,15 @@ rm(lambda_q1, lambda_q7, lambda_q30, pca_matrix)
 # update input data  
 miss_min <- yr_min %>% 
   as_tibble() %>% 
-  mutate(value = case_when(yr_min == 1980 ~ 1980,
+  mutate(value = case_when(yr_min == 1980 ~ 1980, 
             yr_max == 1981 ~ 1980, 
             yr_max == 1982 ~ 1980, 
             TRUE ~ yr_min - 3) 
   ) %>% 
   as_vector(.$value)  
-
-miss_max <- yr_max %>% 
-  as_tibble() %>% 
+ 
+miss_max <- yr_max %>%   
+  as_tibble() %>%  
   mutate(value = case_when(yr_max == 2017 ~ 2017,
             yr_max == 2016 ~ 2017, 
             yr_max == 2015 ~ 2017, 
@@ -1225,29 +1251,29 @@ miss_max <- yr_max %>%
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 # 1.  prepare to join lead and lag stations using station pairs from last pca 
-# create a summary table 
+# create a summary table
 gage_pairs <- pca_sum %>% 
   mutate(sta_lead = lead(sta, 
-                     order_by = PC1_mean)) %>%   # creates a lead col
+                     order_by = PC1_mean)) %>%   # creates a lead col 
   mutate(sta_lag = lag(sta, 
                      order_by = PC1_mean)) %>%   # creates a  lag col 
 select(sta, PC1_mean, PC2_mean, sta_lead, sta_lag) 
 
-# 1.1 add lead PCA information to summary table 
+# 1.1 add lead PCA information to summary table -updated 
 gage_pairs_01 <- left_join(gage_pairs, gage_pairs, 
-                           by = c("sta" = "sta_lead")) %>% 
-  select(-c(sta.y, sta_lag.y)) %>% 
+                           by = c("sta_lead" = "sta")) %>% 
   rename(PC1_mean.sta = PC1_mean.x) %>% 
   rename(PC2_mean.sta = PC2_mean.x) %>% 
+  select(-c(sta_lead.y, sta_lag.y)) %>% 
   rename(PC1_mean.lead = PC1_mean.y) %>% 
   rename(PC2_mean.lead = PC2_mean.y) %>% 
   rename(sta_lag = sta_lag.x)   
 
-# 1.2 add lag PCA information to summary table & clean up 
+# 1.2 add lag PCA information to summary table & clean up - updated 
 gage_pairs <- left_join(gage_pairs_01, gage_pairs, 
-                           by = c("sta" = "sta_lag")) %>% 
+                           by = c("sta_lag" = "sta")) %>% 
   rename(sta_lead = sta_lead.x) %>% 
-  select(-c(sta.y, sta_lead.y)) %>% 
+  select(-c(sta_lead.y,sta_lag.y)) %>% 
   rename(PC1_mean.lag = PC1_mean) %>% 
   rename(PC2_mean.lag = PC2_mean) 
 
@@ -1379,26 +1405,12 @@ gage_dv_ck <- anti_join(gage_dv_04, gage_dv_03)
 # this run is find missing records for short-year station 'che_sce' & friends. 
 # last run added 2005-2007 for 'che_sce'  
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# update input data  
-miss_min <- yr_min %>% 
-  as_tibble() %>% 
-  mutate(value = case_when(yr_min == 1980 ~ 1980,
-            yr_max == 1981 ~ 1980, 
-            yr_max == 1982 ~ 1980, 
-            TRUE ~ yr_min - 3) 
-  ) %>% 
-  as_vector(.$value)  
-
-miss_max <- yr_max %>% 
-  as_tibble() %>% 
-  mutate(value = case_when(yr_max == 2017 ~ 2017,
-            yr_max == 2016 ~ 2017, 
-            yr_max == 2015 ~ 2017, 
-            TRUE ~ yr_max + 3) 
-  ) %>% 
-  as_vector(.$value)  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# input data for code chunk 
+yr_min <- 2008  
+yr_max <- 2017              # this is the max yr!
+run_name <- "run_05" 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 # 1. find stations 
 pca_run <- year_sum %>% 
@@ -9173,16 +9185,308 @@ gage_dv_ck <- anti_join(gage_dv_30, gage_dv_29)
 
 ``` 
 
-```{r streamflow-pca_run_31}
+```{r streamflow-pca_run_31} 
 
 # this run is find missing records for short-year station 
-#           
+# 'blc_wan'        
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~
 # input data for code chunk 
-yr_min <- 1981   
-yr_max <- 2012                                
-run_name <- "run_30" 
+yr_min <- 1984   
+yr_max <- 2017                                
+run_name <- "run_31" 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. find stations 
+pca_run <- year_sum %>% 
+  select(sta, as.character(yr_min):as.character(yr_max)) %>% 
+  drop_na() %>% 
+  select(sta)  
+
+pca_input <- semi_join(last_dv,  pca_run, by = "sta") %>% 
+  as_tibble() %>% 
+  select(-c(contrib_drain_area_va, incomp_yr)) %>%
+  filter(water_year <= yr_min & 
+           water_year <= yr_max)
+
+# 2. Transform using BoxCox to approach normality---- 
+lambda_q1  <- BoxCox.lambda(pca_input$q1_depth)   
+lambda_q7  <- BoxCox.lambda(pca_input$q7_depth)   
+lambda_q30 <- BoxCox.lambda(pca_input$q30_depth)     
+
+# 3. Standardize data by z-score---- 
+pca_input <- pca_input %>% 
+  mutate(q1_tr = BoxCox(.$q1_depth,lambda_q1)) %>%
+  mutate(q7_tr = BoxCox(.$q7_depth,lambda_q7)) %>% 
+  mutate(q30_tr = BoxCox(.$q30_depth,lambda_q30)) %>%
+  mutate(q1_mean = mean(q1_tr)) %>%   # calculates means
+  mutate(q7_mean = mean(q7_tr)) %>%   
+  mutate(q30_mean = mean(q30_tr)) %>% 
+  mutate(q1_sd = sd(q1_tr)) %>%       # calculates sds
+  mutate(q7_sd = sd(q7_tr)) %>% 
+  mutate(q30_sd = sd(q30_tr)) %>%  
+  mutate(q1_depth = (q1_tr - q1_mean)/q1_sd) %>%    # transfrom data
+  mutate(q7_depth = (q7_tr - q7_mean)/q7_sd) %>% 
+  mutate(q30_depth = (q30_tr - q30_mean)/q30_sd) %>% 
+  dplyr::select(sta, date, q1_depth, q7_depth, q30_depth, 
+                everything()) %>% 
+  select(-c(q1_mean:q30_sd))  
+
+
+# 4. Calculate PCA matrix & summary info---- 
+pca_matrix <- pca_input %>%  
+  select(q1_depth, q7_depth, q30_depth) %>%
+  prcomp(., scale = TRUE)      
+
+
+# 5. Gather & summarize PCA results----
+# Eigenvectors--results about PC axes
+pca_eigen <-  tidy(pca_matrix, matrix = "pcs") %>% 
+  mutate(name = run_name) 
+
+# PCA variables--the loadings on the PCA axes.  
+# & drop the 3rd PC-axis because it's not useful 
+
+pca_vars <-  tidy(pca_matrix, matrix = "variables") %>% 
+  filter(PC != 3) %>% 
+  rename(var = column) %>% 
+  mutate(var = as.factor(var)) %>% 
+  mutate(name = run_name) 
+
+# Bind sample vals to PCA matrix 
+pca_run <- augment(pca_matrix, data = pca_input) %>% 
+  select(-c(.rownames, .fittedPC3)) %>% 
+      mutate(q1_q30_diff = q1_depth - q30_depth) %>% 
+  mutate(name = run_name) 
+
+#  summarize the run 
+pca_sum <- pca_run %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean    = mean(.fittedPC1),
+            PC2_mean    = mean(.fittedPC2), 
+            q1_mean     = mean(q1_depth), 
+            q7_mean     = mean(q7_depth),
+            q30_mean    = mean(q30_depth), 
+            q1_q30_mean = mean(q1_q30_diff)
+            ) %>% 
+  ungroup() %>% 
+  arrange(PC2_mean) %>% 
+  arrange(PC1_mean) %>% 
+  mutate(eigen_dist = sqrt(PC1_mean^2 + PC2_mean^2)) %>% 
+  arrange(eigen_dist) %>% 
+  mutate(name = run_name) 
+
+
+# 6. clean up 
+lambda_q1 <- enframe(lambda_q1)    
+lambda_q7 <- enframe(lambda_q7) 
+lambda_q30 <- enframe(lambda_q30)  
+
+lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
+  select(-c(name1, name2)) %>% 
+  rename(lambda_q1  = value) %>% 
+  rename(lambda_q7  = value1) %>% 
+  rename(lambda_q30 = value2) %>% 
+  mutate(name = run_name) 
+
+# 7. updates for future tables 
+vals_eigen  <- bind_rows(vals_eigen, pca_eigen)  
+vals_pca    <- bind_rows(vals_pca, pca_vars) 
+vals_lambda <- bind_rows(vals_lambda, lambda_vals) 
+
+rm(lambda_q1, lambda_q7, lambda_q30, pca_matrix) 
+
+``` 
+
+```{r fill_using_pca_run_31} 
+ 
+# this run is find missing records for short-year station 'wkn_wok' & friends 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# update input data  
+miss_min <- yr_min %>% 
+  as_tibble() %>% 
+  mutate(value = case_when(yr_min == 1980 ~ 1980,
+            yr_max == 1981 ~ 1980, 
+            yr_max == 1982 ~ 1980, 
+            TRUE ~ yr_min - 3) 
+  ) %>%  
+  as_vector(.$value)  
+
+miss_max <- yr_max %>% 
+  as_tibble() %>% 
+  mutate(value = case_when(yr_max == 2017 ~ 2017,
+            yr_max == 2016 ~ 2017, 
+            yr_max == 2015 ~ 2017, 
+            TRUE ~ yr_max + 3) 
+  ) %>% 
+  as_vector(.$value)  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 1.  prepare to join lead and lag stations using station pairs from last pca 
+# create a summary table 
+gage_pairs <- pca_sum %>% 
+  mutate(sta_lead = lead(sta, 
+                     order_by = PC1_mean)) %>%   # creates a lead col
+  mutate(sta_lag = lag(sta, 
+                     order_by = PC1_mean)) %>%   # creates a  lag col 
+select(sta, PC1_mean, PC2_mean, sta_lead, sta_lag) 
+
+# 1.1 add lead PCA information to summary table 
+gage_pairs_01 <- left_join(gage_pairs, gage_pairs, 
+                           by = c("sta" = "sta_lead")) %>% 
+  select(-c(sta.y, sta_lag.y)) %>% 
+  rename(PC1_mean.sta = PC1_mean.x) %>% 
+  rename(PC2_mean.sta = PC2_mean.x) %>% 
+  rename(PC1_mean.lead = PC1_mean.y) %>% 
+  rename(PC2_mean.lead = PC2_mean.y) %>% 
+  rename(sta_lag = sta_lag.x)   
+
+# 1.2 add lag PCA information to summary table & clean up 
+gage_pairs <- left_join(gage_pairs_01, gage_pairs, 
+                           by = c("sta" = "sta_lag")) %>% 
+  rename(sta_lead = sta_lead.x) %>% 
+  select(-c(sta.y, sta_lead.y)) %>% 
+  rename(PC1_mean.lag = PC1_mean) %>% 
+  rename(PC2_mean.lag = PC2_mean) 
+
+rm(gage_pairs_01) 
+
+# 2. find complete gages looking forward and backward 
+gage_comp_bkwd <- year_sum %>% 
+  select(sta, as.character(miss_min):as.character(miss_min + 2)) %>% 
+  drop_na() %>% 
+  select(sta)   
+
+gage_comp_fwd <- year_sum %>% 
+  select(sta, as.character(miss_max - 2):as.character(miss_max)) %>% 
+  drop_na() %>% 
+  select(sta) 
+
+# 3. find missing gages looking backward and forward & clean up
+gage_miss_bkwd <- anti_join(pca_run, gage_comp_bkwd, 
+                               by = "sta")  
+
+gage_miss_fwd <- anti_join(pca_run, gage_comp_fwd, 
+                              by = "sta") 
+
+gage_miss <- bind_rows(gage_miss_bkwd, gage_miss_fwd) %>% 
+ distinct() 
+
+rm(gage_comp_bkwd, gage_comp_fwd, gage_miss_bkwd, gage_miss_fwd)
+
+
+# 4. select stations to fill the missing stations 
+gage_miss <- semi_join(gage_pairs, gage_miss, by = "sta") %>% 
+  mutate(PC1_diff.lead = abs(PC1_mean.sta - PC1_mean.lead)) %>%  
+  mutate(PC2_diff.lead = abs(PC2_mean.sta - PC2_mean.lead)) %>%  
+  mutate(PC1_diff.lag = abs(PC1_mean.sta - PC1_mean.lag)) %>%  
+  mutate(PC2_diff.lag = abs(PC2_mean.sta - PC2_mean.lag)) %>% 
+  mutate(sta_fill = if_else(
+    PC1_diff.lead < PC1_diff.lag, 
+    sta_lead, sta_lag)
+  ) %>% 
+  select(sta, sta_fill, everything())
+
+
+# 5. get the daily flow data to fill the missing stations 
+gage_miss <- gage_miss %>% 
+  select(sta, sta_fill) 
+
+gage_fill <- left_join(last_dv, gage_miss, 
+                                   by = c("sta" = "sta_fill")) %>% 
+  select(-c(contrib_drain_area_va)) %>% 
+  rename(orig_contr_area_km = contrib_drain_area_km) %>% 
+  rename(sta_fill = sta) %>% 
+  rename(sta = sta.y) %>% 
+  filter(!is.na(sta)) %>% 
+  filter(between(water_year, miss_min, miss_max)) %>% 
+  filter(!between(water_year, yr_min, yr_max)) %>% 
+  select(-c(q1_depth:q30_depth)) %>% 
+  rename(q_orig   = q) %>% 
+  rename(q7_orig  = q7) %>% 
+  rename(q30_orig = q30) 
+
+# calculate ratio between contributing areas & make new flow
+gage_fill <- left_join(gage_fill, gage_contrib_area, 
+                             by = "sta") %>% 
+  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
+  mutate(area_ratio = contrib_drain_area_km/orig_contr_area_km) %>% 
+  mutate(q   = q_orig   * area_ratio) %>% 
+  mutate(q7  = q7_orig  * area_ratio) %>% 
+  mutate(q30 = q30_orig * area_ratio) %>% 
+  mutate(q1_depth = round(q * (60*60*24)  / contrib_drain_area_km, 
+                          digits = 2)) %>% 
+  mutate(q7_depth = round(q7 * (60*60*24) / contrib_drain_area_km, 
+                          digits = 2)) %>% 
+  mutate(q30_depth = round(q30 * (60*60*24) / contrib_drain_area_km,  
+                          digits = 2)) 
+
+# prepare to join 
+gage_fill <- gage_fill %>% 
+  select(sta, date, water_year, incomp_yr, q, q30, q7, contrib_drain_area_va, 
+         contrib_drain_area_km, q1_depth, q7_depth, q30_depth, sta_fill) 
+
+# 6. find possible duplicated stations 
+gage_fill_dups <- semi_join(last_dv, gage_miss, 
+                                   by = ("sta")) %>% 
+  filter(between(water_year, miss_min, miss_max)) 
+
+# 7. remove duplicated stations
+gage_fill <- anti_join(gage_fill, gage_fill_dups, 
+                  by = c("sta", "water_year")) %>%  
+  select(-sta_fill)  
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# need to input here! 
+gage_dv_31 <- bind_rows(last_dv, gage_fill) %>% 
+  distinct()  
+  
+last_dv <- gage_dv_31          
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 8. check results 
+year_summary <- last_dv %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_record = n()) %>%                   
+  ungroup() 
+
+year_sum <- year_summary %>% 
+  spread(water_year, days_record) 
+
+year_length_ck <- year_summary %>% 
+  group_by(sta) %>% 
+  summarise(years_record = n()) %>%                   
+  ungroup() 
+
+# 9. update results 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# need to input here! 
+year_length <- full_join(year_length, year_length_ck, 
+                  by = "sta") %>% 
+  rename(years_rec_31 = years_record) %>% 
+  arrange(years_rec_31) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 10. check updated results 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# need to input here!  
+gage_dv_ck <- anti_join(gage_dv_31, gage_dv_30)    
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
+``` 
+
+```{r streamflow-pca_run_32} 
+
+# this run is find missing records for short-year station 
+# 'che_sce'        
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# input data for code chunk 
+yr_min <- 2002    
+yr_max <- 2017                                
+run_name <- "run_32" 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 # 1. find stations 
 pca_run <- year_sum %>% 
@@ -9431,8 +9735,8 @@ gage_fill <- anti_join(gage_fill, gage_fill_dups,
 beep(sound = 10)
 ``` 
 
-```{r fill_using_pca_run_31} 
-
+```{r fill_using_pca_run_32} 
+ 
 # this run is find missing records for short-year station 'wkn_wok' & friends 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -9443,7 +9747,7 @@ miss_min <- yr_min %>%
             yr_max == 1981 ~ 1980, 
             yr_max == 1982 ~ 1980, 
             TRUE ~ yr_min - 3) 
-  ) %>% 
+  ) %>%  
   as_vector(.$value)  
 
 miss_max <- yr_max %>% 
@@ -9574,10 +9878,10 @@ gage_fill <- anti_join(gage_fill, gage_fill_dups,
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # need to input here! 
-gage_dv_31 <- bind_rows(last_dv, gage_fill) %>% 
+gage_dv_32 <- bind_rows(last_dv, gage_fill) %>% 
   distinct()  
   
-last_dv <- gage_dv_31          
+last_dv <- gage_dv_32          
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 8. check results 
@@ -9599,17 +9903,21 @@ year_length_ck <- year_summary %>%
 # need to input here! 
 year_length <- full_join(year_length, year_length_ck, 
                   by = "sta") %>% 
-  rename(years_rec_31 = years_record) %>% 
-  arrange(years_rec_31) 
+  rename(years_rec_32 = years_record) %>% 
+  arrange(years_rec_32) 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # 10. check updated results 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # need to input here!  
-gage_dv_ck <- anti_join(gage_dv_31, gage_dv_30)    
+gage_dv_ck <- anti_join(gage_dv_32, gage_dv_31)    
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 
 ``` 
+
+
+
+
 
 
 
@@ -10656,8 +10964,8 @@ year_summary <- full_join(year_summary, year_summary_02,
 
 rm(dups, dups_not, gage_fill_run_02, gage_pairs_02, gage_fill_02_lag, 
    gage_fill_02_lead, miss_contrib_area, gage_fill_02, fill_ck, 
-   year_length_02, year_sum) 
-```
+   year_length_02, year_sum)  
+```  
 
 
 ```{r PCA_and_model_selection}  
