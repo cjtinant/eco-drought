@@ -97,14 +97,23 @@ library("dataRetrieval") # USGS data import
 library("forecast")      # for BoxCox 
 library("broom")         # sweep up PCA results into tidy frames 
 library("beepr")         # plays notification sounds 
-
+library("waterData")     # anomaly calculation of daily hydrologic data 
 ```
 
+```{r fix_incompletes-not-working}
+gage_dv <- read_csv("data/gage_dv.csv") %>% 
+  clean_names() 
 
 
 
+gage_dist <- gage_dv %>% 
+  filter(incomp_yr == "Y") %>% 
+  select(sta) %>% 
+  distinct() 
 
 
+  
+```
 
 ```{r censor_low_flows, message=FALSE} 
 # 1. load daily flow data  
@@ -164,19 +173,25 @@ gage_dv <- gage_dv %>%
 #perc_records_incomp <- 100* count(gage_dv_incomp) / (count(gage_dv) +  count(gage_dv_incomp))
 ``` 
 
-```{r prepare_for_pca-run, message=FALSE}
+```{r prepare_for_pca-run, message=FALSE} 
+
 # 1. check for complete days of record & years of record  
 year_summary <- gage_dv %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
-  ungroup()                                    
+  ungroup()   
+
+year_summary_incomp <- gage_dv_incomp %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_record = n()) %>%                   
+  ungroup()   
 
 year_length <- year_summary %>% 
   group_by(sta) %>% 
   summarise(years_record = n()) %>%                   
   ungroup() 
 
-# 2. remove the record of stations less than five years & crystaline basins
+# 2. remove the record of stations less than five years & crystaline basins 
 gage_dv <- gage_dv %>% 
   filter(sta != "nio_mar") %>% 
   filter(sta != "elk_rob")
@@ -208,24 +223,28 @@ gage_contrib_area <- gage_meta %>%
            contrib_drain_area_va %>% 
              is.na %>%
              ifelse(drain_area_va, contrib_drain_area_va)) %>% 
-  select(-drain_area_va)
-
+  select(-drain_area_va) %>% 
+    mutate(contrib_drain_area_km = round(contrib_drain_area_va * 2.59, 
+                                         digits = 1)) %>% 
+  select(-contrib_drain_area_va)
 
 gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") 
 gage_dv_incomp <- left_join(gage_dv_incomp, gage_contrib_area,   by = "sta") 
 
-# 5. eliminate effects of watershed size----
+# 5. eliminate effects of watershed size---- 
 # Calculate daily flow depths by dividing flow (cms) by watershed 
 #    area (sq-km) and multiplying the resultant by the number of 
 #    seconds in a day.  The result is cu-m-d per sq-km. 
 
 gage_dv <- gage_dv %>% 
-  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
-  mutate(q1_depth = q * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q7_depth = q7 * (60*60*24) / contrib_drain_area_km) %>% 
-  mutate(q30_depth = q30 * (60*60*24) / contrib_drain_area_km)  
+  mutate(q1_depth = round(q * (60*60*24) / contrib_drain_area_km, 
+                          digits = 2)) %>% 
+  mutate(q7_depth = round(q7 * (60*60*24) / contrib_drain_area_km, 
+                          digits = 2)) %>% 
+  mutate(q30_depth = round(q30 * (60*60*24) / contrib_drain_area_km, 
+                           digits = 2))   
 
-# 6. clean up & prepare for next pca
+# 6. clean up & prepare for next pca 
 rm(gage_meta) 
 
 yr_len <- gage_dv %>%                          
@@ -242,7 +261,7 @@ yr_len <- gage_dv %>%
   arrange(count_yr) %>% 
   ungroup() 
 
-# prepare the gage_dv for appended runs
+# prepare the gage_dv for appended runs 
 gage_dv <- gage_dv %>% 
   mutate(run = "observed") 
 
@@ -295,11 +314,12 @@ vals_miss <- tibble(name.run          = "name.run",
                     q1_q30_diff.lag   = 0, 
                     eigen_dist.lag    = 0) 
 
-vals_yr_len <- tibble(sta = "sta",
+vals_yr_len <- tibble(sta = "sta", 
                     min_yr   = as.integer(0), 
                     max_yr   = as.integer(0), 
                     count_yr = as.integer(0), 
                     min_ck   = 0)  
+
 ```
 
 
@@ -308,10 +328,9 @@ vals_yr_len <- tibble(sta = "sta",
 
 
 
-
-
-
 ```{r streamflow-pca-and-fill}    
+# this code chunk is run iteratively to fill missing values
+#
 # Stream flow overall is analyzed for 1980 - 2017 & the 'wet-cycle' 
 #      of the 1990s transitions to 'dry cycle' in 2002  
 #
@@ -337,8 +356,14 @@ yr_max <- as_vector(yr_len %>%
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~
 # to get out of a local minima: 
-# for run 24 used 1990-2012  
-# for run 36 used 1989-2017 instead of 1990-2017
+# for run 06 used 2004-2017 instead of 2005-2017 
+# for run 11, 13 used 2001-2017 instead of 2002-2017 
+# for run 25-27 used 1994-2017 instead of 1995-2017 
+# for run 40-42 used 1985-2017 instead of 1986-2017 
+
+# for run 42-43 used 1988-2017 instead of 1990-2017 
+# for run 44-53 used 1988-2017 instead of 1990-2017 
+# for run 44-53 used 1984-2017 instead of 1990-2017 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 miss_min <- yr_min %>% 
   as_tibble() %>% 
@@ -367,7 +392,7 @@ pca_run <- year_sum %>%
 
 pca_input <- semi_join(gage_dv,  pca_run, by = "sta") %>% 
   as_tibble() %>% 
-  select(-c(contrib_drain_area_va, incomp_yr)) %>%
+  select(-c(incomp_yr)) %>%
   filter(water_year <= yr_min & 
            water_year <= yr_max)
 
@@ -389,21 +414,21 @@ lambda_q30 <- BoxCox.lambda(pca_input$q30_depth)
 # deviation of unity, e.g. a z-score.  This could be done within the 
 # PCA, but I did it manually. 
 
-pca_input <- pca_input %>% 
-  mutate(q1_tr = BoxCox(.$q1_depth,lambda_q1)) %>%        # box-cox transform
-  mutate(q7_tr = BoxCox(.$q7_depth,lambda_q7)) %>% 
-  mutate(q30_tr = BoxCox(.$q30_depth,lambda_q30)) %>% 
-  mutate(q1_mean_tr = mean(q1_tr)) %>%                       # calculates means
-  mutate(q7_mean_tr = mean(q7_tr)) %>%   
-  mutate(q30_mean_tr = mean(q30_tr)) %>% 
-  mutate(q1_sd_tr = sd(q1_tr)) %>%                           # calculates sds
-  mutate(q7_sd_tr = sd(q7_tr)) %>% 
-  mutate(q30_sd_tr = sd(q30_tr)) %>%  
-  mutate(q1_norm = (q1_tr - q1_mean_tr)/q1_sd_tr) %>%      # normalize the data
-  mutate(q7_norm = (q7_tr - q7_mean_tr)/q7_sd_tr) %>% 
-  mutate(q30_norm = (q30_tr - q30_mean_tr)/q30_sd_tr) %>% 
-  select(-c(q1_mean_tr:q30_sd_tr)) %>% 
-  select(-c(q1_tr:q30_tr))
+#pca_input <- pca_input %>% 
+#  mutate(q1_tr = BoxCox(.$q1_depth,lambda_q1)) %>%         # box-cox transform
+#  mutate(q7_tr = BoxCox(.$q7_depth,lambda_q7)) %>% 
+#  mutate(q30_tr = BoxCox(.$q30_depth,lambda_q30)) %>% 
+#  mutate(q1_mean_tr = mean(q1_tr)) %>%                     # calculates means
+#  mutate(q7_mean_tr = mean(q7_tr)) %>%   
+#  mutate(q30_mean_tr = mean(q30_tr)) %>% 
+#  mutate(q1_sd_tr = sd(q1_tr)) %>%                         # calculates sds
+#  mutate(q7_sd_tr = sd(q7_tr)) %>% 
+#  mutate(q30_sd_tr = sd(q30_tr)) %>%  
+#  mutate(q1_norm = (q1_tr - q1_mean_tr)/q1_sd_tr) %>%      # normalize the data
+#  mutate(q7_norm = (q7_tr - q7_mean_tr)/q7_sd_tr) %>% 
+#  mutate(q30_norm = (q30_tr - q30_mean_tr)/q30_sd_tr) %>% 
+#  select(-c(q1_mean_tr:q30_sd_tr)) %>% 
+#  select(-c(q1_tr:q30_tr))
 
 # 2.3.  Calculate PCA matrix & summary info---- 
 # prcomp() requires a dataset with only the variables, split data 
@@ -412,7 +437,9 @@ pca_input <- pca_input %>%
 
 pca_matrix <- pca_input %>%  
   select(q1_depth, q7_depth, q30_depth) %>%
-  prcomp(., scale = TRUE)      
+  prcomp(., 
+         center = TRUE, 
+         scale = TRUE)      
 
 # 2.4. Gather & summarize PCA results----
 # Eigenvectors--results about PC axes
@@ -455,12 +482,12 @@ pca_sum <- pca_run %>%
 # create a summary table
 gage_pairs <- pca_sum %>% 
   mutate(sta_lead = lead(sta, 
-                     order_by = q30_mean_dep)) %>%   # creates a lead col 
+                     order_by = PC1_mean)) %>%   # creates a lead col 
   mutate(sta_lag = lag(sta, 
-                     order_by = q30_mean_dep)) %>%   # creates a  lag col 
+                     order_by = PC1_mean)) %>%   # creates a  lag col 
   select(name, everything())  
 
-# 5.1 add lead Q30 information to summary table -updated 
+# 5.1 add lead Q30 information to summary table 
 gage_pairs_01 <- left_join(gage_pairs, gage_pairs, 
                            by = c("sta_lead" = "sta")) %>% 
   select(-c(name.y, sta_lead.y, sta_lag.y))  %>% 
@@ -481,7 +508,7 @@ gage_pairs_01 <- left_join(gage_pairs, gage_pairs,
   rename(q1_q30_diff.lead  =  q1_q30_diff.y) %>%    
   rename(eigen_dist.lead   =  eigen_dist.y)     
 
-# 5.2 add lag information to summary table & clean up - updated 
+# 5.2 add lag information to summary table & clean up 
 gage_pairs <- left_join(gage_pairs_01, gage_pairs, 
                            by = c("sta_lag" = "sta")) %>% 
   select(-c(name, sta_lead.y, sta_lag.y))    %>%
@@ -517,16 +544,16 @@ gage_miss <- bind_rows(gage_miss_bkwd, gage_miss_fwd) %>%
 
 # 6.0.  join the missing gages and arrange them
 gage_miss <- semi_join(gage_pairs, gage_miss, by = "sta")  %>% 
- mutate(q30_diff.lead = abs(q30_mean_dep.sta - q30_mean_dep.lead)) %>%  
-  mutate(q30_diff.lag = abs(q30_mean_dep.sta  - q30_mean_dep.lag)) %>%  
+ mutate(PC1_diff.lead = abs(PC1_mean.sta - PC1_mean.lead)) %>%  
+  mutate(PC1_diff.lag = abs(PC1_mean.sta  - PC1_mean.lag)) %>%  
   mutate(sta_fill = if_else(
-    q30_diff.lead < q30_diff.lag, 
+    PC1_diff.lead < PC1_diff.lag, 
     sta_lead, sta_lag)
   ) %>% 
-  arrange(q30_diff.lag) %>% 
-  arrange(q30_diff.lead) %>% 
+  arrange(PC1_diff.lag) %>% 
+  arrange(PC1_diff.lead) %>% 
   select(name.run, sta, sta_fill, sta_lead, sta_lag, 
-         q30_diff.lead, q30_diff.lag,
+         PC1_diff.lead, PC1_diff.lag,
          q1_mean_dep  = q1_mean_dep.sta, 
          q7_mean_dep  = q7_mean_dep.sta,
          q30_mean_dep = q30_mean_dep.sta, 
@@ -540,81 +567,307 @@ gage_miss <- gage_miss %>%
             TRUE ~ sta_fill
     )) 
 
+rm(gage_pairs_01, gage_comp_bkwd, gage_comp_fwd, gage_miss_bkwd, gage_miss_fwd) 
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 # 6.2. deal with local minima on some runs 
 gage_miss <- gage_miss %>% 
-  mutate(sta_fill = if_else(name.run == "run_08" & sta == "che_buf",
-                            "che_red",
-                            sta_fill)
-        ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_013" & sta == "che_buf",
-                            "hat_edg",
-                            sta_fill)
-         ) %>%
-  mutate(sta_fill = if_else(name.run == "run_017" & sta == "che_red",
-                            "hor_oel",
+  mutate(sta_fill = if_else(name.run == "run_012" & sta == "whi_int",
+                            "whi_sta",
                             sta_fill)
          ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_018" & sta == "che_sce",
-                            "hor_oel",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_020" & sta == "whi_int",
-                            "hor_oel",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_025" & sta == "whi_whi",
+  mutate(sta_fill = if_else(name.run == "run_014" & sta == "che_buf",
                             "hat_edg",
                             sta_fill)
          ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_026" & sta == "whi_int",
-                            "hat_edg",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_028" & sta == "che_sce",
-                            "hat_edg",
-                            sta_fill)
-         ) %>% 
- mutate(sta_fill = if_else(name.run == "run_031" & sta == "che_red",
-                            "elk_elm",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_031" & sta == "whi_whi",
-                            "bad_fpi",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_032" & sta == "che_sce",
-                            "elk_elm",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_032" & sta == "whi_int",
-                            "bad_fpi",
-                            sta_fill)
-         ) %>% 
- mutate(sta_fill = if_else(name.run == "run_035" & sta == "che_red",
-                            "blc_wan",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_035" & sta == "whi_whi",
-                            "che_pla",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_035" & sta == "blc_wan",
-                            "che_red",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_035" & sta == "whi_int",
+  mutate(sta_fill = if_else(name.run == "run_020" & sta == "whi_whi",
                             "che_buf",
                             sta_fill)
          ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_037" & sta == "whi_slm",
-                            "whi_int",
+  mutate(sta_fill = if_else(name.run == "run_027" & sta == "whi_int",
+                            "che_pla",
+                            sta_fill) 
+         ) %>% 
+  mutate(sta_fill = if_else(name.run == "run_027" & sta == "whi_whi",
+                            "elk_elm",
                             sta_fill)
          ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_038" & sta == "che_sce", 
-                              "whi_slm", 
+  mutate(sta_fill = if_else(name.run == "run_035" & sta == "whi_whi",
+                            "whi_slm",
                             sta_fill)
          ) %>% 
+  mutate(sta_fill = if_else(name.run == "run_024" & sta == "che_sce",
+                            "hat_edg",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_038" & sta == "che_buf",
+                            "spr_her",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_038" & sta == "wcc_ogl",
+                            "bat_her",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_041" & sta == "hor_oel",
+                            "whi_oac",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_041" & sta == "blp_bel",
+                            "whi_kad",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_042" & sta == "che_buf",
+                            "hat_edg",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_044" & sta == "che_buf",
+                            "hat_edg",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_045" & sta == "brsf_co",
+                            "wkc_wok",
+                            sta_fill)
+         ) %>% 
+ mutate(sta_fill = if_else(name.run == "run_047" & sta == "whi_whi",
+                            "spr_her",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_048" & sta == "whi_slm",
+                            "spr_her",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_049" & sta == "che_sce",
+                            "spr_her",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_050" & sta == "che_red",
+                            "spr_her",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_051" & sta == "bev_pri",
+                            "spr_her",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_056" & sta == "blp_bel",
+                            "frn_fai",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_058" & sta == "whi_whi",
+                            "hat_edg",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_059" & sta == "whi_slm",
+                            "whi_whi",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_060" & sta == "che_sce",
+                            "whi_slm",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_061" & sta == "bat_bhr",
+                            "spr_her",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_061" & sta == "wkc_wok",
+                            "ros_ros",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_061" & sta == "che_red",
+                            "che_sce",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_063" & sta == "brsf_co",
+                            "wkc_wok",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_063" & sta == "blc_wan",
+                            "lwr_aro",
+                            sta_fill)
+         ) %>% 
+mutate(sta_fill = if_else(name.run == "run_063" & sta == "lwr_aro",
+                            "wkc_wok",
+                            sta_fill)
+         ) #%>% 
+
+# 7.0 get the daily flow data to fill the missing stations 
+gage_fill <- gage_miss %>% 
+  select(sta, sta_fill) 
+
+gage_fill <- left_join(gage_dv, gage_fill, 
+                                   by = c("sta" = "sta_fill")) %>% 
+  rename(orig_contr_area_km = contrib_drain_area_km) %>% 
+  rename(sta_fill2 = sta) %>% 
+  rename(sta = sta.y) %>% 
+  filter(!is.na(sta)) %>% 
+  filter(between(water_year, miss_min, miss_max)) %>% 
+  filter(!between(water_year, yr_min, yr_max)) %>% 
+  select(-c(q:q7)) %>% 
+  mutate(run = run_name)
+
+# 7.1 calculate ratio between contributing areas & make new flow
+gage_fill <- left_join(gage_fill, gage_contrib_area, 
+                             by = "sta") %>% 
+  mutate(area_ratio = 1) %>% 
+  mutate(q1_depth =  round(q1_depth * area_ratio, 
+                           digits = 2)) %>% 
+  mutate(q7_depth = round(q7_depth * area_ratio, 
+                           digits = 2)) %>%  
+  mutate(q30_depth = round(q30_depth * area_ratio,  
+                           digits = 2)) %>%  
+  mutate(q   = q1_depth   * contrib_drain_area_km / (60 * 60 * 24)) %>% 
+  mutate(q7  = q7_depth  * contrib_drain_area_km / (60 * 60 * 24)) %>% 
+  mutate(q30 = q30_depth * contrib_drain_area_km / (60 * 60 * 24)) %>% 
+  mutate(q = case_when(
+    q < 0.01 ~ 0.01,
+    TRUE ~ round(q, digits = 2)
+    )) %>% 
+  mutate(q7 = case_when(
+    q7 < 0.01 ~ 0.01,
+    TRUE ~ round(q7, digits = 2)
+    )) %>% 
+  mutate(q30 = case_when(
+    q30 < 0.01 ~ 0.01,
+    TRUE ~ round(q7, digits = 2)
+    )) 
+
+# prepare to join 
+gage_fill <- gage_fill %>% 
+  select(sta, date, water_year, incomp_yr, q, q30, q7, contrib_drain_area_km,
+         q1_depth, q7_depth, q30_depth, run)  
+
+# 7.2 find possible duplicated stations 
+gage_fill_dups <- semi_join(gage_dv, gage_miss, 
+                                   by = ("sta")) %>% 
+  filter(between(water_year, miss_min, miss_max)) 
+
+# 7.3 remove duplicated stations
+gage_fill <- anti_join(gage_fill, gage_fill_dups, 
+                  by = c("sta", "water_year"))
+
+beep(sound = 10)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``` 
+
+
+```{r prepare_for_next_run}  
+# update results 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+# daily values 
+gage_dv <- bind_rows(gage_dv, gage_fill) %>% 
+  distinct() 
+
+gage_dv1 <- gage_fill 
+
+year_summary <- gage_dv %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_record = n()) %>%                    
+  ungroup() 
+
+# pca vlues 
+lambda_q1 <- enframe(lambda_q1)    
+lambda_q7 <- enframe(lambda_q7) 
+lambda_q30 <- enframe(lambda_q30)  
+
+lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
+  select(-c(name1, name2)) %>% 
+  rename(lambda_q1  = value) %>% 
+  rename(lambda_q7  = value1) %>% 
+  rename(lambda_q30 = value2) %>% 
+  mutate(name = run_name) 
+
+vals_eigen  <- bind_rows(vals_eigen, pca_eigen)  
+vals_pca    <- bind_rows(vals_pca, pca_vars) 
+vals_lambda <- bind_rows(vals_lambda, lambda_vals) 
+
+# gage selections 
+vals_miss   <- bind_rows(vals_miss, gage_miss) 
+
+# summary values 
+year_sum <- year_summary %>% 
+  spread(water_year, days_record) 
+
+year_length_ck <- year_summary %>% 
+  group_by(sta) %>% 
+  summarise(years_record = n()) %>%                   
+  ungroup() %>% 
+  mutate(run_name = run_name)
+
+year_length <- bind_rows(year_length, year_length_ck) 
+
+# 9. prepare for next run 
+yr_len <- gage_dv %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_record = n()) %>%                   
+  ungroup() %>% 
+  arrange(water_year) %>% 
+  group_by(sta) %>% 
+  summarise(
+    min_yr   = first(water_year), 
+    max_yr   = last(water_year), 
+    count_yr = n() 
+  ) %>% 
+  arrange(count_yr) %>% 
+  ungroup() %>% 
+  mutate(min_ck = 1 + max_yr - count_yr) 
+
+yr_len_short <- yr_len %>% 
+  slice(1) 
+
+vals_yr_len <- bind_rows(yr_len_short, vals_yr_len) 
+
+# clean up 
+rm(gage_fill, gage_fill_dups, gage_miss, gage_pairs, 
+   pca_input, pca_run, pca_sum, pca_vars, lambda_q1, 
+   lambda_q7, lambda_q30, pca_matrix, comb, fil, orig, trans) 
+
+# print results 
+print(vals_yr_len) 
+```
+
+
+```{r check_data_qual} 
+orig <- gage_dv %>% 
+  filter(sta == "brsf_co")  %>% 
+  mutate(q_mean = mean(q)) %>% 
+  mutate(q7_mean = mean(q7)) %>% 
+  mutate(q30_mean = mean(q30)) %>% 
+  mutate(qd_mean = mean(q1_depth)) %>% 
+  mutate(qd7_mean = mean(q7_depth)) %>% 
+  mutate(qd30_mean = mean(q30_depth)) 
+  
+fill <- gage_dv %>% 
+  filter(sta == "lwr_ros") %>% 
+  mutate(q_mean = mean(q)) %>% 
+  mutate(q7_mean = mean(q7)) %>% 
+  mutate(q30_mean = mean(q30)) %>% 
+  mutate(qd_mean = mean(q1_depth)) %>% 
+  mutate(qd7_mean = mean(q7_depth)) %>% 
+  mutate(qd30_mean = mean(q30_depth)) 
+
+trans <- gage_fill %>% 
+  filter(sta == "brsf_co") %>% 
+  mutate(sta = "modeled") %>% 
+  mutate(q_mean = mean(q)) %>% 
+  mutate(q7_mean = mean(q7)) %>% 
+  mutate(q30_mean = mean(q30)) %>% 
+  mutate(qd_mean = mean(q1_depth)) %>% 
+  mutate(qd7_mean = mean(q7_depth)) %>% 
+  mutate(qd30_mean = mean(q30_depth)) 
+
+comb <- bind_rows(orig, fill, trans) 
+
+ggplot(comb, aes(date, q30_depth)) +
+  geom_line(aes(color = sta)) +
+  facet_grid(sta ~ .) 
+
+
+```
+
+
+
+```{r}
+
+ %>% 
   mutate(sta_fill = if_else(name.run == "run_039" & sta == "che_red",
                             "che_sce",
                             sta_fill)
@@ -740,162 +993,64 @@ gage_miss <- gage_miss %>%
                             sta_fill)
          ) 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-
-rm(gage_pairs_01, gage_comp_bkwd, gage_comp_fwd, gage_miss_bkwd, gage_miss_fwd) 
-
-# 7.0 get the daily flow data to fill the missing stations 
-gage_fill <- gage_miss %>% 
-  select(sta, sta_fill) 
-
-gage_fill <- left_join(gage_dv, gage_fill, 
-                                   by = c("sta" = "sta_fill")) %>% 
-  select(-c(contrib_drain_area_va)) %>% 
-  rename(orig_contr_area_km = contrib_drain_area_km) %>% 
-  rename(sta_fill = sta) %>% 
-  rename(sta = sta.y) %>% 
-  filter(!is.na(sta)) %>% 
-  filter(between(water_year, miss_min, miss_max)) %>% 
-  filter(!between(water_year, yr_min, yr_max)) %>% 
-  select(-c(q1_depth:q30_depth)) %>% 
-  rename(q_orig   = q) %>% 
-  rename(q7_orig  = q7) %>% 
-  rename(q30_orig = q30) %>% 
-  mutate(run = run_name)
-
-# 7.1 calculate ratio between contributing areas & make new flow
-gage_fill <- left_join(gage_fill, gage_contrib_area, 
-                             by = "sta") %>% 
-  mutate(contrib_drain_area_km = contrib_drain_area_va * 2.59) %>% 
-  mutate(area_ratio = contrib_drain_area_km/orig_contr_area_km) %>% 
-  mutate(q   = q_orig   * area_ratio) %>% 
-  mutate(q7  = q7_orig  * area_ratio) %>% 
-  mutate(q30 = q30_orig * area_ratio) %>% 
-  mutate(q1_depth = round(q * (60*60*24)  / contrib_drain_area_km, 
-                          digits = 2)) %>% 
-  mutate(q7_depth = round(q7 * (60*60*24) / contrib_drain_area_km, 
-                          digits = 2)) %>% 
-  mutate(q30_depth = round(q30 * (60*60*24) / contrib_drain_area_km,  
-                          digits = 2)) 
-
-# prepare to join 
-gage_fill <- gage_fill %>% 
-  select(sta, date, water_year, incomp_yr, q, q30, q7, contrib_drain_area_va, 
-         contrib_drain_area_km, q1_depth, q7_depth, q30_depth, sta_fill, 
-         run) 
-
-# 7.2 find possible duplicated stations 
-gage_fill_dups <- semi_join(gage_dv, gage_miss, 
-                                   by = ("sta")) %>% 
-  filter(between(water_year, miss_min, miss_max)) 
-
-# 7.3 remove duplicated stations
-gage_fill <- anti_join(gage_fill, gage_fill_dups, 
-                  by = c("sta", "water_year")) %>% 
-  select(-sta_fill) 
-
-beep(sound = 10)
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# check data here 
-View(gage_miss) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
-
-``` 
-
-
-
-```{r prepare_for_next_run} 
-# update results 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-# daily values 
-gage_dv <- bind_rows(gage_dv, gage_fill) %>% 
-  distinct()
-
-year_summary <- gage_dv %>%                          
-  group_by(sta, water_year) %>%                  
-  summarise(days_record = n()) %>%                   
-  ungroup() 
-
-# pca vlues 
-lambda_q1 <- enframe(lambda_q1)    
-lambda_q7 <- enframe(lambda_q7) 
-lambda_q30 <- enframe(lambda_q30)  
-
-lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
-  select(-c(name1, name2)) %>% 
-  rename(lambda_q1  = value) %>% 
-  rename(lambda_q7  = value1) %>% 
-  rename(lambda_q30 = value2) %>% 
-  mutate(name = run_name) 
-
-vals_eigen  <- bind_rows(vals_eigen, pca_eigen)  
-vals_pca    <- bind_rows(vals_pca, pca_vars) 
-vals_lambda <- bind_rows(vals_lambda, lambda_vals) 
-
-# gage selections 
-vals_miss   <- bind_rows(vals_miss, gage_miss) 
-
-# summary values 
-year_sum <- year_summary %>% 
-  spread(water_year, days_record) 
-
-year_length_ck <- year_summary %>% 
-  group_by(sta) %>% 
-  summarise(years_record = n()) %>%                   
-  ungroup() %>% 
-  mutate(run_name = run_name)
-
-year_length <- bind_rows(year_length, year_length_ck) 
-
-# 9. prepare for next run 
-yr_len <- gage_dv %>%                          
-  group_by(sta, water_year) %>%                  
-  summarise(days_record = n()) %>%                   
-  ungroup() %>% 
-  arrange(water_year) %>% 
-  group_by(sta) %>% 
-  summarise(
-    min_yr   = first(water_year), 
-    max_yr   = last(water_year), 
-    count_yr = n() 
-  ) %>% 
-  arrange(count_yr) %>% 
-  ungroup() %>% 
-  mutate(min_ck = 1 + max_yr - count_yr) 
-
-yr_len_short <- yr_len %>% 
-  slice(1) 
-
-vals_yr_len <- bind_rows(yr_len_short, vals_yr_len) 
-
-# clean up 
-rm(gage_fill, gage_fill_dups, gage_miss, gage_pairs, 
-   pca_input, pca_run, pca_sum, pca_vars, lambda_q1, 
-   lambda_q7, lambda_q30, pca_matrix) 
-
-# print results 
-print(vals_yr_len) 
 ```
 
 
 ```{r clean_up_following_fill} 
-# write_csv(gage_dv, "data/gage_fill_q30.csv") 
-write_csv(vals_eigen,  "data/vals_eigen_q30.csv") 
-write_csv(vals_pca, "data/vals_pca_q30.csv") 
-write_csv(vals_eigen,  "data/vals_lambda_q30.csv") 
-write_csv(vals_miss,   "data/vals_fill_q30.csv") 
+write_csv(gage_dv, "data/gage_fill_pc.csv") 
+write_csv(vals_eigen,  "data/vals_eigen_pc.csv") 
+write_csv(vals_pca, "data/vals_pca_pc.csv") 
+write_csv(vals_eigen,  "data/vals_lambda_pc.csv") 
+write_csv(vals_miss,   "data/vals_fill_pc.csv") 
 
 
 rm(lambda_vals, pca_eigen, vals_eigen, vals_lambda, vals_miss, vals_pca,
    gage_contrib_area, vals_yr_len, year_length, year_length_ck, year_sum, 
    year_summary, yr_len, yr_len_short, i, miss_max, miss_min, run_name, 
    yr_max, yr_min)
-
+rm(pca_matrix, pca_input, gage_pairs, gage_miss, gage_fill, 
+   gage_fill_dups)
 
 
 ```
 
 
+```{r }
+perc_comp <- as_vector(count(gage_dv) / count(gage_dv_q30)) 
+
+test <- gage_dv_q30 %>% 
+  mutate(type = case_when(
+    run == "observed" ~ "observed", 
+    TRUE ~ "estimated")) 
+
+test2 <- test %>% 
+  group_by(sta, type) %>% 
+  summarise(q1_mean = mean(q1_depth),
+            q1_med = median(q1_depth),
+            q7_mean = mean(q7_depth),
+            q7_med = median(q7_depth),
+            q30_mean = mean(q30_depth),
+            q30_med = median(q30_depth)
+            )
+
+ggplot(test, aes(type, log(q)) ) + 
+  geom_boxplot() + 
+  facet_wrap(~sta)
+#  select(q1_depth:q30_depth)
+
+#test %>%
+#  corrr::correlate() %>%
+  # Re-arrange a correlation data frame 
+  # to group highly correlated variables closer together.
+#  corrr::rearrange(method = "MDS", absolute = FALSE) %>%
+#  corrr::shave() %>% 
+#  corrr::rplot(shape = 19, colors = c("red", "green")) #%>%
+ # ggplot2::ggsave(
+#    filename = here::here("images", "mtcars_correlationplot.png"),
+#    width = 5,
+#    height = 5
+#  ) 
+```
 
 {r PCA_and_model_selection}  
 # Calculates PCA & clusters stations   
