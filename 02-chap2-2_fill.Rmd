@@ -89,7 +89,7 @@ options(tibble.print_max = 70) # sets tibble output for printing
 
 # Sets up the library of packages   
 library("here")          # identifies where to save work  
-library("EGRET")         # Exploration and Graphics for RivEr Trends 
+#library("EGRET")         # Exploration and Graphics for RivEr Trends 
 library("lubridate")     # easier dates 
 library("tidyverse")     # data munging tools 
 library("janitor")       # tools for examining and cleaning dirty data  
@@ -97,36 +97,108 @@ library("dataRetrieval") # USGS data import
 library("forecast")      # for BoxCox 
 library("broom")         # sweep up PCA results into tidy frames 
 library("beepr")         # plays notification sounds 
-library("waterData")     # anomaly calculation of daily hydrologic data 
+#library("waterData")     # anomaly calculation of daily hydrologic data 
+library("mclust")
 ```
 
-```{r fix_incompletes-not-working}
-gage_dv <- read_csv("data/gage_dv.csv") %>% 
-  clean_names() 
 
 
+```{r fill_miss_dates, message=FALSE} 
+# 1. load daily flow data  
+gage_dv_raw <- read_csv("data/gage_dv.csv") %>% 
+  clean_names() %>% 
+  filter(sta != "elk_rob")           # remove the record of crystaline basins 
 
-gage_dist <- gage_dv %>% 
-  filter(incomp_yr == "Y") %>% 
-  select(sta) %>% 
-  distinct() 
+wkc_wok <- gage_dv_raw %>% 
+  filter(sta == "wkc_wok")
+
+# 2. check for complete days of record & years of record  
+yr_incomp <- gage_dv_raw %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_yr = n()) %>%                   
+  ungroup() %>% 
+  filter(between(days_yr, .8 * 360, 364)) 
+
+# 3. fill the station-years with missing data 
+wy_1991 <- tibble(date = seq.Date(from=as.Date("1990-10-01"), 
+                 to=as.Date("1991-09-30"), by="day"))
+
+wy_2003 <- tibble(date = seq.Date(from=as.Date("2002-10-01"), 
+                 to=as.Date("2003-09-30"), by="day"))
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+bev_pri_1991 <- gage_dv_raw %>% 
+  filter(sta == "bev_pri") %>% 
+  filter(water_year == 1991)
+
+bev_pri_1991 <- full_join(bev_pri_1991, wy_1991)
+
+bev_pri_1991 <- bev_pri_1991 %>% 
+  mutate(sta = "bev_pri") %>% 
+  mutate(incomp_yr = "Y") %>% 
+  mutate(water_year = 1991)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+whi_slm_1991 <- gage_dv_raw %>% 
+  filter(sta == "whi_slm") %>% 
+  filter(water_year == 1991)
+
+whi_slm_1991 <- full_join(whi_slm_1991, wy_1991)
+
+whi_slm_1991 <- whi_slm_1991 %>% 
+  mutate(sta = "whi_slm") %>% 
+  mutate(incomp_yr = "Y") %>% 
+  mutate(water_year = 1991)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+lwr_aro_2003 <- gage_dv_raw %>% 
+  filter(sta == "lwr_aro") %>% 
+  filter(water_year == 2003)
+
+lwr_aro_2003 <- full_join(lwr_aro_2003 , wy_2003)
+
+lwr_aro_2003 <- lwr_aro_2003 %>% 
+  mutate(sta = "lwr_aro") %>% 
+  mutate(incomp_yr = "Y") %>%  
+  mutate(water_year = 2003)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 4. append and join data 
+yr_dv_incomp <- bind_rows(bev_pri_1991, whi_slm_1991, lwr_aro_2003)
+
+gage_dv <- bind_rows(yr_dv_incomp, gage_dv_raw) %>% 
+  distinct() %>% 
+  group_by(sta, water_year) %>%                  
+  mutate(days_yr = n()) %>%                   
+  ungroup()   
+
+# 4. remove short years 
+gage_dv_incomp <-  gage_dv %>%
+  filter(days_yr < 365)
+
+gage_dv <- gage_dv %>%
+  filter(days_yr >= 365) 
+
+# 5. clean up 
+rm(bev_pri_1991, gage_dv_incomp, gage_dv_raw, lwr_aro_2003, whi_slm_1991,
+   wy_1991, wy_2003, yr_dv_incomp, yr_incomp, wkc_wok) 
+
+# 6. check results 
+yr_sum <- gage_dv %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_yr = n()) %>%                   
+  ungroup() 
 
 
-  
-```
+``` 
 
 ```{r censor_low_flows, message=FALSE} 
-# 1. load daily flow data  
-gage_dv <- read_csv("data/gage_dv.csv") %>% 
-  clean_names() 
-   
-# 2. fix low flows ---- this step needed for the PCA  
-#   EGRET calculates a "better" zero-flow value, but causes issues with  results
+
+# 1. fix low flows ---- this step needed for the PCA  
+#   EGRET calculates a "better" zero-flow value, but causes issues with results
 #   this code chunk fixes low flow values by substituting 0.01 cfs 
 #   for zero-flow values  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 
-# 2.1. censor zero flows to 0.01 cfs
+# 2.1. censor zero flows to 0.01 cfs 
 # gather the different flow values 
 gage_dv_gath <- gage_dv %>%  # using diff var name to check length later 
   gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs
@@ -160,59 +232,130 @@ gage_ck <- gage_dv %>%
   filter(count > 366) 
 
 rm(gage_dv_ck, gage_dv_gath, gage_dv_high, gage_dv_low, gage_ck)
+``` 
 
-# 3. separate incomplete from complete years 
-# note that Q30 at beginning of record often causes a year to be dropped
-  
+```{r prepare_for_clustering, message=FALSE}  
+
+# 1. split complete and incomplete years 
+gage_dv_comp <-  gage_dv %>% 
+  filter(incomp_yr == "N") 
+
 gage_dv_incomp <- gage_dv %>% 
   filter(incomp_yr == "Y") 
 
-gage_dv <- gage_dv %>% 
-  filter(incomp_yr == "N") 
-
-#perc_records_incomp <- 100* count(gage_dv_incomp) / (count(gage_dv) +  count(gage_dv_incomp))
-``` 
-
-```{r prepare_for_pca-run, message=FALSE} 
-
-# 1. check for complete days of record & years of record  
-year_summary <- gage_dv %>%                          
+yr_sum_incomp <- gage_dv_incomp %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
   ungroup()   
 
-year_summary_incomp <- gage_dv_incomp %>%                          
+yr_sum_comp <- gage_dv_comp %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
   ungroup()   
 
-year_length <- year_summary %>% 
-  group_by(sta) %>% 
-  summarise(years_record = n()) %>%                   
+# 2. split stations with missing vals from gage_dv           
+gage_miss_yr <- semi_join(gage_dv, yr_sum_incomp, 
+                          by = "sta")                     
+
+gage_othr_yr <- anti_join(gage_dv, yr_sum_incomp, 
+                          by = "sta")     
+
+# 3. calculate missing values based on monthly averages 
+gage_miss_yr <- gage_miss_yr %>% 
+  mutate(month = month(date)) %>% 
+  group_by(sta, month) %>% 
+  mutate(q_log = log10(q)) %>% 
+  mutate(q7_log = log10(q7)) %>% 
+  mutate(q30_log = log10(q30)) %>% 
+  mutate(q_new = case_when( 
+    is.na(q_log) ~ round(10^mean(q_log, na.rm = TRUE), digits =2), 
+    TRUE ~ q 
+    )) %>% 
+  mutate(q7_new = case_when( 
+    is.na(q7_log) ~ round(10^mean(q7_log, na.rm = TRUE), digits =2), 
+    TRUE ~ q7 
+    )) %>% 
+  mutate(q30_new = case_when( 
+    is.na(q30_log) ~ round(10^mean(q30_log, na.rm = TRUE), digits =2),  
+    TRUE ~ q30 
+    )) %>% 
   ungroup() 
 
-# 2. remove the record of stations less than five years & crystaline basins 
-gage_dv <- gage_dv %>% 
-  filter(sta != "nio_mar") %>% 
-  filter(sta != "elk_rob")
+# 4. check results 
+sum_gage_yr <- gage_miss_yr %>% 
+  group_by(sta) %>% 
+  summarise(q_log = round(mean(q_log, na.rm = TRUE), digits =2), 
+            q7_log  = round(mean(q7_log, na.rm = TRUE), digits =2), 
+            q30_log = round(mean(q30_log, na.rm = TRUE), digits =2), 
+            q       = round(mean(q, na.rm = TRUE),digits =2), 
+            q7      = round(mean(q, na.rm = TRUE), digits =2), 
+            q30     = round(mean(q, na.rm = TRUE), digits =2), 
+            q_new   = round(mean(q_new, na.rm = TRUE), digits =2), 
+            q7_new  = round(mean(q7_new, na.rm = TRUE), digits =2), 
+            q30_new = round(mean(q30_new, na.rm = TRUE),  digits =2) 
+  ) %>% 
+  ungroup() 
 
+# 5. update missing year gages & bind to complete gages 
+gage_miss_yr <- gage_miss_yr %>% 
+  select(sta:incomp_yr, 
+         q = q_new, 
+         q7 = q7_new, 
+         q30 = q30_new) %>% 
+  group_by(sta, water_year) %>% 
+  mutate(days_yr = n()) %>% 
+  ungroup() %>% 
+  mutate(incomp_yr = case_when( 
+    days_yr < 365 ~ "Y", 
+    TRUE ~ "N" 
+  )) 
 
-# 3. update year summaries 
-year_summary <- gage_dv %>%                          
+gage_dv2 <- bind_rows(gage_othr_yr, gage_miss_yr) %>% 
+  select(-c(incomp_yr, days_yr)) 
+
+# 6. check values 
+sum_gage_yr <- gage_dv2 %>% 
+  group_by(sta) %>% 
+  summarise(q       = round(mean(q, na.rm = TRUE),digits =2), 
+            q7      = round(mean(q, na.rm = TRUE), digits =2), 
+            q30     = round(mean(q, na.rm = TRUE), digits =2), 
+            min_yr  = min(water_year), 
+            max_yr  = max(water_year),  
+            diff_yr = 2 + max_yr - min_yr 
+  ) %>% 
+  ungroup() 
+
+# 7. summarize & clean-up 
+gage_dv <- gage_dv2  %>% 
+  filter(sta != "nio_mar")                    # only 5 years of record        
+
+yr_sum <- gage_dv %>%                          
   group_by(sta, water_year) %>%                  
-  summarise(days_record = n()) %>%                   
-  ungroup()                                     
-
-year_length <- year_summary %>% 
-  group_by(sta) %>% 
-  summarise(years_record = n()) %>%                   
+  summarise(days_yr = n()) %>%                   
   ungroup() 
 
-year_sum <- year_summary %>% 
-  spread(water_year, days_record) %>% 
-  filter(sta != "nio_mar") 
+yr_len <- yr_sum %>% 
+  group_by(sta) %>% 
+  summarise(years_record = n() + 1) %>%                   
+  ungroup() 
 
-# 4. add catchment area to gage_dv & gage 
+yr_sum <- right_join(sum_gage_yr, yr_len, 
+                      by = "sta") %>% 
+  mutate(gap_yr = case_when( 
+    diff_yr == years_record ~ "N", 
+    TRUE ~ "Y" 
+  )) %>% 
+  select(-diff_yr) %>% 
+  arrange(years_record) %>% 
+  arrange(gap_yr)  
+
+rm(gage_dv2, gage_dv_comp, gage_dv_incomp, gage_miss_yr, gage_othr_yr, 
+   yr_sum_comp, yr_sum_incomp, yr_len, sum_gage_yr) 
+```
+
+```{r convert_to_flow_depth} 
+
+# 1. get metadata
 gage_meta <- read_csv("data/gage_dv_meta.csv")  %>% 
   mutate(site_no = as.character(site_no)) %>% 
   mutate(site_no = zeroPad(site_no, 8)) 
@@ -228,10 +371,10 @@ gage_contrib_area <- gage_meta %>%
                                          digits = 1)) %>% 
   select(-contrib_drain_area_va)
 
+# 2. bind catchment area to gage_dv 
 gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") 
-gage_dv_incomp <- left_join(gage_dv_incomp, gage_contrib_area,   by = "sta") 
-
-# 5. eliminate effects of watershed size---- 
+ 
+# 3. eliminate effects of watershed size---- 
 # Calculate daily flow depths by dividing flow (cms) by watershed 
 #    area (sq-km) and multiplying the resultant by the number of 
 #    seconds in a day.  The result is cu-m-d per sq-km. 
@@ -244,28 +387,131 @@ gage_dv <- gage_dv %>%
   mutate(q30_depth = round(q30 * (60*60*24) / contrib_drain_area_km, 
                            digits = 2))   
 
-# 6. clean up & prepare for next pca 
-rm(gage_meta) 
+# 4. convert to log depths---- 
+gage_dv <- gage_dv %>% 
+  mutate(log_q1_depth = round(log10(q1_depth), digits = 2)
+         ) %>% 
+  mutate(log_q7_depth = round(log10(q7_depth), digits = 2)
+         ) %>%            
+  mutate(log_q30_depth = round(log10(q30_depth), digits = 2)
+         )    
 
-yr_len <- gage_dv %>%                          
+# 4. clean up  
+rm(gage_contrib_area) 
+
+i = 0 
+``` 
+
+```{r model_run01}
+
+# 1. set values for run 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+i <- i +1                       # update tracking counter 
+run_name <- paste0("run_0", i)  # update run name 
+
+yr_min <- as_vector(yr_sum %>% 
+                      select(min_yr) %>% 
+                      slice(1)
+                    )  
+
+yr_max <- as_vector(yr_sum %>%  
+                      select(max_yr) %>%
+                      slice(1)
+                    ) 
+
+# 2. prepare for model run
+run01 <- gage_dv %>% 
+  filter(between(water_year, yr_min, yr_max)) %>% 
+  select(sta, date, log_q1_depth:log_q30_depth) %>% 
+  arrange(date)
+
+# 3. create input for the model run
+input <- run01 %>% 
+  group_by(sta) %>% 
+  summarize(log_q1_depth = mean(log_q1_depth), 
+            log_q7_depth = mean(log_q7_depth), 
+            log_q30_depth = mean(log_q30_depth)
+            )
+
+X <- input %>%                # this gets rid of categorical data for Mclust
+  select(-sta)
+
+# 3. calculate bic 
+BIC <- mclustBIC(X) 
+
+``` 
+
+```{r run_mclust}
+mod1 <- Mclust(X, x = BIC) 
+
+summary(mod1, parameters = FALSE) 
+```
+
+```{r plot-cluster}
+#plot(BIC) 
+# summary(BIC) 
+plot(mod1, what = "classification") 
+
+library(factoextra) 
+fviz_mclust(mod1, "classification", geom = "point", ellipse.type = "t", 
+            ellipse.level = 0.8, pointsize = 0.5,  palatte = "aaas")
+
+```
+
+```{r}
+#jsonedit(mod1, mode = "view", elementId = "mod1")
+
+
+# 1. prepare to collect output
+input <- input %>%  
+  rownames_to_column() %>%  
+  mutate(rowname = as.integer(rowname)) 
+
+cluster <- enframe(mod1$classification, value = "clust", name = "rowname") 
+
+# join input and output 
+output <- full_join(input, cluster, by = "rowname") %>% 
+  select(-rowname)
+
+output <- output %>% 
+  arrange(log_q30_depth) %>% 
+  arrange(clust) %>% 
+  
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 5.0  prepare to join lead and lag stations using station pairs from run above  
+# create a summary table
+gage_pairs <- pca_sum %>% 
+  mutate(sta_lead = lead(sta, 
+                     order_by = PC1_mean)) %>%   # creates a lead col 
+  mutate(sta_lag = lag(sta, 
+                     order_by = PC1_mean)) %>%   # creates a  lag col 
+  select(name, everything())  
+  
+
+```
+
+
+
+
+
+
+```{r eigen} 
+
+# 3. update year summaries 
+run01_sum <- run01 %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_record = n()) %>%                   
-  ungroup() %>% 
-  arrange(water_year) %>% 
+  ungroup()                                     
+
+year_length <- year_summary %>% 
   group_by(sta) %>% 
-  summarise(
-    min_yr   = first(water_year), 
-    max_yr   = last(water_year), 
-    count_yr = n() 
-  ) %>% 
-  arrange(count_yr) %>% 
+  summarise(years_record = n()) %>%                   
   ungroup() 
 
-# prepare the gage_dv for appended runs 
-gage_dv <- gage_dv %>% 
-  mutate(run = "observed") 
-
-
+year_sum <- year_summary %>% 
+  spread(water_year, days_record) %>% 
+  filter(sta != "nio_mar") 
 i <- 0                      # counter for tracking runs 
 
 vals_eigen <- tibble(PC = 0, 
@@ -320,12 +566,249 @@ vals_yr_len <- tibble(sta = "sta",
                     count_yr = as.integer(0), 
                     min_ck   = 0)  
 
+vals_eigen <- read_csv("data/vals_eigen_pc.csv") %>% 
+  filter(name != "none") %>% 
+  mutate(PC = as.character(PC))
+attr(vals_eigen, 'spec') <- NULL
+
+vals_pca <- read_csv("data/vals_pca_pc.csv") %>% 
+    filter(PC != "0") %>% 
+  mutate(PC = as.character(PC)) 
+attr(vals_pca, 'spec') <- NULL
+
+vals_lambda <- read_csv("data/vals_lambda_pc.csv") 
+attr(vals_lambda, 'spec') <- NULL
+
+vals_fill <- read_csv("data/vals_fill_pc.csv") %>% 
+    filter(sta != "sta") 
+attr(vals_fill, 'spec') <- NULL
+
+
+
+gage_mod <- 
+gage_clust <- test %>% 
+  select(q1_depth:q30_depth) %>% 
+  Mclust() 
+
+gage_clust_meta <- gage_pca_sum %>% 
+  select(sta)
+
+# apply model-based-clustering, extract results & add metadata
+gage_clust_l <- Mclust(gage_clust) 
+```
+
+```{r}
+
+ggplot(vals_eigen, aes(PC, cumulative)) +
+  geom_boxplot() 
+
+ggplot(vals_pca, aes(var, value)) +
+  geom_boxplot() + 
+  facet_grid(cols = vars(PC))
+
+
+data(mpg) 
+ggplot(mpg,)
+
+#ggplot(diamonds, aes(carat, price)) +
+#  geom_boxplot()
+#ggplot(diamonds, aes(carat, price)) +
+#  geom_boxplot(aes(group = cut_width(carat, 0.25)))
+#ggplot(diamonds, aes(carat, price)) +
+#  geom_boxplot(aes(group = cut_width(carat, 0.25)), outlier.alpha = 0.1)
+
 ```
 
 
+```{r create_matrix_of_gages-drop-this} 
+
+gage_list <- gage_dv %>%  
+  select(sta) %>% 
+  distinct() %>% 
+  mutate(bad_fpi = case_when(sta == "bad_fpi" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(bat_bhr = case_when(sta == "bat_bhr" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(bat_her = case_when(sta == "bat_her" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(bev_abf = case_when(sta == "bev_abf" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(bev_buf = case_when(sta == "bev_buf" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(bev_pri = case_when(sta == "bev_pri" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(blc_wan = case_when(sta == "blc_wan" ~ 1, TRUE ~ 0) 
+         ) %>%  
+  mutate(blp_bel = case_when(sta == "blp_bel" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(brsf_co = case_when(sta == "brsf_co" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(che_buf = case_when(sta == "che_buf" ~ 1, TRUE ~ 0) 
+         ) %>% 
+  mutate(che_pla = case_when(sta == "che_pla" ~ 1, TRUE ~ 0)
+    ) %>% 
+    mutate(che_red = case_when( 
+    sta == "che_red" ~ 1, 
+    TRUE ~ 0)
+    ) %>%   
+    mutate(che_sce = case_when( 
+    sta == "che_sce" ~ 1, 
+    TRUE ~ 0)
+    ) %>%   
+    mutate(che_was = case_when( 
+    sta == "che_was" ~ 1, 
+    TRUE ~ 0)
+    ) %>%   
+    mutate(elk_elm = case_when( 
+    sta == "elk_elm" ~ 1, 
+    TRUE ~ 0)
+    ) %>%   
+    mutate(fal_hot = case_when( 
+    sta == "fal_hot" ~ 1, 
+    TRUE ~ 0)
+    ) %>%   
+    mutate(frn_fai = case_when( 
+    sta == "frn_fai" ~ 1, 
+    TRUE ~ 0)
+    ) %>%       
+    mutate(hat_edg = case_when( 
+    sta == "hat_edg" ~ 1, 
+    TRUE ~ 0)
+    ) %>%           
+    mutate(hat_edg = case_when( 
+    sta == "hat_edg" ~ 1, 
+    TRUE ~ 0)
+    ) %>%         
+    mutate(hor_oel = case_when( 
+    sta == "hor_oel" ~ 1, 
+    TRUE ~ 0)
+    ) %>%         
+    mutate(key_key = case_when( 
+    sta == "key_key" ~ 1, 
+    TRUE ~ 0)
+    ) %>%       
+    mutate(key_wew = case_when( 
+    sta == "key_wew" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%          
+    mutate(lcr_abv = case_when( 
+    sta == "lcr_abv" ~ 1, 
+    TRUE ~ 0)
+    ) %>%           
+    mutate(lcr_bel = case_when( 
+    sta == "lcr_bel" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%        
+    mutate(lon_riv = case_when( 
+    sta == "lon_riv" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(lwr_aro = case_when( 
+    sta == "lwr_aro" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%       
+    mutate(lwr_mar = case_when( 
+    sta == "lwr_mar" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(lwr_ros = case_when( 
+    sta == "lwr_ros" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%          
+    mutate(lwr_vet = case_when( 
+    sta == "lwr_vet" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(lwr_whi = case_when( 
+    sta == "lwr_whi" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%             
+    mutate(nio_spa = case_when( 
+    sta == "nio_spa" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%          
+    mutate(plu_hay = case_when( 
+    sta == "plu_hay" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%            
+    mutate(ros_ros = case_when( 
+    sta == "ros_ros" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(spr_her = case_when( 
+    sta == "spr_her" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(wcc_ogl = case_when( 
+    sta == "wcc_ogl" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%              
+    mutate(whi_int = case_when( 
+    sta == "whi_int" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(whi_kad = case_when( 
+    sta == "whi_kad" ~ 1, 
+    TRUE ~ 0)
+    ) %>%           
+    mutate(whi_oac = case_when(
+    sta == "whi_oac" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%           
+    mutate(whi_ogl = case_when( 
+    sta == "whi_ogl" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(whi_slm = case_when( 
+    sta == "whi_slm" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%         
+    mutate(whi_sta = case_when( 
+    sta == "whi_sta" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%       
+    mutate(whi_whi = case_when( 
+    sta == "whi_whi" ~ 1, 
+    TRUE ~ 0) 
+    ) %>%        
+    mutate(wkc_wok = case_when( 
+    sta == "wkc_wok" ~ 1, 
+    TRUE ~ 0) 
+    )       
+```
 
 
+```{r}
+data(diabetes) 
+class <- diabetes$class
+table(class)
+## class
+## Chemical   Normal    Overt 
+##       36       76       33
+X <- diabetes[,-1]
+head(X)
+##   glucose insulin sspg
+## 1      80     356  124
+## 2      97     289  117
+## 3     105     319  143
+## 4      90     356  199
+## 5      90     323  240
+## 6      86     381  157
+clPairs(X, class) 
 
+BIC2 <- mclustBIC(X)
+plot(BIC2) 
+
+summary(BIC2)
+## Best BIC values:
+##              VVV,3       VVV,4       EVE,6
+## BIC      -4751.316 -4784.32213 -4785.24591
+## BIC diff     0.000   -33.00573   -33.92951
+
+mod1 <- Mclust(X, x = BIC2)
+summary(mod1, parameters = TRUE) 
+plot(mod1, what = "classification")
+```
 
 
 ```{r streamflow-pca-and-fill}    
@@ -826,8 +1309,19 @@ print(vals_yr_len)
 
 
 ```{r check_data_qual} 
-orig <- gage_dv %>% 
-  filter(sta == "brsf_co")  %>% 
+
+test <- gage_dv %>% 
+  mutate(type = case_when(
+    run == "observed" ~ "observed", 
+    TRUE ~ "modeled")
+    )
+
+ggplot(test, aes(type, log(q1_depth))) +
+  geom_boxplot() +
+  facet_wrap(~sta) 
+
+orig <- gage_dv %>%  
+  filter(sta == "brsf_co") %>% 
   mutate(q_mean = mean(q)) %>% 
   mutate(q7_mean = mean(q7)) %>% 
   mutate(q30_mean = mean(q30)) %>% 
@@ -856,143 +1350,11 @@ trans <- gage_fill %>%
 
 comb <- bind_rows(orig, fill, trans) 
 
-ggplot(comb, aes(date, q30_depth)) +
+ggplot(gage_dv, aes(sta, q30_depth)) +
   geom_line(aes(color = sta)) +
   facet_grid(sta ~ .) 
 
 
-```
-
-
-
-```{r}
-
- %>% 
-  mutate(sta_fill = if_else(name.run == "run_039" & sta == "che_red",
-                            "che_sce",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_040" & sta == "blc_wan", 
-                            "che_red",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_044" & sta == "bev_pri", 
-                            "che_pla",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_045" & sta == "whi_whi",
-                            "bev_pri",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_045" & sta == "blc_wan", 
-                            "che_pla",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_046" & sta == "whi_slm",
-                            "bev_pri",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_046" & sta == "che_red", 
-                            "che_pla",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_047" & sta == "whi_int",
-                            "bev_pri",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_046" & sta == "che_sce", 
-                            "che_pla",
-                            sta_fill)
-         )  %>% 
-  mutate(sta_fill = if_else(name.run == "run_047" & sta == "che_sce", 
-                            "bev_pri",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_051" & sta == "bat_bhr", 
-                            "whi_sta",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_052" & sta == "bev_pri", 
-                            "whi_sta",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_052" & sta == "che_pla", 
-                            "che_was",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_054" & sta == "blc_wan", 
-                            "whi_sta",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_054" & sta == "bat_bhr", 
-                            "whi_whi",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_054" & sta == "whi_whi",
-                            "bat_bhr", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_055" & sta == "che_red", 
-                            "whi_sta",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_055" & sta == "bat_bhr", 
-                            "whi_slm",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_055" & sta == "whi_slm",
-                            "bat_bhr", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_056" & sta == "che_sce", 
-                            "whi_sta",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_056" & sta == "bat_bhr",
-                            "whi_int", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_056" & sta == "whi_int", 
-                            "bat_bhr",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_058" & sta == "bat_bhr",
-                            "bad_fpi", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_058" & sta == "whi_whi", 
-                            "wcc_ogl",
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_059" & sta == "whi_sta",
-                            "wcc_ogl", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_059" & sta == "bev_pri",
-                            "whi_whi", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_060" & sta == "blc_wan",
-                            "whi_whi", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_060" & sta == "whi_slm",
-                            "wcc_ogl", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_061" & sta == "che_red",
-                            "whi_whi", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_061" & sta == "whi_int",
-                            "wcc_ogl", 
-                            sta_fill)
-         ) %>% 
-  mutate(sta_fill = if_else(name.run == "run_063" & sta == "bev_abf",
-                            "lwr_ros", 
-                            sta_fill)
-         ) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 ```
 
 
@@ -1009,11 +1371,10 @@ rm(lambda_vals, pca_eigen, vals_eigen, vals_lambda, vals_miss, vals_pca,
    year_summary, yr_len, yr_len_short, i, miss_max, miss_min, run_name, 
    yr_max, yr_min)
 rm(pca_matrix, pca_input, gage_pairs, gage_miss, gage_fill, 
-   gage_fill_dups)
-
+   gage_fill_dups, gage_dist)
+rm(pca_run, pca_sum, pca_vars, year_summary, gage_dv1, year_summary_incomp)
 
 ```
-
 
 ```{r }
 perc_comp <- as_vector(count(gage_dv) / count(gage_dv_q30)) 
