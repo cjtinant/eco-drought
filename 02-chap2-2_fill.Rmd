@@ -102,16 +102,14 @@ library("mclust")
 library("factoextra") 
 ```
 
-
-
 ```{r fill_miss_dates, message=FALSE} 
-# 1. load daily flow data  
+# 1. load daily flow data   
 gage_dv_raw <- read_csv("data/gage_dv.csv") %>% 
   clean_names() %>% 
   filter(sta != "elk_rob")           # remove the record of crystaline basins 
 
 wkc_wok <- gage_dv_raw %>% 
-  filter(sta == "wkc_wok")
+  filter(sta == "wkc_wok") 
 
 # 2. check for complete days of record & years of record  
 yr_incomp <- gage_dv_raw %>%                          
@@ -194,9 +192,9 @@ rm(bev_pri_1991, gage_dv_incomp, gage_dv_raw, lwr_aro_2003, whi_slm_1991,
 ``` 
 
 ```{r censor_low_flows, message=FALSE} 
-
+ 
 # 1. fix low flows ---- this step needed for the PCA  
-#   EGRET calculates a "better" zero-flow value, but causes issues with results
+#   EGRET calculates a "better" zero-flow value, but causes issues with results 
 #   this code chunk fixes low flow values by substituting 0.01 cfs 
 #   for zero-flow values  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
@@ -465,7 +463,7 @@ rm(gage_comp_yr, gage_miss_yr, gage_ck, gage_miss_10, gage_miss_11,
  
 ```
 
-```{r convert_to_flow_depth} 
+```{r convert_to_flow_depth, message = FALSE} 
 
 # 1. get metadata
 gage_meta <- read_csv("data/gage_dv_meta.csv")  %>% 
@@ -507,15 +505,19 @@ gage_dv <- gage_dv %>%
          ) %>%            
   mutate(log_q30_depth = round(log10(q30_depth), digits = 2)
          )    
-
-# 5. prepare counter for model runs 
-
-i = 0 
 ``` 
 
+```{r prepare_model_counter}
+# 1. make an original dv dataframe
+gage_dv_orig <- gage_dv        # for run 
+
+# 2. prepare counter for model runs 
+
+i = 0 
+```
 
 # model starts here 
-```{r model_run01}
+```{r prepare_model}
 
 # 1. set values for run 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
@@ -555,17 +557,16 @@ input <- clust_dv %>%
   summarize(log_q1_depth = mean(log_q1_depth), 
             log_q7_depth = mean(log_q7_depth), 
             log_q30_depth = mean(log_q30_depth)
-            )
-
-
-
+            ) 
 ``` 
 
 ```{r run_mclust}
+
+# 1. prepare model input 
 X <- input %>%                # this gets rid of categorical data for Mclust
   select(-sta)
 
-# 3. calculate bic 
+# 2. calculate bic 
 BIC <- mclustBIC(X) 
 
 mod <- Mclust(X, x = BIC) 
@@ -574,6 +575,7 @@ summary(mod, parameters = TRUE)
 ```
 
 ```{r plot-cluster}
+
 plot(BIC) 
 
 plot(mod, what = "classification") 
@@ -613,8 +615,7 @@ loglik <- enframe(mod$loglik, value = "loglik", name = NULL)
 mod_sum <- bind_cols(mod_nm, num_clust, num_obs, df,  bic, loglik) 
 
 # 3. get model means and variance, join & clean up
-params <- pluck(mod$parameters)
-
+params <- pluck(mod$parameters) 
 
 # 4. prepare to collect output data
 cluster   <- enframe(mod$classification, value = "clust", name = "rowname") 
@@ -628,22 +629,12 @@ output <- full_join(input, cluster, by = "rowname") %>%
   select(-rowname) %>% 
   arrange(log_q1_depth) %>% 
   arrange(clust) %>% 
-  mutate(run = as.character(run_name)) 
-
-# 6. save data 
-# append data for save 
-#clust_sums <- bind_rows(clust_sums, clust_sum) 
-#mod_sums   <- bind_rows(mod_sums, mod_sum)
-#outputs    <- bind_rows(outputs, output)
-
-#saveRDS(params, "data/params_run03")
-
-rm(mod_nm, num_clust, num_obs, df,bic, loglik, X, clust_sum, cluster, mod_sum, 
-   params, mod, BIC)
+  mutate(run = as.character(run_name))  
 ```
 
-```{r extrapolate_data}
-# 3.0  prepare to join lead and lag stations by creating lead and lag  
+```{r find_best_fit_sta_pairs}
+
+# 1.0  prepare to join lead and lag stations by creating lead and lag  
 #      cluster columns 
 gage_pairs <- output %>% 
   mutate(clust_lead1 = lead(clust, 
@@ -659,9 +650,9 @@ gage_pairs <- output %>%
   mutate(clust_lag3 = lag(clust, 
                      n = 3L, default = 0))   # creates a lag3 col 
 
-# 3.1  create lead and lag stations for same clusters - NA for diff clusters 
+# 2.  create lead and lag stations for same clusters - NA for diff clusters 
 gage_pairs <- gage_pairs %>%  
-  mutate(sta_lead1 = case_when(
+  mutate(sta_lead1 = case_when( 
     clust == clust_lead1 ~ lead(sta, n = 1L, default = 0),
     TRUE ~ "NA")                                # creates a lead1 sta 
     ) %>%  
@@ -688,19 +679,20 @@ gage_pairs <- gage_pairs %>%
   select(sta, sta_lead1, sta_lag1, sta_lead2, sta_lag2, 
          sta_lead3, sta_lag3) 
 
-# 3.3 gather the pairs to prepare to join the q1-q30 vals 
+# 3.  gather the pairs to prepare to join the q1-q30 vals 
 #     note: exploratory PCA showed that q1 vals are strongest predictors 
+#     however, the q30 was most important for our results
 gage_pairs <- gage_pairs %>%  
   gather(key, value = sta_pair, -sta) %>% 
   mutate(sta_pair = na_if(sta_pair, "NA")) %>% 
   drop_na(sta_pair) %>% 
   select(-key)
 
-# 3.4 join the q1-q30 vals for the stations 
+# 4.  join the q1-q30 vals for the stations 
 gage_pairs <- full_join(gage_pairs, output, 
                         by = "sta") 
 
-# 3.5 join the q1-q30 vals for the station pairs & calculate diffs 
+# 5.  join the q1-q30 vals for the station pairs & calculate diffs 
 gage_pairs <- full_join(gage_pairs, output, 
                         by = c("sta_pair" = "sta")) %>% 
   rename(log_q30_depth  = log_q30_depth.x) %>% 
@@ -712,13 +704,14 @@ gage_pairs <- full_join(gage_pairs, output,
          ) %>% 
   arrange(log_q30_diff) 
 
+# 6.  join the year lengths for sta & sta_pair 
 gage_pairs <- left_join(gage_pairs, yr_len, 
                          by = "sta") 
 
 gage_pairs <- left_join(gage_pairs, yr_len,
                          by = c("sta_pair" = "sta")) 
 
-# 3.6 clean up the var names 
+# 7. clean up the var names 
 gage_pairs <- gage_pairs %>% 
   rename(min_yr_sta = min_yr.x) %>% 
   rename(max_yr_sta = max_yr.x) %>% 
@@ -729,11 +722,10 @@ gage_pairs <- gage_pairs %>%
   rename(yrs_record_pair = yrs_record.y) %>% 
   rename(yr_gap_pair = yr_gap.y) %>% 
   select(-c(diff_yrs.x, diff_yrs.y)) 
-
-
 ```
 
 ```{r calculate_estimated_dvs}
+
 # 1. find the best fit lag pair 
 miss_lag <- gage_pairs %>% 
   filter(yr_lag < min_yr_sta) %>%  
@@ -761,9 +753,9 @@ gage_fill_dv <- right_join(gage_dv, gage_fill,
                                    by = c("sta" = "sta_pair", 
                                           "water_year")) %>% 
   rename(sta_fill = sta) %>% 
-  rename(sta = sta.y) %>% 
+  rename(sta = sta.y)    %>% 
   select(sta, date, water_year, everything()) %>%
-  select(- contrib_drain_area_km) 
+  select(-contrib_drain_area_km) 
 
 # 5. calculate q, q7, q30 for the filled vals 
 gage_fill_dv <- left_join(gage_fill_dv, gage_contrib_area,
@@ -785,52 +777,177 @@ gage_fill_dv <- left_join(gage_fill_dv, gage_contrib_area,
     )) %>% 
   select(-sta_fill)
          
-rm(miss_lag, miss_lead, gage_pairs, input, output)
 ```
 
-```{r check_answers_save_dvs}
-# check the fill vals 
-print(gage_fill$sta)
+```{r check_estimated_dvs}
 
+# 1.0 check the fill vals 
+gage_fill <- gage_fill %>% 
+  arrange(sta) 
+
+print(gage_fill$sta) 
+
+# 1.1 prepare to plot the existing dvs
 gage_ck <- gage_dv %>% 
-  filter(sta == "blp_bel" | 
-         sta == "bev_abf" |  
-         sta == "ros_ros" | 
-         sta == "whi_slm" | 
-         sta == "wkc_wok" 
+  filter( 
+         sta == "che_sce"       # run_09   
+#         sta == "bev_abf" |     # run_08  
+#         sta == "bev_pri" |     # run_08  
+#         sta == "blp_bel" |     # run_08 
+#         sta == "ros_ros" |     # run_08  
+#         sta == "wcc_ogl" |     # run_08 
+#         sta == "whi_slm" |     # run_08 
+#         sta == "wkc_wok"       # run_08  
+#         sta == "bat_bhr" |     # run_07  
+#         sta == "brsf_co" |     # run_07  
+#         sta == "plu_hay" |     # run_07  
+#         sta == "wcc_ogl" |     # run_07  
+#         sta == "whi_sta"       # run_07  
+#         sta == "che_buf" |     # run_06  
+#         sta == "che_sce"       # run_06   
+#         sta == "bev_abf" |     # run_05  
+#         sta == "bev_pri" |     # run_05  
+#         sta == "blp_bel" |     # run_05 
+#         sta == "lwr_aro" |     # run_05   
+#         sta == "ros_ros" |     # run_05  
+#         sta == "wcc_ogl" |     # run_05 
+#         sta == "whi_slm" |     # run_05 
+#         sta == "wkc_wok"       # run_05  
+#         sta == "bat_bhr" |     # run_04  
+#         sta == "brsf_co" |     # run_04 
+#         sta == "plu_hay"       # run_04
+#         sta == "bev_abf" |     # run_03  
+#         sta == "blp_bel" |     # run_03 
+#         sta == "ros_ros" |     # run_03 
+#         sta == "whi_slm" |     # run_03 
+#         sta == "wkc_wok"       # run_03 
+#         sta == "plu_hay"       # run_02
+#         sta == "bev_abf" |     # run_01 
+#         sta == "blp_bel" |     # run_01 
+#         sta == "ros_ros" |     # run_01 
+#         sta == "whi_slm" |     # run_01 
+#         sta == "wkc_wok"       # run_01 
          ) %>% 
-  filter(between(water_year, yr_min, yr_max)) 
+  filter(between(water_year, yr_lag, yr_lead)) 
 
+# 1.2 plot the existing dvs
+ggplot(gage_ck, aes(date, q30_depth)) + 
+  geom_line(aes(color = sta)) +
+  facet_grid(sta ~ .) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 2.0 add in the fill dvs  
 gage_ck <- bind_rows(gage_ck, gage_fill_dv) %>% 
   arrange(date) 
 
+# 2.1 plot the fill & existing dvs  
+ggplot(gage_ck, aes(date, q30_depth)) + 
+  geom_line(aes(color = sta)) +
+  facet_grid(sta ~ .) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
+# 3.0 print the fill stations  
+gage_fill <- gage_fill %>% 
+  arrange(sta_pair) 
+
+print(gage_fill$sta_pair) 
+
+# 3.1 prepare to plot the fill stations  
 gage_ck2 <- gage_dv %>% 
-  filter(sta == "spr_her" #| 
-#         sta == "lwr_mar" | 
-#         sta == "lwr_whi" | 
-#         sta == "lcr_bel" | 
-#         sta == "wcc_ogl"
+  filter( 
+          sta == "whi_whi"           # run 09  
+#          sta == "bev_pri" |         # run 08  
+#          sta == "fal_hot" |         # run 08  
+#          sta == "lwr_mar" |         # run 08  
+#          sta == "lwr_vet" |         # run 08
+#          sta == "whi_ogl" |         # run 08 
+#          sta == "whi_kad"           # run 08     
+#          sta == "che_was" |         # run 07  
+#          sta == "frn_fai" |         # run 07  
+#          sta == "spr_her"           # run 07  
+#          sta == "che_red" |         # run 06  
+#          sta == "whi_sta"           # run 06  
+#          sta == "bat_bhr" |         # run 05  
+#          sta == "bev_pri" |         # run 05  
+#          sta == "bat_bhr" |         # run 05  
+#          sta == "bev_pri" |         # run 05  
+#          sta == "fal_hot" |         # run 05  
+#          sta == "lcr_bel" |         # run 05  
+#          sta == "lwr_mar" |         # run 05  
+#          sta == "lwr_vet" |         # run 05  
+#          sta == "wcc_ogl" |         # run 05  
+#          sta == "whi_kad" |         # run 05 
+#          sta == "whi_sta"           # run 05  
+#          sta == "elk_elm" |         # run 04  
+#          sta == "frn_fai" |         # run 04 
+#          sta == "whi_ogl"           # run 04 
+#          sta == "fal_hot" |         # run 03  
+#          sta == "lwr_mar" |         # run 03 
+#          sta == "lwr_whi" |         # run 03 
+#          sta == "spr_her"           # run 02 
+#         sta == "lwr_mar" |          # run 01 
+#         sta == "lwr_whi" |          # run 01  
+#         sta == "lcr_bel" |          # run 01 
+#         sta == "wcc_ogl"            # run 01 
   ) %>% 
-  filter(between(water_year, yr_min, yr_max)) 
+  filter(between(water_year, yr_lag, yr_lead)) 
  
 gage_ck <- bind_rows(gage_ck, gage_ck2) 
 
-ggplot(gage_ck, aes(date, q30_depth)) +
+# 3.2 plot the fill stations  
+ggplot(gage_ck, aes(date, log(q30_depth))) +
   geom_line(aes(color = sta)) +
   facet_grid(sta ~ .) 
 
-rm(gage_ck, gage_ck2)
 
-# join dv data 
-#gage_dv_orig <- gage_dv 
+# ~~~~~~~~ testing for issues ~~~~~~~~~~~~~~~~~~~~~~~
+test <- gage_ck %>% 
+#  filter(between(water_year, 1988, 1989)) %>% 
+#  filter(sta != "che_was") %>% 
+  filter(sta == "lwr_aro")  
+  
+test2 <- test %>% 
+#  filter(sta == "spr_her") %>% 
+  group_by(sta, water_year) %>% 
+  summarise(count = n()) 
 
-gage_dv <- bind_rows(gage_dv, gage_fill_dv) 
+ggplot(test, aes(date, q1_depth)) +
+  geom_line(aes(color = sta)) +
+  facet_grid(sta ~ .) 
 
-rm(gage_fill, clust_dv)
+
 ```
 
 ```{r prepare_for_next_run}
-# 9. update summaries & fix gap years 
+# 2. update dvs  
+gage_dv <- bind_rows(gage_dv, gage_fill_dv) 
+
+gage_dv_ck <- distinct(gage_dv) 
+
+# 1.0 save model data 
+
+# 1.1 save model parameters as a list 
+
+saveRDS(params, "data/mod_params_run09")   # need to update the file
+#write_csv(gage_dv, "data/mod_dvs_run05")
+
+# 1.2 use this for initial run 
+#mod_clusts <- clust_sum     
+#mod_sums <- mod_sum 
+#mod_outputs <- outputs 
+
+# 1.3 use this for runs after run 01
+mod_clusts <- bind_rows(mod_clusts, clust_sum) 
+mod_sums   <- bind_rows(mod_sums, mod_sum)
+mod_outputs    <- bind_rows(mod_outputs, output)
+
+# 1.4 save parameters 
+write_csv(mod_clusts, "data/mod_clusts") 
+write_csv(gage_dv, "data/mod_sums") 
+write_csv(gage_dv, "data/mod_outputs")
+
+
+# 3. update summaries & fix gap years  
 yr_sum <- gage_dv %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_yr = n()) %>%                   
@@ -840,7 +957,7 @@ yr_sum <- gage_dv %>%
 yr_len <- yr_sum %>% 
   group_by(sta) %>% 
   summarize(min_yr = min(water_year), 
-            max_yr = max(water_year),
+            max_yr = max(water_year), 
             yrs_record = n() + 1) %>%                   
   ungroup() %>% 
   mutate(diff_yrs = 2 + max_yr - min_yr) %>% 
@@ -853,7 +970,7 @@ yr_len <- yr_sum %>%
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 yr_len <- yr_len %>% 
   mutate(min_yr = case_when(
-    sta == "che_buf" ~ 2008, 
+    sta == "che_buf" ~ 2007,    # check for runs 1-8 ?2008?
     sta == "che_pla" ~ 2001,
     sta == "wcc_ogl" ~ 1988,
     TRUE ~ min_yr
@@ -862,169 +979,18 @@ yr_len <- yr_len %>%
     sta == "lwr_aro" ~ 1999, 
     TRUE ~ max_yr
   ))
-```
 
-
-
-
-```{r old-updates} 
-
-# 3. update year summaries 
-run01_sum <- run01 %>%                          
-  group_by(sta, water_year) %>%                  
-  summarise(days_record = n()) %>%                   
-  ungroup()                                     
-
-year_length <- year_summary %>% 
-  group_by(sta) %>% 
-  summarise(years_record = n()) %>%                   
-  ungroup() 
-
-year_sum <- year_summary %>% 
-  spread(water_year, days_record) %>% 
-  filter(sta != "nio_mar") 
-i <- 0                      # counter for tracking runs 
-
-vals_eigen <- tibble(PC = 0, 
-                     std.dev = 0, 
-                     percent = 0, 
-                     cumulative = 0,
-                     name = "none") 
-
-vals_pca <- tibble(var = "none", 
-                     PC = 0, 
-                     value = 0, 
-                     name = "none") 
-
-vals_lambda <- tibble(name = "none", 
-                      lambda_q1  = 0, 
-                      lambda_q7  = 0, 
-                      lambda_q30 = 0 
-                     )
-
-vals_miss <- tibble(name.run          = "name.run", 
-                    sta               = "sta", 
-                    sta_fill          = "sta_fill",
-                    sta_lead          = "sta_lead", 
-                    sta_lag           = "sta_lag", 
-                    q30_diff.lead     = 0, 
-                    q30_diff.lag      = 0, 
-                    q1_mean_dep       = 0, 
-                    q7_mean_dep       = 0, 
-                    q30_mean_dep      = 0, 
-                    PC1_mean.sta      = 0, 
-                    PC2_mean.sta      = 0, 
-                    q1_q30_diff.sta   = 0, 
-                    eigen_dist.sta    = 0, 
-                    PC1_mean.lead     = 0, 
-                    PC2_mean.lead     = 0,    
-                    q1_mean_dep.lead  = 0, 
-                    q7_mean_dep.lead  = 0, 
-                    q30_mean_dep.lead = 0, 
-                    q1_q30_diff.lead  = 0,  
-                    eigen_dist.lead   = 0, 
-                    PC1_mean.lag      = 0,      
-                    PC2_mean.lag      = 0, 
-                    q1_mean_dep.lag   = 0,   
-                    q7_mean_dep.lag   = 0, 
-                    q30_mean_dep.lag  = 0, 
-                    q1_q30_diff.lag   = 0, 
-                    eigen_dist.lag    = 0) 
-
-vals_yr_len <- tibble(sta = "sta", 
-                    min_yr   = as.integer(0), 
-                    max_yr   = as.integer(0), 
-                    count_yr = as.integer(0), 
-                    min_ck   = 0)  
-
-vals_eigen <- read_csv("data/vals_eigen_pc.csv") %>% 
-  filter(name != "none") %>% 
-  mutate(PC = as.character(PC))
-attr(vals_eigen, 'spec') <- NULL
-
-vals_pca <- read_csv("data/vals_pca_pc.csv") %>% 
-    filter(PC != "0") %>% 
-  mutate(PC = as.character(PC)) 
-attr(vals_pca, 'spec') <- NULL
-
-vals_lambda <- read_csv("data/vals_lambda_pc.csv") 
-attr(vals_lambda, 'spec') <- NULL
-
-vals_fill <- read_csv("data/vals_fill_pc.csv") %>% 
-    filter(sta != "sta") 
-attr(vals_fill, 'spec') <- NULL
-
-
-
-gage_mod <- 
-gage_clust <- test %>% 
-  select(q1_depth:q30_depth) %>% 
-  Mclust() 
-
-gage_clust_meta <- gage_pca_sum %>% 
-  select(sta)
-
-# apply model-based-clustering, extract results & add metadata
-gage_clust_l <- Mclust(gage_clust) 
-```
-
-```{r}
-
-ggplot(vals_eigen, aes(PC, cumulative)) +
-  geom_boxplot() 
-
-ggplot(vals_pca, aes(var, value)) +
-  geom_boxplot() + 
-  facet_grid(cols = vars(PC))
-
-
-data(mpg) 
-ggplot(mpg,)
-
-#ggplot(diamonds, aes(carat, price)) +
-#  geom_boxplot()
-#ggplot(diamonds, aes(carat, price)) +
-#  geom_boxplot(aes(group = cut_width(carat, 0.25)))
-#ggplot(diamonds, aes(carat, price)) +
-#  geom_boxplot(aes(group = cut_width(carat, 0.25)), outlier.alpha = 0.1)
-
+# clean up 
+rm(miss_lag, miss_lead, gage_pairs, input, gage_ck, gage_ck2, mod_nm, 
+   num_clust, num_obs, df,bic, loglik, X, clust_sum, cluster, mod_sum, 
+   params, mod, BIC, gage_fill_dv, clust_dv, gage_fill, output, test) 
 ```
 
 
 
 
 
-```{r}
-data(diabetes) 
-class <- diabetes$class
-table(class)
-## class
-## Chemical   Normal    Overt 
-##       36       76       33
-X <- diabetes[,-1]
-head(X)
-##   glucose insulin sspg
-## 1      80     356  124
-## 2      97     289  117
-## 3     105     319  143
-## 4      90     356  199
-## 5      90     323  240
-## 6      86     381  157
-clPairs(X, class) 
 
-BIC2 <- mclustBIC(X)
-plot(BIC2) 
-
-summary(BIC2)
-## Best BIC values:
-##              VVV,3       VVV,4       EVE,6
-## BIC      -4751.316 -4784.32213 -4785.24591
-## BIC diff     0.000   -33.00573   -33.92951
-
-mod1 <- Mclust(X, x = BIC2)
-summary(mod1, parameters = TRUE) 
-plot(mod1, what = "classification")
-```
 
 
 ```{r streamflow-pca-and-fill}    
@@ -1447,13 +1413,14 @@ beep(sound = 10)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ``` 
 
-
 ```{r prepare_for_next_run}  
 # update results 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 # daily values 
 gage_dv <- bind_rows(gage_dv, gage_fill) %>% 
   distinct() 
+
+gage_dv <- gage
 
 gage_dv1 <- gage_fill 
 
@@ -1522,6 +1489,15 @@ rm(gage_fill, gage_fill_dups, gage_miss, gage_pairs,
 # print results 
 print(vals_yr_len) 
 ```
+
+
+
+
+
+
+
+
+
 
 ```{r create_matrix_of_gages-drop-this} 
 
