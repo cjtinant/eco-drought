@@ -517,6 +517,7 @@ i = 0
 ```
 
 # model starts here 
+## completed through run 14 
 ```{r prepare_model}
 
 # 1. set values for run 
@@ -539,6 +540,7 @@ yr_max <- as_vector(yr_len %>%
 
 yr_lag <- as_vector(yr_min - 1) 
 yr_lead <- as_vector(yr_max + 1) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 
 # 2.0. find stations for cluster run 
 clust_sum <- yr_len %>% 
@@ -599,20 +601,15 @@ input <- input %>%
 clust_sum <- clust_sum %>% 
   mutate(run = as.character(run_name)) 
 
-# 2. prepare model summary outputs & clean up
+# 2. prepare model summary outputs & join 
 num_clust <- enframe(mod$G, value = "num_clust", name = NULL) 
+num_obs   <- enframe(mod$n, value = "num_obs", name = NULL) 
+df        <- enframe(mod$df, value = "df", name = NULL) 
+mod_nm    <- enframe(mod$modelName, value = "mod_nm", name = NULL) 
+bic       <- enframe(mod$bic, value = "bic", name = NULL) 
+loglik    <- enframe(mod$loglik, value = "loglik", name = NULL) 
 
-num_obs <- enframe(mod$n, value = "num_obs", name = NULL) 
-
-df <- enframe(mod$df, value = "df", name = NULL) 
-
-mod_nm <- enframe(mod$modelName, value = "mod_nm", name = NULL) 
-
-bic <- enframe(mod$bic, value = "bic", name = NULL) 
-
-loglik <- enframe(mod$loglik, value = "loglik", name = NULL) 
-
-mod_sum <- bind_cols(mod_nm, num_clust, num_obs, df,  bic, loglik) 
+mod_sum   <- bind_cols(mod_nm, num_clust, num_obs, df,  bic, loglik) 
 
 # 3. get model means and variance, join & clean up
 params <- pluck(mod$parameters) 
@@ -708,7 +705,7 @@ gage_pairs <- full_join(gage_pairs, output,
 gage_pairs <- left_join(gage_pairs, yr_len, 
                          by = "sta") 
 
-gage_pairs <- left_join(gage_pairs, yr_len,
+gage_pairs <- left_join(gage_pairs, yr_len, 
                          by = c("sta_pair" = "sta")) 
 
 # 7. clean up the var names 
@@ -721,7 +718,7 @@ gage_pairs <- gage_pairs %>%
   rename(max_yr_pair = max_yr.y) %>% 
   rename(yrs_record_pair = yrs_record.y) %>% 
   rename(yr_gap_pair = yr_gap.y) %>% 
-  select(-c(diff_yrs.x, diff_yrs.y)) 
+  select(-c(diff_yrs.x, diff_yrs.y))  
 ```
 
 ```{r calculate_estimated_dvs}
@@ -748,35 +745,34 @@ miss_lead <- gage_pairs %>%
 # 3. join the missing stations 
 gage_fill <- bind_rows(miss_lag, miss_lead) 
 
-# 4. get fill dvs
+# 4. get fill dvs 
 gage_fill_dv <- right_join(gage_dv, gage_fill, 
                                    by = c("sta" = "sta_pair", 
                                           "water_year")) %>% 
   rename(sta_fill = sta) %>% 
   rename(sta = sta.y)    %>% 
-  select(sta, date, water_year, everything()) %>%
+  select(sta, date, water_year, everything()) %>% 
   select(-contrib_drain_area_km) 
 
 # 5. calculate q, q7, q30 for the filled vals 
-gage_fill_dv <- left_join(gage_fill_dv, gage_contrib_area,
+gage_fill_dv <- left_join(gage_fill_dv, gage_contrib_area, 
                   by = "sta") %>% 
   mutate(q   = q1_depth   * contrib_drain_area_km / (60 * 60 * 24)) %>% 
   mutate(q7  = q7_depth  * contrib_drain_area_km / (60 * 60 * 24)) %>% 
   mutate(q30 = q30_depth * contrib_drain_area_km / (60 * 60 * 24)) %>% 
-  mutate(q = case_when(
-    q < 0.01 ~ 0.01,
-    TRUE ~ round(q, digits = 2)
+  mutate(q = case_when( 
+    q < 0.01 ~ 0.01, 
+    TRUE ~ round(q, digits = 2) 
     )) %>% 
-  mutate(q7 = case_when(
-    q7 < 0.01 ~ 0.01,
-    TRUE ~ round(q7, digits = 2)
+  mutate(q7 = case_when( 
+    q7 < 0.01 ~ 0.01, 
+    TRUE ~ round(q7, digits = 2) 
     )) %>% 
-  mutate(q30 = case_when(
-    q30 < 0.01 ~ 0.01,
-    TRUE ~ round(q7, digits = 2)
+  mutate(q30 = case_when( 
+    q30 < 0.01 ~ 0.01, 
+    TRUE ~ round(q7, digits = 2) 
     )) %>% 
-  select(-sta_fill)
-         
+  select(-sta_fill) 
 ```
 
 ```{r check_estimated_dvs}
@@ -790,7 +786,21 @@ print(gage_fill$sta)
 # 1.1 prepare to plot the existing dvs
 gage_ck <- gage_dv %>% 
   filter( 
-         sta == "che_sce"       # run_09   
+         sta == "bev_abf" |     # run_14  
+         sta == "bev_pri" |     # run_14  
+         sta == "blp_bel" |     # run_14 
+         sta == "ros_ros" |     # run_14  
+         sta == "wcc_ogl" |     # run_14 
+         sta == "whi_slm" |     # run_14 
+         sta == "wkc_wok"       # run_14  
+#         sta == "che_buf"       # run_13    
+#         sta == "bat_bhr" |     # run_12  
+#         sta == "brsf_co" |     # run_12   
+#         sta == "plu_hay" |     # run_12   
+#         sta == "whi_sta"       # run_12   
+#         sta == "che_sce"       # run_11    
+#         sta == "che_buf"       # run_10    
+#         sta == "che_sce"       # run_09   
 #         sta == "bev_abf" |     # run_08  
 #         sta == "bev_pri" |     # run_08  
 #         sta == "blp_bel" |     # run_08 
@@ -855,7 +865,20 @@ print(gage_fill$sta_pair)
 # 3.1 prepare to plot the fill stations  
 gage_ck2 <- gage_dv %>% 
   filter( 
-          sta == "whi_whi"           # run 09  
+          sta == "bat_bhr" |         # run 14  
+          sta == "bev_pri" |         # run 14  
+          sta == "che_was" |         # run 14       
+          sta == "fal_hot" |         # run 14  
+          sta == "lwr_mar" |         # run 14  
+          sta == "lwr_vet" |         # run 14  
+          sta == "whi_kad"           # run 14 
+#          sta == "brsf_co"           # run 13   
+#          sta == "che_was" |         # run 12   
+#          sta == "frn_fai" |         # run 12  
+#          sta == "spr_her" |         # run 12  
+#          sta == "che_was"           # run 12    
+#          sta == "che_red"           # run 10   
+#          sta == "whi_whi"           # run 09  
 #          sta == "bev_pri" |         # run 08  
 #          sta == "fal_hot" |         # run 08  
 #          sta == "lwr_mar" |         # run 08  
@@ -895,7 +918,7 @@ gage_ck2 <- gage_dv %>%
 gage_ck <- bind_rows(gage_ck, gage_ck2) 
 
 # 3.2 plot the fill stations  
-ggplot(gage_ck, aes(date, log(q30_depth))) +
+ggplot(gage_ck, aes(date, q30_depth)) +
   geom_line(aes(color = sta)) +
   facet_grid(sta ~ .) 
 
@@ -928,8 +951,8 @@ gage_dv_ck <- distinct(gage_dv)
 
 # 1.1 save model parameters as a list 
 
-saveRDS(params, "data/mod_params_run09")   # need to update the file
-#write_csv(gage_dv, "data/mod_dvs_run05")
+saveRDS(params, "data/mod_params_run15")   # need to update the file
+#write_csv(gage_dv, "data/mod_dvs_run14")
 
 # 1.2 use this for initial run 
 #mod_clusts <- clust_sum     
@@ -937,15 +960,14 @@ saveRDS(params, "data/mod_params_run09")   # need to update the file
 #mod_outputs <- outputs 
 
 # 1.3 use this for runs after run 01
-mod_clusts <- bind_rows(mod_clusts, clust_sum) 
-mod_sums   <- bind_rows(mod_sums, mod_sum)
-mod_outputs    <- bind_rows(mod_outputs, output)
+mod_clusts  <- bind_rows(mod_clusts, clust_sum) 
+mod_sums    <- bind_rows(mod_sums, mod_sum)
+mod_outputs <- bind_rows(mod_outputs, output)
 
 # 1.4 save parameters 
 write_csv(mod_clusts, "data/mod_clusts") 
 write_csv(gage_dv, "data/mod_sums") 
 write_csv(gage_dv, "data/mod_outputs")
-
 
 # 3. update summaries & fix gap years  
 yr_sum <- gage_dv %>%                          
@@ -968,9 +990,10 @@ yr_len <- yr_sum %>%
   arrange(desc(yr_gap))
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# these change over runs - see yr_sum 
 yr_len <- yr_len %>% 
   mutate(min_yr = case_when(
-    sta == "che_buf" ~ 2007,    # check for runs 1-8 ?2008?
+    sta == "che_buf" ~ 2006,    
     sta == "che_pla" ~ 2001,
     sta == "wcc_ogl" ~ 1988,
     TRUE ~ min_yr
@@ -983,7 +1006,7 @@ yr_len <- yr_len %>%
 # clean up 
 rm(miss_lag, miss_lead, gage_pairs, input, gage_ck, gage_ck2, mod_nm, 
    num_clust, num_obs, df,bic, loglik, X, clust_sum, cluster, mod_sum, 
-   params, mod, BIC, gage_fill_dv, clust_dv, gage_fill, output, test) 
+   params, mod, BIC, gage_fill_dv, clust_dv, gage_fill, output) 
 ```
 
 
