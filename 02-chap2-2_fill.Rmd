@@ -517,7 +517,7 @@ i = 0
 ```
 
 # model starts here 
-## completed through run 14 
+## completed through run 15 
 ```{r prepare_model}
 
 # 1. set values for run 
@@ -629,7 +629,7 @@ output <- full_join(input, cluster, by = "rowname") %>%
   mutate(run = as.character(run_name))  
 ```
 
-```{r find_best_fit_sta_pairs}
+```{r find_best_fit_sta_pairs_and_calc_est_dvs}
 
 # 1.0  prepare to join lead and lag stations by creating lead and lag  
 #      cluster columns 
@@ -647,7 +647,7 @@ gage_pairs <- output %>%
   mutate(clust_lag3 = lag(clust, 
                      n = 3L, default = 0))   # creates a lag3 col 
 
-# 2.  create lead and lag stations for same clusters - NA for diff clusters 
+# 1.1.  create lead and lag stations for same clusters - NA for diff clusters 
 gage_pairs <- gage_pairs %>%  
   mutate(sta_lead1 = case_when( 
     clust == clust_lead1 ~ lead(sta, n = 1L, default = 0),
@@ -676,7 +676,7 @@ gage_pairs <- gage_pairs %>%
   select(sta, sta_lead1, sta_lag1, sta_lead2, sta_lag2, 
          sta_lead3, sta_lag3) 
 
-# 3.  gather the pairs to prepare to join the q1-q30 vals 
+# 1.3.  gather the pairs to prepare to join the q1-q30 vals 
 #     note: exploratory PCA showed that q1 vals are strongest predictors 
 #     however, the q30 was most important for our results
 gage_pairs <- gage_pairs %>%  
@@ -685,11 +685,11 @@ gage_pairs <- gage_pairs %>%
   drop_na(sta_pair) %>% 
   select(-key)
 
-# 4.  join the q1-q30 vals for the stations 
+# 1.4.  join the q1-q30 vals for the stations 
 gage_pairs <- full_join(gage_pairs, output, 
                         by = "sta") 
 
-# 5.  join the q1-q30 vals for the station pairs & calculate diffs 
+# 1.5.  join the q1-q30 vals for the station pairs & calculate diffs 
 gage_pairs <- full_join(gage_pairs, output, 
                         by = c("sta_pair" = "sta")) %>% 
   rename(log_q30_depth  = log_q30_depth.x) %>% 
@@ -701,14 +701,14 @@ gage_pairs <- full_join(gage_pairs, output,
          ) %>% 
   arrange(log_q30_diff) 
 
-# 6.  join the year lengths for sta & sta_pair 
+# 1.6.  join the year lengths for sta & sta_pair 
 gage_pairs <- left_join(gage_pairs, yr_len, 
                          by = "sta") 
 
 gage_pairs <- left_join(gage_pairs, yr_len, 
                          by = c("sta_pair" = "sta")) 
 
-# 7. clean up the var names 
+# 1.7. clean up the var names 
 gage_pairs <- gage_pairs %>% 
   rename(min_yr_sta = min_yr.x) %>% 
   rename(max_yr_sta = max_yr.x) %>% 
@@ -719,11 +719,9 @@ gage_pairs <- gage_pairs %>%
   rename(yrs_record_pair = yrs_record.y) %>% 
   rename(yr_gap_pair = yr_gap.y) %>% 
   select(-c(diff_yrs.x, diff_yrs.y))  
-```
 
-```{r calculate_estimated_dvs}
 
-# 1. find the best fit lag pair 
+# 2.1 find the best fit lag pair 
 miss_lag <- gage_pairs %>% 
   filter(yr_lag < min_yr_sta) %>%  
   filter(yr_lag > min_yr_pair) %>%  
@@ -732,7 +730,7 @@ miss_lag <- gage_pairs %>%
   ungroup() %>% 
   mutate(water_year = yr_lag) 
 
-# 2. find the best fit lead pair 
+# 2.2 find the best fit lead pair 
 miss_lead <- gage_pairs %>% 
   filter(yr_lead > max_yr_sta) %>% 
   filter(yr_lead < max_yr_pair) %>% 
@@ -742,10 +740,10 @@ miss_lead <- gage_pairs %>%
   ungroup() %>% 
   mutate(water_year = yr_lead) 
 
-# 3. join the missing stations 
+# 2.3. join the missing stations 
 gage_fill <- bind_rows(miss_lag, miss_lead) 
 
-# 4. get fill dvs 
+# 2.4. get fill dvs 
 gage_fill_dv <- right_join(gage_dv, gage_fill, 
                                    by = c("sta" = "sta_pair", 
                                           "water_year")) %>% 
@@ -754,7 +752,7 @@ gage_fill_dv <- right_join(gage_dv, gage_fill,
   select(sta, date, water_year, everything()) %>% 
   select(-contrib_drain_area_km) 
 
-# 5. calculate q, q7, q30 for the filled vals 
+# 2.5. calculate q, q7, q30 for the filled vals 
 gage_fill_dv <- left_join(gage_fill_dv, gage_contrib_area, 
                   by = "sta") %>% 
   mutate(q   = q1_depth   * contrib_drain_area_km / (60 * 60 * 24)) %>% 
@@ -786,13 +784,29 @@ print(gage_fill$sta)
 # 1.1 prepare to plot the existing dvs
 gage_ck <- gage_dv %>% 
   filter( 
-         sta == "bev_abf" |     # run_14  
-         sta == "bev_pri" |     # run_14  
-         sta == "blp_bel" |     # run_14 
-         sta == "ros_ros" |     # run_14  
-         sta == "wcc_ogl" |     # run_14 
-         sta == "whi_slm" |     # run_14 
-         sta == "wkc_wok"       # run_14  
+         sta == "bev_abf" |     # run_20  
+         sta == "bev_pri" |     # run_20  
+         sta == "blp_bel" |     # run_20 
+         sta == "ros_ros" |     # run_20  
+         sta == "wcc_ogl" |     # run_20 
+         sta == "whi_slm" |     # run_20 
+         sta == "wkc_wok"       # run_20  
+#         sta == "che_buf"       # run_19   
+#         sta == "bat_bhr" |     # run_18  
+#         sta == "brsf_co" |     # run_18   
+#         sta == "lwr_aro" |     # run_18   
+#         sta == "plu_hay" |     # run_18   
+#         sta == "whi_sta"       # run_18   
+#         sta == "che_sce"       # run_17   
+#         sta == "che_buf"       # run_16   
+#         sta == "che_sce"       # run_15  
+#         sta == "bev_abf" |     # run_14  
+#         sta == "bev_pri" |     # run_14  
+#         sta == "blp_bel" |     # run_14 
+#         sta == "ros_ros" |     # run_14  
+#         sta == "wcc_ogl" |     # run_14 
+#         sta == "whi_slm" |     # run_14 
+#         sta == "wkc_wok"       # run_14  
 #         sta == "che_buf"       # run_13    
 #         sta == "bat_bhr" |     # run_12  
 #         sta == "brsf_co" |     # run_12   
@@ -865,13 +879,28 @@ print(gage_fill$sta_pair)
 # 3.1 prepare to plot the fill stations  
 gage_ck2 <- gage_dv %>% 
   filter( 
-          sta == "bat_bhr" |         # run 14  
-          sta == "bev_pri" |         # run 14  
-          sta == "che_was" |         # run 14       
-          sta == "fal_hot" |         # run 14  
-          sta == "lwr_mar" |         # run 14  
-          sta == "lwr_vet" |         # run 14  
-          sta == "whi_kad"           # run 14 
+          sta == "bat_bhr" |         # run 20  
+          sta == "bev_pri" |         # run 20  
+          sta == "che_was" |         # run 20       
+          sta == "fal_hot" |         # run 20  
+          sta == "lwr_mar" |         # run 20  
+          sta == "lwr_whi" |         # run 20  
+          sta == "whi_kad"           # run 20 
+#          sta == "whi_whi"           # run 19   
+#          sta == "bat_bhr" |         # run 18  
+#          sta == "che_was" |         # run 18       
+#          sta == "lcr_bel" |         # run 18  
+#          sta == "whi_oac" |         # run 18  
+#          sta == "whi_ogl"           # run 18  
+#          sta == "brsf_co"           # run 17  
+#          sta == "brsf_co"           # run 15  
+#          sta == "bat_bhr" |         # run 14  
+#          sta == "bev_pri" |         # run 14  
+#          sta == "che_was" |         # run 14       
+#          sta == "fal_hot" |         # run 14  
+#          sta == "lwr_mar" |         # run 14  
+#          sta == "lwr_vet" |         # run 14  
+#          sta == "whi_kad"           # run 14 
 #          sta == "brsf_co"           # run 13   
 #          sta == "che_was" |         # run 12   
 #          sta == "frn_fai" |         # run 12  
@@ -951,8 +980,8 @@ gage_dv_ck <- distinct(gage_dv)
 
 # 1.1 save model parameters as a list 
 
-saveRDS(params, "data/mod_params_run15")   # need to update the file
-#write_csv(gage_dv, "data/mod_dvs_run14")
+saveRDS(params, "data/mod_params_run21")   # need to update the file
+#write_csv(gage_dv, "data/mod_dvs_run20")
 
 # 1.2 use this for initial run 
 #mod_clusts <- clust_sum     
@@ -993,20 +1022,24 @@ yr_len <- yr_sum %>%
 # these change over runs - see yr_sum 
 yr_len <- yr_len %>% 
   mutate(min_yr = case_when(
-    sta == "che_buf" ~ 2006,    
+    sta == "che_buf" ~ 2003,    
     sta == "che_pla" ~ 2001,
-    sta == "wcc_ogl" ~ 1988,
+    sta == "wcc_ogl" ~ 1987,
     TRUE ~ min_yr
   )) %>% 
   mutate(max_yr = case_when(
-    sta == "lwr_aro" ~ 1999, 
+    sta == "lwr_aro" ~ 2000, 
     TRUE ~ max_yr
   ))
+
+# tests values for yr_len 
+test <- yr_sum %>% 
+  filter(sta == "lwr_aro")
 
 # clean up 
 rm(miss_lag, miss_lead, gage_pairs, input, gage_ck, gage_ck2, mod_nm, 
    num_clust, num_obs, df,bic, loglik, X, clust_sum, cluster, mod_sum, 
-   params, mod, BIC, gage_fill_dv, clust_dv, gage_fill, output) 
+   params, mod, BIC, gage_fill_dv, clust_dv, gage_fill, output, test) 
 ```
 
 
