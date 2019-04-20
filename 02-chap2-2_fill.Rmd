@@ -57,16 +57,18 @@ library("mclust")
 library("factoextra") 
 ```
 
-```{r fill_miss_dates, message=FALSE} 
-# 1. load daily flow data    
+```{r remove_miss_dates, message=FALSE} 
+
+# 1. load daily flow data  & renive crystaline basins    
 gage_dv_raw <- read_csv("data/gage_dv.csv") %>%  
   clean_names() %>%  
   filter(sta != "elk_rob")           # remove the record of crystaline basins  
 
+# 1.1 check a short record 
 wkc_wok <- gage_dv_raw %>%  
   filter(sta == "wkc_wok")  
 
-# 2. check for complete days of record & years of record  
+# 2. check for incomplete days of record & years of record  
 yr_incomp <- gage_dv_raw %>%                          
   group_by(sta, water_year) %>%                  
   summarise(days_yr = n()) %>%                    
@@ -187,10 +189,10 @@ gage_ck <- gage_dv %>%
   ungroup() %>% 
   filter(count > 366) 
 
-rm(gage_dv_ck, gage_dv_gath, gage_dv_high, gage_dv_low, gage_ck)
+rm(gage_dv_ck, gage_dv_gath, gage_dv_high, gage_dv_low, gage_ck) 
 ``` 
 
-```{r prepare_for_clustering, message=FALSE}  
+```{r fill_miss_dates, message=FALSE}  
 
 # 1. make summaries of the incomplete and complete years
 yr_sum_comp <-  gage_dv %>% 
@@ -298,8 +300,6 @@ gage_dv <- gage_dv %>%
     days_yr < 365 ~ "Y", 
     TRUE ~ "N" 
   )) 
-
-summary(gage_dv) 
 
 # 7. filter out NAs in gage_dv & find which months are missing
 gage_miss_mon <- gage_dv %>% 
@@ -418,7 +418,7 @@ rm(gage_comp_yr, gage_miss_yr, gage_ck, gage_miss_10, gage_miss_11,
  
 ```
 
-```{r convert_to_flow_depth, message = FALSE} 
+```{r calculate_flow_depth, message = FALSE} 
 
 # 1. get metadata
 gage_meta <- read_csv("data/gage_dv_meta.csv")  %>% 
@@ -462,7 +462,7 @@ gage_dv <- gage_dv %>%
          )    
 ``` 
 
-```{r prepare_model_counter}
+```{r prepare_for_Mclust_model}
 # 1. make an original dv dataframe
 gage_dv <- gage_dv %>% 
   mutate(water_year = as.numeric(water_year))
@@ -480,7 +480,7 @@ i = 0
 # 1. set values for run  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 i <- i +1                       # update tracking counter 
-run_name <- paste0("run_0", i)  # update run name 
+run_name <- paste0("run_", i)  # update run name 
 
 yr_len <- yr_len %>% 
   arrange(yrs_record) 
@@ -518,28 +518,22 @@ input <- clust_dv %>%
             log_q30_depth = mean(log_q30_depth) 
             ) 
 
-# 1. prepare model input 
 X <- input %>%                # this gets rid of categorical data for Mclust 
   select(-sta) 
 
-# 2. calculate bic 
+# 4. run model
 BIC <- mclustBIC(X) 
-
 mod <- Mclust(X, x = BIC) 
 
-#jsonedit(mod, mode = "view", elementId = "mod1") 
+# 5. collect model output 
+mod_sum <- tidy(mod) %>% 
+  mutate(run = run_name)
 
-# 3. prepare run inputs for join  
-input <- input %>% 
-  gather(type, discharge, -sta) %>% 
-  mutate(discharge = round(discharge, digits = 3) 
-         ) %>% 
-  spread(type, discharge) 
+output <- augment(mod, input) %>% 
+  mutate(run = run_name) %>% 
+  mutate(.class = as.character(.class)) 
 
-clust_sum <- clust_sum %>% 
-  mutate(run = as.character(run_name)) 
-
-# 4. prepare model summary outputs & join 
+# 6.  prepare model summary outputs & join 
 num_clust <- enframe(mod$G, value = "num_clust", name = NULL) 
 num_obs   <- enframe(mod$n, value = "num_obs", name = NULL) 
 df        <- enframe(mod$df, value = "df", name = NULL) 
@@ -547,70 +541,92 @@ mod_nm    <- enframe(mod$modelName, value = "mod_nm", name = NULL)
 bic       <- enframe(mod$bic, value = "bic", name = NULL) 
 loglik    <- enframe(mod$loglik, value = "loglik", name = NULL) 
 
-mod_sum   <- bind_cols(mod_nm, num_clust, num_obs, df,  bic, loglik) 
+mod_param   <- bind_cols(mod_nm, num_clust, num_obs, df,  bic, loglik) %>% 
+   mutate(run = run_name)  
 
-# 5. get model means and variance, join & clean up 
-params <- pluck(mod$parameters) 
-
-# 6. prepare to collect output data 
-cluster   <- enframe(mod$classification, value = "clust", name = "rowname") 
-
-input <- input %>%  
-  rownames_to_column() %>%  
-  mutate(rowname = as.integer(rowname)) 
-
-# 6. join input and output 
-output <- full_join(input, cluster, by = "rowname") %>% 
-  select(-rowname) %>% 
-  arrange(log_q1_depth) %>% 
-  arrange(clust) %>% 
-  mutate(run = as.character(run_name))  
-
-
-# 7.0  prepare to join lead and lag stations by creating lead and lag  
-#      cluster columns 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 7.0  prepare to join lead and lag stations by 
+#      creating lead and lag cluster columns 
 gage_pairs <- output %>% 
-  mutate(clust_lead1 = lead(clust, 
+  arrange(log_q30_depth) %>%                     # sets up the groupings
+  arrange(.class) %>%     
+  mutate(clust_lead1 = lead(.class, 
                      n = 1L, default = 0)) %>%   # creates a lead col 
-  mutate(clust_lag1 = lag(clust, 
-                     n = 1L, default = 0)) %>%   # creates a lag col 
-  mutate(clust_lead2 = lead(clust, 
+  mutate(clust_lead2 = lead(.class, 
                      n = 2L, default = 0)) %>%   # creates a lead2 col  
-  mutate(clust_lag2 = lag(clust, 
-                     n = 2L, default = 0)) %>%    # creates a lag2 col 
-  mutate(clust_lead3 = lead(clust, 
-                     n = 3L, default = 0)) %>%   # creates a lead3 col 
-  mutate(clust_lag3 = lag(clust, 
-                     n = 3L, default = 0))   # creates a lag3 col 
-
+  mutate(clust_lead3 = lead(.class, 
+                     n = 3L, default = 0)) %>%   # creates a lead3 col  
+  mutate(clust_lead4 = lead(.class, 
+                     n = 4L, default = 0)) %>%   # creates a lead4 col  
+  mutate(clust_lead5 = lead(.class, 
+                     n = 5L, default = 0)) %>%   # creates a lead5 col    
+  mutate(clust_lead6 = lead(.class, 
+                     n = 6L, default = 0)) %>%   # creates a lead5 col   
+  mutate(clust_lag1 = lag(.class, 
+                     n = 1L, default = 0)) %>%   # creates a lag col 
+  mutate(clust_lag2 = lag(.class, 
+                     n = 2L, default = 0)) %>%   # creates a lag2 col 
+  mutate(clust_lag3 = lag(.class, 
+                     n = 3L, default = 0)) %>%   # creates a lag3 col 
+  mutate(clust_lag4 = lag(.class, 
+                     n = 4L, default = 0)) %>%   # creates a lag4 col 
+  mutate(clust_lag5 = lag(.class, 
+                     n = 5L, default = 0)) %>%   # creates a lag5 col 
+  mutate(clust_lag6 = lag(.class, 
+                     n = 6L, default = 0))       # creates a lag6 col     
+    
 # 7.1.  create lead and lag stations for same clusters - NA for diff clusters 
 gage_pairs <- gage_pairs %>%  
   mutate(sta_lead1 = case_when( 
-    clust == clust_lead1 ~ lead(sta, n = 1L, default = 0), 
+    .class == clust_lead1 ~ lead(sta, n = 1L, default = 0), 
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    )  %>% 
+  mutate(sta_lead2 = case_when( 
+    .class == clust_lead2 ~ lead(sta, n = 2L, default = 0), 
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    ) %>%  
+  mutate(sta_lead3 = case_when( 
+    .class == clust_lead3 ~ lead(sta, n = 3L, default = 0),
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    ) %>%  
+  mutate(sta_lead4 = case_when( 
+    .class == clust_lead4 ~ lead(sta, n = 4L, default = 0), 
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    ) %>%  
+  mutate(sta_lead5 = case_when( 
+    .class == clust_lead5 ~ lead(sta, n = 5L, default = 0),
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    ) %>% 
+  mutate(sta_lead6 = case_when( 
+    .class == clust_lead6 ~ lead(sta, n = 6L, default = 0),
     TRUE ~ "NA")                                # creates a lead1 sta 
     ) %>%  
   mutate(sta_lag1 = case_when( 
-    clust == clust_lag1 ~ lag(sta, n = 1L, default = 0), 
+    .class == clust_lag1 ~ lag(sta, n = 1L, default = 0), 
     TRUE ~ "NA")                                # creates a lead1 sta 
     ) %>% 
-  mutate(sta_lead2 = case_when( 
-    clust == clust_lead2 ~ lead(sta, n = 2L, default = 0), 
-    TRUE ~ "NA")                                # creates a lead1 sta 
-    ) %>%  
   mutate(sta_lag2 = case_when( 
-    clust == clust_lag2 ~ lag(sta, n = 2L, default = 0), 
+    .class == clust_lag2 ~ lag(sta, n = 2L, default = 0), 
     TRUE ~ "NA")                                # creates a lead1 sta 
     ) %>% 
-  mutate(sta_lead3 = case_when( 
-    clust == clust_lead3 ~ lead(sta, n = 3L, default = 0),
-    TRUE ~ "NA")                                # creates a lead1 sta 
-    ) %>%  
   mutate(sta_lag3 = case_when( 
-    clust == clust_lag3 ~ lag(sta, n = 3L, default = 0), 
+    .class == clust_lag3 ~ lag(sta, n = 3L, default = 0), 
     TRUE ~ "NA")                                # creates a lead1 sta 
     ) %>% 
-  select(sta, sta_lead1, sta_lag1, sta_lead2, sta_lag2, 
-         sta_lead3, sta_lag3) 
+  mutate(sta_lag4 = case_when( 
+    .class == clust_lag4 ~ lag(sta, n = 4L, default = 0), 
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    ) %>% 
+  mutate(sta_lag5 = case_when( 
+    .class == clust_lag5 ~ lag(sta, n = 5L, default = 0), 
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    ) %>% 
+  mutate(sta_lag6 = case_when( 
+    .class == clust_lag6 ~ lag(sta, n = 5L, default = 0), 
+    TRUE ~ "NA")                                # creates a lead1 sta 
+    ) %>% 
+  select(sta, sta_lead1, sta_lead2, sta_lead3, sta_lead4, sta_lead5, sta_lead6,
+         sta_lag1, sta_lag2, sta_lag3, sta_lag4, sta_lag5, sta_lag6) 
 
 # 7.2.  gather the pairs to prepare to join the q1-q30 vals  
 #     note: exploratory PCA showed that q1 vals are strongest predictors  
@@ -629,7 +645,7 @@ gage_pairs <- full_join(gage_pairs, output,
 gage_pairs <- full_join(gage_pairs, output, 
                         by = c("sta_pair" = "sta")) %>% 
   rename(log_q30_depth  = log_q30_depth.x) %>% 
-  rename(clust = clust.x) %>% 
+  rename(clust = .class.x) %>% 
   rename(log_q30_pair   = log_q30_depth.y) %>% 
   select(sta, clust, sta_pair, log_q30_depth, log_q30_pair) %>% 
   mutate(log_q30_diff = round(abs(log_q30_depth - log_q30_pair), 
@@ -637,7 +653,7 @@ gage_pairs <- full_join(gage_pairs, output,
          ) %>% 
   arrange(log_q30_diff) 
 
-# 7.5.  join the year lengths for sta & sta_pair 
+# 7.5.  join (twice) the year lengths for sta & sta_pair 
 gage_pairs <- left_join(gage_pairs, yr_len, 
                          by = "sta") 
 
@@ -681,8 +697,8 @@ gage_fill <- bind_rows(miss_lag, miss_lead)
 
 # 8.4. get fill dvs 
 gage_fill_dv <- right_join(gage_dv, gage_fill, 
-                                   by = c("sta" = "sta_pair", 
-                                          "water_year")) %>% 
+                           by = c("sta" = "sta_pair", 
+                                  "water_year")) %>% 
   rename(sta_fill = sta) %>% 
   rename(sta = sta.y)    %>% 
   select(sta, date, water_year, everything()) %>% 
@@ -690,24 +706,222 @@ gage_fill_dv <- right_join(gage_dv, gage_fill,
 
 # 8.5. calculate q, q7, q30 for the filled vals 
 gage_fill_dv <- left_join(gage_fill_dv, gage_contrib_area, 
-                  by = "sta") %>% 
-  mutate(q   = q1_depth   * contrib_drain_area_km / (60 * 60 * 24)) %>% 
-  mutate(q7  = q7_depth  * contrib_drain_area_km / (60 * 60 * 24)) %>% 
-  mutate(q30 = q30_depth * contrib_drain_area_km / (60 * 60 * 24)) %>% 
+                          by = "sta") %>% 
+  mutate(q   = q1_depth   * contrib_drain_area_km / (60 * 60 * 24)
+         ) %>% 
+  mutate(q7  = q7_depth  * contrib_drain_area_km / (60 * 60 * 24)
+         ) %>% 
+  mutate(q30 = q30_depth * contrib_drain_area_km / (60 * 60 * 24)
+         ) %>% 
   mutate(q = case_when( 
     q < 0.01 ~ 0.01, 
-    TRUE ~ round(q, digits = 2) 
-    )) %>% 
+    TRUE ~ round(q, digits = 2))
+    ) %>% 
   mutate(q7 = case_when( 
     q7 < 0.01 ~ 0.01, 
-    TRUE ~ round(q7, digits = 2) 
-    )) %>% 
+    TRUE ~ round(q7, digits = 2))
+    ) %>% 
   mutate(q30 = case_when(  
     q30 < 0.01 ~ 0.01, 
-    TRUE ~ round(q7, digits = 2)  
-    )) %>% 
-  select(-sta_fill)  
+    TRUE ~ round(q7, digits = 2))
+    ) %>% 
+  select(-sta_fill)   
+
+# 9. check dvs for duplicates  
+gage_ck <- bind_rows(gage_dv, gage_fill_dv) 
+gage_ck2 <- distinct(gage_ck) 
+
+# 10. print model summary
+summary(mod, parameters = FALSE)  
+
+``` 
+
+```{r prepare_for_next_Mclust_run} 
+
+# 1. update dvs & gage_fill
+gage_dv <- bind_rows(gage_dv, gage_fill_dv) %>%  
+  mutate(water_year = as.integer(water_year)) %>%  
+  distinct() 
+
+gage_fill <- gage_fill %>% 
+   mutate(run = run_name)  
+
+# 2. save model data 
+#mod_sums    <- mod_sum             # use this only for initial run 
+#mod_outputs <- output              # use this only for initial run 
+#mod_params  <- mod_param           # use this only for initial run  
+#mod_fills   <- gage_fill           # use this only for initial run  
+
+mod_sums    <- bind_rows(mod_sums, mod_sum) 
+mod_outputs <- bind_rows(mod_outputs, output) 
+mod_params  <- bind_rows(mod_params, mod_param) 
+mod_fills   <- bind_rows(mod_fills, gage_fill) 
+
+write_csv(mod_sums, "data/mod_sums")  
+write_csv(mod_outputs, "data/mod_outputs") 
+write_csv(mod_params, "data/mod_params") 
+write_csv(mod_fills, "data/mod_fills") 
+
+# 3. update summaries & fix gap years  
+yr_sum <- gage_dv %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_yr = n()) %>%                   
+  ungroup()  
+ 
+yr_len <- yr_sum %>% 
+  group_by(sta) %>% 
+  summarize(min_yr = min(water_year), 
+            max_yr = max(water_year), 
+            yrs_record = n() + 1) %>%                   
+  ungroup() %>% 
+  mutate(diff_yrs = 2 + max_yr - min_yr) %>% 
+  mutate(yr_gap = case_when( 
+    yrs_record == diff_yrs ~ "N", 
+    TRUE ~ "Y" 
+  )) %>%  
+  arrange(desc(yr_gap)) 
+
+# filter out complete and incomplete (continuous) records 
+yr_len_incomp <- yr_len %>% 
+  filter(yr_gap == "Y") 
+
+yr_len_comp <- yr_len %>% 
+  filter(yr_gap == "N") 
+
+# find continuous period of record 
+yr_len_incomp <- left_join(yr_sum, yr_len_incomp, by = "sta") %>% 
+  drop_na() %>% 
+  mutate(next_year = lead(water_year, 
+                     n = 1L, default = 0)) %>%   # creates a lead col 
+  mutate(water_year = as.double(water_year)) %>% 
+  mutate(yr_diff = next_year - water_year) %>% 
+  filter(yr_diff > 1) %>% 
+  select(-days_yr) %>% 
+  arrange(desc(yr_diff)) %>% 
+  group_by(sta) %>% 
+  summarise(water_year = last(water_year), 
+            min_yr = last(min_yr), 
+            max_yr = last(max_yr), 
+            yrs_record = last(yrs_record), 
+            diff_yrs = last(diff_yrs), 
+            yr_gap = last(yr_gap), 
+            next_year = last(next_year)) %>% 
+  ungroup() %>% 
+  mutate(min_yr = case_when( 
+    next_year != max_yr ~ next_year, 
+    TRUE ~ min_yr)) %>% 
+  mutate(max_yr = case_when( 
+    next_year == max_yr ~ water_year, 
+    TRUE ~ max_yr)) %>% 
+  select(-c(yr_gap, next_year, water_year))
+
+# rejoin yr_len 
+yr_len <- bind_rows(yr_len_comp, yr_len_incomp) %>% 
+  arrange(yrs_record) %>% 
+  mutate(yr_gap = replace_na(yr_gap, "Y")) 
+
+# clean up 
+rm(mod_sum, mod, BIC, gage_fill_dv, clust_dv, gage_fill, output,   
+   yr_len_comp, yr_len_incomp, bic, df, loglik, mod_nm, mod_param,  
+   num_clust, num_obs, clust_sum, gage_ck, gage_ck2, input, miss_lag, 
+   miss_lead, X)     
 ```
+
+# Final hydrologic analysis 
+```{r final_hydrologic_analysis}
+
+# 1.0 write the final dv to disk  
+write_csv(gage_dv, "data/gage_dv_fill.csv") 
+
+# 2.0 summarize final model output 
+fin_output <- mod_outputs %>% 
+  mutate(run_num = str_remove_all(run, "run_")) %>% 
+  mutate(run_num = as.integer(run_num)) %>% 
+  arrange(desc(run_num)) %>% 
+  filter(run_num == max(run_num)) %>% 
+  select(-c(run, run_num)) %>% 
+  distinct() %>% 
+  arrange(.class)
+
+# summarize model runs 
+fin_mod_sum <- mod_sums %>% 
+  mutate(run_num = str_remove_all(run, "run_")) %>% 
+  mutate(run_num = as.integer(run_num)) %>% 
+  arrange(run_num) %>% 
+  filter(run_num == max(run_num)) %>% 
+  distinct() 
+
+# 1. create input for the final model run 
+input <- gage_dv %>% 
+  group_by(sta) %>% 
+  summarize(log_q1_depth = mean(log_q1_depth), 
+            log_q7_depth = mean(log_q7_depth), 
+            log_q30_depth = mean(log_q30_depth) 
+            ) 
+
+X <- input %>%                # this gets rid of categorical data for Mclust 
+  select(-sta) 
+
+# 2. calculate bic 
+BIC <- mclustBIC(X) 
+
+mod <- Mclust(X, x = BIC) 
+
+
+# 5. get model means and variance, join & clean up 
+params <- pluck(mod$parameters) 
+
+ 
+# clean up 
+rm(input, X, BIC)     
+
+
+summary(mod, parameters = TRUE)  
+#plot(BIC) 
+```
+
+
+
+
+
+```{r} 
+
+
+plot(mod, what = "classification") 
+
+plot_BIC <- fviz_mclust(mod, "BIC", ellipse.type = "t", ellipse.level = 0.7, pointsize = 1,  palatte = "aaas") 
+
+plot_class <- fviz_mclust(mod, 
+                          "classification", 
+                          geom = "point", 
+                          ellipse.type = "t", 
+                          ellipse.level = 0.7, 
+                          pointsize = 1.5,  
+                          palatte = "npg"
+                          ) 
+
+
+fviz_mclust(mod, "uncertainty", ellipse.type = "t", ellipse.level = 0.7, pointsize = 1.5,  palatte = "aaas") 
+ 
+
+class_plot + 
+  theme_bw()
+
+plot_BIC
+plot_class
+
+plot_vars + 
+  theme_bw
+
+```
+
+
+
+
+
+
+
+
 
 ```{r check_Mclust_results}
 summary(mod, parameters = TRUE)  
@@ -794,103 +1008,23 @@ print(gage_fill$sta_pair)
 
 ```
 
-```{r prepare_for_next_Mclust_run}
-# 1. check dvs for duplicates  
-gage_ck <- bind_rows(gage_dv, gage_fill_dv) 
-gage_ck2 <- distinct(gage_ck) 
+
+```{r} 
 
 
-# 2. update dvs  
-gage_dv <- bind_rows(gage_dv, gage_fill_dv) %>% 
-  mutate(water_year = as.integer(water_year)) %>% 
-  distinct()
+# clean up global environment 
+gage_dv_orig_ct <- gage_dv_orig %>% 
+  summarise(orig_count = n()) 
 
-# 1.0 save model data 
+gage_dv_fin_ct <- gage_dv %>% 
+  summarise(fin_count = n()) 
 
-# 1.1 save model parameters as a list 
-saveRDS(params, "data/mod_params_run62")   # need to update the file
-write_csv(gage_dv, "data/mod_dvs_fin")
+perc_miss <- bind_cols(gage_dv_orig_ct, gage_dv_fin_ct) %>% 
+  mutate(perc_miss = 100* (fin_count - orig_count)/fin_count) 
 
-# 1.2 use this for initial run 
-#mod_clusts <- clust_sum     
-#mod_sums <- mod_sum 
-#mod_outputs <- output  
+rm(mod_clusts, mod_outputs)
 
-# 1.3 use this for runs after run 01
-mod_clusts  <- bind_rows(mod_clusts, clust_sum) 
-mod_sums    <- bind_rows(mod_sums, mod_sum)
-mod_outputs <- bind_rows(mod_outputs, output)
-
-# 1.4 save parameters 
-write_csv(mod_clusts, "data/mod_clusts") 
-write_csv(mod_sums, "data/mod_sums") 
-write_csv(mod_outputs, "data/mod_outputs")
-
-# 2. update summaries & fix gap years  
-yr_sum <- gage_dv %>%                          
-  group_by(sta, water_year) %>%                  
-  summarise(days_yr = n()) %>%                   
-  ungroup()  
- 
-yr_len <- yr_sum %>% 
-  group_by(sta) %>% 
-  summarize(min_yr = min(water_year), 
-            max_yr = max(water_year), 
-            yrs_record = n() + 1) %>%                   
-  ungroup() %>% 
-  mutate(diff_yrs = 2 + max_yr - min_yr) %>% 
-  mutate(yr_gap = case_when(
-    yrs_record == diff_yrs ~ "N", 
-    TRUE ~ "Y"
-  )) %>% 
-  arrange(desc(yr_gap))
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# these change over runs - see yr_sum 
-#yr_len_test01 <- yr_sum %>% 
-#  filter(sta == "che_buf") %>%    
-#  filter(between(water_year, 1981, 1982)) 
-
-#yr_len_test02 <- yr_sum %>% 
-#  filter(sta == "che_pla") %>%    
-#  filter(between(water_year, 1980, 1981))  
-
-#yr_len_test03 <- yr_sum %>% 
-#  filter(sta == "wcc_ogl") %>%    
-#  filter(between(water_year, 1980, 1981))  
-
-#yr_len_test04 <- yr_sum %>% 
-#  filter(sta == "lwr_aro") %>%    
-#  filter(between(water_year, 2003, 2004))  
-
-#yr_len_test <- bind_rows(yr_len_test01, 
- #                        yr_len_test02  
-#                         yr_len_test03
-#                         ) 
-#View(yr_len_test)
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-#yr_len <- yr_len %>% 
-#  mutate(min_yr = case_when( 
-#    sta == "che_buf" ~ 1982,     
-#    sta == "che_pla" ~ 1983  
- #   sta == "wcc_ogl" ~ 1983, 
-#    TRUE ~ min_yr 
-#  )) #%>%  
- # mutate(max_yr = case_when( 
- #   sta == "lwr_aro" ~ 2003,  
-#    TRUE ~ max_yr 
-#  ))  
-
-
-# clean up 
-rm(miss_lag, miss_lead, gage_pairs, input, gage_ck, gage_ck2, mod_nm, 
-   num_clust, num_obs, df,bic, loglik, X, clust_sum, cluster, mod_sum, 
-   params, mod, BIC, gage_fill_dv, clust_dv, gage_fill, output, yr_len_test, 
-   yr_len_test01, yr_len_test02, yr_len_test03, yr_len_test04)    
 ```
-
-
 
 
 
