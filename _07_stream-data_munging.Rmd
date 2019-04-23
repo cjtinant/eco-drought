@@ -594,6 +594,28 @@ gage_yr_gt_360 <- gage_dv_all %>%
   ungroup() %>% 
   arrange(sta, waterYear, days_record) %>% 
   filter(days_record > 360) 
+
+# 8. fix che_pla -- the code above was not sucessful in creating a correct date 
+gage_dv_undup <- gage_dv %>% 
+  filter(sta == "che_pla") %>% 
+  mutate(dups = duplicated(date)) %>%  
+  filter(dups == "FALSE") 
+
+gage_dv_dups <- gage_dv %>% 
+  filter(sta == "che_pla") %>% 
+  mutate(dups = duplicated(date)) %>%  
+  filter(dups == "TRUE") %>% 
+  mutate(date2 = (date + 4)) %>% 
+  select(-date) %>% 
+  rename(date = date2)
+ 
+gage_dv <- gage_dv %>% 
+  filter(sta != "che_pla") 
+
+gage_dv <- bind_rows(gage_dv, gage_dv_undup, gage_dv_dups)
+
+gage_ck <- gage_dv %>% 
+  distinct() 
 ```
 
 ```{r adjust_Q30-NA_years}
@@ -685,18 +707,20 @@ gage_dv <- gage_dv %>%
          dec_lat_va, dec_long_va, state_cd, county_cd, drain_area_va, 
          contrib_drain_area_va, huc_cd, alt_va))  
 
-# check for missing metadata 
+# check for missing metadata--note had to go back in & change this later  
 gage_meta_na <- gage_meta %>%  
-  filter(is.na(station_nm)) %>% 
+  filter(is.na(drain_area_va)) %>% 
   select(-c(agency_cd, station_nm, dec_lat_va, dec_long_va, state_cd, 
             county_cd, drain_area_va, contrib_drain_area_va, huc_cd, alt_va))
 
 # remove missing metadata rows
 gage_meta <- gage_meta %>%  
-  filter(!is.na(station_nm)) 
+  filter(!is.na(drain_area_va)) 
 
 # get missing metadata 
-gage_meta_na_fix <- readNWISsite(gage_meta_na$site_no) %>% 
+gage_meta_na_fix <- gage_meta_na %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumber = .$site_no)) %>% 
   select(site_no, agency_cd, station_nm, dec_lat_va, dec_long_va, state_cd, 
          county_cd, drain_area_va, contrib_drain_area_va, huc_cd, alt_va) 
 
@@ -711,6 +735,8 @@ gage_meta_na <- gage_meta %>%
 
 
 # 5. Save dv data & metadata 
+gage_dv <- gage_dv %>% 
+  select(-dups)
 write_csv(gage_dv, "data/gage_dv.csv") 
 write_csv(gage_dv_mon_data, "data/gage_dv_mon_data.csv") 
 write_csv(gage_meta, "data/gage_dv_meta.csv") 
