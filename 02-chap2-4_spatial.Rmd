@@ -1,0 +1,142 @@
+---
+title: "02-chapt2-4_spatial"
+author: "CJ Tinant"
+date: "7/15/2019"
+output: html_document
+---
+
+<!--
+## Purpose: 
+develop a regression function for gaged stations by fitting PC1 of mean daily 
+streamflow to environmental variables.  Then estimate PC1 for ungaged stations  
+from the regression equation.  
+
+
+## Variable naming convention:   
+
+
+layer           names of layers in gpkg file
+wsd_spatial     watershed environmental parameters with spatial data included 
+wsd_vars        watershed environmental parameters in a tibble format
+   _dv          daily values; used for the first set of gages selected
+   _sta_id      station id    
+   _type       
+   _watshed    
+   _HUC12      
+   _sta_name   
+   _gage_num  
+   _gage_nm
+   _dec_lat 
+   _dec_lon 
+   _cat_area   
+   _cat_area_l 
+   _cat_length
+   _cat_width  
+   _lw_ratio   
+   _str_len 
+   _drain_dens 
+   _prcp_mean  
+   _t07_mean  
+   _vpd_ann 
+   _vpd_07     
+   _cat_out 
+   _cat_rel 
+   _slop_med   
+   _TWI_mean  
+   _perc_cov   
+   _fc_mean 
+   _ksat_mean  
+   _kvert_mean 
+   _id
+
+
+SET TO DELETE
+gage            USGS stream gages with daily values 
+    _dv         daily values; used for the first set of gages selected
+    _meta       metadata
+      _ck       a check on the values
+      _incomp   incomplete year 
+      _xx       number of the model run as new dv gets added
+    _fill       estimated dvs based on PCfill values for estimated dvs 
+      _dups     potential or actual duplicate dv values 
+    _miss       missing gaging stations; sused to fill with estimated dvs 
+    _pairs      nearest average PC1 & PC2 
+ 
+lambda_vals     lambda vals from the Box Cox for PCA input 
+
+last_dv         the last
+
+pca 
+    _eigen      fraction explained by eigenvectors 
+    _input      dv depths for pca 
+    _sum        summary of mean values following PCA 
+    _vars       eigenvalues from PCA 
+
+test            variable used to test breaks or errors in code 
+
+vals 
+    _eigen      table of fraction explained by eigenvectors by run 
+    _input      table of dv depths for pca by run 
+    _sum        table of summary of mean values following PCA by run 
+    _vars       table of eigenvalues from PCA by run 
+
+year
+    _length     table of lengths of water years by station 
+      _ck       check of length; also used to append the table of lengths 
+    _sum        water year and days of record in a wide format
+    _summary    water year and days of record 
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tibble.print_max = 70) # sets tibble output for printing
+```
+
+```{r setup, include=FALSE, message=FALSE}  
+
+
+# Sets up the library of packages
+library("here") # identifies where to save work
+library("janitor") # tools for examining and cleaning dirty data
+library("sf")
+library("styler")
+library("tidyverse")     # data munging tools 
+
+
+# library("lubridate")     # easier dates
+# library("broom")         # sweep up PCA results into tidy frames
+# library("mclust")
+# library("factoextra")
+```
+
+```{r styler, message=FALSE} 
+#tidyverse_style(scope = "tokens", strict = TRUE, indent_by = 2, 
+ # start_comments_with_one_space = FALSE, 
+ # reindention = tidyverse_reindention(), 
+#  math_token_spacing = tidyverse_math_token_spacing())  
+
+# style_file() 
+```
+
+```{r import_data} 
+# read in geopackage data 
+st_layers("sp_data/eco-drought.gpkg")  
+
+# check layer names in .gpkg 
+layer <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>% 
+tibble::enframe(.) 
+
+# read in spatial data 
+wsd_spatial <- st_read("sp_data/eco-drought.gpkg", 
+                       layer = "wbd_summary", 
+                       as_tibble = TRUE) 
+# note: GDAL Message 1: GPKG: bad application_id 0x47504B47  
+# most likely has to do with the GDAL version 
+
+# convert spatial data to a tibble 
+wsd_vars <- as_tibble(wsd_spatial) %>% 
+  modify_if(., is.factor, as.character) %>% 
+  select(id, everything()) 
+```
+
+
