@@ -6,48 +6,99 @@ output: html_document
 ---
 
 <!--
-## Purpose: 
+Purpose: 
 develop a regression function for gaged stations by fitting PC1 of mean daily 
 streamflow to environmental variables.  Then estimate PC1 for ungaged stations  
 from the regression equation.  
 
+Data: 
+  the data to train the model consists of 42 gaged catchments, 
+  the data for the fitted model consists of 45 ungaged catchments  
 
-## Variable naming convention:   
+Approach: 
+1) EDA 
+-- check histograms 
+-- check univariate response
+2) Stratify train/test data along PC1 axis 
+     training set = 33 stations, 11 low, 11 med, 11 high gw contribution 
+3) Split train/test data following an 80/20 split 
+4) Train model 
+5) Test model 
+     testing using 9 stations, 3 low, 3 med, 3 high gw contribution 
+
+Next Steps: 
+-- check into stylr-packag
+
+Variable naming convention:   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~
+gpg_layers          names of layers in gpkg file for the watershed summaries 
+   _gage_summary 
+   _prr_wq_sites
+   _wbd_summary
+
+wsd_summary     zonal statistics of watershed environmental parameters 
+*   _id          unique id
+*  _sta_id      four- or seven-digit station ID   
+   _type        distinguishes gaged from ungaged 
+   _watshed     describes the HUC06 watershed 
+   _HUC12       hydrologic unit code 12
+   _sta_name    station name derived from outlet HUC12 catchment name
+   _gage_num    USGS site number 
+   _gage_nm     station name from USGS gage
+   _dec_lat     latitude in decimal degrees
+   _dec_lon     longitude in decimal degrees
+   _cat_area    catchment area in sq km
+*  _cat_area_l  natural logarithm of catchment area 
+   _cat_length  catchment length
+   _cat_width   catchment width
+*  _lw_ratio    catchment length divided by catchment width
+   _str_len     stream length
+*  _drain_dens  stream length divided by catchment area
+*  _prcp_mean   areal mean precipitation depth 1992-2012
+*  _t07_mean    average July temperature 1992-2012
+*  _vpd_ann     areal mean of max vapor deficit 1992-2012
+*  _vpd_07      areal mean of max July vapor deficit 1992-2012
+*  _cat_out     catchment outlet elevation
+*  _cat_rel     difference in max and min elevation
+*  _slop_med    median percent slope
+*  _TWI_mean    mean terrain wetness index
+*  _perc_cov    percent forest cover from NLCD 2016
+*   _fc_mean     mean field capacity
+*  _ksat_mean   mean horizontal saturated hydraulic conductivity
+*  _kvert_mean  mean vertical saturated hydrologic conductivity 
+
+* indicates variables used in the two tibbles below
+train           environmental parameters for gaged watersheds - training set 
+vars_ung        environmental parameters for ungaged watersheds
 
 
-layer           names of layers in gpkg file
-wsd_spatial     watershed environmental parameters with spatial data included 
-wsd_vars        watershed environmental parameters in a tibble format
-   _dv          daily values; used for the first set of gages selected
-   _sta_id      station id    
-   _type       
-   _watshed    
-   _HUC12      
-   _sta_name   
-   _gage_num  
-   _gage_nm
-   _dec_lat 
-   _dec_lon 
-   _cat_area   
-   _cat_area_l 
-   _cat_length
-   _cat_width  
-   _lw_ratio   
-   _str_len 
-   _drain_dens 
-   _prcp_mean  
-   _t07_mean  
-   _vpd_ann 
-   _vpd_07     
-   _cat_out 
-   _cat_rel 
-   _slop_med   
-   _TWI_mean  
-   _perc_cov   
-   _fc_mean 
-   _ksat_mean  
-   _kvert_mean 
-   _id
+
+gage_summary    input data used in geospatial analysis 
+*   _sta        
+*   _log_q1_dep 
+*   _log_q7_dep 
+*   _log_q30_de 
+   _.class 
+   _.uncertain 
+   _site_no 
+   _min_year 
+   _max_year 
+   _num_year 
+   _agency_cd 
+   _station_nm 
+   _dec_lat_va 
+   _dec_long_v 
+   _state_cd 
+   _county_cd 
+   _drain_area 
+   _contrib_dr 
+   _huc_cd 
+   _alt_va 
+   _geom    
+
+* indicates variables used in the 'train' tibble            
+
+gaged_wsds      joined gage_summary & gaged_wsds 
 
 
 SET TO DELETE
@@ -94,20 +145,310 @@ options(tibble.print_max = 70) # sets tibble output for printing
 
 ```{r setup, include=FALSE, message=FALSE}  
 
+# Load libraries, get data & set seed for reproducibility ---------------------
+set.seed(1974)    # seed for reproducibility - my birth year 
 
-# Sets up the library of packages
 library("here") # identifies where to save work
 library("janitor") # tools for examining and cleaning dirty data
 library("sf")
-library("styler")
+
 library("tidyverse")     # data munging tools 
+library("caret")         # classification and regression training 
+library("glmnet")          # for ridge regression 
+library("DataExplorer")
 
 
+
+#library("styler")
+#library("psych")           # for function tr() to compute trace of a matrix
+#library("RCurl")        # General Network (HTTP/FTP/...) Client Interface for R 
+#library("prettyR")      # Pretty descriptive stats
 # library("lubridate")     # easier dates
 # library("broom")         # sweep up PCA results into tidy frames
-# library("mclust")
-# library("factoextra")
+
+
+
 ```
+
+
+
+```{r import_data} 
+
+## NEED TO USE PC1 - BELOW IS NOT USING IT YET 
+
+# check layer names for the project geopackage 
+gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>% 
+  tibble::enframe(.) %>% 
+  select(value) 
+
+# read in geopackage data of zonal summaries for watersheds 
+# & convert spatial data to tibbles 
+gage_summary <- st_read("sp_data/eco-drought.gpkg", 
+                       layer = "gage_summary", 
+                       as_tibble = TRUE) 
+
+gage_summary <- as_tibble(gage_summary) %>% 
+  modify_if(., is.factor, as.character) 
+
+wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
+                       layer = "wbd_summary", 
+                       as_tibble = TRUE) 
+
+wsd_summary <- as_tibble(wsd_summary) %>% 
+  modify_if(., is.factor, as.character) %>% 
+  select(id, everything()) 
+
+# note: GDAL Message 1: GPKG: bad application_id 0x47504B47  
+# most likely has to do with the GDAL version 
+
+```
+
+```{r munge_train data}
+## NEED TO USE PC1 INSTEAD OF 
+
+
+# join the train/test data & gage summary 
+train <- wsd_summary %>% 
+  filter(type == "gaged") 
+
+scratch <- gage_summary %>% 
+  select(c(sta, log_q1_dep, log_q7_dep, log_q30_de)) 
+
+train <- full_join(scratch, gaged_wsds, 
+                   by = c("sta" = "sta_id")) %>% 
+  select(sta, log_q1_dep, log_q7_dep, log_q30_de, cat_area_l, lw_ratio, 
+         drain_dens, prcp_mean, t07_mean, vpd_ann, vpd_07, cat_out, cat_rel, 
+         slop_med, TWI_mean, perc_cov, fc_mean, ksat_mean, kvert_mean) %>% 
+  rename(cat_area_ln = cat_area_l) %>% 
+  rename(log_q30_dep = log_q30_de) 
+
+# reorganize data along increasing PC1 
+train <- train %>% 
+  arrange(log_q1_dep) %>% # NEED TO FIX THIS VARIABLE TO PC1 
+  mutate(row_num = dplyr::row_number()) %>% 
+  select(row_num, everything())
+```
+
+```{r EDA-train}
+
+# check dimensionality of data
+plot_str(train)
+
+
+
+```
+
+
+
+
+
+
+
+
+```{r datacamp-shrinkage-example-01}
+# this is an example problem on shrinkage methods from:
+# http://www.milanor.net/blog/cross-validation-for-predictive-analytics-using-r/ 
+
+# data for this example is from:
+# https://github.com/gastonstat/CreditScoring
+
+url <- "https://raw.githubusercontent.com/gastonstat/CreditScoring/master/CleanCreditScoring.csv"
+
+
+cs_data <- getURL(url)      
+cs_data <- read.csv(textConnection(cs_data))  # not sure how this implements...
+describe(cs_data) 
+```
+
+```{r datacamp-shrinkage-example-02}
+
+
+classes <- cs_data[, "Status"] 
+predictors <- cs_data[, -match(
+  c("Status", "Seniority", "Time", "Age", "Expenses", 
+    "Income", "Assets", "Debt", "Amount", "Price", "Finrat", "Savings"), 
+ colnames(cs_data))]
+
+# The caret package provides functions for splitting the data as well as functions that avutomatically do all the job for us, namely functions that create the resampled data sets, fit the models, and evaluate performance.
+
+#Among the functions for data splitting I just mention createDataPartition() and createFolds(). The former allows to create one or more test/training random partitions of the data, while the latter randomly splits the data into k subsets. In both functions the random sampling is done within the levels of y (when y is categorical) to balance the class distributions within the splits. These functions return vectors of indexes that can then be used to subset the original sample into training and test sets.
+
+# create a random 20/80 test/train partition of the data 
+train_set <- createDataPartition(classes, 
+                                 p = 0.8, 
+                                 list = FALSE) 
+
+str(train_set) 
+```
+
+
+
+
+```{r}
+Preparing the data
+
+We will be using the following packages:
+
+library(tidyverse)
+library(caret)
+library(glmnet)
+
+We’ll also be using R’s built in Boston housing market data set as it has many predictor variables
+
+data(“Boston”, package = “MASS”)
+
+#set a seed so you can reproduce the results
+set.seed(1212)
+
+#split the data into training and test data
+sample_size <- floor(0.75 * nrow(Boston))
+
+training_index <- sample(seq_len(nrow(Boston)), size = sample_size)
+
+train <- Boston[training_index, ]
+
+test <- Boston[-training_index, ]
+
+We also should create two objects to store predictor (x) and response variables (y, median value)
+
+# Predictor
+x <- model.matrix(medv~., train)[,-1]
+
+# Response
+y <- train$medv
+
+Performing Ridge regression
+
+As we mentioned in the previous sections, lambda values have a large effect on coefficients so now we will compute and chose a suitable one.
+
+Here we perform a cross validation and take a peek at the lambda value corresponding to the lowest prediction error before fitting the data to the model and viewing the coefficients.
+
+cv.r <- cv.glmnet(x, y, alpha = 0)
+
+cv.r$lambda.min
+
+model.ridge <- glmnet(x, y, alpha = 0, lambda = cv.r$lambda.min)
+
+coef(model.ridge)
+
+We can see here that certain coefficients have been pushed towards zero and minimized while RM (number of rooms) has a significantly higher weight than the rest
+Ridge regression coefficients
+
+We now look at how our model performs by using our test data on it.
+
+x.test.ridge <- model.matrix(medv ~., test)[,-1]
+
+predictions.ridge <- model.ridge
+%>% predict(x.test.ridge)
+%>% as.vector()
+
+data.frame(
+  RMSE.r = RMSE(predictions.ridge, test$medv),
+  Rsquare.r = R2(predictions.ridge, test$medv))
+
+RMSE = 4.8721 and R² = 0.7205
+Performing Lasso regression
+
+The steps will be identical to what we have done for ridge regression. The value of alpha is the only change here (remember 𝞪 = 1 denotes lasso)
+
+cv.l <- cv.glmnet(x, y, alpha = 1)
+
+cv.l$lambda.min
+
+model.lasso <- glmnet(x, y, alpha = 1, lambda = cv.l$lambda.min)
+
+coef(model.lasso)
+
+x.test.lasso <- model.matrix(medv ~., test)[,-1]
+predictions.lasso <- model.lasso %>%
+predict(x.test.lasso) %>% 
+as.vector()
+
+data.frame(
+RMSE.l = RMSE(predictions.lasso, test$medv),
+Rsquare.l = R2(predictions.lasso, test$medv))
+
+RMSE = 4.8494 and R² = 0.7223
+Performing Elastic Net regression
+
+Performing Elastic Net requires us to tune parameters to identify the best alpha and lambda values and for this we need to use the caret package. We will tune the model by iterating over a number of alpha and lambda pairs and we can see which pair has the lowest associated error.
+
+model.net <- train(
+    medv ~., data = train, method = "glmnet",
+    trControl = trainControl("cv", number = 10),
+    tuneLength = 10)
+
+model.net$bestTune
+  
+coef(model.net$finalModel, model.net$bestTune$lambda)
+
+x.test.net <- model.matrix(medv ~., test)[,-1]
+
+predictions.net <- model.net %>% predict(x.test.net)
+
+data.frame(
+RMSE.net = RMSE(predictions.net, test$medv),
+Rsquare.net = R2(predictions.net, test$medv))
+
+RMSE = 4.8523 and R² = 0.7219
+```
+
+
+```{r datacamp-shrinkage-example-01}
+# this is an example problem on shrinkage methods from:
+# https://www.datacamp.com/community/tutorials/tutorial-ridge-lasso-elastic-net 
+#  
+# ridge regression assumes the predictors are standardized and 
+# the response is centered! 
+# this is a wrong approach because the response variables are not standardized.
+
+# Center y, X will only be centered in the modelling function
+mtcar_y <- mtcars %>% 
+  select(mpg) %>% 
+  scale(center = TRUE, scale = FALSE) %>% # note scale is wrong in this example 
+  as.matrix() 
+
+mtcar_x <- mtcars %>% 
+  select(-mpg) %>% 
+  as.matrix()
+
+# Perform 10-fold cross-validation to select lambda ---------------------------
+lambdas_to_try <- 10^seq(-3, 5, length.out = 100)
+
+# Does k-fold cross-validation for glmnet, produces a plot, and 
+# returns a value for lambda --------------------------------------------------
+# Setting alpha = 0 implements ridge regression 
+ridge_cv <- cv.glmnet(mtcar_x, mtcar_y, alpha = 0,      
+                      lambda = lambdas_to_try,
+                      standardize = TRUE, 
+                      nfolds = 10)
+
+# Plot cross-validation results
+plot(ridge_cv)
+```
+
+```{r  datacamp-shrinkage-example-01}
+
+# Best cross-validated lambda--selects the value of λ that minimizes the 
+# cross-validated sum of squared residuals
+lambda_cv <- ridge_cv$lambda.min  
+
+# Fit final model, get its sum of squared residuals and multiple R-squared
+model_cv <- glmnet(mtcar_x, mtcar_y, alpha = 0, 
+                   lambda = lambda_cv, 
+                   standardize = TRUE) 
+
+# predict is a generic function for predictions from the results of 
+# various model fitting functions. 
+# The function invokes particular methods which depend on the class of the 
+# first argument.
+y_hat_cv <- predict(model_cv, mtcar_x)  
+ssr_cv <- t(mtcar_y - y_hat_cv) %*% (mtcar_y - y_hat_cv) 
+
+rsq_ridge_cv <- cor(mtcar_y, y_hat_cv)^2 
+```
+
+
 
 ```{r styler, message=FALSE} 
 #tidyverse_style(scope = "tokens", strict = TRUE, indent_by = 2, 
@@ -139,4 +480,25 @@ wsd_vars <- as_tibble(wsd_spatial) %>%
   select(id, everything()) 
 ```
 
+```{r}
+# Define training control
+set.seed(123)
+train.control <- trainControl(method = "repeatedcv", 
+                              number = 10, repeats = 3)
+# Train the model
+model <- train(Fertility ~., data = swiss, method = "lm",
+               trControl = train.control)
+# Summarize the results
+print(model) 
 
+data <- swiss
+```
+
+```{r styler, message=FALSE} 
+#tidyverse_style(scope = "tokens", strict = TRUE, indent_by = 2, 
+ # start_comments_with_one_space = FALSE, 
+ # reindention = tidyverse_reindention(), 
+#  math_token_spacing = tidyverse_math_token_spacing())  
+
+# style_file() 
+```
