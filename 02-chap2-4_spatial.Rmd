@@ -63,16 +63,31 @@ wsd_summary     zonal statistics of watershed environmental parameters
 *  _slop_med    median percent slope
 *  _TWI_mean    mean terrain wetness index
 *  _perc_cov    percent forest cover from NLCD 2016
-*   _fc_mean     mean field capacity
+*  _fc_mean     mean field capacity
 *  _ksat_mean   mean horizontal saturated hydraulic conductivity
 *  _kvert_mean  mean vertical saturated hydrologic conductivity 
 
-* indicates variables used in the two tibbles below
+* indicates variables used in EDA using 'env_vars'
+
 train           environmental parameters for gaged watersheds - training set 
+  _area_linv    recropocal of the natural logarithm of catchment area 
+  _cout_sqr     square-root of catchment outlet elevation
+  _crel_sqr     square-root of catchment outlet elevation
+  _dden_sqr     square-root of catchment outlet elevation
+  _fc_mean      mean field capacity
+  _kvert_ln     natural log of mean vertical saturated hydrologic conductivity 
+  _lwrat_sqr    square-root of catchment outlet elevation
+  _pcov_ln      natural log of percent forest cover from NLCD 2016
+  _prcp_sq      square of areal mean precipitation depth 1992-2012
+  _slop_ln      natural log of median percent slope 
+  _t07_sq       square of average July temperature 1992-2012
+  _TWI_sq       square of mean terrain wetness index
+  _vpdan_sq     square of areal mean of max vapor deficit 1992-2012
+
+
+
+
 vars_ung        environmental parameters for ungaged watersheds
-
-
-
 gage_summary    input data used in geospatial analysis 
 *   _sta        
 *   _log_q1_dep 
@@ -151,6 +166,8 @@ library("sf")
 library("funModeling")   # functions related to exploratory data analysis 
 library("Hmisc")         # functions useful for data analysis
 library("DataExplorer")  # functions related to exploratory data analysis 
+library("broom")         # sweep up results into tidy frames
+
 
 library("tidyverse")     # data munging tools 
 library("caret")         # classification and regression training 
@@ -161,7 +178,7 @@ library("glmnet")          # for ridge regression
 #library("RCurl")        # General Network (HTTP/FTP/...) Client Interface for R 
 #library("prettyR")      # Pretty descriptive stats
 # library("lubridate")     # easier dates
-# library("broom")         # sweep up PCA results into tidy frames
+
 
 # Create functions ------------------------------------------------------------
 
@@ -181,40 +198,33 @@ basic_eda <- function(data)
 
 ```{r import_data} 
 
-## NEED TO USE PC1 - BELOW IS NOT USING IT YET 
-
 # check layer names for the project geopackage 
 gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>% 
   tibble::enframe(.) %>% 
   select(value) 
 
 # read in geopackage data of zonal summaries for watersheds 
-# & convert spatial data to tibbles 
 gage_summary <- st_read("sp_data/eco-drought.gpkg", 
                        layer = "gage_summary", 
                        as_tibble = TRUE) %>% 
   st_drop_geometry()
 
-gage_summary <- as_tibble(gage_summary) %>% 
-  modify_if(., is.factor, as.character) 
-
 wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
                        layer = "wbd_summary", 
                        as_tibble = TRUE) %>% 
-  st_drop_geometry()
+  st_drop_geometry() 
+
+# convert environmental data to tibbles 
+gage_summary <- as_tibble(gage_summary) %>% 
+  modify_if(., is.factor, as.character) 
 
 wsd_summary <- as_tibble(wsd_summary) %>% 
   modify_if(., is.factor, as.character) %>% 
   select(id, everything()) 
 
-# note: GDAL Message 1: GPKG: bad application_id 0x47504B47  
-# most likely has to do with the GDAL version 
-
 ```
 
 ```{r munge_explore_enviro_data}
-## NEED TO USE PC1 INSTEAD OF 
-
 env_vars <-  wsd_summary %>% 
   filter(type == "gaged") %>% 
   select(sta_id, cat_area_l, lw_ratio, drain_dens, prcp_mean, t07_mean, 
@@ -224,24 +234,12 @@ env_vars <-  wsd_summary %>%
 
 basic_eda(env_vars) 
 
-## visual analysis of histogram
-## the following look 'mostly' normally distributed: 
-##   cat_area_ln, cat_out, drain_dens, fc_mean, lw_ratio, prcp_mean, slop_med, 
-##   TWI_mean  
-## 
-## the following look 'mostly' right-skewed:
-##   ksat_mean, kvert_mean, perc_cov, cat_rel 
-
-## the following look 'mostly' left-skewed:
-##   vpd_07, vpd_ann, t07_mean 
 ```
 
 
 ```{r EDA_01-box-cox}
-# use Box Cox to estimate transforms for the following vars:
-#   - right-skewed vars: ksat_mean, kvert_mean, perc_cov, cat_rel 
-#   - left-skewed vars: vpd_07, vpd_ann, t07_mean 
 
+# use Box Cox to estimate transforms 
 lambda <- env_vars %>% 
   select(-sta_id)
 
@@ -252,7 +250,6 @@ lambda <- enframe(
   rename(lambda_val = value) %>% 
   arrange(lambda_val) 
 
-lambda 
 ``` 
 
 ```{r EDA_02-transforms} 
@@ -292,53 +289,103 @@ env_vars <- env_vars %>%
   mutate(vpd07_sq   = vpd_07^2) %>% 	
   mutate(vpdan_sq   = vpd_ann^2) %>%   		
   select(area_linv, cat_area_ln, cout_sqr, cat_out, crel_sqr, cat_rel, 
-         dden_sqr, drain_dens, ksat_ln, ksat_mean, kvert_ln, kvert_mean, 
-         lwrat_sqr, lw_ratio, pcov_ln, perc_cov, prcp_sq, prcp_mean, 
-         slop_ln, slop_med, t07_sq, t07_mean, TWI_sq, TWI_mean, vpd07_sq, 
-         vpd_07, vpd_ann, vpdan_sq) 
+         dden_sqr, drain_dens, fc_mean, ksat_ln, ksat_mean, kvert_ln, 
+         kvert_mean, lwrat_sqr, lw_ratio, pcov_ln, perc_cov, prcp_sq, 
+         prcp_mean, slop_ln, slop_med, t07_sq, t07_mean, TWI_sq, 
+         vpd07_sq, vpd_07, vpd_ann, vpdan_sq) 
 
 # plot quantiles 
 plot_qq(env_vars) 
 
-  
 ```
 
 ```{r EDA_03-correlation} 
 
 # select environmental variables 
 env_vars <- env_vars %>% 
-  select(area_linv, cout_sqr, crel_sqr, cat_rel, dden_sqr, ksat_ln, kvert_ln, 
-         lwrat_sqr, pcov_ln, prcp_sq, slop_ln, slop_med, t07_sq, TWI_sq,
-         TWI_mean, vpd07_sq, vpdan_sq) 
+  select(area_linv, cout_sqr, crel_sqr, dden_sqr, fc_mean, ksat_ln, 
+         kvert_ln, lwrat_sqr, pcov_ln, prcp_sq, slop_ln, t07_sq, 
+         TWI_sq, vpd07_sq, vpdan_sq) 
 
-# correlation plots
+# correlation plots 
+plot_correlation(env_vars) 
+
+# highly correlated (> 0.65) data 
+## variable    transform_var    correlated vars             drop?
+## ---------------------------------------------------------------------------
+## drain_dens	  dden_sqr			  fc_mean, prcp_sq, 
+##                              ksat_ln, kvert_ln			      maybe
+## fc_mean	                    ksat_ln, k_vert_ln, 
+##                              dden_sqr           
+## ksat_mean  	ksat_ln 		    dden_sqrm fc_mean,
+##                              kvert_ln                    yes
+## kvert_mean	  kvert_ln        dden_sqr, fc_mean, 
+##                              ksat_ln 
+## lw_ratio	    lwrat_sqr		     
+## prcp_mean	 	prcp_sq         vpd_ann, vpd_07	
+## perc_cov	    pcov_ln		      slop_ln, t07_ln            
+##                              TWI_sq, vpd07_sq
+##                              vpdan_sq                    maybe
+## slop_med	    slop_ln         pcov_ln, TWI_sq 
+## t07_mean	    t07_sq          pcov_ln, vpdann_sq, 
+##                              vpd07_sq 
+## TWI_mean	    TWI_sq 				  pcov_ln, slop_ln
+## vpd_ann	    vpdan_sq			  pcov_ln, prcp_sq, 
+##                              t07_mean, vpd07_sq 
+## vpd_07	      vpd07_sq			  pcov_ln, prcp_sq, 
+##                              t07_mean, vpdan_sq          yes
+
 ``` 
 
-```{r to-refactor}
-# join the train/test data & gage summary 
+```{r EDA_04-response_var} 
 
+# transform environmental vars for training dataset 
+train <- wsd_summary %>% 
+  filter(type == "gaged") %>% 
+  mutate(area_linv  = 1/cat_area_l) %>% 
+  mutate(cout_sqr   = sqrt(cat_out)) %>% 
+  mutate(crel_sqr   = sqrt(cat_rel)) %>% 
+  mutate(dden_sqr   = sqrt(drain_dens)) %>% 
+  mutate(kvert_ln   = log(kvert_mean)) %>% 
+  mutate(lwrat_sqr  = log(lw_ratio)) %>% 
+  mutate(pcov_ln    = log(1 + perc_cov)) %>% 	
+  mutate(prcp_sq    = prcp_mean^2) %>% 
+  mutate(slop_ln    = log(slop_med)) %>%   
+  mutate(t07_sq     = t07_mean^2) %>%     
+  mutate(TWI_sq     = TWI_mean^2) %>%   
+  mutate(vpdan_sq   = vpd_ann^2) %>%   		
+  select(sta_id, area_linv, cout_sqr, crel_sqr, dden_sqr, fc_mean, 
+         kvert_ln, lwrat_sqr, pcov_ln, prcp_sq, slop_ln, t07_sq, 
+         TWI_sq, vpdan_sq) 
 
-#train <- wsd_summary %>% 
-#  filter(type == "gaged") 
+# PCA of streamflow summaries & sweep up PCs
+resp_vars <- gage_summary %>% 
+  select(sta, log_q1_dep, log_q7_dep, log_q30_de) 
 
-#scratch <- gage_summary %>% 
-#  select(c(sta, log_q1_dep, log_q7_dep, log_q30_de)) 
+pca <- prcomp(resp_vars[,c(2:4)], 
+              center = TRUE, scale. = TRUE) 
 
-#train <- full_join(scratch, gaged_wsds, 
-#                   by = c("sta" = "sta_id")) %>% 
-  select(sta, log_q1_dep, log_q7_dep, log_q30_de, cat_area_l, lw_ratio, 
-         drain_dens, prcp_mean, t07_mean, vpd_ann, vpd_07, cat_out, cat_rel, 
-         slop_med, TWI_mean, perc_cov, fc_mean, ksat_mean, kvert_mean) %>% 
-  rename(cat_area_ln = cat_area_l) %>% 
-  rename(log_q30_dep = log_q30_de) 
+tidy(pca, "pcs") 
 
-# reorganize data along increasing PC1 
-train <- train %>% 
-  arrange(log_q1_dep) %>% # NEED TO FIX THIS VARIABLE TO PC1 
+resp_vars <- augment(pca, data = resp_vars) %>% 
+  select(sta_id = sta, hydro_exp = .fittedPC1) 
+  
+# join explanatory and response vars
+train <- full_join(train, resp_vars, 
+                   by = "sta_id") %>% 
+  arrange(hydro_exp) %>% 
   mutate(row_num = dplyr::row_number()) %>% 
-  select(row_num, everything())
+  select(row_num, sta_id, hydro_exp, everything()) 
+
+# clean up global environment 
+rm(env_vars, gage_summary, lambda, pca, resp_vars)  
 ```
 
+```{r munge_train} 
+
+
+
+```
 
 
 
