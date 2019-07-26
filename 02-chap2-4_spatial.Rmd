@@ -141,9 +141,6 @@ year
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 options(tibble.print_max = 70) # sets tibble output for printing
-```
-
-```{r setup, include=FALSE, message=FALSE}  
 
 # Load libraries, get data & set seed for reproducibility ---------------------
 set.seed(1974)    # seed for reproducibility - my birth year 
@@ -151,13 +148,13 @@ set.seed(1974)    # seed for reproducibility - my birth year
 library("here") # identifies where to save work
 library("janitor") # tools for examining and cleaning dirty data
 library("sf")
+library("funModeling")   # functions related to exploratory data analysis 
+library("Hmisc")         # functions useful for data analysis
+library("DataExplorer")  # functions related to exploratory data analysis 
 
 library("tidyverse")     # data munging tools 
 library("caret")         # classification and regression training 
 library("glmnet")          # for ridge regression 
-library("DataExplorer")
-
-
 
 #library("styler")
 #library("psych")           # for function tr() to compute trace of a matrix
@@ -166,10 +163,20 @@ library("DataExplorer")
 # library("lubridate")     # easier dates
 # library("broom")         # sweep up PCA results into tidy frames
 
+# Create functions ------------------------------------------------------------
 
-
+# basic EDA function from 
+# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/
+basic_eda <- function(data)      
+{                                
+  glimpse(data)
+  df_status(data)
+  freq(data) 
+  profiling_num(data)
+  plot_num(data)
+  describe(data)
+}
 ```
-
 
 
 ```{r import_data} 
@@ -185,14 +192,16 @@ gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>%
 # & convert spatial data to tibbles 
 gage_summary <- st_read("sp_data/eco-drought.gpkg", 
                        layer = "gage_summary", 
-                       as_tibble = TRUE) 
+                       as_tibble = TRUE) %>% 
+  st_drop_geometry()
 
 gage_summary <- as_tibble(gage_summary) %>% 
   modify_if(., is.factor, as.character) 
 
 wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
                        layer = "wbd_summary", 
-                       as_tibble = TRUE) 
+                       as_tibble = TRUE) %>% 
+  st_drop_geometry()
 
 wsd_summary <- as_tibble(wsd_summary) %>% 
   modify_if(., is.factor, as.character) %>% 
@@ -203,19 +212,120 @@ wsd_summary <- as_tibble(wsd_summary) %>%
 
 ```
 
-```{r munge_train data}
+```{r munge_explore_enviro_data}
 ## NEED TO USE PC1 INSTEAD OF 
 
+env_vars <-  wsd_summary %>% 
+  filter(type == "gaged") %>% 
+  select(sta_id, cat_area_l, lw_ratio, drain_dens, prcp_mean, t07_mean, 
+         vpd_ann, vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, 
+         fc_mean, ksat_mean, kvert_mean) %>% 
+  rename(cat_area_ln = cat_area_l) 
 
+basic_eda(env_vars) 
+
+## visual analysis of histogram
+## the following look 'mostly' normally distributed: 
+##   cat_area_ln, cat_out, drain_dens, fc_mean, lw_ratio, prcp_mean, slop_med, 
+##   TWI_mean  
+## 
+## the following look 'mostly' right-skewed:
+##   ksat_mean, kvert_mean, perc_cov, cat_rel 
+
+## the following look 'mostly' left-skewed:
+##   vpd_07, vpd_ann, t07_mean 
+```
+
+
+```{r EDA_01-box-cox}
+# use Box Cox to estimate transforms for the following vars:
+#   - right-skewed vars: ksat_mean, kvert_mean, perc_cov, cat_rel 
+#   - left-skewed vars: vpd_07, vpd_ann, t07_mean 
+
+lambda <- env_vars %>% 
+  select(-sta_id)
+
+lambda <- enframe(
+                  sapply(lambda, forecast::BoxCox.lambda)
+                  ) %>% 
+  rename(sta = name) %>% 
+  rename(lambda_val = value) %>% 
+  arrange(lambda_val) 
+
+lambda 
+``` 
+
+```{r EDA_02-transforms} 
+
+# transform variables in the following way: 
+## variable    lambda_val     transform
+## ------------------------------------------
+## cat_area_ln	-1.00			    reciprocal
+## cat_out	     0.36			    square root 
+## cat_rel       0.46			    square root 			
+## drain_dens	   0.66			    square root 			
+## fc_mean	     1.36 
+## kvert_mean	  -0.13			    natural log 
+## ksat_mean  	-0.11			    natural log 
+## lw_ratio	    -0.18			    natural log 
+## perc_cov	     0.17			    natural log 
+## prcp_mean	   2.00			    square
+## slop_med	    -0.13			    natural log 
+## t07_mean	     2.00			    square
+## TWI_mean	     2.00				  square
+## vpd_ann	     2.00				  square		
+## vpd_07	       2.00					square	
+
+env_vars <- env_vars %>% 
+  mutate(area_linv  = 1/cat_area_ln) %>% 
+  mutate(cout_sqr   = sqrt(cat_out)) %>% 
+  mutate(crel_sqr   = sqrt(cat_rel)) %>% 
+  mutate(dden_sqr   = sqrt(drain_dens)) %>% 
+  mutate(ksat_ln    = log(ksat_mean)) %>% 		
+  mutate(kvert_ln   = log(kvert_mean)) %>% 
+  mutate(lwrat_sqr  = log(lw_ratio)) %>% 
+  mutate(pcov_ln    = log(1 + perc_cov)) %>% 	
+  mutate(prcp_sq    = prcp_mean^2) %>% 
+  mutate(slop_ln    = log(slop_med)) %>%   
+  mutate(t07_sq     = t07_mean^2) %>%     
+  mutate(TWI_sq     = TWI_mean^2) %>%   
+  mutate(vpd07_sq   = vpd_07^2) %>% 	
+  mutate(vpdan_sq   = vpd_ann^2) %>%   		
+  select(area_linv, cat_area_ln, cout_sqr, cat_out, crel_sqr, cat_rel, 
+         dden_sqr, drain_dens, ksat_ln, ksat_mean, kvert_ln, kvert_mean, 
+         lwrat_sqr, lw_ratio, pcov_ln, perc_cov, prcp_sq, prcp_mean, 
+         slop_ln, slop_med, t07_sq, t07_mean, TWI_sq, TWI_mean, vpd07_sq, 
+         vpd_07, vpd_ann, vpdan_sq) 
+
+# plot quantiles 
+plot_qq(env_vars) 
+
+  
+```
+
+```{r EDA_03-correlation} 
+
+# select environmental variables 
+env_vars <- env_vars %>% 
+  select(area_linv, cout_sqr, crel_sqr, cat_rel, dden_sqr, ksat_ln, kvert_ln, 
+         lwrat_sqr, pcov_ln, prcp_sq, slop_ln, slop_med, t07_sq, TWI_sq,
+         TWI_mean, vpd07_sq, vpdan_sq) 
+
+# correlation plots
+``` 
+
+```{r to-refactor}
 # join the train/test data & gage summary 
-train <- wsd_summary %>% 
-  filter(type == "gaged") 
 
-scratch <- gage_summary %>% 
-  select(c(sta, log_q1_dep, log_q7_dep, log_q30_de)) 
 
-train <- full_join(scratch, gaged_wsds, 
-                   by = c("sta" = "sta_id")) %>% 
+#train <- wsd_summary %>% 
+#  filter(type == "gaged") 
+
+#scratch <- gage_summary %>% 
+#  select(c(sta, log_q1_dep, log_q7_dep, log_q30_de)) 
+
+#train <- full_join(scratch, gaged_wsds, 
+#                   by = c("sta" = "sta_id")) %>% 
   select(sta, log_q1_dep, log_q7_dep, log_q30_de, cat_area_l, lw_ratio, 
          drain_dens, prcp_mean, t07_mean, vpd_ann, vpd_07, cat_out, cat_rel, 
          slop_med, TWI_mean, perc_cov, fc_mean, ksat_mean, kvert_mean) %>% 
@@ -227,61 +337,6 @@ train <- train %>%
   arrange(log_q1_dep) %>% # NEED TO FIX THIS VARIABLE TO PC1 
   mutate(row_num = dplyr::row_number()) %>% 
   select(row_num, everything())
-```
-
-```{r EDA-train-01}
-
-# check dimensionality of data & missing observations 
-plot_str(train)
-plot_missing(train) 
-```
-
-```{r EDA_train_02-histograms}
-plot_histogram(train) 
-
-## visual analysis of histogram
-## the following look 'mostly' normally distributed: 
-##   cat_area_ln, cat_out, drain_dens, fc_mean, lw_ratio, prcp_mean, slop_med, 
-##   TWI_mean  
-## 
-## the following look 'mostly' right-skewed:
-##   ksat_mean, kvert_mean, perc_cov, cat_rel 
-
-## the following look 'mostly' left-skewed:
-##   vpd_07, vpd_ann, t07_mean , 
-
-``` 
-
-```{r EDA_train_03-box-cox}
-# use Box Cox to estimate transforms for the following vars:
-#   - right-skewed vars: ksat_mean, kvert_mean, perc_cov, cat_rel 
-#   - left-skewed vars: vpd_07, vpd_ann, t07_mean 
-
-scratch <- train %>% 
-  select(ksat_mean, kvert_mean, perc_cov, cat_rel, vpd_07, vpd_ann, t07_mean) 
-
-lambda <- enframe(
-  sapply(scratch, forecast::BoxCox.lambda)
-  ) %>% 
-  rename(sta = name) %>% 
-  rename(lambda_val = value) %>% 
-  arrange(lambda_val)
-
-print(lambda)
-``` 
-
-```{r EDA_train_04-transforms} 
-
-# transform variables in the following way: 
-## variable    lambda_val     transform
-## kvert_mean	-0.22254823		 natural log 
-## cat_rel	  -0.17893201		 natural log 			
-## ksat_mean	 0.04190197		 natural log 			
-## perc_cov	   0.05849083		 natural log 		
-## vpd_07	     1.99992425		   square	
-## vpd_ann	   1.99992425			 square	   		
-## t07_mean	   1.99992425		   square	
-
 ```
 
 
