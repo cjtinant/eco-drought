@@ -9,7 +9,16 @@ output: html_document
 Purpose: 
 develop a regression function for gaged stations by fitting PC1 of mean daily 
 streamflow to environmental variables.  Then estimate PC1 for ungaged stations  
-from the regression equation.  
+from the regression equation.  Using 'caret' to train ridge, lasso, and 
+elastic net models and select best model fit by root mean square error (RMSE). 
+OLS regression models fitted to correlated explanatory variables have a tendency 
+to overfit to noisy or unrepresentative training data resulting in 
+predictive inaccuracy when used to predict.
+
+Regularization methods introduce bias into the regression solution that can reduce variance considerably relative to the ordinary least squares (OLS) solution. 
+Regression regularization methods decrease v
+
+That's why we regularize: to lower the variance at the cost of some bias, thus moving left on the plot, towards the optimum.
 
 Data: 
   the data to train the model consists of 42 gaged catchments, 
@@ -43,7 +52,17 @@ Approach:
    
    For the 80/20 training/test set = 34 training stations and 8 test stations
 
-3a) Train a ridge regression model 
+3a) Train models 
+
+# Elastic net regression is computed using the caret workflow, which invokes 
+# the glmnet package.  caret will automatically select the best tuning 
+# parameters alpha and lambda by testing a range of possible alpha and lambda # values, then selecting the best values for lambda and alpha 
+
+# Here, we’ll test the combination of 10 different values for alpha and lambda. 
+# This is specified using the option tuneLength.
+# The best alpha and lambda values are those values that minimize the 
+# cross-validation error (Chapter @ref(cross-validation)).
+a ridge regression model 
     Decrease model complexity while keeping all variables in the model by 
     penalizing predictors if they are too far from zero, thus enforcing them to 
     be small in a continuous way. 
@@ -56,12 +75,6 @@ Approach:
     cross-validated sum of squared residuals (or some other measure) to 
     maximize predictive performance. 
 
-
-
-
-
-
-
 3) Train model - Fit a generalized linear model via penalized maximum 
    likelihood using the glmnet package (Friedman, Hastie, and Tibshirani 2008).  
    The algorithm: 1) computes the regularization path denoted with λ that 
@@ -70,7 +83,7 @@ Approach:
    2005) to bridge the gap between lasso (α = 1) and ridge (α = 0) regression. 
 
    Model parameters (λ and α) are tuned to minimizes our loss function by 
-   nested cross-validation. The approach is as follows:
+   cross-validation. The approach is as follows:
      1. Set the parameter you want to tune to some value.
      2. Split your data into K ‘folds’ (sections).
      3. Train your model using K-1 folds using the parameter value.
@@ -84,190 +97,6 @@ to evaluate the model, we risk optimistically biasing our model evaluations.
 For this reason, if a test set is used to select model parameters, then we 
 need a different test set to get an unbiased evaluation of that selected model.
 
-One way to overcome this problem is to have nested cross-validations. 
-First, an inner cross validation is used to tune the parameters and select 
-the best model. Second, an outer cross validation is used to evaluate the 
-model selected by the inner cross validation.
-
-Steps are as follows (check out the following link)
-https://chrisalbon.com/machine_learning/model_evaluation/nested_cross_validation/: 
-  1. standardize data
-  2. create inner cross validation - for parameter tuning 
-  3. create outer cross validation - for model evaluation 
-
-An R approach in glmnetUtils::cva.glmnet function simultaneously performs 
-cross-validation for both the alpha and lambda parameters in an elastic net 
-model. The procedure creates a vector 'foldid' allocating the observations 
-into folds, and then calls cv.glmnet in a loop over different values of alpha, 
-but the same values of 'foldid' each time *.
-
-cva.glmnet(x, y, alpha = seq(0, 1, len = 11)^3,
-  nfolds = 10, foldid = sample(rep(seq_len(nfolds), length = nrow(x))),
-  ..., outerParallel = NULL, checkInnerParallel = TRUE)
-
-   x - a matrix of predictor variables 
-   y - a response vector or matrix (for a multinomial response) 
-   alpha - 	a vector of alpha values for which to do cross-validation. 
-            The default is a sequence of 11 values more closely spaced 
-            around alpha = 0. 
-nfolds	
-The number of cross-validation folds to use. Defaults to 10.
-foldid	
-Vector of fold IDs for cross-validation. See glmnet::cv.glmnet.
-outerParallel	
-Method of parallelising the outer loop over alpha. See 'Details' below. If NULL, the loop is run sequentially.
-checkInnerParallel	
-If the outer loop is run in parallel, check that the inner loop over lambda will not be in contention for cores.
-formula	
-A model formula; interaction terms are allowed and will be expanded per the usual rules for linear models.
-data	
-A data frame or matrix containing the variables in the formula.
-weights	
-An optional vector of case weights to be used in the fitting process. If missing, defaults to an unweighted fit.
-offset	
-An optional vector of offsets, an a priori known component to be included in the linear predictor.
-subset	
-An optional vector specifying the subset of observations to be used to fit the model.
-na.action	
-A function which indicates what should happen when the data contains missing values. For the predict method, na.action = na.pass will predict missing values with NA; na.omit or na.exclude will drop them.
-drop.unused.levels	
-Should factors have unused levels dropped? Defaults to FALSE.
-xlev	
-A named list of character vectors giving the full set of levels to be assumed for each factor.
-sparse	
-Should the model matrix be in sparse format? This can save memory when dealing with many factor variables, each with many levels.
-use.model.frame	
-Should the base model.frame function be used when constructing the model matrix? This is the standard method that most R modelling functions use, but has some disadvantages. The default is to avoid model.frame and construct the model matrix term-by-term; see discussion.
-object	
-For the predict and coef methods, an object returned by cva.glmnet.
-newx	
-For the predict method, a matrix of predictor variables.
-which	
-An alternative way of specifying alpha; the index number of the desired value within the alpha vector. If both which and alpha are supplied, the former takes precedence.
-newdata	
-For the predict and coef methods, a data frame containing the observations for which to calculate predictions.
-cv.type	
-For minlossplot, which cross-validated loss value to plot for each value of alpha. This can be either "min" which is the minimum loss, or "1se" which is the highest loss within 1 standard error of the minimum. The default is "1se".
-   
-There are two ways in which the matrix of predictors can be generated. 
-The default, with use.model.frame = FALSE, is to process the additive terms 
-in the formula independently. With wide datasets, this is much faster and more memory-efficient than the standard R approach which uses the model.frame and model.matrix functions. However, the resulting model object is not exactly the 
-same as if the standard approach had been used; in particular, it lacks a bona 
-fide terms object. If you require interoperability with other packages that 
-assume the standard model object structure, set use.model.frame = TRUE. 
-See discussion for more information on this topic.
-
-The predict method computes predictions for a specific alpha value given a cva.glmnet object. It looks up the supplied alpha (possibly supplied indirectly via the which argument) in the object's stored alpha vector, and calls glmnet:::predict.cv.glmnet on the corresponding cv.glmnet fit. All the arguments to that function are (or should be) supported.
-
-The coef method is similar, returning the coefficients for the selected alpha value via glmnet:::coef.cv.glmnet.
-
-The plot method for cva.glmnet objects plots the average cross-validated loss by lambda, for each value of alpha. Each line represents one cv.glmnet fit, corresponding to one value of alpha. Note that the specific lambda values can vary substantially by alpha.
-
-The minlossplot function gives the best (lowest) cross-validated loss for each value of alpha.
-
-Value
-
-For cva.glmnet.default, an object of class cva.glmnet. This is a list containing the following:
-
-alpha The vector of alpha values
-
-nfolds The number of folds
-
-modlist A list of cv.glmnet objects, containing the cross-validation results for each value of alpha
-
-The function cva.glmnet.formula adds a few more components to the above, to facilitate working with formulas.
-
-For the predict method, a vector or matrix of predicted values.
-
-For the coef method, a vector of regularised regression coefficients.
-
-See Also
-
-glmnet::cv.glmnet
-
-glmnet::predict.cv.glmnet, glmnet::coef.cv.glmnet
-
-cva.glmnet, glmnet::cv.glmnet, plot
-
-Examples
-
-cva <- cva.glmnet(mpg ~ ., data=mtcars)
-predict(cva, mtcars, alpha=1)
-
-## Not run: 
-
-# Leukemia example dataset from Trevor Hastie's website
-download.file("http://web.stanford.edu/~hastie/glmnet/glmnetData/Leukemia.RData",
-              "Leukemia.RData")
-load("Leukemia.Rdata")
-leuk <- do.call(data.frame, Leukemia)
-leuk.cva <- cva.glmnet(y ~ ., leuk, family="binomial")
-leuk.pred <- predict(leuk.cva, leuk, which=6)
-
-## End(Not run)
-
-* Note that the loop over alpha can be parallelised via 'parLapply' in the 
-parallel package. To use this, optionally set outerParallel to a valid cluster 
-object created by makeCluster or via 'rxExec' as supplied by Microsoft R 
-Server's RevoScaleR package. To use this, set outerParallel to a valid compute 
-context created by RxComputeContext, or a character string specifying such a 
-context.  If the outer loop is run in parallel, cva.glmnet can check if the 
-inner loop (over lambda) is also set to run in parallel, and disable this if 
-it would lead to contention for cores. This is done if it is likely that the 
-parallelisation is local on a multicore machine, ie if outerParallel is a 
-SOCKcluster object running on "localhost", or if the RevoScaleR compute 
-context is local parallel.
-
-~~~~
-LASSO has been a popular algorithm for the variable selection and extremely effective with high-dimension data. However, it often tends to “over-regularize” a model that might be overly compact and therefore under-predictive.
-
-The Elastic Net addresses the aforementioned “over-regularization” by balancing between LASSO and ridge penalties. In particular, a hyper-parameter, namely Alpha, would be used to regularize the model such that the model would become a LASSO in case of Alpha = 1 and a ridge in case of Alpha = 0. In practice, Alpha can be tuned easily by the cross-validation. Below is a demonstration of Elastic Net with R glmnet package and its comparison with LASSO and ridge models. 
-
-First of all, we estimates a LASSO model with Alpha = 1. The function cv.glmnet() is used to search for a regularization parameter, namely Lambda, that controls the penalty strength. As shown below, the model only identifies 2 attributes out of total 12.
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-	
-# LASSO WITH ALPHA = 1
-cv1 <- cv.glmnet(mdlX, mdlY, family = "binomial", nfold = 10, type.measure = "deviance", paralle = TRUE, alpha = 1)
-md1 <- glmnet(mdlX, mdlY, family = "binomial", lambda = cv1$lambda.1se, alpha = 1)
-coef(md1)
-#(Intercept) -1.963030e+00
-#AGE          .           
-#ACADMOS      .           
-#ADEPCNT      .           
-#MAJORDRG     .           
-#MINORDRG     .           
-#OWNRENT      .           
-#INCOME      -5.845981e-05
-#SELFEMPL     .           
-#INCPER       .           
-#EXP_INC      .           
-#SPENDING     .           
-#LOGSPEND    -4.015902e-02
-roc(newY, as.numeric(predict(md1, newX, type = "response")))
-#Area under the curve: 0.636
-
-We next estimates a ridge model as below by setting Alpha = 0. Similarly, Lambda is searched by the cross-validation. Since the ridge penalty would only regularize the magnitude of each coefficient, we end up with a “full” model with all model attributes. The model performance is slightly better with 10 more variables, which is a debatable outcome.
-
-At last, we use the Elastic Net by tuning the value of Alpha through a line search with the parallelism. In this particular case, Alpha = 0.3 is chosen through the cross-validation. As shown below, 6 variables are used in the model that even performs better than the ridge model with all 12 attributes. 
-~~~
 
 # About the train() function in the caret package.  The goal is to 
 # automatically split the data, fit the models and assess model performance. 
@@ -635,17 +464,7 @@ gaged <- full_join(gaged, resp_vars,
 rm(env_vars, gage_summary, gpg_layers, lambda, pca, resp_vars)  
 ```
 
-```{r split_train/test_data}
-# Computing elastic net regession
-# Elastic net regression is computed using the caret workflow, which invokes 
-# the glmnet package.  caret will automatically select the best tuning 
-# parameters alpha and lambda by testing a range of possible alpha and lambda # values, then selecting the best values for lambda and alpha 
-
-# Here, we’ll test the combination of 10 different values for alpha and lambda. 
-# This is specified using the option tuneLength.
-# The best alpha and lambda values are those values that minimize the 
-# cross-validation error (Chapter @ref(cross-validation)).
-
+```{r split_train/test_data-example}
 
 # Load example data from 
 # Penalized Regression Essentials: Ridge, Lasso & Elastic Net
@@ -654,23 +473,12 @@ rm(env_vars, gage_summary, gpg_layers, lambda, pca, resp_vars)
 data("Boston", package = "MASS") 
 
 # Split the example data into training and test set
-set.seed(123)
+set.seed(42)
 training.samples <- Boston$medv %>%
   createDataPartition(p = 0.8, list = FALSE)
 
 train.data  <- Boston[training.samples, ]
 test.data <- Boston[-training.samples, ]
-
-# Additional data preparation:
-# create objects for storing the outcome variable &  predictor variables 
-# using the function model.matrix()  automatically transform qualitative 
-# variables (if any) into dummy variables.  Note glmnet() can only take 
-# numerical, quantitative inputs. 
-# The intercept component at index = 1 is removed after creating the 
-# model matrix. 
-
-
-
 
 # Build models----------------------------------------------------------------
 # Build the regression models using the caret workflow to automatically 
@@ -699,7 +507,7 @@ cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
 doMC::registerDoMC(cores) 
 
 # ridge
-set.seed(123)                # need to set a seed each time you call a rand num
+set.seed(42)                # need to set a seed each time you call a rand num
 ridge <- train(
   medv ~.,                  # x = 'medv', y = the rest of the columns, from  
   data = train.data,        # the dataset 'train.data'
@@ -710,7 +518,7 @@ ridge <- train(
   )
 
 # lasso
-set.seed(123)                # need to set a seed each time you call a rand num
+set.seed(42)                # need to set a seed each time you call a rand num
 lasso <- train(
   medv ~.,                  # x = 'medv', y = the rest of the columns, from  
   data = train.data,        # the dataset 'train.data'
@@ -721,7 +529,7 @@ lasso <- train(
   )
 
 # elastic net 
-set.seed(123)
+set.seed(42)
 elastic <- train(
   medv ~.,                  # x = 'medv', y = the rest of the columns, from  
   data = train.data,        # the dataset 'train.data'
@@ -731,8 +539,6 @@ elastic <- train(
   tuneLength = 100 
   )
 
-#tidied <- tidy(models) #%>% filter(term != "(Intercept)")
-
 # make a list of the models --------------------------------------------------
 models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
 
@@ -740,45 +546,86 @@ models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
 resamples(models) %>%  
   summary( metric = c("RMSE")) # collect, analyze and visualize resample results 
 
-# Model prediction performance-------------------------------------------------
-# The performance of the different models - ridge, lasso and elastic net - can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
-
-# make predictions
-predictions <- elastic %>% 
-  predict(test.data) 
-
-# show the predictions
-data.frame(
-  RMSE = RMSE(predictions, test.data$medv),
-  Rsquare = R2(predictions, test.data$medv)
-)
-
 bwplot(resamples(models),
        metric = "RMSE") 
 
-# Model coefficients
-coef(elastic$finalModel, elastic$bestTune$lambda) 
+```
+
+```{r}
+
+# Model prediction performance-------------------------------------------------
+# The performance of the different models - ridge, lasso and elastic net - 
+# can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
+
+# make a new dataframe of test data observations and predictions
+observed   <- tibble(observed = test.data$medv)
+allPreds <- map_dfc(models, predict, newdata = test.data) 
+model_preds <- bind_cols(observed, allPreds) 
+
+# use the new dataframe to calculate Rsquared and RMSE 
+model_fit <- model_preds %>% 
+  map_dfc(~postResample(.,test_preds$observed)) %>% 
+  mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
+  select(measurement, ridge, lasso, elastic)
+
+# Get model coefficients------------------------------------------------------
+# ridge 
+coef_ridge <- as_tibble(
+  as.matrix(
+    coef(ridge$finalModel, ridge$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_ridge <- coef_ridge %>% 
+  slice(-1) %>% 
+  rename(weights = 2) 
+
+# lasso 
+coef_lasso <- as_tibble(
+  as.matrix(
+    coef(lasso$finalModel, lasso$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_lasso <- coef_lasso %>% 
+  slice(-1) %>% 
+  rename(weights = 2) 
+
+# elastic 
+coef_elastic <- as_tibble(
+  as.matrix(
+    coef(elastic$finalModel, elastic$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_elastic <- coef_elastic %>% 
+  slice(-1) %>% 
+  rename(weights = 2) 
 
 
-  
+
 
 # WORKING ON CREATING AN OBSERVED VS PREDICTED PLOT - NOT DONE YET
-#  Observed = sapply(models, predict, newdata = test.data)
-#  )
-# Validate on test set with ensemble
-allPreds <- tibble(Observed = models$ridge
-ensemblePred <- tibble(
-  Predicted = rowSums(allPreds) / length(models)
-  ) 
+
+
+
+#test_pred_l <- test_preds %>% 
+#  gather(key = "model", value = "predicted", -observed) 
+  
+ggplot(test_preds, aes(predicted, observed)) + 
+         geom_point() + 
+  geom_smooth(method = "lm") + 
+         facet_grid(. ~ model) + 
+  geom_abline(intercept = 0, slope = 1, size = 0.25) +
+  xlim(0, 50) + 
+  ylim(0, 50)
+  
  
-# Plot predicted vs. observed; create PNG
-plot(ensemblePred, testSet$Y,
-xlim = c(0,100), ylim = c(0,100),
-xlab = "Predicted", ylab = "Observed",
-pch = 16, col = rgb(0, 0, 0, .25))
-abline(a=0, b=1)
- 
-writeLines(capture.output(sessionInfo()), "sessionInfo")
+#tidied <- tidy(models) #%>% filter(term != "(Intercept)")
+```
+
+```{r}
+
 ```
 
 
@@ -793,137 +640,10 @@ train <- gaged[trainIndex,]
 test  <- gaged[-trainIndex,] 
 
 
-
-
-
-
-
-
-
-
-
-
-
 ```{r ridge-regression-01}
 # Load libraries, get data & set seed for reproducibility ---------------------
 
 
-
-data("mtcars")
-# Center and standardize response vars in the modelling function
-y <- mtcars %>% 
-  select(mpg) %>% 
-  scale(center = TRUE, 
-        scale = FALSE) %>% 
-  as.matrix()
-
-X <- mtcars %>% 
-  select(-mpg) %>% 
-  scale(center = TRUE, 
-        scale = FALSE) %>% 
-  as.matrix() 
-
-# my data
-y <- train %>% 
-  select(hydro_exp) %>% 
-  scale(center = TRUE, 
-        scale = TRUE) %>% 
-  as.matrix() 
-
-X <- train %>% 
-  select(-c(hydro_exp, sta_id)) %>% 
-    scale(center = TRUE, 
-        scale = FALSE) %>% 
-  as.matrix() 
-
-
-# Perform 10-fold cross-validation to select lambda ---------------------------
-lambdas_to_try <- 10^seq(-3, 5, length.out = 100) 
-
-# Setting alpha = 0 implements ridge regression
-ridge_cv <- cv.glmnet(X, y,    
-                      alpha = 0, lambda = lambdas_to_try,
-                      standardize = TRUE, nfolds = 10)
-
-# Plot cross-validation results
-plot(ridge_cv) 
-
-
-
-```
-
-```{r ridge-regression-02}
-
-# Best cross-validated lambda
-lambda_cv <- ridge_cv$lambda.min 
-
-# Fit final model, 
-model_cv <- glmnet(X, y, 
-                   alpha = 0, lambda = lambda_cv, 
-                   standardize = TRUE)
-
-# get sum of squared residuals and multiple R-squared
-y_hat_cv <- predict(model_cv, X)
-ssr_cv <- t(y - y_hat_cv) %*% (y - y_hat_cv)
-rsq_ridge_cv <- cor(y, y_hat_cv)^2
-
-# Use information criteria to select lambda -----------------------------------
-X_scaled <- scale(X)
-aic <- c()
-bic <- c()
-for (lambda in seq(lambdas_to_try)) {
-  # Run model
-  model <- glmnet(X, y, alpha = 0, lambda = lambdas_to_try[lambda], 
-                  standardize = TRUE)
-  # Extract coefficients and residuals (remove first row for the intercept)
-  betas <- as.vector((as.matrix(coef(model))[-1, ]))
-  resid <- y - (X_scaled %*% betas)
-  # Compute hat-matrix and degrees of freedom
-  ld <- lambdas_to_try[lambda] * diag(ncol(X_scaled))
-  H <- X_scaled %*% solve(t(X_scaled) %*% X_scaled + ld) %*% t(X_scaled)
-  df <- tr(H)
-  # Compute information criteria
-  aic[lambda] <- nrow(X_scaled) * log(t(resid) %*% resid) + 2 * df
-  bic[lambda] <- nrow(X_scaled) * log(t(resid) %*% resid) + 2 * df * log(nrow(X_scaled))
-}
-
-
-ic_model <- tibble( 
-  lambda = lambdas_to_try, 
-  aic = aic, 
-  bic = bic
-  ) %>% 
-  gather(key = "param", value = "value", -lambda)
-
-
-ggplot(ic_model, aes(lambda, value)) + 
-  scale_x_log10() + 
-  geom_line() + 
-  facet_grid(param ~ .) + 
-  labs(y = "Information Criterion") 
-```
-
-```{r}
-# Optimal lambdas according to both criteria
-lambda_aic <- lambdas_to_try[which.min(aic)]
-lambda_bic <- lambdas_to_try[which.min(bic)]
-
-# Fit final models, get their sum of squared residuals and multiple R-squared
-model_aic <- glmnet(X, y, alpha = 0, lambda = lambda_aic, standardize = TRUE)
-y_hat_aic <- predict(model_aic, X)
-ssr_aic <- t(y - y_hat_aic) %*% (y - y_hat_aic)
-rsq_ridge_aic <- cor(y, y_hat_aic)^2
-
-model_bic <- glmnet(X, y, alpha = 0, lambda = lambda_bic, standardize = TRUE)
-y_hat_bic <- predict(model_bic, X)
-ssr_bic <- t(y - y_hat_bic) %*% (y - y_hat_bic)
-rsq_ridge_bic <- cor(y, y_hat_bic)^2
-
-
-# See how increasing lambda shrinks the coefficients --------------------------
-# Each line shows coefficients for one variables, for different lambdas.
-# The higher the lambda, the more the coefficients are shrinked towards zero.
-res <- glmnet(X, y, alpha = 0, lambda = lambdas_to_try, standardize = FALSE)
 
 
 tidied <- tidy(res) %>% filter(term != "(Intercept)")
@@ -2102,7 +1822,7 @@ wsd_vars <- as_tibble(wsd_spatial) %>%
 
 ```{r}
 # Define training control
-set.seed(123)
+set.seed(42)
 train.control <- trainControl(method = "repeatedcv", 
                               number = 10, repeats = 3)
 # Train the model
