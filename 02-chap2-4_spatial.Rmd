@@ -19,13 +19,30 @@ Approach:
 1) EDA 
 -- check histograms 
 -- check univariate response 
-2) Split train/test data based on hydrologic export to create a balanced split. 
-   caret::createDataPartition description - For numeric y, the sample is split 
-   into groups sections based on percentiles and sampling is done within these 
-   subgroups. The number of percentiles is set via the groups argument with 
-   5-groups as default.  See also: 
-   https://topepo.github.io/caret/model-training-and-tuning.html 
-   For the 80/20 training set = 34 stations and test set = 8 stations
+2) Split train/test data 
+   Training Dataset: The sample of data used to fit the model.
+   Validation Dataset: the sample of data used to provide an unbiased 
+     valuation of a model fit on the training dataset while tuning model 
+     hyperparameters. The validation set is used to frequently evaluate a 
+     given model.  Instead, we are using cross-validation to create splits 
+     of the training data to evaluate a given model.
+  Test Dataset: The sample of data used to provide an unbiased evaluation 
+     of a final model fit on the training dataset. It is only used once a model 
+     is completely trained (using the train and validation sets). The test set 
+     is generally well curated. It (should) contain carefully sampled data that 
+     spans the various classes that the model would face, when used in the 
+     real world.
+
+   We are creating a test dataset based on hydrologic export to create a 
+   balanced split using caret::createDataPartition.   
+     For a numeric y (hydrologic export coeff - PC1), the sample is split 
+     into groups based on percentiles and sampling is done within groups. 
+     The number of percentiles is set via the groups argument with 
+     5-groups as default.  See also: 
+     https://topepo.github.io/caret/model-training-and-tuning.html 
+   
+   For the 80/20 training/test set = 34 training stations and 8 test stations
+
 3a) Train a ridge regression model 
     Decrease model complexity while keeping all variables in the model by 
     penalizing predictors if they are too far from zero, thus enforcing them to 
@@ -365,6 +382,7 @@ gage_summary    input data used in geospatial analysis
 # set up global options ------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 options(tibble.print_max = 70) # sets tibble output for printing
+set.seed(42)          # seed for reproducibility - also THE answer
 
 # load libraries -------------------------------------------------------------
 library("here")         # identifies where to save work
@@ -378,17 +396,19 @@ library("broom")        # sweep up results into tidy frames
 library("glmnet")        # fit a GLM with lasso or elasticnet regularization 
 library("caret")         # classification and regression training 
 library("psych")         # for function tr() to compute trace of a matrix
+
+library("MASS")          # for 'Boston' dataset 
+
+library("tidyverse")     # data munging tools 
+
 #library("doMC")
-
-
-
 #library("rsample")      # functions to create and summarize cross-validation  
 #library("scales")       # scales for automatically determining graphical breaks 
 #library("mlbench")      # artificial and real-world machine learning datasets 
 #library("kernlab")        # kernel-based machine learning methods 
 #library(sessioninfo)
 
-library("tidyverse")     # data munging tools 
+
 
 
 #library("glmnetUtils")   # formula interface for 'glmnet' elasticnet regression 
@@ -400,7 +420,7 @@ library("tidyverse")     # data munging tools
 # library("lubridate")     # easier dates
 
 # set seed for reproducibility & theme for printing  -------------------------
-seed <- 1974     # seed for reproducibility - my birth year 
+
 theme_set(theme_bw()) 
 
 # check number of cores for parallel processing
@@ -616,19 +636,172 @@ rm(env_vars, gage_summary, gpg_layers, lambda, pca, resp_vars)
 ```
 
 ```{r split_train/test_data}
+# Computing elastic net regession
+# Elastic net regression is computed using the caret workflow, which invokes 
+# the glmnet package.  caret will automatically select the best tuning 
+# parameters alpha and lambda by testing a range of possible alpha and lambda # values, then selecting the best values for lambda and alpha 
+
+# Here, we’ll test the combination of 10 different values for alpha and lambda. 
+# This is specified using the option tuneLength.
+# The best alpha and lambda values are those values that minimize the 
+# cross-validation error (Chapter @ref(cross-validation)).
 
 
+# Load example data from 
+# Penalized Regression Essentials: Ridge, Lasso & Elastic Net
+# http://www.sthda.com/english/articles/37-model-selection-essentials-in-r/153-penalized-regression-essentials-ridge-lasso-elastic-net/
+
+data("Boston", package = "MASS") 
+
+# Split the example data into training and test set
+set.seed(123)
+training.samples <- Boston$medv %>%
+  createDataPartition(p = 0.8, list = FALSE)
+
+train.data  <- Boston[training.samples, ]
+test.data <- Boston[-training.samples, ]
+
+# Additional data preparation:
+# create objects for storing the outcome variable &  predictor variables 
+# using the function model.matrix()  automatically transform qualitative 
+# variables (if any) into dummy variables.  Note glmnet() can only take 
+# numerical, quantitative inputs. 
+# The intercept component at index = 1 is removed after creating the 
+# model matrix. 
+
+
+
+
+# Build models----------------------------------------------------------------
+# Build the regression models using the caret workflow to automatically 
+# choose the best tuning parameter values, compute the final model and 
+# evaluate the model performance using cross-validation techniques.
+
+# Caret computes penalized linear regression models to tune the glmnet model.  
+# The simplified format is: glmnet(x, y, alpha = 1, lambda = NULL), where
+#    x: matrix of predictor variables
+#    y: the response or outcome variable, which is a binary variable.
+#    alpha: the elasticnet mixing parameter. Allowed values include:
+#        “1”: for lasso regression,
+#        “0”: for ridge regression &
+#        a value between 0 and 1 (say 0.3) for elastic net regression.
+#    lamba: a numeric value defining the amount of shrinkage.  
+# The best lambda for your data, can be defined as the lambda that minimizes 
+# the cross-validation prediction error rate. This can be determined 
+# automatically using the function cv.glmnet(). 
+
+# set model conditions -------------------------------------------------------
+# set possible lambda values 
+lambda <- 10^seq(-3, 3, length = 100) # sets 100 possible lambda vals [-3, 3] 
+
+# set up parallel processing 
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
+doMC::registerDoMC(cores) 
+
+# ridge
+set.seed(123)                # need to set a seed each time you call a rand num
+ridge <- train(
+  medv ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+#  preProcess = c("center", "scale"), 
+  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values
+  )
+
+# lasso
+set.seed(123)                # need to set a seed each time you call a rand num
+lasso <- train(
+  medv ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+#  preProcess = c("center", "scale"), 
+  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values
+  )
+
+# elastic net 
+set.seed(123)
+elastic <- train(
+  medv ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+#  preProcess = c("center", "scale"), 
+  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  tuneLength = 100 
+  )
+
+#tidied <- tidy(models) #%>% filter(term != "(Intercept)")
+
+# make a list of the models --------------------------------------------------
+models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
+
+# find best fit
+resamples(models) %>%  
+  summary( metric = c("RMSE")) # collect, analyze and visualize resample results 
+
+# Model prediction performance-------------------------------------------------
+# The performance of the different models - ridge, lasso and elastic net - can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
+
+# make predictions
+predictions <- elastic %>% 
+  predict(test.data) 
+
+# show the predictions
+data.frame(
+  RMSE = RMSE(predictions, test.data$medv),
+  Rsquare = R2(predictions, test.data$medv)
+)
+
+bwplot(resamples(models),
+       metric = "RMSE") 
+
+# Model coefficients
+coef(elastic$finalModel, elastic$bestTune$lambda) 
+
+
+  
+
+# WORKING ON CREATING AN OBSERVED VS PREDICTED PLOT - NOT DONE YET
+#  Observed = sapply(models, predict, newdata = test.data)
+#  )
+# Validate on test set with ensemble
+allPreds <- tibble(Observed = models$ridge
+ensemblePred <- tibble(
+  Predicted = rowSums(allPreds) / length(models)
+  ) 
+ 
+# Plot predicted vs. observed; create PNG
+plot(ensemblePred, testSet$Y,
+xlim = c(0,100), ylim = c(0,100),
+xlab = "Predicted", ylab = "Observed",
+pch = 16, col = rgb(0, 0, 0, .25))
+abline(a=0, b=1)
+ 
+writeLines(capture.output(sessionInfo()), "sessionInfo")
+```
+
+
+# my data --------------------------------------------------------------------
 # create a training index based on hydrologic export coefficient 
 outcomes <- gaged$hydro_exp 
 groups <- min(5, length(outcomes))
-trainIndex <- createDataPartition(outcomes, 
-                                  p = .8, list = FALSE, times = 1)
+trainIndex <- createDataPartition(outcomes, p = .8, list = FALSE, times = 1)
 
 # create a training and a test set 
 train <- gaged[trainIndex,] 
 test  <- gaged[-trainIndex,] 
 
-```
+
+
+
+
+
+
+
+
+
+
 
 
 ```{r ridge-regression-01}
