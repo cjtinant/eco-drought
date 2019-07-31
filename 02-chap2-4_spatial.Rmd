@@ -464,7 +464,8 @@ gaged <- full_join(gaged, resp_vars,
 rm(env_vars, gage_summary, gpg_layers, lambda, pca, resp_vars)  
 ```
 
-```{r train-models}
+
+```{r train-models-example}
 
 # Load example data from 
 # Penalized Regression Essentials: Ridge, Lasso & Elastic Net
@@ -546,7 +547,7 @@ models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
 
 ```
 
-```{r select-model}
+```{r select-model-example}
 
 # Model prediction performance-------------------------------------------------
 # The performance of the different models - ridge, lasso and elastic net - 
@@ -573,7 +574,7 @@ rmse_plot <- bwplot(resamples(models),
 rm(cores, lambda, rmse_call)
 ``` 
 
-```{r test-model}
+```{r test-model-example}
 
 # make a new dataframe of test data observations and predictions
 observed   <- tibble(observed = test.data$medv)
@@ -650,19 +651,176 @@ coefs <- coefs %>%
   as_tibble()
 ```
 
+```{r train-models-catchments}
 
-# my data --------------------------------------------------------------------
+# Split the example data into training and test set --------------------------
+response <- gaged$hydro_exp 
+groups <- min(5, length(response))
+
 # create a training index based on hydrologic export coefficient 
-outcomes <- gaged$hydro_exp 
-groups <- min(5, length(outcomes))
-trainIndex <- createDataPartition(outcomes, p = .8, list = FALSE, times = 1)
+set.seed(42)
+trainIndex <- createDataPartition(response, p = .8, 
+                                  list = FALSE, times = 1,
+                                  groups = groups)
 
 # create a training and a test set 
-train <- gaged[trainIndex,] 
-test  <- gaged[-trainIndex,] 
+train.data <- gaged[trainIndex,] %>% 
+  select(-sta_id)
+test.data  <- gaged[-trainIndex,] %>%
+  select(-sta_id)
 
+rm(trainIndex, response, groups) 
 
+# Build models----------------------------------------------------------------
+# set possible lambda values 
+lambda <- 10^seq(-3, 3, length = 100) # sets 100 possible lambda vals [-3, 3] 
 
+# set up parallel processing 
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
+doMC::registerDoMC(cores) 
+
+# ridge
+set.seed(42)                # need to set a seed each time you call a rand num
+ridge <- train(
+  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+  preProcess = c("center", "scale"), 
+  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values
+  )
+
+# lasso
+set.seed(42)                # need to set a seed each time you call a rand num
+lasso <- train(
+  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+  preProcess = c("center", "scale"), 
+  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values
+  )
+
+# elastic net 
+set.seed(42)
+elastic <- train(
+  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+  preProcess = c("center", "scale"), 
+  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  tuneLength = 100 
+  )
+
+# make a list of the models --------------------------------------------------
+models <- list(ridge = ridge, lasso = lasso, elastic = elastic) 
+
+```
+
+```{r select-model-catchments}
+
+# Model prediction performance-------------------------------------------------
+# The performance of the different models - ridge, lasso and elastic net - 
+# can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
+
+# find best fit by table and plot 
+rmse_call <- resamples(models) %>%  
+  summary(metric = c("RMSE")) # collect, analyze and visualize resample results 
+
+rmse_vals <- as_tibble(
+  as.data.frame(
+    pluck(rmse_call, 'statistics')
+  ), rownames = "model"
+)
+
+## Elastic net performed better - had the lowest RMSE
+
+# NEED TO FIX UP A DIFFERENT PLOT
+#rmse_plot <- bwplot(resamples(models), 
+#       metric = "statistics") 
+
+#listviewer::jsonedit(rmse_call) 
+rm(cores, lambda, rmse_call) 
+
+``` 
+
+```{r test-model-catchments}
+
+# make a new dataframe of test data observations and predictions
+observed   <- tibble(observed = test.data$hydro_exp)
+allPreds <- map_dfc(models, predict, newdata = test.data) 
+model_preds <- bind_cols(observed, allPreds) 
+
+rm(observed, allPreds)
+
+# use the new dataframe to calculate Rsquared and RMSE 
+model_fit <- model_preds %>% 
+  map_dfc(~postResample(.,model_preds$observed)) %>% 
+  mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
+  select(measurement, ridge, lasso, elastic)
+
+# plot model predictions------------------------------------------------------  
+model_pred_l <- model_preds %>% 
+  gather(key = "model", value = "predicted", -observed)
+
+ggplot(model_pred_l, aes(predicted, observed)) + 
+         geom_point() + 
+  geom_smooth(method = "lm") + 
+         facet_grid(. ~ model) + 
+  geom_abline(intercept = 0, slope = 1, size = 0.25) +
+  xlim(-3, 3) + 
+  ylim(-3, 3)
+  
+ 
+#tidied <- tidy(models) #%>% filter(term != "(Intercept)")
+``` 
+
+```{r model-coefs-catchments}
+
+# Get model coefficients------------------------------------------------------
+# ridge 
+coef_ridge <- as_tibble(
+  as.matrix(
+    coef(ridge$finalModel, ridge$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_ridge <- coef_ridge %>% 
+  slice(-1) %>% 
+  rename(ridge = 2) 
+
+# lasso 
+coef_lasso <- as_tibble(
+  as.matrix(
+    coef(lasso$finalModel, lasso$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_lasso <- coef_lasso %>% 
+  slice(-1) %>% 
+  rename(lasso = 2) 
+
+# elastic 
+coef_elastic <- as_tibble(
+  as.matrix(
+    coef(elastic$finalModel, elastic$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_elastic <- coef_elastic %>% 
+  slice(-1) %>% 
+  rename(elastic = 2) 
+
+# bind the coefs together
+coefs <- full_join(coef_ridge, coef_lasso, 
+                   by = "coefficients") 
+coefs <- full_join(coefs, coef_elastic, 
+                   by = "coefficients") 
+
+coefs <- coefs %>% 
+  map_if(is.numeric, ~round(., digits = 2)) %>% 
+  as_tibble()
+```
 
 ```{r possible-improvements}
 library(caret)
