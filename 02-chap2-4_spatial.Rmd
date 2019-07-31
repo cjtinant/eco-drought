@@ -450,22 +450,11 @@ gaged <- full_join(gaged, resp_vars,
   arrange(hydro_exp) %>% 
   select(sta_id, hydro_exp, everything()) 
 
-# DELETE THIS
-# a factor variable is required for splitting into training and test data 
-#gaged <- gaged %>% 
-#  mutate(hydro_grp = case_when(
-#    row_num < 15 ~ "low",
-#    row_num < 29 ~ "med",
-#    TRUE ~ "high")
-#    ) %>% 
-#  mutate(hydro_grp = as.factor(hydro_grp))
-
 # clean up global environment 
 rm(env_vars, gage_summary, gpg_layers, lambda, pca, resp_vars)  
 ```
 
-
-```{r train-models-example}
+```{r train-models-example, eval=FALSE}
 
 # Load example data from 
 # Penalized Regression Essentials: Ridge, Lasso & Elastic Net
@@ -481,7 +470,7 @@ training.samples <- Boston$medv %>%
 train.data  <- Boston[training.samples, ]
 test.data <- Boston[-training.samples, ]
 
-rm(training.samples)
+rm(training.samples, Boston)
 
 # Build models----------------------------------------------------------------
 # Build the regression models using the caret workflow to automatically 
@@ -547,7 +536,7 @@ models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
 
 ```
 
-```{r select-model-example}
+```{r select-model-example, eval=FALSE}
 
 # Model prediction performance-------------------------------------------------
 # The performance of the different models - ridge, lasso and elastic net - 
@@ -574,7 +563,7 @@ rmse_plot <- bwplot(resamples(models),
 rm(cores, lambda, rmse_call)
 ``` 
 
-```{r test-model-example}
+```{r test-model-example, eval=FALSE}
 
 # make a new dataframe of test data observations and predictions
 observed   <- tibble(observed = test.data$medv)
@@ -604,7 +593,7 @@ ggplot(model_pred_l, aes(predicted, observed)) +
 #tidied <- tidy(models) #%>% filter(term != "(Intercept)")
 ```
 
-```{r model-coefs}
+```{r model-coefs-example, eval=FALSE}
 
 # Get model coefficients------------------------------------------------------
 # ridge 
@@ -651,7 +640,7 @@ coefs <- coefs %>%
   as_tibble()
 ```
 
-```{r train-models-catchments}
+```{r train-models-catchments, eval=FALSE}
 
 # Split the example data into training and test set --------------------------
 response <- gaged$hydro_exp 
@@ -679,14 +668,19 @@ lambda <- 10^seq(-3, 3, length = 100) # sets 100 possible lambda vals [-3, 3]
 cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
 doMC::registerDoMC(cores) 
 
+# set up a training control 
+set.seed(42)
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
+                          search = "grid", allowParallel = TRUE)
+
 # ridge
 set.seed(42)                # need to set a seed each time you call a rand num
 ridge <- train(
-  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
+  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from 
   data = train.data,        # the dataset 'train.data'
   method = "glmnet",        # using method "glmnet" 
   preProcess = c("center", "scale"), 
-  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  trControl = reg.ctrl,  
   tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values
   )
 
@@ -697,24 +691,25 @@ lasso <- train(
   data = train.data,        # the dataset 'train.data'
   method = "glmnet",        # using method "glmnet" 
   preProcess = c("center", "scale"), 
-  trControl = trainControl("cv", number = 10), # 'number'-fold CV
+  trControl = reg.ctrl, 
   tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values
   )
 
 # elastic net 
-set.seed(42)
+set.seed(42) 
 elastic <- train(
   hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
   data = train.data,        # the dataset 'train.data'
   method = "glmnet",        # using method "glmnet" 
   preProcess = c("center", "scale"), 
-  trControl = trainControl("cv", number = 10), # 'number'-fold CV
-  tuneLength = 100 
+  trControl = reg.ctrl, 
+  tuneLength = 10
   )
 
 # make a list of the models --------------------------------------------------
 models <- list(ridge = ridge, lasso = lasso, elastic = elastic) 
 
+rm(cores, lambda, reg.ctrl)
 ```
 
 ```{r select-model-catchments}
@@ -723,59 +718,42 @@ models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
 # The performance of the different models - ridge, lasso and elastic net - 
 # can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
 
-# find best fit by table and plot 
+# find best fit by RMSE 
 rmse_call <- resamples(models) %>%  
-  summary(metric = c("RMSE")) # collect, analyze and visualize resample results 
+  summary(metric = c("RMSE")) # collect, analyze and visualize resample results  
 
-rmse_vals <- as_tibble(
+rmse_vals <- as_tibble( 
   as.data.frame(
     pluck(rmse_call, 'statistics')
   ), rownames = "model"
 )
+names(rmse_vals) <- c(
+  "model", "min", "Q1", "med", "mean", "Q3", "max", "na_ct") 
 
-## Elastic net performed better - had the lowest RMSE
-
-# NEED TO FIX UP A DIFFERENT PLOT
-#rmse_plot <- bwplot(resamples(models), 
-#       metric = "statistics") 
+# plot model RMSE
+ggplot(rmse_vals, aes(x = as.factor(model))) + 
+  geom_point(aes(y = med)) + 
+  geom_boxplot(aes(
+      lower = Q1, 
+      upper = Q3, 
+      middle = med, 
+      ymin = min, 
+      ymax = max),
+    stat = "identity") + 
+    geom_point(aes(y = mean)) + 
+  labs(title = "Regression method accuracy") + 
+  xlab("") + 
+  ylab("RMSE")
 
 #listviewer::jsonedit(rmse_call) 
 rm(cores, lambda, rmse_call) 
 
 ``` 
 
-```{r test-model-catchments}
-
-# make a new dataframe of test data observations and predictions
-observed   <- tibble(observed = test.data$hydro_exp)
-allPreds <- map_dfc(models, predict, newdata = test.data) 
-model_preds <- bind_cols(observed, allPreds) 
-
-rm(observed, allPreds)
-
-# use the new dataframe to calculate Rsquared and RMSE 
-model_fit <- model_preds %>% 
-  map_dfc(~postResample(.,model_preds$observed)) %>% 
-  mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
-  select(measurement, ridge, lasso, elastic)
-
-# plot model predictions------------------------------------------------------  
-model_pred_l <- model_preds %>% 
-  gather(key = "model", value = "predicted", -observed)
-
-ggplot(model_pred_l, aes(predicted, observed)) + 
-         geom_point() + 
-  geom_smooth(method = "lm") + 
-         facet_grid(. ~ model) + 
-  geom_abline(intercept = 0, slope = 1, size = 0.25) +
-  xlim(-3, 3) + 
-  ylim(-3, 3)
-  
- 
-#tidied <- tidy(models) #%>% filter(term != "(Intercept)")
-``` 
-
 ```{r model-coefs-catchments}
+
+# save ggplot above 
+ggsave("figure/super_reg_acc.png") 
 
 # Get model coefficients------------------------------------------------------
 # ridge 
@@ -819,7 +797,86 @@ coefs <- full_join(coefs, coef_elastic,
 
 coefs <- coefs %>% 
   map_if(is.numeric, ~round(., digits = 2)) %>% 
-  as_tibble()
+  as_tibble() 
+
+rm(coef_elastic, coef_lasso, coef_ridge)
+
+# save model parameters: 
+write_csv(coefs, path = "figure/super_coefs.csv") 
+write_csv(model_fit, path = "figure/super_fit.csv") 
+write_csv(obs_preds, path = "figure/sup_obs_preds.csv") 
+
+```
+
+```{r test-model-catchments}
+
+
+#  prepare to plot training observations and predictions 
+observed_train   <- tibble(observed = train.data$hydro_exp)
+preds_train <- map_dfc(models, predict, newdata = train.data) 
+fit_train <- bind_cols(observed_train, preds_train) 
+
+#  prepare to plot test observations and predictions 
+observed_test   <- tibble(observed = test.data$hydro_exp) 
+preds_test <- map_dfc(models, predict, newdata = test.data) 
+fit_test <- bind_cols(observed_test, preds_test) 
+
+# use the test data to calculate Rsquared and RMSE 
+model_fit <- fit_test %>% 
+  map_dfc(~postResample(., fit_test$observed)) %>% 
+  mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
+  select(measurement, ridge, lasso, elastic) %>% 
+  gather(var, value, -measurement) %>% 
+  spread(measurement, value) %>% 
+  rename(model = var) 
+
+# calculate adjusted R2 
+n_test <- nrow(test.data) 
+
+#%>% 
+  mutate(R2adj = )
+
+names(model_fit)
+
+# combine the training and test dataframes 
+fit_train <- fit_train %>% 
+  mutate(split = "train")
+
+fit_test <- fit_test %>% 
+  mutate(split = "test") 
+
+obs_fitted <- bind_rows(fit_train, fit_test)
+
+rm(observed_train, preds_train, observed_test, preds_test, fit_train, fit_test)
+
+# plot model predictions------------------------------------------------------  
+model_pred_l <- obs_preds %>% 
+  gather(key = "model", value = "fitted", -c(observed, split)) #%>%
+#  filter(model == "ridge") 
+
+model_pred_l$split <- factor(model_pred_l$split, 
+                             levels=c("train", "test")
+                             ) 
+
+ggplot(model_pred_l, aes(observed, fitted)) + 
+  geom_point(aes(shape = split)) + 
+  facet_grid(model ~ split) + 
+  geom_smooth(method = "lm") + 
+  geom_abline(intercept = 0, slope = 1, size = 0.25) +
+  xlim(-4, 4) + 
+  ylim(-4, 4) + 
+  theme(legend.position = "none") + 
+  labs(title = "Observed vs. fitted hydrologic export coefficients") 
+
+## 
+``` 
+
+
+
+
+
+```{r predict-ungaged} 
+
 ```
 
 ```{r possible-improvements}
