@@ -537,18 +537,18 @@ models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
 ```
 
 ```{r select-model-example, eval=FALSE}
+ 
+# Model prediction performance------------------------------------------------- 
+# The performance of the different models - ridge, lasso and elastic net -  
+# can be easily compared using caret. The best model is defined as the one that  minimizes the prediction error. 
 
-# Model prediction performance-------------------------------------------------
-# The performance of the different models - ridge, lasso and elastic net - 
-# can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
+# find best fit by table and plot  
+rmse_call <- resamples(models) %>%   
+  summary(metric = c("RMSE"))  
 
-# find best fit by table and plot 
-rmse_call <- resamples(models) %>%  
-  summary(metric = c("RMSE")) # collect, analyze and visualize resample results 
-
-rmse_vals <- pluck(rmse_call, 'statistics')
-rmse_vals2 <- as_tibble(as.data.frame(
-  rmse_vals), rownames = "model") 
+#rmse_vals <- pluck(rmse_call, 'statistics')
+#rmse_vals2 <- as_tibble(as.data.frame(
+#  rmse_vals), rownames = "model") 
 
 rmse_vals <- as_tibble(
   as.data.frame(
@@ -564,8 +564,8 @@ rm(cores, lambda, rmse_call)
 ``` 
 
 ```{r test-model-example, eval=FALSE}
-
-# make a new dataframe of test data observations and predictions
+ 
+# make a new dataframe of test data observations and predictions 
 observed   <- tibble(observed = test.data$medv)
 allPreds <- map_dfc(models, predict, newdata = test.data) 
 model_preds <- bind_cols(observed, allPreds) 
@@ -720,13 +720,14 @@ rm(cores, lambda, reg.ctrl)
 
 # find best fit by RMSE 
 rmse_call <- resamples(models) %>%  
-  summary(metric = c("RMSE")) # collect, analyze and visualize resample results  
+  summary(metric = c("RMSE")) 
 
 rmse_vals <- as_tibble( 
   as.data.frame(
     pluck(rmse_call, 'statistics')
   ), rownames = "model"
 )
+
 names(rmse_vals) <- c(
   "model", "min", "Q1", "med", "mean", "Q3", "max", "na_ct") 
 
@@ -799,17 +800,21 @@ coefs <- coefs %>%
   map_if(is.numeric, ~round(., digits = 2)) %>% 
   as_tibble() 
 
-rm(coef_elastic, coef_lasso, coef_ridge)
+```
 
-# save model parameters: 
-write_csv(coefs, path = "figure/super_coefs.csv") 
-write_csv(model_fit, path = "figure/super_fit.csv") 
-write_csv(obs_preds, path = "figure/sup_obs_preds.csv") 
+```{r prepare-for-adj-Rsq}
+rsquare_call <- resamples(models) %>%  
+  summary(metric = c("Rsquared")) 
+
+rsquare_vals <- as_tibble( 
+  as.data.frame(
+    pluck(rsquare_call, 'statistics')
+  ), rownames = "model"
+)
 
 ```
 
-```{r test-model-catchments}
-
+```{r test-model-catchments} 
 
 #  prepare to plot training observations and predictions 
 observed_train   <- tibble(observed = train.data$hydro_exp)
@@ -826,17 +831,9 @@ model_fit <- fit_test %>%
   map_dfc(~postResample(., fit_test$observed)) %>% 
   mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
   select(measurement, ridge, lasso, elastic) %>% 
-  gather(var, value, -measurement) %>% 
+  gather(var, value, -measurement) %>%                 # transposes df
   spread(measurement, value) %>% 
   rename(model = var) 
-
-# calculate adjusted R2 
-n_test <- nrow(test.data) 
-
-#%>% 
-  mutate(R2adj = )
-
-names(model_fit)
 
 # combine the training and test dataframes 
 fit_train <- fit_train %>% 
@@ -849,10 +846,45 @@ obs_fitted <- bind_rows(fit_train, fit_test)
 
 rm(observed_train, preds_train, observed_test, preds_test, fit_train, fit_test)
 
+# calculate adjusted R2 -----------------------------------------------------
+# find the number of observations
+n_test <- nrow(test.data) 
+n_train <- nrow(train.data)
+
+# find number of parameters for each regression method 
+num_param <- coefs %>% 
+  map_dfc(~sum(. != 0)
+) %>% 
+  select(-coefficients) %>% 
+  gather(model, num_param) #%>%                 # transposes df
+
+# add number of params and number of obs  
+model_fit <- full_join(model_fit, num_param, 
+                  by = "model") %>% 
+  mutate(n_test = n_test) %>% 
+  mutate(n_train = n_train)
+
+rm(num_param, n_test, n_train)
+
+# calculate adj R2
+test <- model_fit %>% 
+  mutate(
+    R2adj_test = 
+      Rsquared - ((1-Rsquared) * (num_param) / (n_test - num_param -1)) 
+  ) %>% 
+  mutate(R2adj_test = if_else(R2adj_test > 1, 0, R2adj_test)
+  ) %>% 
+  mutate(
+    R2adj_train = 
+      Rsquared - ((1-Rsquared) * (num_param) / (n_train - num_param -1)) 
+  ) %>% 
+  select(-c(num_param, n_test, n_train))
+
+
 # plot model predictions------------------------------------------------------  
-model_pred_l <- obs_preds %>% 
-  gather(key = "model", value = "fitted", -c(observed, split)) #%>%
-#  filter(model == "ridge") 
+model_pred_l <- obs_fitted %>% 
+  gather(key = "model", value = "fitted", -c(observed, split)) %>%
+  filter(model != "ridge") 
 
 model_pred_l$split <- factor(model_pred_l$split, 
                              levels=c("train", "test")
@@ -869,9 +901,17 @@ ggplot(model_pred_l, aes(observed, fitted)) +
   labs(title = "Observed vs. fitted hydrologic export coefficients") 
 
 ## 
+
+# save model parameters: 
+write_csv(coefs, path = "figure/super_coefs.csv") 
+write_csv(model_fit, path = "figure/super_fit.csv") 
+write_csv(obs_preds, path = "figure/sup_obs_preds.csv") 
 ``` 
 
 
+```{r calc}
+
+```
 
 
 
