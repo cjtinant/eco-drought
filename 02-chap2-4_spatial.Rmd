@@ -666,7 +666,7 @@ lambda <- 10^seq(-3, 3, length = 100) # sets 100 possible lambda vals [-3, 3]
 
 # set up parallel processing 
 cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
-doMC::registerDoMC(cores) 
+registerDoMC(cores) 
 
 # set up a training control 
 set.seed(42)
@@ -747,14 +747,15 @@ ggplot(rmse_vals, aes(x = as.factor(model))) +
   ylab("RMSE")
 
 #listviewer::jsonedit(rmse_call) 
-rm(cores, lambda, rmse_call) 
+
 
 ``` 
 
 ```{r model-coefs-catchments}
 
-# save ggplot above 
+# save ggplot above & clean up
 ggsave("figure/super_reg_acc.png") 
+rm(rmse_call, rmse_vals) 
 
 # Get model coefficients------------------------------------------------------
 # ridge 
@@ -800,18 +801,20 @@ coefs <- coefs %>%
   map_if(is.numeric, ~round(., digits = 2)) %>% 
   as_tibble() 
 
+rm(coef_elastic, coef_lasso, coef_ridge)
 ```
 
 ```{r prepare-for-adj-Rsq}
-rsquare_call <- resamples(models) %>%  
-  summary(metric = c("Rsquared")) 
+#rsquare_call <- resamples(models) %>%   
+#  summary(metric = c("Rsquared")) 
 
-rsquare_vals <- as_tibble( 
-  as.data.frame(
-    pluck(rsquare_call, 'statistics')
-  ), rownames = "model"
-)
+#rsquare_vals <- as_tibble( 
+#  as.data.frame(
+#    pluck(rsquare_call, 'statistics')
+#  ), rownames = "model"
+#)
 
+#rm(rsquare_call)
 ```
 
 ```{r test-model-catchments} 
@@ -864,52 +867,73 @@ model_fit <- full_join(model_fit, num_param,
   mutate(n_test = n_test) %>% 
   mutate(n_train = n_train)
 
-rm(num_param, n_test, n_train)
-
 # calculate adj R2
-test <- model_fit %>% 
+model_fit <- model_fit %>% 
   mutate(
     R2adj_test = 
       Rsquared - ((1-Rsquared) * (num_param) / (n_test - num_param -1)) 
   ) %>% 
   mutate(R2adj_test = if_else(R2adj_test > 1, 0, R2adj_test)
   ) %>% 
-  mutate(
-    R2adj_train = 
+  mutate(R2adj_train = 
       Rsquared - ((1-Rsquared) * (num_param) / (n_train - num_param -1)) 
   ) %>% 
-  select(-c(num_param, n_test, n_train))
+  select(model, MAE, RMSE, Rsquared, R2adj_train, R2adj_test)
+#  select(-c(num_param, n_test, n_train)) 
 
+rm(num_param, n_test, n_train)
 
 # plot model predictions------------------------------------------------------  
-model_pred_l <- obs_fitted %>% 
-  gather(key = "model", value = "fitted", -c(observed, split)) %>%
-  filter(model != "ridge") 
+# gather data
+obs_fitted_l <- obs_fitted %>% 
+  gather(key = "model", value = "fitted", -c(observed, split)) 
 
-model_pred_l$split <- factor(model_pred_l$split, 
+# prepare to add text 
+adjR2_text <- model_fit %>% 
+  select(-c(MAE, RMSE, Rsquared)) %>% 
+  gather(key, val, -model) %>% 
+  mutate(val = round(val, digits = 2)
+         ) %>% 
+  mutate(split = 
+           c("test", "test", "test", "train", "train", "train")) %>% 
+  select(-key)  
+  
+# create a factor variable to control plotting order
+obs_fitted_l$split <- factor(obs_fitted_l$split, 
                              levels=c("train", "test")
-                             ) 
+                             )  
 
-ggplot(model_pred_l, aes(observed, fitted)) + 
+# make the plot 
+ggplot(obs_fitted_l, aes(observed, fitted)) + 
+  geom_text(
+    data = adjR2_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("adjR^2: ", val, sep="")),
+    parse = TRUE, 
+    size = 3,  
+    nudge_x = 6,
+    nudge_y = 1
+    ) + 
   geom_point(aes(shape = split)) + 
-  facet_grid(model ~ split) + 
   geom_smooth(method = "lm") + 
   geom_abline(intercept = 0, slope = 1, size = 0.25) +
   xlim(-4, 4) + 
   ylim(-4, 4) + 
   theme(legend.position = "none") + 
-  labs(title = "Observed vs. fitted hydrologic export coefficients") 
-
-## 
-
-# save model parameters: 
-write_csv(coefs, path = "figure/super_coefs.csv") 
-write_csv(model_fit, path = "figure/super_fit.csv") 
-write_csv(obs_preds, path = "figure/sup_obs_preds.csv") 
+  labs(title = "Observed vs. fitted hydrologic export coefficients") + 
+  facet_grid(model ~ split) 
 ``` 
 
 
-```{r calc}
+```{r correlations}
+# save last plot and model parameters: 
+ggsave("figure/super_obs-fitted.png") 
+write_csv(coefs, path = "figure/super_coefs.csv") 
+write_csv(model_fit, path = "figure/super_fit.csv") 
+write_csv(obs_fitted, path = "figure/sup_obs_preds.csv") 
+
+rm(obs_fitted_l, adjR2_text, obs_fitted, model_fit, train.data, test.data) 
 
 # explore correlations results
 env_cor <- correlate(env_vars) %>%            # create a correlation df
@@ -921,7 +945,7 @@ env_cor <- correlate(env_vars) %>%            # create a correlation df
   mutate(abs_sum = dden_abs + fc_abs) %>%     # make abs vals & add
   arrange(abs_sum) %>% 
   filter(abs_sum > 0.75) %>%                  # remove low correlation cols 
-  filter(rowname != "ksat_ln") #%>% 
+  filter(rowname != "ksat_ln") %>% 
   select(rowname, dden_sqr, fc_mean)
   
 # plot highly correlated vars 
@@ -933,13 +957,29 @@ env_cor_fn <- env_vars %>%
 ggcorrplot(env_cor_fn, hc.order = FALSE, type = "lower",
    lab = TRUE, insig = "blank", 
    title = "Correlation matrix of environmental variables") 
-
-ggsave("figure/corr_plot.png")
 ```
 
 
 
 ```{r predict-ungaged} 
+# save last plot and clean up
+ggsave("figure/corr_plot.png")
+rm(env_vars, env_cor, env_cor_fn)
+
+gaged_fin <- gaged %>% 
+  select(sta_id, hydro_exp, dden_sqr, )
+
+
+names(wsd_summary)
+
+ungaged <- wsd_summary %>% 
+    filter(type == "ungaged") %>% 
+  mutate(dden_sqr   = sqrt(drain_dens)) %>% 
+  mutate(kvert_ln   = log(kvert_mean)) %>% 
+  mutate(prcp_sq    = prcp_mean^2) %>% 
+  mutate(vpdan_sq   = vpd_ann^2) %>%   		
+  select(sta_id, dden_sqr, fc_mean, kvert_ln, prcp_sq, vpdan_sq) 
+
 
 ```
 
