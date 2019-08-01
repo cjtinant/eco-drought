@@ -221,16 +221,17 @@ library("funModeling")  # functions related to exploratory data analysis
 library("Hmisc")        # functions useful for data analysis
 library("DataExplorer") # functions related to exploratory data analysis 
 library("broom")        # sweep up results into tidy frames 
+library("doMC")         # parallelization for caret 
+library("glmnet")       # fit a GLM with lasso or elasticnet regularization 
+library("caret")        # classification and regression training 
 
-library("glmnet")        # fit a GLM with lasso or elasticnet regularization 
-library("caret")         # classification and regression training 
-library("psych")         # for function tr() to compute trace of a matrix
+# library("MASS")         # for 'Boston' dataset used in example
+library("corrr")        # explore correlations in R 
+library("ggcorrplot") 
+library("tidyverse")    # data munging tools 
 
-library("MASS")          # for 'Boston' dataset 
 
-library("tidyverse")     # data munging tools 
-
-#library("doMC")
+#library("psych")         # for function tr() to compute trace of a matrix
 #library("rsample")      # functions to create and summarize cross-validation  
 #library("scales")       # scales for automatically determining graphical breaks 
 #library("mlbench")      # artificial and real-world machine learning datasets 
@@ -380,15 +381,14 @@ env_vars <- env_vars %>%
   select(area_linv, cout_sqr, crel_sqr, dden_sqr, fc_mean, ksat_ln, 
          kvert_ln, lwrat_sqr, pcov_ln, prcp_sq, slop_ln, t07_sq, 
          TWI_sq, vpd07_sq, vpdan_sq) 
-
-# correlation plots 
+    
 plot_correlation(env_vars) 
 
 # highly correlated (> 0.65) data 
 ## variable    transform_var    correlated vars             drop?
 ## ---------------------------------------------------------------------------
 ## drain_dens	  dden_sqr			  fc_mean, prcp_sq, 
-##                              ksat_ln, kvert_ln			      maybe
+##                              ksat_ln, kvert_ln			      
 ## fc_mean	                    ksat_ln, k_vert_ln, 
 ##                              dden_sqr           
 ## ksat_mean  	ksat_ln 		    dden_sqrm fc_mean,
@@ -399,7 +399,7 @@ plot_correlation(env_vars)
 ## prcp_mean	 	prcp_sq         vpd_ann, vpd_07	
 ## perc_cov	    pcov_ln		      slop_ln, t07_ln            
 ##                              TWI_sq, vpd07_sq
-##                              vpdan_sq                    maybe
+##                              vpdan_sq                    
 ## slop_med	    slop_ln         pcov_ln, TWI_sq 
 ## t07_mean	    t07_sq          pcov_ln, vpdann_sq, 
 ##                              vpd07_sq 
@@ -451,7 +451,7 @@ gaged <- full_join(gaged, resp_vars,
   select(sta_id, hydro_exp, everything()) 
 
 # clean up global environment 
-rm(env_vars, gage_summary, gpg_layers, lambda, pca, resp_vars)  
+rm(gage_summary, gpg_layers, lambda, pca, resp_vars)  
 ```
 
 ```{r train-models-example, eval=FALSE}
@@ -911,6 +911,30 @@ write_csv(obs_preds, path = "figure/sup_obs_preds.csv")
 
 ```{r calc}
 
+# explore correlations results
+env_cor <- correlate(env_vars) %>%            # create a correlation df
+  shave() %>%                                 # shave off bottom half
+  select(rowname, dden_sqr, fc_mean) %>%      # keep only the important vars 
+  replace(., is.na(.), 0) %>%                 # change na to zero    
+  mutate(dden_abs = abs(dden_sqr)) %>%
+  mutate(fc_abs = abs(fc_mean)) %>% 
+  mutate(abs_sum = dden_abs + fc_abs) %>%     # make abs vals & add
+  arrange(abs_sum) %>% 
+  filter(abs_sum > 0.75) %>%                  # remove low correlation cols 
+  filter(rowname != "ksat_ln") #%>% 
+  select(rowname, dden_sqr, fc_mean)
+  
+# plot highly correlated vars 
+env_cor_fn <- env_vars %>% 
+  select(dden_sqr, fc_mean, vpdan_sq, prcp_sq, kvert_ln) %>%
+  cor() %>% 
+  round(., 2)
+  
+ggcorrplot(env_cor_fn, hc.order = FALSE, type = "lower",
+   lab = TRUE, insig = "blank", 
+   title = "Correlation matrix of environmental variables") 
+
+ggsave("figure/corr_plot.png")
 ```
 
 
