@@ -454,6 +454,573 @@ gaged <- full_join(gaged, resp_vars,
 rm(gage_summary, gpg_layers, lambda, pca, resp_vars)  
 ```
 
+```{r train-models-catchments, eval=FALSE}
+
+# Split the data into training and test set --------------------------
+response <- gaged$hydro_exp 
+groups <- min(5, length(response))
+
+# create a training index based on hydrologic export coefficient 
+set.seed(42)
+trainIndex <- createDataPartition(response, p = .8, 
+                                  list = FALSE, times = 1,
+                                  groups = groups)
+
+# create a training and a test set 
+train.data <- gaged[trainIndex,] %>% 
+  select(-sta_id)
+test.data  <- gaged[-trainIndex,] %>%
+  select(-sta_id)
+
+rm(trainIndex, response, groups) 
+
+# Build models----------------------------------------------------------------
+# set possible lambda values 
+lambda <- 10^seq(-3, 3, length = 100) # sets 100 possible lambda vals [-3, 3] 
+
+# set up parallel processing 
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
+registerDoMC(cores) 
+
+# set up a training control 
+set.seed(42)
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
+                          search = "grid", allowParallel = TRUE)
+
+# ridge
+set.seed(42)                # need to set a seed each time you call a rand num
+ridge <- train(
+  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from 
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+  preProcess = c("center", "scale"), 
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values
+  )
+
+# lasso
+set.seed(42)                # need to set a seed each time you call a rand num
+lasso <- train(
+  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+  preProcess = c("center", "scale"), 
+  trControl = reg.ctrl, 
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values
+  )
+
+# elastic net 
+set.seed(42) 
+elastic <- train(
+  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
+  data = train.data,        # the dataset 'train.data'
+  method = "glmnet",        # using method "glmnet" 
+  preProcess = c("center", "scale"), 
+  trControl = reg.ctrl, 
+  tuneLength = 10
+  )
+
+# make a list of the models --------------------------------------------------
+models <- list(ridge = ridge, lasso = lasso, elastic = elastic) 
+
+rm(cores, lambda, reg.ctrl)
+```
+
+```{r select-model-catchments}
+
+# Model prediction performance-------------------------------------------------
+# The performance of the different models - ridge, lasso and elastic net - 
+# can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
+
+# find best fit by RMSE 
+rmse_call <- resamples(models) %>%  
+  summary(metric = c("RMSE")) 
+
+rmse_vals <- as_tibble( 
+  as.data.frame(
+    pluck(rmse_call, 'statistics')
+  ), rownames = "model"
+)
+
+names(rmse_vals) <- c(
+  "model", "min", "Q1", "med", "mean", "Q3", "max", "na_ct") 
+
+# plot model RMSE
+ggplot(rmse_vals, aes(x = as.factor(model))) + 
+  geom_point(aes(y = med)) + 
+  geom_boxplot(aes(
+      lower = Q1, 
+      upper = Q3, 
+      middle = med, 
+      ymin = min, 
+      ymax = max),
+    stat = "identity") + 
+    geom_point(
+      aes(y = mean)
+      ) + 
+  labs(title = "Regression method accuracy") + 
+  xlab("") + 
+  ylab("RMSE")
+
+#listviewer::jsonedit(rmse_call) 
+``` 
+
+```{r model-coefs-catchments}
+
+# save ggplot above & clean up
+ggsave("figure/super_reg_acc.png") 
+rm(rmse_call, rmse_vals) 
+
+# Get model coefficients------------------------------------------------------
+# ridge 
+coef_ridge <- as_tibble(
+  as.matrix(
+    coef(ridge$finalModel, ridge$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_ridge <- coef_ridge %>% 
+  slice(-1) %>% 
+  rename(ridge = 2) 
+
+# lasso 
+coef_lasso <- as_tibble(
+  as.matrix(
+    coef(lasso$finalModel, lasso$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_lasso <- coef_lasso %>% 
+  slice(-1) %>% 
+  rename(lasso = 2) 
+
+# elastic 
+coef_elastic <- as_tibble(
+  as.matrix(
+    coef(elastic$finalModel, elastic$bestTune$lambda)
+    ), 
+  rownames = "coefficients") 
+
+coef_elastic <- coef_elastic %>% 
+  slice(-1) %>% 
+  rename(elastic = 2) 
+
+# bind the coefs together
+coefs <- full_join(coef_ridge, coef_lasso, 
+                   by = "coefficients") 
+coefs <- full_join(coefs, coef_elastic, 
+                   by = "coefficients") 
+
+coefs <- coefs %>% 
+  map_if(is.numeric, ~round(., digits = 2)) %>% 
+  as_tibble() 
+
+rm(coef_elastic, coef_lasso, coef_ridge)
+```
+
+```{r test-model-catchments} 
+
+#  prepare to plot training observations and predictions 
+observed_train   <- tibble(observed = train.data$hydro_exp)
+preds_train <- map_dfc(models, predict, newdata = train.data) 
+fit_train <- bind_cols(observed_train, preds_train) 
+
+#  prepare to plot test observations and predictions 
+observed_test   <- tibble(observed = test.data$hydro_exp) 
+preds_test <- map_dfc(models, predict, newdata = test.data) 
+fit_test <- bind_cols(observed_test, preds_test) 
+
+# use the test data to calculate Rsquared and RMSE 
+model_fit <- fit_test %>% 
+  map_dfc(~postResample(., fit_test$observed)) %>% 
+  mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
+  select(measurement, ridge, lasso, elastic) %>% 
+  gather(var, value, -measurement) %>%                 # transposes df
+  spread(measurement, value) %>% 
+  rename(model = var) 
+
+# combine the training and test dataframes 
+fit_train <- fit_train %>% 
+  mutate(split = "train")
+
+fit_test <- fit_test %>% 
+  mutate(split = "test") 
+
+obs_fitted <- bind_rows(fit_train, fit_test)
+
+rm(observed_train, preds_train, observed_test, preds_test, fit_train, fit_test)
+
+# calculate adjusted R2 -----------------------------------------------------
+# find the number of observations
+n_test <- nrow(test.data) 
+n_train <- nrow(train.data)
+
+# find number of parameters for each regression method 
+num_param <- coefs %>% 
+  map_dfc(~sum(. != 0)
+) %>% 
+  select(-coefficients) %>% 
+  gather(model, num_param) #%>%                 # transposes df
+
+# add number of params and number of obs  
+model_fit <- full_join(model_fit, num_param, 
+                  by = "model") %>% 
+  mutate(n_test = n_test) %>% 
+  mutate(n_train = n_train)
+
+# calculate adj R2
+model_fit <- model_fit %>% 
+  mutate(
+    R2adj_test = 
+      Rsquared - ((1-Rsquared) * (num_param) / (n_test - num_param -1)) 
+  ) %>% 
+  mutate(R2adj_test = if_else(R2adj_test > 1, 0, R2adj_test)
+  ) %>% 
+  mutate(R2adj_train = 
+      Rsquared - ((1-Rsquared) * (num_param) / (n_train - num_param -1)) 
+  ) %>% 
+  select(model, MAE, RMSE, Rsquared, R2adj_train, R2adj_test)
+```
+
+```{r plot_model_predictions}
+
+# gather data
+obs_fitted_l <- obs_fitted %>% 
+  gather(key = "model", value = "fitted", -c(observed, split)) 
+
+# prepare to add text 
+num_obs <- num_param %>% 
+    mutate(n_test = n_test) %>% 
+    mutate(n_train = n_train) %>% 
+    select(-num_param) %>% 
+    gather(key, val, -model) %>% 
+    mutate(split = 
+           c("test", "test", "test", "train", "train", "train")
+    ) %>% 
+   select(-key)  
+
+adjR2_text <- model_fit %>% 
+  select(-c(MAE, RMSE, Rsquared)) %>% 
+  gather(key, val, -model) %>% 
+  mutate(val = round(val, digits = 2)
+         ) %>% 
+  mutate(split = 
+           c("train", "train", "train", "test", "test", "test")) %>% 
+  select(-key)  
+  
+rm(n_test, n_train)
+
+# create a factor variable to control plotting order
+obs_fitted_l$split <- factor(obs_fitted_l$split, 
+                             levels=c("train", "test")
+                             )  
+
+# make the plot 
+ggplot(obs_fitted_l, aes(observed, fitted)) + 
+    geom_text(
+    data = num_obs,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("n: ", val, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 2.3   
+    ) + 
+  geom_text(
+    data = adjR2_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("adjR^2: ", val, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 1
+    ) + 
+  geom_point(aes(shape = split)) + 
+  geom_smooth(method = "lm") + 
+  geom_abline(intercept = 0, slope = 1, size = 0.25) +
+  xlim(-4, 4) + 
+  ylim(-4, 4) + 
+  theme(legend.position = "none") + 
+  labs(title = "Observed vs. fitted hydrologic export coefficients") + 
+  facet_grid(model ~ split) 
+``` 
+
+
+```{r correlations}
+# save last plot and model parameters: 
+ggsave("figure/super_obs-fitted.png") 
+write_csv(coefs, path = "figure/super_coefs.csv") 
+write_csv(model_fit, path = "figure/super_fit.csv") 
+write_csv(obs_fitted, path = "figure/sup_obs_preds.csv") 
+
+rm(obs_fitted_l, adjR2_text, obs_fitted, model_fit) 
+
+# explore correlations results
+env_cor <- correlate(env_vars) %>%            # create a correlation df
+  shave() %>%                                 # shave off bottom half
+  select(rowname, dden_sqr, fc_mean) %>%      # keep only the important vars 
+  replace(., is.na(.), 0) %>%                 # change na to zero    
+  mutate(dden_abs = abs(dden_sqr)) %>%
+  mutate(fc_abs = abs(fc_mean)) %>% 
+  mutate(abs_sum = dden_abs + fc_abs) %>%     # make abs vals & add
+  arrange(abs_sum) %>% 
+  filter(abs_sum > 0.75) %>%                  # remove low correlation cols 
+  filter(rowname != "ksat_ln") %>% 
+  select(rowname, dden_sqr, fc_mean)
+  
+# plot highly correlated vars 
+env_cor_fn <- env_vars %>% 
+  select(dden_sqr, fc_mean, vpdan_sq, prcp_sq, kvert_ln) %>%
+  cor() %>% 
+  round(., 2)
+  
+ggcorrplot(env_cor_fn, hc.order = FALSE, type = "lower",
+   lab = TRUE, insig = "blank", 
+   title = "Correlation matrix of environmental variables") 
+```
+
+
+
+```{r predict-ungaged} 
+# save last plot and clean up
+ggsave("figure/corr_plot.png")
+rm(env_vars, env_cor, env_cor_fn)
+
+# get ungaged data for prediction----------------------------------------------
+# transform ungaged vars 
+ungaged <- wsd_summary %>% 
+    filter(type == "ungaged") %>% 
+  rename(cat_area_ln = cat_area_l) %>% 
+  mutate(area_linv  = 1/cat_area_ln) %>% 
+  mutate(cout_sqr   = sqrt(cat_out)) %>% 
+  mutate(crel_sqr   = sqrt(cat_rel)) %>% 
+  mutate(dden_sqr   = sqrt(drain_dens)) %>% 
+  mutate(kvert_ln   = log(kvert_mean)) %>% 
+  mutate(lwrat_sqr  = log(lw_ratio)) %>% 
+  mutate(pcov_ln    = log(1 + perc_cov)) %>% 	
+  mutate(prcp_sq    = prcp_mean^2) %>% 
+  mutate(slop_ln    = log(slop_med)) %>%   
+  mutate(t07_sq     = t07_mean^2) %>%     
+  mutate(TWI_sq     = TWI_mean^2) %>%   
+  mutate(vpd07_sq   = vpd_07^2) %>% 	
+  mutate(vpdan_sq   = vpd_ann^2) %>%   		
+  select(sta_id, area_linv, cout_sqr, crel_sqr, dden_sqr, fc_mean, 
+         kvert_ln, lwrat_sqr, pcov_ln, prcp_sq, slop_ln, t07_sq, 
+         TWI_sq, vpdan_sq) 
+ 
+# predict hydro_exp  
+pred.data <- ungaged %>% 
+  select(-sta_id)
+ 
+lasso.predict <- tibble(hydro_exp = 
+  predict(lasso, newdata = pred.data)
+  )   
+
+# join predictions to tranformed variables 
+ungaged <- bind_cols(lasso.predict, ungaged) %>% 
+  select(sta_id, hydro_exp, everything()) %>% 
+  arrange(hydro_exp) 
+
+test <- gaged %>% 
+  select(sta_id, hydro_exp) %>% 
+  mutate(type = "gaged") 
+
+test_a <- tibble(
+  sta_id = c("NA", "NA", "NA"), 
+  hydro_exp = c(0, 0, 0)
+  ) %>% 
+  mutate(sta_id = na_if(sta_id, "NA")) %>% 
+  mutate(hydro_exp = na_if(sta_id, 0))  
+
+test <- bind_rows(test, test_a)
+
+test2 <- ungaged %>% 
+  select(sta_id, hydro_exp) %>% 
+  mutate(type = "ungaged")
+
+test3 <- bind_cols(test, test2) 
+
+a <- data_frame(id = c("A","A","A","B","B","B"),
+                b = c(1.2, 1.5, 1.8, 1.1, 1.6, 1.4),
+                c = c(1.3, 1.2, 1.7, 1.0, 1.5, 1.6)
+                ) 
+
+test <- a %>% group_by(id) %>% filter(abs(b - c) == min(abs(b - 1.43))) 
+
+
+test <- a %>%
+    mutate(AbsDiff = abs(b - c)) %>%
+    group_by(id) %>%
+    mutate(AbsDiff_r = rank(AbsDiff, ties.method = 'first')) %>%
+    filter(AbsDiff_r == 1)
+
+
+x= tibble(val = c(1:10^6))
+test = c(1.1, 11.2)
+
+map_dfc()
+
+which(abs(x-your.number)==min(abs(x-your.number)))
+
+
+
+
+by_cyl <- mtcars %>% split(.$cyl)
+mods <- by_cyl %>% map(~ lm(mpg ~ wt, data = .))
+map2(mods, by_cyl, predict)
+
+
+
+
+mtcars %>%
+  split(.$cyl) %>%
+  map(~ lm(mpg ~ wt, data = .)) %>%
+  map(summary) %>%
+  map_dbl("r.squared")
+
+mtcars %>%
+  split(.$test) %>%
+  map(~abs()) 
+    
+    ~ lm(mpg ~ wt, data = .)) %>%
+  map(summary) %>%
+  map_dbl("r.squared")
+test <- which.min(abs(a-1.1))
+
+
+ a %>% group_by(id) %>% nth(which.min(abs(.$b-1.43)))
+
+
+ggplot(ungaged, aes(xposition, hydro_exp)) + 
+  geom_point() 
+
+```
+
+```{r possible-improvements}
+library(caret)
+# Define training control
+set.seed(42)
+train.control <- trainControl(method = "repeatedcv", 
+                              number = 10, repeats = 3)
+# Train the model
+model <- train(Fertility ~., data = swiss, method = "lm",
+               trControl = train.control)
+# Summarize the results
+print(model) 
+
+data <- swiss
+
+
+# Set training control
+train_control <- trainControl(method = "repeatedcv",
+                              number = 5,
+                              repeats = 5,
+                              search = "random",
+                              verboseIter = TRUE)
+
+# Train the model
+elastic_net_model <- train(hydro_exp ~ .,
+                           data = cbind(y, X),
+                           method = "glmnet",
+                           preProcess = c("center", "scale"),
+                           tuneLength = 25,
+                           trControl = train_control)
+
+
+
+
+set.seed(seed)
+ 
+cs_data_train <- cs_data[train_set, ]
+cs_data_test <- cs_data[-train_set, ]
+ 
+glmnet_grid <- expand.grid(alpha = c(0,  .1,  .2, .4, .6, .8, 1),
+                           lambda = seq(.01, .2, length = 20))
+
+
+
+glmnet_ctrl <- trainControl(method = "cv", number = 10)
+glmnet_fit <- train(Status ~ ., data = cs_data_train,
+                    method = "glmnet",
+                    preProcess = c("center", "scale"),
+                    tuneGrid = glmnet_grid,
+                    trControl = glmnet_ctrl)
+
+# create the tibble with the resampling specifications:
+results <- nested_cv(train_dat, 
+                     outside = vfold_cv(repeats = 5), 
+                     inside = bootstraps(25))
+results
+
+## # 10-fold cross-validation repeated 5 times 
+## # Nested : vfold_cv(repeats = 5) / bootstraps(25) 
+## # A tibble: 50 x 4
+##          splits      id    id2   inner_resamples
+##          <list>   <chr>  <chr>            <list>
+##  1 <S3: rsplit> Repeat1 Fold01 <tibble [25 x 2]>
+##  2 <S3: rsplit> Repeat1 Fold02 <tibble [25 x 2]>
+##  3 <S3: rsplit> Repeat1 Fold03 <tibble [25 x 2]>
+##  4 <S3: rsplit> Repeat1 Fold04 <tibble [25 x 2]>
+##  5 <S3: rsplit> Repeat1 Fold05 <tibble [25 x 2]>
+##  6 <S3: rsplit> Repeat1 Fold06 <tibble [25 x 2]>
+##  7 <S3: rsplit> Repeat1 Fold07 <tibble [25 x 2]>
+##  8 <S3: rsplit> Repeat1 Fold08 <tibble [25 x 2]>
+##  9 <S3: rsplit> Repeat1 Fold09 <tibble [25 x 2]>
+## 10 <S3: rsplit> Repeat1 Fold10 <tibble [25 x 2]>
+## # ... with 40 more rows
+
+The splitting information for each resample is contained in the split objects. Focusing on the second fold of the first repeat:
+
+results$splits[[2]]
+
+## <90/10/100>
+
+<90/10/100> indicates the number of data in the analysis set, assessment set, and the original data.
+
+Each element of inner_resamples has its own tibble with the bootstrapping splits.
+
+results$inner_resamples[[5]]
+
+## # Bootstrap sampling with 25 resamples 
+## # A tibble: 25 x 2
+##          splits          id
+##          <list>       <chr>
+##  1 <S3: rsplit> Bootstrap01
+##  2 <S3: rsplit> Bootstrap02
+##  3 <S3: rsplit> Bootstrap03
+##  4 <S3: rsplit> Bootstrap04
+##  5 <S3: rsplit> Bootstrap05
+##  6 <S3: rsplit> Bootstrap06
+##  7 <S3: rsplit> Bootstrap07
+##  8 <S3: rsplit> Bootstrap08
+##  9 <S3: rsplit> Bootstrap09
+## 10 <S3: rsplit> Bootstrap10
+## # ... with 15 more rows
+
+These are self-contained, meaning that the bootstrap sample is aware that it is a sample of a specific 90% of the data:
+
+results$inner_resamples[[5]]$splits[[1]]
+
+## <90/37/90>
+
+To start, we need to define how the model will be created and measured. For our example, a radial basis support vector machine model will be created using the function kernlab::ksvm. This model is generally thought of as having two tuning parameters: the SVM cost value and the kernel parameter sigma. For illustration, only the cost value will be tuned and the function kernlab::sigest will be used to estimate sigma during each model fit. This is automatically done by ksvm.
+
+After the model is fit to the analysis set, the root-mean squared error (RMSE) is computed on the assessment set. One important note: for this model, it is critical to center and scale the predictors before computing dot products. We don't do this operation here because mlbench.friedman1 simulates all of the predictors to be standard uniform random variables.
+
+
+```
+
+```{r styler, message=FALSE} 
+#tidyverse_style(scope = "tokens", strict = TRUE, indent_by = 2, 
+ # start_comments_with_one_space = FALSE, 
+ # reindention = tidyverse_reindention(), 
+#  math_token_spacing = tidyverse_math_token_spacing())  
+
+# style_file() 
+```
+
 ```{r train-models-example, eval=FALSE}
 
 # Load example data from 
@@ -638,470 +1205,4 @@ coefs <- full_join(coefs, coef_elastic,
 coefs <- coefs %>% 
   map_if(is.numeric, ~round(., digits = 2)) %>% 
   as_tibble()
-```
-
-```{r train-models-catchments, eval=FALSE}
-
-# Split the example data into training and test set --------------------------
-response <- gaged$hydro_exp 
-groups <- min(5, length(response))
-
-# create a training index based on hydrologic export coefficient 
-set.seed(42)
-trainIndex <- createDataPartition(response, p = .8, 
-                                  list = FALSE, times = 1,
-                                  groups = groups)
-
-# create a training and a test set 
-train.data <- gaged[trainIndex,] %>% 
-  select(-sta_id)
-test.data  <- gaged[-trainIndex,] %>%
-  select(-sta_id)
-
-rm(trainIndex, response, groups) 
-
-# Build models----------------------------------------------------------------
-# set possible lambda values 
-lambda <- 10^seq(-3, 3, length = 100) # sets 100 possible lambda vals [-3, 3] 
-
-# set up parallel processing 
-cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
-registerDoMC(cores) 
-
-# set up a training control 
-set.seed(42)
-reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
-                          search = "grid", allowParallel = TRUE)
-
-# ridge
-set.seed(42)                # need to set a seed each time you call a rand num
-ridge <- train(
-  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from 
-  data = train.data,        # the dataset 'train.data'
-  method = "glmnet",        # using method "glmnet" 
-  preProcess = c("center", "scale"), 
-  trControl = reg.ctrl,  
-  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values
-  )
-
-# lasso
-set.seed(42)                # need to set a seed each time you call a rand num
-lasso <- train(
-  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
-  data = train.data,        # the dataset 'train.data'
-  method = "glmnet",        # using method "glmnet" 
-  preProcess = c("center", "scale"), 
-  trControl = reg.ctrl, 
-  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values
-  )
-
-# elastic net 
-set.seed(42) 
-elastic <- train(
-  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from  
-  data = train.data,        # the dataset 'train.data'
-  method = "glmnet",        # using method "glmnet" 
-  preProcess = c("center", "scale"), 
-  trControl = reg.ctrl, 
-  tuneLength = 10
-  )
-
-# make a list of the models --------------------------------------------------
-models <- list(ridge = ridge, lasso = lasso, elastic = elastic) 
-
-rm(cores, lambda, reg.ctrl)
-```
-
-```{r select-model-catchments}
-
-# Model prediction performance-------------------------------------------------
-# The performance of the different models - ridge, lasso and elastic net - 
-# can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
-
-# find best fit by RMSE 
-rmse_call <- resamples(models) %>%  
-  summary(metric = c("RMSE")) 
-
-rmse_vals <- as_tibble( 
-  as.data.frame(
-    pluck(rmse_call, 'statistics')
-  ), rownames = "model"
-)
-
-names(rmse_vals) <- c(
-  "model", "min", "Q1", "med", "mean", "Q3", "max", "na_ct") 
-
-# plot model RMSE
-ggplot(rmse_vals, aes(x = as.factor(model))) + 
-  geom_point(aes(y = med)) + 
-  geom_boxplot(aes(
-      lower = Q1, 
-      upper = Q3, 
-      middle = med, 
-      ymin = min, 
-      ymax = max),
-    stat = "identity") + 
-    geom_point(aes(y = mean)) + 
-  labs(title = "Regression method accuracy") + 
-  xlab("") + 
-  ylab("RMSE")
-
-#listviewer::jsonedit(rmse_call) 
-
-
-``` 
-
-```{r model-coefs-catchments}
-
-# save ggplot above & clean up
-ggsave("figure/super_reg_acc.png") 
-rm(rmse_call, rmse_vals) 
-
-# Get model coefficients------------------------------------------------------
-# ridge 
-coef_ridge <- as_tibble(
-  as.matrix(
-    coef(ridge$finalModel, ridge$bestTune$lambda)
-    ), 
-  rownames = "coefficients") 
-
-coef_ridge <- coef_ridge %>% 
-  slice(-1) %>% 
-  rename(ridge = 2) 
-
-# lasso 
-coef_lasso <- as_tibble(
-  as.matrix(
-    coef(lasso$finalModel, lasso$bestTune$lambda)
-    ), 
-  rownames = "coefficients") 
-
-coef_lasso <- coef_lasso %>% 
-  slice(-1) %>% 
-  rename(lasso = 2) 
-
-# elastic 
-coef_elastic <- as_tibble(
-  as.matrix(
-    coef(elastic$finalModel, elastic$bestTune$lambda)
-    ), 
-  rownames = "coefficients") 
-
-coef_elastic <- coef_elastic %>% 
-  slice(-1) %>% 
-  rename(elastic = 2) 
-
-# bind the coefs together
-coefs <- full_join(coef_ridge, coef_lasso, 
-                   by = "coefficients") 
-coefs <- full_join(coefs, coef_elastic, 
-                   by = "coefficients") 
-
-coefs <- coefs %>% 
-  map_if(is.numeric, ~round(., digits = 2)) %>% 
-  as_tibble() 
-
-rm(coef_elastic, coef_lasso, coef_ridge)
-```
-
-```{r prepare-for-adj-Rsq}
-#rsquare_call <- resamples(models) %>%   
-#  summary(metric = c("Rsquared")) 
-
-#rsquare_vals <- as_tibble( 
-#  as.data.frame(
-#    pluck(rsquare_call, 'statistics')
-#  ), rownames = "model"
-#)
-
-#rm(rsquare_call)
-```
-
-```{r test-model-catchments} 
-
-#  prepare to plot training observations and predictions 
-observed_train   <- tibble(observed = train.data$hydro_exp)
-preds_train <- map_dfc(models, predict, newdata = train.data) 
-fit_train <- bind_cols(observed_train, preds_train) 
-
-#  prepare to plot test observations and predictions 
-observed_test   <- tibble(observed = test.data$hydro_exp) 
-preds_test <- map_dfc(models, predict, newdata = test.data) 
-fit_test <- bind_cols(observed_test, preds_test) 
-
-# use the test data to calculate Rsquared and RMSE 
-model_fit <- fit_test %>% 
-  map_dfc(~postResample(., fit_test$observed)) %>% 
-  mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
-  select(measurement, ridge, lasso, elastic) %>% 
-  gather(var, value, -measurement) %>%                 # transposes df
-  spread(measurement, value) %>% 
-  rename(model = var) 
-
-# combine the training and test dataframes 
-fit_train <- fit_train %>% 
-  mutate(split = "train")
-
-fit_test <- fit_test %>% 
-  mutate(split = "test") 
-
-obs_fitted <- bind_rows(fit_train, fit_test)
-
-rm(observed_train, preds_train, observed_test, preds_test, fit_train, fit_test)
-
-# calculate adjusted R2 -----------------------------------------------------
-# find the number of observations
-n_test <- nrow(test.data) 
-n_train <- nrow(train.data)
-
-# find number of parameters for each regression method 
-num_param <- coefs %>% 
-  map_dfc(~sum(. != 0)
-) %>% 
-  select(-coefficients) %>% 
-  gather(model, num_param) #%>%                 # transposes df
-
-# add number of params and number of obs  
-model_fit <- full_join(model_fit, num_param, 
-                  by = "model") %>% 
-  mutate(n_test = n_test) %>% 
-  mutate(n_train = n_train)
-
-# calculate adj R2
-model_fit <- model_fit %>% 
-  mutate(
-    R2adj_test = 
-      Rsquared - ((1-Rsquared) * (num_param) / (n_test - num_param -1)) 
-  ) %>% 
-  mutate(R2adj_test = if_else(R2adj_test > 1, 0, R2adj_test)
-  ) %>% 
-  mutate(R2adj_train = 
-      Rsquared - ((1-Rsquared) * (num_param) / (n_train - num_param -1)) 
-  ) %>% 
-  select(model, MAE, RMSE, Rsquared, R2adj_train, R2adj_test)
-#  select(-c(num_param, n_test, n_train)) 
-
-rm(num_param, n_test, n_train)
-
-# plot model predictions------------------------------------------------------  
-# gather data
-obs_fitted_l <- obs_fitted %>% 
-  gather(key = "model", value = "fitted", -c(observed, split)) 
-
-# prepare to add text 
-adjR2_text <- model_fit %>% 
-  select(-c(MAE, RMSE, Rsquared)) %>% 
-  gather(key, val, -model) %>% 
-  mutate(val = round(val, digits = 2)
-         ) %>% 
-  mutate(split = 
-           c("test", "test", "test", "train", "train", "train")) %>% 
-  select(-key)  
-  
-# create a factor variable to control plotting order
-obs_fitted_l$split <- factor(obs_fitted_l$split, 
-                             levels=c("train", "test")
-                             )  
-
-# make the plot 
-ggplot(obs_fitted_l, aes(observed, fitted)) + 
-  geom_text(
-    data = adjR2_text,
-    mapping = aes(x = -4, 
-                  y = -4, 
-                  label = paste("adjR^2: ", val, sep="")),
-    parse = TRUE, 
-    size = 3,  
-    nudge_x = 6,
-    nudge_y = 1
-    ) + 
-  geom_point(aes(shape = split)) + 
-  geom_smooth(method = "lm") + 
-  geom_abline(intercept = 0, slope = 1, size = 0.25) +
-  xlim(-4, 4) + 
-  ylim(-4, 4) + 
-  theme(legend.position = "none") + 
-  labs(title = "Observed vs. fitted hydrologic export coefficients") + 
-  facet_grid(model ~ split) 
-``` 
-
-
-```{r correlations}
-# save last plot and model parameters: 
-ggsave("figure/super_obs-fitted.png") 
-write_csv(coefs, path = "figure/super_coefs.csv") 
-write_csv(model_fit, path = "figure/super_fit.csv") 
-write_csv(obs_fitted, path = "figure/sup_obs_preds.csv") 
-
-rm(obs_fitted_l, adjR2_text, obs_fitted, model_fit, train.data, test.data) 
-
-# explore correlations results
-env_cor <- correlate(env_vars) %>%            # create a correlation df
-  shave() %>%                                 # shave off bottom half
-  select(rowname, dden_sqr, fc_mean) %>%      # keep only the important vars 
-  replace(., is.na(.), 0) %>%                 # change na to zero    
-  mutate(dden_abs = abs(dden_sqr)) %>%
-  mutate(fc_abs = abs(fc_mean)) %>% 
-  mutate(abs_sum = dden_abs + fc_abs) %>%     # make abs vals & add
-  arrange(abs_sum) %>% 
-  filter(abs_sum > 0.75) %>%                  # remove low correlation cols 
-  filter(rowname != "ksat_ln") %>% 
-  select(rowname, dden_sqr, fc_mean)
-  
-# plot highly correlated vars 
-env_cor_fn <- env_vars %>% 
-  select(dden_sqr, fc_mean, vpdan_sq, prcp_sq, kvert_ln) %>%
-  cor() %>% 
-  round(., 2)
-  
-ggcorrplot(env_cor_fn, hc.order = FALSE, type = "lower",
-   lab = TRUE, insig = "blank", 
-   title = "Correlation matrix of environmental variables") 
-```
-
-
-
-```{r predict-ungaged} 
-# save last plot and clean up
-ggsave("figure/corr_plot.png")
-rm(env_vars, env_cor, env_cor_fn)
-
-gaged_fin <- gaged %>% 
-  select(sta_id, hydro_exp, dden_sqr, )
-
-
-names(wsd_summary)
-
-ungaged <- wsd_summary %>% 
-    filter(type == "ungaged") %>% 
-  mutate(dden_sqr   = sqrt(drain_dens)) %>% 
-  mutate(kvert_ln   = log(kvert_mean)) %>% 
-  mutate(prcp_sq    = prcp_mean^2) %>% 
-  mutate(vpdan_sq   = vpd_ann^2) %>%   		
-  select(sta_id, dden_sqr, fc_mean, kvert_ln, prcp_sq, vpdan_sq) 
-
-
-```
-
-```{r possible-improvements}
-library(caret)
-# Define training control
-set.seed(42)
-train.control <- trainControl(method = "repeatedcv", 
-                              number = 10, repeats = 3)
-# Train the model
-model <- train(Fertility ~., data = swiss, method = "lm",
-               trControl = train.control)
-# Summarize the results
-print(model) 
-
-data <- swiss
-
-
-# Set training control
-train_control <- trainControl(method = "repeatedcv",
-                              number = 5,
-                              repeats = 5,
-                              search = "random",
-                              verboseIter = TRUE)
-
-# Train the model
-elastic_net_model <- train(hydro_exp ~ .,
-                           data = cbind(y, X),
-                           method = "glmnet",
-                           preProcess = c("center", "scale"),
-                           tuneLength = 25,
-                           trControl = train_control)
-
-
-
-
-set.seed(seed)
- 
-cs_data_train <- cs_data[train_set, ]
-cs_data_test <- cs_data[-train_set, ]
- 
-glmnet_grid <- expand.grid(alpha = c(0,  .1,  .2, .4, .6, .8, 1),
-                           lambda = seq(.01, .2, length = 20))
-
-
-
-glmnet_ctrl <- trainControl(method = "cv", number = 10)
-glmnet_fit <- train(Status ~ ., data = cs_data_train,
-                    method = "glmnet",
-                    preProcess = c("center", "scale"),
-                    tuneGrid = glmnet_grid,
-                    trControl = glmnet_ctrl)
-
-# create the tibble with the resampling specifications:
-results <- nested_cv(train_dat, 
-                     outside = vfold_cv(repeats = 5), 
-                     inside = bootstraps(25))
-results
-
-## # 10-fold cross-validation repeated 5 times 
-## # Nested : vfold_cv(repeats = 5) / bootstraps(25) 
-## # A tibble: 50 x 4
-##          splits      id    id2   inner_resamples
-##          <list>   <chr>  <chr>            <list>
-##  1 <S3: rsplit> Repeat1 Fold01 <tibble [25 x 2]>
-##  2 <S3: rsplit> Repeat1 Fold02 <tibble [25 x 2]>
-##  3 <S3: rsplit> Repeat1 Fold03 <tibble [25 x 2]>
-##  4 <S3: rsplit> Repeat1 Fold04 <tibble [25 x 2]>
-##  5 <S3: rsplit> Repeat1 Fold05 <tibble [25 x 2]>
-##  6 <S3: rsplit> Repeat1 Fold06 <tibble [25 x 2]>
-##  7 <S3: rsplit> Repeat1 Fold07 <tibble [25 x 2]>
-##  8 <S3: rsplit> Repeat1 Fold08 <tibble [25 x 2]>
-##  9 <S3: rsplit> Repeat1 Fold09 <tibble [25 x 2]>
-## 10 <S3: rsplit> Repeat1 Fold10 <tibble [25 x 2]>
-## # ... with 40 more rows
-
-The splitting information for each resample is contained in the split objects. Focusing on the second fold of the first repeat:
-
-results$splits[[2]]
-
-## <90/10/100>
-
-<90/10/100> indicates the number of data in the analysis set, assessment set, and the original data.
-
-Each element of inner_resamples has its own tibble with the bootstrapping splits.
-
-results$inner_resamples[[5]]
-
-## # Bootstrap sampling with 25 resamples 
-## # A tibble: 25 x 2
-##          splits          id
-##          <list>       <chr>
-##  1 <S3: rsplit> Bootstrap01
-##  2 <S3: rsplit> Bootstrap02
-##  3 <S3: rsplit> Bootstrap03
-##  4 <S3: rsplit> Bootstrap04
-##  5 <S3: rsplit> Bootstrap05
-##  6 <S3: rsplit> Bootstrap06
-##  7 <S3: rsplit> Bootstrap07
-##  8 <S3: rsplit> Bootstrap08
-##  9 <S3: rsplit> Bootstrap09
-## 10 <S3: rsplit> Bootstrap10
-## # ... with 15 more rows
-
-These are self-contained, meaning that the bootstrap sample is aware that it is a sample of a specific 90% of the data:
-
-results$inner_resamples[[5]]$splits[[1]]
-
-## <90/37/90>
-
-To start, we need to define how the model will be created and measured. For our example, a radial basis support vector machine model will be created using the function kernlab::ksvm. This model is generally thought of as having two tuning parameters: the SVM cost value and the kernel parameter sigma. For illustration, only the cost value will be tuned and the function kernlab::sigest will be used to estimate sigma during each model fit. This is automatically done by ksvm.
-
-After the model is fit to the analysis set, the root-mean squared error (RMSE) is computed on the assessment set. One important note: for this model, it is critical to center and scale the predictors before computing dot products. We don't do this operation here because mlbench.friedman1 simulates all of the predictors to be standard uniform random variables.
-
-
-```
-
-```{r styler, message=FALSE} 
-#tidyverse_style(scope = "tokens", strict = TRUE, indent_by = 2, 
- # start_comments_with_one_space = FALSE, 
- # reindention = tidyverse_reindention(), 
-#  math_token_spacing = tidyverse_math_token_spacing())  
-
-# style_file() 
 ```
