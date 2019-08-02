@@ -210,8 +210,7 @@ gage_summary    input data used in geospatial analysis
 ```{r setup, include=FALSE}
 # set up global options ------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
-options(tibble.print_max = 70) # sets tibble output for printing
-set.seed(42)          # seed for reproducibility - also THE answer
+options(tibble.print_max = 70) # sets tibble output for printing 
 
 # load libraries -------------------------------------------------------------
 library("here")         # identifies where to save work
@@ -227,34 +226,20 @@ library("caret")        # classification and regression training
 
 # library("MASS")         # for 'Boston' dataset used in example
 library("corrr")        # explore correlations in R 
-library("ggcorrplot") 
+library("ggcorrplot")   # visualization of a correlation matrix using ggplot2
 library("tidyverse")    # data munging tools 
+library("fuzzyjoin")    # join tables together on inexact matching
+library("ggrepel")      # repulsive textual annotations 
 
-
+#library("styler") 
 #library("psych")         # for function tr() to compute trace of a matrix
-#library("rsample")      # functions to create and summarize cross-validation  
-#library("scales")       # scales for automatically determining graphical breaks 
-#library("mlbench")      # artificial and real-world machine learning datasets 
-#library("kernlab")        # kernel-based machine learning methods 
-#library(sessioninfo)
 
-
-
-
-#library("glmnetUtils")   # formula interface for 'glmnet' elasticnet regression 
-
-#library("styler")
-
-#library("RCurl")        # General Network (HTTP/FTP/...) Client Interface for R 
-#library("prettyR")      # Pretty descriptive stats
-# library("lubridate")     # easier dates
 
 # set seed for reproducibility & theme for printing  -------------------------
-
 theme_set(theme_bw()) 
 
 # check number of cores for parallel processing
-# numCores <- detectCores()
+numCores <- detectCores()
 
 
 # Create functions ------------------------------------------------------------
@@ -751,9 +736,9 @@ ggplot(obs_fitted_l, aes(observed, fitted)) +
 ```{r correlations}
 # save last plot and model parameters: 
 ggsave("figure/super_obs-fitted.png") 
-write_csv(coefs, path = "figure/super_coefs.csv") 
-write_csv(model_fit, path = "figure/super_fit.csv") 
-write_csv(obs_fitted, path = "figure/sup_obs_preds.csv") 
+write_csv(coefs, path = "output/super_coefs.csv") 
+write_csv(model_fit, path = "output/super_fit.csv") 
+write_csv(obs_fitted, path = "output/sup_obs_preds.csv") 
 
 rm(obs_fitted_l, adjR2_text, obs_fitted, model_fit) 
 
@@ -808,7 +793,8 @@ ungaged <- wsd_summary %>%
   mutate(vpdan_sq   = vpd_ann^2) %>%   		
   select(sta_id, area_linv, cout_sqr, crel_sqr, dden_sqr, fc_mean, 
          kvert_ln, lwrat_sqr, pcov_ln, prcp_sq, slop_ln, t07_sq, 
-         TWI_sq, vpdan_sq) 
+         TWI_sq, vpdan_sq) %>% 
+  arrange(sta_id)
  
 # predict hydro_exp  
 pred.data <- ungaged %>% 
@@ -818,85 +804,61 @@ lasso.predict <- tibble(hydro_exp =
   predict(lasso, newdata = pred.data)
   )   
 
-# join predictions to tranformed variables 
+# prepare to join gaged and ungaged 
 ungaged <- bind_cols(lasso.predict, ungaged) %>% 
   select(sta_id, hydro_exp, everything()) %>% 
-  arrange(hydro_exp) 
-
-test <- gaged %>% 
+  arrange(hydro_exp) %>% 
   select(sta_id, hydro_exp) %>% 
-  mutate(type = "gaged") 
+#  select(-c(area_linv, cout_sqr, crel_sqr, lwrat_sqr, 
+#           pcov_ln, slop_ln, t07_sq, TWI_sq)) %>% 
+  mutate(dummy = 0)                             # needed to satisfy 'fuzzyjoin'
 
-test_a <- tibble(
-  sta_id = c("NA", "NA", "NA"), 
-  hydro_exp = c(0, 0, 0)
-  ) %>% 
-  mutate(sta_id = na_if(sta_id, "NA")) %>% 
-  mutate(hydro_exp = na_if(sta_id, 0))  
-
-test <- bind_rows(test, test_a)
-
-test2 <- ungaged %>% 
+gage_join <- gaged %>% 
   select(sta_id, hydro_exp) %>% 
-  mutate(type = "ungaged")
+  mutate(dummy = 0)
+  
+# join predictions to tranformed variables   
+sta_id.preds <- ungaged %>%
+  difference_inner_join(., gage_join, 
+                      by = c("hydro_exp", "dummy"), 
+                      distance_col = "dist") %>% 
+  select(-starts_with("dummy")) %>% 
+  select(starts_with("sta_id"), everything()) %>% 
+  rename(sta_id_ungaged = sta_id.x) %>% 
+  rename(sta_id_gaged = sta_id.y) %>% 
+  rename(hydro_exp_ungaged = hydro_exp.x) %>% 
+  rename(hydro_exp_gaged = hydro_exp.y) %>% 
+  arrange(hydro_exp.dist) %>%
+  distinct(sta_id_ungaged, .keep_all = TRUE) 
 
-test3 <- bind_cols(test, test2) 
+write_csv(sta_id.preds, path = "output/sta_id_preds.csv") 
+```
 
-a <- data_frame(id = c("A","A","A","B","B","B"),
-                b = c(1.2, 1.5, 1.8, 1.1, 1.6, 1.4),
-                c = c(1.3, 1.2, 1.7, 1.0, 1.5, 1.6)
-                ) 
-
-test <- a %>% group_by(id) %>% filter(abs(b - c) == min(abs(b - 1.43))) 
-
-
-test <- a %>%
-    mutate(AbsDiff = abs(b - c)) %>%
-    group_by(id) %>%
-    mutate(AbsDiff_r = rank(AbsDiff, ties.method = 'first')) %>%
-    filter(AbsDiff_r == 1)
-
-
-x= tibble(val = c(1:10^6))
-test = c(1.1, 11.2)
-
-map_dfc()
-
-which(abs(x-your.number)==min(abs(x-your.number)))
+```{r plot_sta_id_results} 
 
 
+ggplot(sta_id.preds, aes(hydro_exp_gaged, hydro_exp_ungaged)) + 
+  geom_jitter() + 
+  geom_abline(intercept = 0, slope = 1, size = 0.25) +
+  xlim(-1.5, 1.5) + 
+  ylim(-1.5, 1.5) + 
+  theme(legend.position = "none") + 
 
-
-by_cyl <- mtcars %>% split(.$cyl)
-mods <- by_cyl %>% map(~ lm(mpg ~ wt, data = .))
-map2(mods, by_cyl, predict)
-
-
-
-
-mtcars %>%
-  split(.$cyl) %>%
-  map(~ lm(mpg ~ wt, data = .)) %>%
-  map(summary) %>%
-  map_dbl("r.squared")
-
-mtcars %>%
-  split(.$test) %>%
-  map(~abs()) 
-    
-    ~ lm(mpg ~ wt, data = .)) %>%
-  map(summary) %>%
-  map_dbl("r.squared")
-test <- which.min(abs(a-1.1))
-
-
- a %>% group_by(id) %>% nth(which.min(abs(.$b-1.43)))
-
-
-ggplot(ungaged, aes(xposition, hydro_exp)) + 
-  geom_point() 
+  geom_text_repel(aes(label = sta_id_ungaged),
+                  size          = 2,  
+                  segment.size  = 0.2,
+                  segment.color = "grey50") +
+  theme_classic() + 
+  labs(title = 
+         "Predicted hydrologic export coefficients for ungaged stations") + 
+  xlab("Fitted hydrologic export--ungaged stations") + 
+  ylab("Hydrologic export--nearest gaged station")
 
 ```
+
+
+
+
 
 ```{r possible-improvements}
 library(caret)
