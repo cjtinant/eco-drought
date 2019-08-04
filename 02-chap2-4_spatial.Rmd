@@ -7,18 +7,17 @@ output: html_document
 
 <!--
 Purpose: 
-develop a regression function for gaged stations by fitting PC1 of mean daily 
-streamflow to environmental variables.  Then estimate PC1 for ungaged stations  
+develop a regression  equation for gaged stations by fitting PC1--the 
+hydrolologic export coefficient of mean daily streamflow to environmental variables.  Then estimate PC1 for ungaged stations  
 from the regression equation.  Using 'caret' to train ridge, lasso, and 
 elastic net models and select best model fit by root mean square error (RMSE). 
 OLS regression models fitted to correlated explanatory variables have a tendency 
 to overfit to noisy or unrepresentative training data resulting in 
 predictive inaccuracy when used to predict.
 
-Regularization methods introduce bias into the regression solution that can reduce variance considerably relative to the ordinary least squares (OLS) solution. 
-Regression regularization methods decrease v
+Regularization methods introduce bias into the regression solution but reduce 
+variance considerably relative to the ordinary least squares (OLS) solution. 
 
-That's why we regularize: to lower the variance at the cost of some bias, thus moving left on the plot, towards the optimum.
 
 Data: 
   the data to train the model consists of 42 gaged catchments, 
@@ -304,7 +303,7 @@ lambda <- env_vars %>%
   select(-sta_id) 
 
 lambda <- enframe(
-                  sapply(lambda, forecast::BoxCox.lambda)
+                  sapply(lambda, forecast::BoxCox.lambda) 
                   ) %>% 
   rename(sta = name) %>% 
   rename(lambda_val = value) %>% 
@@ -316,22 +315,22 @@ lambda <- enframe(
 
 # transform variables in the following way: 
 ## variable    lambda_val     transform
-## ------------------------------------------
-## cat_area_ln	-1.00			    reciprocal
-## cat_out	     0.36			    square root 
-## cat_rel       0.46			    square root 			
-## drain_dens	   0.66			    square root 			
-## fc_mean	     1.36 
-## kvert_mean	  -0.13			    natural log 
-## ksat_mean  	-0.11			    natural log 
-## lw_ratio	    -0.18			    natural log 
-## perc_cov	     0.17			    natural log 
-## prcp_mean	   2.00			    square
-## slop_med	    -0.13			    natural log 
-## t07_mean	     2.00			    square
-## TWI_mean	     2.00				  square
-## vpd_ann	     2.00				  square		
-## vpd_07	       2.00					square	
+## ------------------------------------------ 
+## cat_area_ln	-1.00			    reciprocal     1
+## cat_out	     0.36			    square root    2
+## cat_rel       0.46			    square root 	 3		
+## drain_dens	   0.66			    square root 	 4		
+## fc_mean	     1.36                        5
+## kvert_mean	  -0.13			    natural log    6
+## ksat_mean  	-0.11			    natural log    7 cut
+## lw_ratio	    -0.18			    natural log    8
+## perc_cov	     0.17			    natural log    9
+## prcp_mean	   2.00			    square        10
+## slop_med	    -0.13			    natural log   11
+## t07_mean	     2.00			    square        12
+## TWI_mean	     2.00				  square        13
+## vpd_ann	     2.00				  square		    14
+## vpd_07	       2.00					square	      15 cut
 
 env_vars <- env_vars %>% 
   mutate(area_linv  = 1/cat_area_ln) %>% 
@@ -368,10 +367,10 @@ env_vars <- env_vars %>%
          TWI_sq, vpd07_sq, vpdan_sq) 
     
 plot_correlation(env_vars) 
-
+ 
 # highly correlated (> 0.65) data 
 ## variable    transform_var    correlated vars             drop?
-## ---------------------------------------------------------------------------
+## --------------------------------------------------------------------------- 
 ## drain_dens	  dden_sqr			  fc_mean, prcp_sq, 
 ##                              ksat_ln, kvert_ln			      
 ## fc_mean	                    ksat_ln, k_vert_ln, 
@@ -405,7 +404,7 @@ gaged <- wsd_summary %>%
   mutate(cout_sqr   = sqrt(cat_out)) %>% 
   mutate(crel_sqr   = sqrt(cat_rel)) %>% 
   mutate(dden_sqr   = sqrt(drain_dens)) %>% 
-  mutate(kvert_ln   = log(kvert_mean)) %>% 
+  mutate(kvert_ln   = log(kvert_mean)) %>%  
   mutate(lwrat_sqr  = log(lw_ratio)) %>% 
   mutate(pcov_ln    = log(1 + perc_cov)) %>% 	
   mutate(prcp_sq    = prcp_mean^2) %>% 
@@ -448,7 +447,7 @@ groups <- min(5, length(response))
 # create a training index based on hydrologic export coefficient 
 set.seed(42)
 trainIndex <- createDataPartition(response, p = .8, 
-                                  list = FALSE, times = 1,
+                                  list = FALSE, times = 1, 
                                   groups = groups)
 
 # create a training and a test set 
@@ -475,7 +474,7 @@ reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5,
 # ridge
 set.seed(42)                # need to set a seed each time you call a rand num
 ridge <- train(
-  hydro_exp ~.,                  # x = 'medv', y = the rest of the columns, from 
+  hydro_exp ~.,             # x = 'medv', y = the rest of the columns, from 
   data = train.data,        # the dataset 'train.data'
   method = "glmnet",        # using method "glmnet" 
   preProcess = c("center", "scale"), 
@@ -518,20 +517,21 @@ rm(cores, lambda, reg.ctrl)
 # can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
 
 # find best fit by RMSE 
-rmse_call <- resamples(models) %>%  
-  summary(metric = c("RMSE")) 
+mae_call <- resamples(models) %>%  
+  summary(metric = c("MAE")) 
 
-rmse_vals <- as_tibble( 
+mae_vals <- as_tibble( 
   as.data.frame(
-    pluck(rmse_call, 'statistics')
-  ), rownames = "model"
-)
+    pluck(mae_call, 'statistics')
+    ), rownames = "model"
+  )
 
-names(rmse_vals) <- c(
+names(mae_vals) <- c(
   "model", "min", "Q1", "med", "mean", "Q3", "max", "na_ct") 
+rm(mae_call)
 
-# plot model RMSE
-ggplot(rmse_vals, aes(x = as.factor(model))) + 
+# plot model MAE
+ggplot(mae_vals, aes(x = as.factor(model))) + 
   geom_point(aes(y = med)) + 
   geom_boxplot(aes(
       lower = Q1, 
@@ -545,7 +545,7 @@ ggplot(rmse_vals, aes(x = as.factor(model))) +
       ) + 
   labs(title = "Regression method accuracy") + 
   xlab("") + 
-  ylab("RMSE")
+  ylab("MAE")
 
 #listviewer::jsonedit(rmse_call) 
 ``` 
@@ -554,7 +554,7 @@ ggplot(rmse_vals, aes(x = as.factor(model))) +
 
 # save ggplot above & clean up
 ggsave("figure/super_reg_acc.png") 
-rm(rmse_call, rmse_vals) 
+rm(mae_call) 
 
 # Get model coefficients------------------------------------------------------
 # ridge 
@@ -605,6 +605,7 @@ rm(coef_elastic, coef_lasso, coef_ridge)
 
 ```{r test-model-catchments} 
 
+
 #  prepare to plot training observations and predictions 
 observed_train   <- tibble(observed = train.data$hydro_exp)
 preds_train <- map_dfc(models, predict, newdata = train.data) 
@@ -615,56 +616,98 @@ observed_test   <- tibble(observed = test.data$hydro_exp)
 preds_test <- map_dfc(models, predict, newdata = test.data) 
 fit_test <- bind_cols(observed_test, preds_test) 
 
-# use the test data to calculate Rsquared and RMSE 
-model_fit <- fit_test %>% 
+# use the test data to calculate Rsquared and MAE 
+model_fit_test <- fit_test %>% 
   map_dfc(~postResample(., fit_test$observed)) %>% 
   mutate(measurement = c("RMSE", "Rsquared", "MAE")) %>% 
   select(measurement, ridge, lasso, elastic) %>% 
   gather(var, value, -measurement) %>%                 # transposes df
   spread(measurement, value) %>% 
-  rename(model = var) 
+  rename(model = var) %>% 
+  mutate(split = "test") %>% 
+  select(-RMSE)
 
-# combine the training and test dataframes 
+# get median Rsquared and MAE from training data 
+r2_call <- resamples(models) %>%  
+  summary(metric = c("Rsquared")) 
+
+r2_vals <- as_tibble( 
+  as.data.frame(
+    pluck(r2_call, 'statistics')
+    ), rownames = "model"
+  ) %>% 
+  select(model, Rsquared = Rsquared.Median)
+
+mae_vals <- mae_vals %>% 
+  select(model, MAE = med)
+
+# arrange model fit data from training 
+model_fit_train <- tibble(
+  model = c("elastic", "lasso", "ridge")
+  ) %>% 
+  mutate(split = "train") 
+  
+model_fit_train <- full_join(model_fit_train, r2_vals, 
+                             by = "model")   
+
+model_fit_train <- full_join(model_fit_train, mae_vals, 
+                             by = "model") 
+
+# combine the training and test observation dataframes 
 fit_train <- fit_train %>% 
   mutate(split = "train")
 
 fit_test <- fit_test %>% 
   mutate(split = "test") 
 
+model_fit <- bind_rows(model_fit_train, model_fit_test)
 obs_fitted <- bind_rows(fit_train, fit_test)
 
-rm(observed_train, preds_train, observed_test, preds_test, fit_train, fit_test)
+rm(observed_train, preds_train, observed_test, preds_test, 
+   model_fit_train, model_fit_test, mae_vals, r2call, r2_vals, 
+   fit_test, fit_train)
+
 
 # calculate adjusted R2 -----------------------------------------------------
 # find the number of observations
-n_test <- nrow(test.data) 
-n_train <- nrow(train.data)
+n_test <- tibble(
+  split = "test",
+  n = nrow(test.data)
+  )
+
+n_train <- tibble(
+  split = "train",
+  n = nrow(train.data)
+  )
+
+num_obs <- bind_rows(n_test, n_train)
+
+rm(n_test, n_train) 
 
 # find number of parameters for each regression method 
 num_param <- coefs %>% 
   map_dfc(~sum(. != 0)
 ) %>% 
   select(-coefficients) %>% 
-  gather(model, num_param) #%>%                 # transposes df
+  gather(model, num_param)                 # transposes df
 
 # add number of params and number of obs  
 model_fit <- full_join(model_fit, num_param, 
-                  by = "model") %>% 
-  mutate(n_test = n_test) %>% 
-  mutate(n_train = n_train)
+                  by = "model") 
+
+model_fit <- full_join(model_fit, num_obs, 
+                  by = "split") 
+
+rm(num_param, num_obs, test.data, train.data)
 
 # calculate adj R2
 model_fit <- model_fit %>% 
   mutate(
-    R2adj_test = 
-      Rsquared - ((1-Rsquared) * (num_param) / (n_test - num_param -1)) 
+    R2adj = 
+      Rsquared - ((1-Rsquared) * (num_param) / (n - num_param -1)) 
   ) %>% 
-  mutate(R2adj_test = if_else(R2adj_test > 1, 0, R2adj_test)
-  ) %>% 
-  mutate(R2adj_train = 
-      Rsquared - ((1-Rsquared) * (num_param) / (n_train - num_param -1)) 
-  ) %>% 
-  select(model, MAE, RMSE, Rsquared, R2adj_train, R2adj_test)
+  mutate(R2adj = if_else(R2adj > 1, 0, R2adj)
+  ) 
 ```
 
 ```{r plot_model_predictions}
@@ -674,26 +717,14 @@ obs_fitted_l <- obs_fitted %>%
   gather(key = "model", value = "fitted", -c(observed, split)) 
 
 # prepare to add text 
-num_obs <- num_param %>% 
-    mutate(n_test = n_test) %>% 
-    mutate(n_train = n_train) %>% 
-    select(-num_param) %>% 
-    gather(key, val, -model) %>% 
-    mutate(split = 
-           c("test", "test", "test", "train", "train", "train")
-    ) %>% 
-   select(-key)  
-
-adjR2_text <- model_fit %>% 
-  select(-c(MAE, RMSE, Rsquared)) %>% 
-  gather(key, val, -model) %>% 
-  mutate(val = round(val, digits = 2)
-         ) %>% 
-  mutate(split = 
-           c("train", "train", "train", "test", "test", "test")) %>% 
-  select(-key)  
+num_obs_text <- model_fit %>%
+  select(model, split, n)
   
-rm(n_test, n_train)
+adjR2_text <- model_fit %>% 
+    select(model, split, R2adj) 
+
+mae_text <- model_fit %>% 
+    select(model, split, MAE)
 
 # create a factor variable to control plotting order
 obs_fitted_l$split <- factor(obs_fitted_l$split, 
@@ -702,25 +733,36 @@ obs_fitted_l$split <- factor(obs_fitted_l$split,
 
 # make the plot 
 ggplot(obs_fitted_l, aes(observed, fitted)) + 
+  facet_grid(model ~ split) +
     geom_text(
-    data = num_obs,
+    data = num_obs_text,
     mapping = aes(x = -4, 
                   y = -4, 
-                  label = paste("n: ", val, sep="")),
+                  label = paste("n: ", n, sep="")),
     parse = TRUE, 
     size = 2.5,  
     nudge_x = 7,
-    nudge_y = 2.3   
+    nudge_y = 2.8   
     ) + 
   geom_text(
     data = adjR2_text,
     mapping = aes(x = -4, 
                   y = -4, 
-                  label = paste("adjR^2: ", val, sep="")),
+                  label = paste("adjR^2: ", R2adj, sep="")),
     parse = TRUE, 
     size = 2.5,  
     nudge_x = 7,
-    nudge_y = 1
+    nudge_y = 1.7
+    ) + 
+  geom_text(
+    data = mae_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("MAE: ", MAE, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 0.5
     ) + 
   geom_point(aes(shape = split)) + 
   geom_smooth(method = "lm") + 
@@ -728,8 +770,7 @@ ggplot(obs_fitted_l, aes(observed, fitted)) +
   xlim(-4, 4) + 
   ylim(-4, 4) + 
   theme(legend.position = "none") + 
-  labs(title = "Observed vs. fitted hydrologic export coefficients") + 
-  facet_grid(model ~ split) 
+  labs(title = "Observed vs. fitted hydrologic export coefficients") 
 ``` 
 
 
@@ -740,29 +781,38 @@ write_csv(coefs, path = "output/super_coefs.csv")
 write_csv(model_fit, path = "output/super_fit.csv") 
 write_csv(obs_fitted, path = "output/sup_obs_preds.csv") 
 
-rm(obs_fitted_l, adjR2_text, obs_fitted, model_fit) 
+rm(obs_fitted_l, adjR2_text, model_fit, 
+   adjR2_text, mae_text, num_obs_text) 
 
 # explore correlations results
-env_cor <- correlate(env_vars) %>%            # create a correlation df
-  shave() %>%                                 # shave off bottom half
-  select(rowname, dden_sqr, fc_mean) %>%      # keep only the important vars 
-  replace(., is.na(.), 0) %>%                 # change na to zero    
+env_cor <- correlate(env_vars) %>%                 # create a correlation df
+  shave() %>%                                      # shave off bottom half
+  select(rowname, dden_sqr, fc_mean, crel_sqr) %>% # keep only important vars 
+  replace(., is.na(.), 0) %>%                     # change na to zero    
   mutate(dden_abs = abs(dden_sqr)) %>%
   mutate(fc_abs = abs(fc_mean)) %>% 
-  mutate(abs_sum = dden_abs + fc_abs) %>%     # make abs vals & add
+  mutate(crel_abs = abs(crel_sqr)) %>%     
+  mutate(abs_sum = dden_abs + fc_abs + crel_abs) %>%     # make abs vals & add
   arrange(abs_sum) %>% 
-  filter(abs_sum > 0.75) %>%                  # remove low correlation cols 
+  filter(abs_sum > 0.9) %>%                  # remove low correlation cols 
   filter(rowname != "ksat_ln") %>% 
-  select(rowname, dden_sqr, fc_mean)
+  select(rowname, dden_sqr, fc_mean, crel_sqr)
   
 # plot highly correlated vars 
 env_cor_fn <- env_vars %>% 
-  select(dden_sqr, fc_mean, vpdan_sq, prcp_sq, kvert_ln) %>%
+  select(env_cor$rowname, dden_sqr, fc_mean, crel_sqr) %>% 
+  select(-vpd07_sq)
+
+names(env_cor_fn)
+names(env_cor_fn) <- c("cover", "twi", "T_jul", "vpd", "prcp",  "kvert", "DDEN", "FCAP", "CREL")
+
+env_cor_fn <- env_cor_fn %>% 
   cor() %>% 
-  round(., 2)
+  round(., 2) 
+
   
 ggcorrplot(env_cor_fn, hc.order = FALSE, type = "lower",
-   lab = TRUE, insig = "blank", 
+   lab = TRUE, insig = "blank", lab_size = 3, digits = 1,  
    title = "Correlation matrix of environmental variables") 
 ```
 
@@ -770,7 +820,7 @@ ggcorrplot(env_cor_fn, hc.order = FALSE, type = "lower",
 
 ```{r predict-ungaged} 
 # save last plot and clean up
-ggsave("figure/corr_plot.png")
+ggsave("figure/corr_plot.png") 
 rm(env_vars, env_cor, env_cor_fn)
 
 # get ungaged data for prediction----------------------------------------------
@@ -800,35 +850,42 @@ ungaged <- wsd_summary %>%
 pred.data <- ungaged %>% 
   select(-sta_id)
  
-lasso.predict <- tibble(hydro_exp = 
-  predict(lasso, newdata = pred.data)
+elastic.predict <- tibble(hydro_fit = 
+  predict(elastic, newdata = pred.data)
   )   
 
 # prepare to join gaged and ungaged 
-ungaged <- bind_cols(lasso.predict, ungaged) %>% 
-  select(sta_id, hydro_exp, everything()) %>% 
-  arrange(hydro_exp) %>% 
-  select(sta_id, hydro_exp) %>% 
+ungaged <- bind_cols(elastic.predict, ungaged) %>% 
+  select(sta_id, hydro_fit, everything()) %>% 
+  arrange(hydro_fit) %>% 
+  select(sta_id, hydro_fit) %>% 
 #  select(-c(area_linv, cout_sqr, crel_sqr, lwrat_sqr, 
 #           pcov_ln, slop_ln, t07_sq, TWI_sq)) %>% 
   mutate(dummy = 0)                             # needed to satisfy 'fuzzyjoin'
 
+obs_fitted <- obs_fitted %>% 
+  select(hydro_exp = observed, hydro_fit = elastic)
+
+gaged <- full_join(gaged, obs_fitted, 
+                   by = "hydro_fit")
+
+
 gage_join <- gaged %>% 
-  select(sta_id, hydro_exp) %>% 
+  select(sta_id, hydro_fit) %>% 
   mutate(dummy = 0)
   
 # join predictions to tranformed variables   
 sta_id.preds <- ungaged %>%
   difference_inner_join(., gage_join, 
-                      by = c("hydro_exp", "dummy"), 
+                      by = c("hydro_fit", "dummy"), 
                       distance_col = "dist") %>% 
   select(-starts_with("dummy")) %>% 
   select(starts_with("sta_id"), everything()) %>% 
   rename(sta_id_ungaged = sta_id.x) %>% 
   rename(sta_id_gaged = sta_id.y) %>% 
-  rename(hydro_exp_ungaged = hydro_exp.x) %>% 
-  rename(hydro_exp_gaged = hydro_exp.y) %>% 
-  arrange(hydro_exp.dist) %>%
+  rename(hydro_exp_ungaged = hydro_fit.x) %>% 
+  rename(hydro_exp_gaged = hydro_fit.y) %>% 
+  arrange(hydro_fit.dist) %>%
   distinct(sta_id_ungaged, .keep_all = TRUE) 
 
 write_csv(sta_id.preds, path = "output/sta_id_preds.csv") 
@@ -840,8 +897,8 @@ write_csv(sta_id.preds, path = "output/sta_id_preds.csv")
 ggplot(sta_id.preds, aes(hydro_exp_gaged, hydro_exp_ungaged)) + 
   geom_jitter() + 
   geom_abline(intercept = 0, slope = 1, size = 0.25) +
-  xlim(-1.5, 1.5) + 
-  ylim(-1.5, 1.5) + 
+  xlim(-1.6, 1.6) + 
+  ylim(-1.6, 1.6) + 
   theme(legend.position = "none") + 
 
   geom_text_repel(aes(label = sta_id_ungaged),
