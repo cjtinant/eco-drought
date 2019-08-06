@@ -42,9 +42,9 @@ Variable naming convention:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~
 gage_poss           possible USGS gaging stations in the study area 
 gage_meta_poss      metadata for possible gaging stations
--- _int1            scratch variable for pulling sites with integer fields 
--- _int2            scratch variable for pulling sites with integer fields 
--- _char            scratch variable for pulling sites with character fields 
+-- _int1            scratch df for pulling gages with integer fields 
+-- _int2            scratch df for pulling gages with integer fields 
+-- _char            scratch df for pulling gages with character fields 
 
 gage_meta           cleaned metadata for USGS gaging stations in the study area 
   "site_no"                site number     
@@ -58,9 +58,15 @@ gage_meta           cleaned metadata for USGS gaging stations in the study area
   "drain_area_va"          drainage area ???in square miles???
   "contrib_drain_area_va"  contributing drainage area ???in square miles???
 
-endDate                    used for calling Egret::readNWISDaily 
-parameter_cd               used for calling Egret::readNWISDaily 
-startDate                  used for calling Egret::readNWISDaily 
+endDate             used for calling Egret::readNWISDaily 
+parameter_cd        used for calling Egret::readNWISDaily 
+startDate           used for calling Egret::readNWISDaily 
+
+lon_riv_dv          scratch df for pulling lon_riv 
+gage_most_dv        scratch df for pulling !lon_riv 
+yrs_rec             calculates years of record 
+gage_dv             daily flow values for waterYear 1980-2017 
+
 
 --> 
 
@@ -125,7 +131,8 @@ rm(gage_meta_int1,
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
 ```
 
-```{r filter_stations, eval=FALSE}
+```{r filter_clean_gage_meta, eval=FALSE}
+gage_meta_poss <- import("data/gage_meta_poss.csv")  
 
 # 1. remove gages that do not meet standards 
 gage_meta <- gage_meta_poss %>%   
@@ -159,19 +166,7 @@ gage_meta <- gage_meta %>%
   mutate(site_no = zeroPad(site_no, 8)) %>% 
   select(-length)
 
-#export(gage_meta, "data/gage_meta.csv")  
-
-# clean up 
-rm(gage_meta_poss) 
-```
-
-```{r clean_metadata, eval=FALSE}
-
-# clean the imported metadata------------------------------------------------- 
-# 1. make a tibble of metadata codes 
-meta_cd <- enframe(names(gage_meta_poss), name = NULL) 
-
-# 2. remove codes not needed for this project 
+# 3. remove codes not needed for this project 
 gage_meta <- gage_meta %>% 
   select(-agency_cd) %>% 
   select(-site_tp_cd) %>% # all streams so delete 
@@ -187,9 +182,6 @@ gage_meta <- gage_meta %>%
   select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>% 
   # aquifer data, so NA 
   select(-c(well_depth_va, hole_depth_va, depth_src_cd)) 
-
-# clean up 
-rm(meta_cd)
 
 ```
 
@@ -222,34 +214,60 @@ gage_most_dv <- gage_meta %>%
     endDate), 
     .id = "site_no") 
 
-# join into a single dataframe & clean up 
+# join into a single dataframe 
 gage_dv <-bind_rows(gage_most_dv, lon_riv_dv) 
-rm(lon_riv_dv, gage_most_dv)
 
-# filter gages without flow data for the period of record
-gage_meta <- semi_join(gage_meta, gage_id, 
-                       by = "site_no") 
-
-#export(gage_dv, "data/gage_dv.csv") 
-```
-
-
-
-
-
-
-
-
-
+``` 
 
 
 ```{r clean_daily_flow_metadata, eval=FALSE}
 
-#  filter(sta == "wkc_wok")  
+# filter gages with short flow records----------------------------------------
+# filter gages without flow data for the period of record 
+gage_id <- gage_dv %>% 
+  select(site_no) %>% 
+  distinct() 
 
-# 2. check for incomplete days of record & years of record  
-yr_incomp <- gage_dv_raw %>%                          
-  group_by(sta, water_year) %>%                  
+gage_meta <- semi_join(gage_meta, gage_id, 
+                       by = "site_no")
+
+# calculate min & max years of record 
+yrs_summary <- gage_dv %>% 
+  group_by(site_no) %>%                  
+  summarise(years_rec = n_distinct(waterYear), 
+            min_year = min(waterYear), 
+            max_year = max(waterYear),
+            ) %>%                    
+  ungroup() %>% 
+  mutate(apparent_yrs = 1 + max_year - min_year) 
+
+# join year summary to metadata   
+gage_meta <- full_join(yrs_summary, gage_meta,  
+                       by = "site_no") 
+
+# drop stations with less than 6 years of record 
+gage_meta <- gage_meta %>% 
+  filter(years_rec >= 6)
+
+# recreating past work -- have a difference of 19 stations!!!! 
+gage_dv_meta <- import("data/gage_dv_meta.csv")
+
+sta_names <- gage_dv_meta %>% 
+  select(1:2)  %>%
+    mutate(site_no = as.character(site_no)) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) 
+
+gage_meta <- full_join(sta_names, gage_meta, 
+                       by = "site_no")
+
+gage_dropped <- gage_meta %>% 
+  filter(is.na(sta))
+```
+
+
+# 1. check for incomplete days of record & years of record  
+yr_incomp <- gage_dv %>%                          
+  group_by(site_no, waterYear) %>%                  
   summarise(days_yr = n()) %>%                    
   ungroup() %>%  
   filter(between(days_yr, .8 * 360, 364))  
