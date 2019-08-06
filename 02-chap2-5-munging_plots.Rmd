@@ -101,5 +101,128 @@ rm(gage_gage_meta_int1,
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
 ```
+
+```{r remove_not_useful_stations, eval=FALSE}
+# remove gages that do not meet standards or in crystaline or karst catchments 
+gage_meta <- gage_meta_poss %>%   
+  mutate(reliability_cd = replace_na(reliability_cd, 0)) %>% #  NA <- 
+  filter(reliability_cd != "M") %>% # M is minimal data 
+  filter(!str_detect(station_nm, 'DAM|DITCH|DRAIN')) %>% # upstream control 
+  filter(!str_detect(station_nm, 
+                     'CUSTER|KEYSTONE|HILL CITY|HAYWARD')) %>% 
+  # crystaline catchments 
+  filter(!str_detect(station_nm, 
+                     'LEAD|DEADWOOD|WHITEWOOD')) %>%   
+  # crystaline catchments 
+  filter(!str_detect(station_nm, 'CLEGHORN')) %>% # karstic? spring 
+  filter(!str_detect(station_nm, 'BOXELDER|LIME')) %>% # karstic 
+  filter(!str_detect(station_nm, 'RAPID')) %>%   
+  # Rapid Creek & upper Spring Creek 
+  filter(!str_detect(station_nm, 'MISSOURI'))
+
+# 4. export metadata to data folder after fixing leading zero
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+gage_meta <- gage_meta %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+  select(-reliability_cd) %>% 
+  mutate(length = str_length(site_no)) %>% 
+  filter(length <= 8) %>%   # removes two provisional sites
+  mutate(site_no = as.character(site_no)) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) %>% 
+  select(-length)
+
+export(gage_meta, "data/gage_meta.csv") 
+
 ```
 
+
+
+```{r clean_daily_flow_metadata, eval=FALSE}
+# 1. load daily flow data  & renive crystaline basins    
+gage_dv_raw <- read_csv("data/gage_dv.csv") %>%  
+  clean_names() %>%  
+  filter(sta != "elk_rob")           # remove the record of crystaline basins  
+
+# 1.1 check a short record 
+#wkc_wok <- gage_dv_raw %>%  
+#  filter(sta == "wkc_wok")  
+
+# 2. check for incomplete days of record & years of record  
+yr_incomp <- gage_dv_raw %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_yr = n()) %>%                    
+  ungroup() %>%  
+  filter(between(days_yr, .8 * 360, 364))  
+
+# 3. fill the station-years with missing data  
+wy_1991 <- tibble(date = seq.Date(from=as.Date("1990-10-01"),  
+                 to=as.Date("1991-09-30"), by="day")) 
+
+wy_2003 <- tibble(date = seq.Date(from=as.Date("2002-10-01"),  
+                 to=as.Date("2003-09-30"), by="day")) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+bev_pri_1991 <- gage_dv_raw %>%  
+  filter(sta == "bev_pri") %>%  
+  filter(water_year == 1991) 
+
+bev_pri_1991 <- full_join(bev_pri_1991, wy_1991) 
+
+bev_pri_1991 <- bev_pri_1991 %>%  
+  mutate(sta = "bev_pri") %>%  
+  mutate(incomp_yr = "Y") %>%  
+  mutate(water_year = 1991) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+whi_slm_1991 <- gage_dv_raw %>%  
+  filter(sta == "whi_slm") %>%  
+  filter(water_year == 1991) 
+
+whi_slm_1991 <- full_join(whi_slm_1991, wy_1991) 
+
+whi_slm_1991 <- whi_slm_1991 %>%  
+  mutate(sta = "whi_slm") %>%  
+  mutate(incomp_yr = "Y") %>%  
+  mutate(water_year = 1991) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+lwr_aro_2003 <- gage_dv_raw %>%  
+  filter(sta == "lwr_aro") %>%  
+  filter(water_year == 2003) 
+
+lwr_aro_2003 <- full_join(lwr_aro_2003 , wy_2003) 
+
+lwr_aro_2003 <- lwr_aro_2003 %>%  
+  mutate(sta = "lwr_aro") %>%   
+  mutate(incomp_yr = "Y") %>%   
+  mutate(water_year = 2003) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
+# 4. append and join data  
+yr_dv_incomp <- bind_rows(bev_pri_1991, whi_slm_1991, lwr_aro_2003) 
+
+gage_dv <- bind_rows(yr_dv_incomp, gage_dv_raw) %>%  
+  distinct() %>%  
+  group_by(sta, water_year) %>%                  
+  mutate(days_yr = n()) %>%                   
+  ungroup()   
+
+# 4. remove short years  
+gage_dv_incomp <-  gage_dv %>% 
+  filter(days_yr < 365) 
+
+gage_dv <- gage_dv %>% 
+  filter(days_yr >= 365)  
+
+# 5. check results  
+gage_ck <- gage_dv %>%  
+  filter(sta == "lwr_aro") %>%  
+  filter(water_year == "2003") 
+
+yr_sum <- gage_dv %>%                          
+  group_by(sta, water_year) %>%                  
+  summarise(days_yr = n()) %>%                    
+  ungroup() 
+
+# 6. clean up  
+rm(bev_pri_1991, gage_dv_incomp, gage_dv_raw, lwr_aro_2003, whi_slm_1991, 
+   wy_1991, wy_2003, yr_dv_incomp, yr_incomp, wkc_wok, gage_ck)  
+``` 
