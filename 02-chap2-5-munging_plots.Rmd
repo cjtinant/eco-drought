@@ -32,14 +32,37 @@ Next Steps:
 
 Variable naming convention:   
 # ~~~~~~~~~~~~~~~~~~~~~~~~~
-gpg_layers          names of layers in gpkg file for the watershed summaries 
-   _gage_summary 
-   _prr_wq_sites
-   _wbd_summary
+[1] "site_no"              
+ [2] "station_nm"           
+ [3] "dec_lat_va"           
+ [4] "dec_long_va"          
+ [5] "state_cd"             
+ [6] "county_cd"            
+ [7] "alt_va"               
+ [8] "huc_cd"               
+ [9] "drain_area_va"        
+[10] "contrib_drain_area_va"
 
-wsd_summary     zonal statistics of watershed environmental parameters 
-*   _id          unique id
-*  _sta_id      four- or seven-digit station ID   
+gage_poss           possible USGS gaging stations in the study area 
+gage_meta_poss      metadata for possible gaging stations
+-- _int1            scratch variable for pulling sites with integer fields 
+-- _int2            scratch variable for pulling sites with integer fields 
+-- _char            scratch variable for pulling sites with character fields 
+
+gage_meta           cleaned metadata for USGS gaging stations in the study area 
+  "site_no"         site number     
+  "station_nm"      station name     
+  "dec_lat_va"      latitude value in decimal degrees 
+  "dec_long_va"     longitude value in decimal degrees 
+  "state_cd"        State code
+  "county_cd"       County code
+  "alt_va"          altitude 
+  "huc_cd"          hydrologic unit code 
+  "drain_area_va"   drainage area ???in square miles???
+  "contrib_drain_area_va"  contributing drainage area ???in square miles???
+
+
+
 --> 
 
 ```{r setup, include=FALSE, message=FALSE}  
@@ -93,19 +116,26 @@ gage_meta_poss <- bind_rows(gage_meta_int1,
                             gage_meta_char)  
 
 # clean up
-rm(gage_gage_meta_int1, 
+rm(gage_meta_int1, 
    gage_meta_int2, 
-   gage_meta_char) 
+   gage_meta_char, 
+   gage_poss) 
 
 # 4. export metadata to data folder 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
 ```
 
-```{r remove_not_useful_stations, eval=FALSE}
-# remove gages that do not meet standards or in crystaline or karst catchments 
+```{r filter_stations, eval=FALSE}
+
+# 1. remove gages that do not meet standards, 
+#      with upstream control, 
+#      in crystaline or karst catchments 
 gage_meta <- gage_meta_poss %>%   
-  mutate(reliability_cd = replace_na(reliability_cd, 0)) %>% #  NA <- 
+  mutate(reliability_cd = replace_na(reliability_cd, 0)) %>% #  NA <- zero 
+  filter(site_no != "06461150"& 
+         site_no != "06463670"& 
+         site_no != "06461595") %>%  # remove short sites with provisional data 
   filter(reliability_cd != "M") %>% # M is minimal data 
   filter(!str_detect(station_nm, 'DAM|DITCH|DRAIN')) %>% # upstream control 
   filter(!str_detect(station_nm, 
@@ -120,7 +150,7 @@ gage_meta <- gage_meta_poss %>%
   # Rapid Creek & upper Spring Creek 
   filter(!str_detect(station_nm, 'MISSOURI'))
 
-# 4. export metadata to data folder after fixing leading zero
+# 2. fix leading zero & remove provisional sites 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 gage_meta <- gage_meta %>% 
   mutate(site_no = as.character(site_no)) %>% 
@@ -131,9 +161,102 @@ gage_meta <- gage_meta %>%
   mutate(site_no = zeroPad(site_no, 8)) %>% 
   select(-length)
 
-export(gage_meta, "data/gage_meta.csv") 
+#export(gage_meta, "data/gage_meta.csv") 
+```
+
+```{r clean_metadata, eval=FALSE}
+
+# clean the imported metadata 
+# 1. make a tibble of metadata codes 
+meta_cd <- enframe(names(gage_meta_poss), name = NULL) 
+
+# 2. remove codes not needed for this project 
+gage_meta <- gage_meta %>% 
+  select(-agency_cd) %>% 
+  select(-site_tp_cd) %>% # all streams so delete 
+  select(-c(lat_va, long_va)) %>% # in DMS so delete 
+  select(-c(coord_meth_cd, coord_acy_cd)) %>% # coord method & agency, so delete 
+  select(-c(coord_datum_cd, dec_coord_datum_cd)) %>% # NAD83 or NAD27 
+  select(-c(district_cd, country_cd)) %>% # Congressional dist & Country 
+  select(-c(land_net_ds, map_nm, map_scale_fc)) %>%  # refers to USGS maps 
+  select(-c(alt_meth_cd, alt_datum_cd, alt_acy_va)) %>% #%>% # altitude metadata  
+  select(-c(basin_cd, topo_cd, instruments_cd)) %>% 
+  select(-c(construction_dt)) %>% 
+  select(-c(tz_cd, local_time_fg)) %>% # daily data, so NA 
+  select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>% 
+  # aquifer data, so NA 
+  select(-c(well_depth_va, hole_depth_va, depth_src_cd)) 
+
+# clean up 
+rm(meta_cd)
 
 ```
+
+```{r import_daily_flow, eval=FALSE} 
+
+# Loads USGS gage data for active stations individually, bind_cols & 
+# exports data to a folder.  Gage IDs identified by USGS watermapper.  
+# The data needs to be saved as two smaller files to be uploaded on GitHub. 
+# 
+#   Egret::readNWISDaily(siteNumber, parameterCd = "00060", startDate = "",
+#      endDate = "", interactive = TRUE, convert = TRUE) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1. create a list of active gages & get metadata for water year 1980-2018 
+startDate    <- "1979-10-01" # note that blank gets earliest date 
+# for some reason, adding a value here causes an error...
+# Error in names(data) <- c("agency", "site", "dateTime", "value", "code") : 
+#  'names' attribute [5] must be the same length as the vector [3]
+# add an end date to remove provisional data & gaps in vals 
+endDate      <- "2018-09-30" 
+parameter_cd <- "00060" 
+# ~~~~~~~~~~~~~~~~~~~~~ 
+
+# load the metadata 
+#gage_meta <- import("data/gage_meta.csv", setclass = "tibble") %>% 
+#  mutate(site_no = as.character(site_no)) %>% 
+#  mutate(site_no = zeroPad(site_no, 8)) 
+
+
+# remove Long Pine Creek near Riverview, Nebr. 
+#   needs to be called separately or it creates an error 
+lon_riv <- gage_meta %>% 
+  filter(site_no == "06463500") 
+
+gage_meta <- gage_meta %>%  
+  filter(site_no != "06463500") 
+
+# get daily values & join
+gage_dv_01 <- gage_meta %>% 
+#  slice(1:88) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
+                          parameter_cd, startDate, endDate), .id = "site_no") 
+
+gage_dv_02 <- lon_riv %>%  
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISDaily(siteNumber = .$site_no, 
+                          parameter_cd, startDate, endDate), .id = "site_no") 
+test <- gage_dv_02 %>% 
+  filter(waterYear == 1980)
+
+
+gage_dv <- bind_rows(gage_dv_01, gage_dv_02)
+
+# clean up & export
+rm(endDate, parameter_cd, startDate, gage_meta_poss, gage_meta_pos, meta_cd, 
+   gage_dv_01, gage_dv_02, lon_riv) 
+
+#export(gage_dv, "data/gage_dv.csv") 
+```
+
+
+
+
+
+
+
+
 
 
 
