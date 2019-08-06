@@ -1,0 +1,167 @@
+---
+title: "02-chapt2-5_study-area"
+author: "CJ Tinant"
+date: "8/06/2019"
+output: html_document 
+---
+
+<!--
+Purpose: 
+Refactors prior code to develop tables and plots for the study area description 
+section of Chapter 2 
+
+Data: 
+ discuss
+
+Approach: 
+1) find  possible sites by bounding box 
+-- find all sites within a bounding box 
+-- add the metadata, 
+-- filters no data sites for 1980- 2018 water years 
+# for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# bBox = a contiguous range of decimal latitude and longitude, starting with the west longitude, then the south latitude, then the east longitude, and then the north latitude with each value separated by a comma. 
+# https://waterservices.usgs.gov/rest/Site-Service.html#bBox 
+# the Pine Ridge Reservation boundary is c(-103, 43, -100.2, 43.8)
+2) Split train/test data 
+
+Next Steps: 
+-- check into stylr-packag
+
+Variable naming convention:   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~
+gpg_layers          names of layers in gpkg file for the watershed summaries 
+   _gage_summary 
+   _prr_wq_sites
+   _wbd_summary
+
+wsd_summary     zonal statistics of watershed environmental parameters 
+*   _id          unique id
+*  _sta_id      four- or seven-digit station ID   
+--> 
+
+```{r setup, include=FALSE, message=FALSE}  
+#knitr::opts_chunk$set(echo = FALSE)  
+options(tibble.print_max = 70) # sets tibble output for printing  
+
+# Sets up the library of packages   
+library("here")                   # identifies where to save work  
+library("EGRET")                  # Exploration and Graphics for RivEr Trends 
+library("rio")                    # more robust I/O - to import and clean data  
+library("lubridate")              # easier dates 
+library("janitor")                # tools for examining and cleaning dirty data  
+library("dataRetrieval")          # USGS data import  
+library("tidyverse")              # data munging tools 
+```
+
+```{r import_daily_flow_metadata, eval=FALSE} 
+
+gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),
+                       parameterCd = "00060", hasDataTypeCd = "dv") %>% 
+  arrange(site_no)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 2. get metadata 
+# this needs to be run in parts because some project numbers are stored 
+#     as integers & others are stored as characters 
+# this code could be improved on possibly by map2 to convert 'project_no' to 
+#     a character 
+
+gage_meta_poss_01 <- gage_poss %>% 
+    slice(1:6) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_02 <- gage_poss %>% 
+    slice(7) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_03 <- gage_poss %>% 
+    slice(8:16) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_04 <- gage_poss %>% 
+    slice(17) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_05 <- gage_poss %>% 
+    slice(18:93) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_06 <- gage_poss %>% 
+    slice(94) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_07 <- gage_poss %>% 
+    slice(95:141) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_08 <- gage_poss %>% 
+    slice(142) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_09 <- gage_poss %>% 
+    slice(143:147) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+# this uses an integer value for project number
+gage_meta_poss_10 <- gage_poss %>% 
+    slice(148) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_poss_11 <- gage_poss %>% 
+    slice(149:155) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 3. join gage metadata & drop the partial sites 
+# this could be improved on by passing a for loop for naming?
+gage_meta_poss <- bind_rows(gage_meta_poss_01, gage_meta_poss_02, 
+                            gage_meta_poss_03, gage_meta_poss_04,  
+                            gage_meta_poss_05, gage_meta_poss_06, 
+                            gage_meta_poss_07, gage_meta_poss_08, 
+                            gage_meta_poss_09, gage_meta_poss_10, 
+                            gage_meta_poss_11)  
+
+# clean up
+rm(gage_meta_poss_01, gage_meta_poss_02, 
+                            gage_meta_poss_03, gage_meta_poss_04,  
+                            gage_meta_poss_05, gage_meta_poss_06, 
+                            gage_meta_poss_07, gage_meta_poss_08, 
+                            gage_meta_poss_09, gage_meta_poss_10, 
+                            gage_meta_poss_11)   
+
+
+# 4. export metadata to data folder 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+export(gage_meta_poss, "data/gage_meta_poss.csv")  
+```
+```
+
