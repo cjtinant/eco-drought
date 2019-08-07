@@ -83,11 +83,12 @@ library("rio")                    # more robust I/O - to import and clean data
 library("lubridate")              # easier dates 
 library("janitor")                # tools for examining and cleaning dirty data  
 library("dataRetrieval")          # USGS data import  
-library("huxtable")               # easily create and style tables 
+library("measurements") 
+library("flextable")             # construct complex table with 'kable'  
 library("tidyverse")              # data munging tools 
 ```
 
-```{r import_daily_flow_metadata} 
+```{r import_daily_flow_metadata, eval=FALSE} 
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6), 
                        parameterCd = "00060",
                        hasDataTypeCd = "dv") %>% 
@@ -221,11 +222,11 @@ gage_most_dv <- gage_meta %>%
     endDate), 
     .id = "site_no") 
 
-# join into a single dataframe 
+# join into a single dataframe & clean up 
 gage_dv <-bind_rows(gage_most_dv, lon_riv_dv) 
 
+rm(startDate, endDate, parameter_cd)
 ``` 
-
 
 ```{r clean_daily_flow_metadata, eval=FALSE}
 
@@ -256,8 +257,6 @@ gage_meta <- full_join(yrs_summary, gage_meta,
 
 gage_meta <- gage_meta %>% 
   filter(years_rec >= 6) 
-
-rm(yrs_summary)
 
 # 2. check for incomplete days of record & years of record --------------------  
 yr_incomp <- gage_dv %>%                          
@@ -297,7 +296,90 @@ short_rec <- tibble(
 
 gage_meta <- anti_join(gage_meta, short_rec, 
                        by = "site_no") %>% 
-  filter(site_no != "06441000") 
+  filter(site_no != "06441000") # Bad River at Midland only partial data 
+
+rm(short_rec, yr_incomp, yrs_summary, gage_meta_poss) 
+```
+
+```{r prepare_table_metadata}
+
+# prepare df for gaging station metadata 
+gage_table <- gage_meta %>% 
+  mutate(contrib_drain_area_va = 
+           coalesce(contrib_drain_area_va, drain_area_va)
+  ) %>% 
+  mutate(alt_si = 
+           conv_unit(alt_va, "ft", "m")
+         ) %>% 
+  mutate(contrib_drain_area_si = 
+           conv_unit(contrib_drain_area_va, "mi2", "km2")
+         ) 
+
+
+gage_table$years_rec <-  as.integer(gage_table$years_rec) 
+
+gage_table <- gage_table %>% 
+select(site_no, station_nm, dec_lat_va, dec_long_va, alt_si, years_rec, 
+         contrib_drain_area_si) 
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r make_docx-file_for_export} 
+
+# create a flextable objects  
+col_key_nm <-gage_table %>% 
+  select(dec_lat_va:alt_si, contrib_drain_area_si) %>% 
+  names() 
+
+col_key_int <-gage_table %>% 
+  select(years_rec, site_no) %>% 
+  names() 
+
+tabl_meta <- flextable(gage_table) %>% 
+  colformat_num(col_keys = col_key_nm, 
+                big.mark=",", 
+                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(site_no = "Sta. Number", 
+                    station_nm = "Name", 
+                    dec_lat_va = "Latitude", 
+                    dec_long_va = "Longitude", 
+                    alt_si = "Altitude, m",
+                    years_rec = "Years of Record", 
+                    contrib_drain_area_si = "Drainage Area, sq-km") %>% 
+  autofit() %>% 
+  theme_booktabs() 
+
+sht_sta_doc <- read_docx() %>% 
+  body_add_flextable(value = tabl_meta) 
+
+print(sht_sta_doc, target = "output/example1.docx") 
+
+fileout <- tempfile(fileext = ".docx")
+# fileout <- "test.docx" # uncomment to write in your working directory
+print(doc, target = fileout)
+
+library(officer)
+my_doc <- read_docx() 
+
+
+
+my_doc <- my_doc %>% 
+#  body_add_img(src = src, width = 5, height = 6, style = "centered") %>% 
+#  body_add_par("Hello world!", style = "Normal") %>% 
+#  body_add_par("", style = "Normal") %>% # blank paragraph
+  body_add_table(tabl_meta, style = "table_template") 
+styles_info(my_doc) 
+
+print(my_doc, target = "output/example.docx")
 ```
 
 
@@ -310,33 +392,6 @@ gage_meta <- anti_join(gage_meta, short_rec,
 
 
 
-
-```{r}
-# recreating past work -- have a difference of 19 stations!!!! 
-gage_dv_meta <- import("data/gage_dv_meta.csv")
-
-sta_names <- gage_dv_meta %>% 
-  select(1:2)  %>%
-    mutate(site_no = as.character(site_no)) %>% 
-  mutate(site_no = zeroPad(site_no, 8)) %>% 
-  filter(sta != "elk_rob") 
-
-add <- tibble(
-  
-)
-
-gage_meta <- full_join(sta_names, gage_meta, 
-                       by = "site_no")
-
-gage_dropped <- gage_meta %>% 
-  filter(is.na(sta)) 
-
-gage_dv_dropped <- semi_join(gage_dv, gage_dropped, 
-                             by = "site_no") 
-
-ggplot(gage_meta, aes(dec_lat_va, dec_long_va)) +  
-  geom_point() 
-```
 
 
 
