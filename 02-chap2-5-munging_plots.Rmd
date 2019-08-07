@@ -31,10 +31,12 @@ Approach:
 
 4) Load USGS gage data for active stations individually, bind_rows 
 
-5) filter no data gages for 1980- 2018 water years 
-     for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd
+5) filter based on record length 
+    - no data gages for 1990- 2018 water years 
+      for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd 
+    - 
 
-6) 
+6) filter 
 Next Steps: 
 -- check into stylr-packag
 
@@ -71,8 +73,8 @@ gage_dv             daily flow values for waterYear 1980-2017
 --> 
 
 ```{r setup, include=FALSE, message=FALSE}  
-#knitr::opts_chunk$set(echo = FALSE)  
-options(tibble.print_max = 70) # sets tibble output for printing  
+#knitr::opts_chunk$set(echo = FALSE)   
+options(tibble.print_max = 70) # sets tibble output for printing   
 
 # Sets up the library of packages   
 library("here")                   # identifies where to save work  
@@ -81,12 +83,11 @@ library("rio")                    # more robust I/O - to import and clean data
 library("lubridate")              # easier dates 
 library("janitor")                # tools for examining and cleaning dirty data  
 library("dataRetrieval")          # USGS data import  
-library("huxtable")               # easily create and style tables
+library("huxtable")               # easily create and style tables 
 library("tidyverse")              # data munging tools 
 ```
 
-```{r import_daily_flow_metadata, eval=FALSE} 
-
+```{r import_daily_flow_metadata} 
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6), 
                        parameterCd = "00060",
                        hasDataTypeCd = "dv") %>% 
@@ -131,15 +132,21 @@ rm(gage_meta_int1,
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
 ```
 
-```{r filter_clean_gage_meta, eval=FALSE}
+```{r filter_clean_gage_meta}
 gage_meta_poss <- import("data/gage_meta_poss.csv")  
 
 # 1. remove gages that do not meet standards 
 gage_meta <- gage_meta_poss %>%   
-  mutate(reliability_cd = replace_na(reliability_cd, 0)) %>% #  NA <- zero 
+  mutate(site_no = as.character(site_no)) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) %>%              # pad site_no  
+  mutate(reliability_cd = replace_na(reliability_cd, 0))  %>% #  NA <- zero 
   filter(site_no != "06461150"& 
          site_no != "06463670"& 
          site_no != "06461595") %>%  # remove short sites with provisional data 
+  filter(site_no != "06441000") %>%  # only active 180 days/yr
+  filter(site_no != "06438000") %>% 
+  filter(site_no != "06437000") %>%  # remove northern Black Hills stations 
+  filter(site_no != "06442718") %>%  # remove East River stations
   filter(reliability_cd != "M") %>% # M is minimal data 
   filter(!str_detect(station_nm, 'DAM|DITCH|DRAIN')) %>% # upstream control 
   filter(!str_detect(station_nm, 
@@ -162,8 +169,7 @@ gage_meta <- gage_meta %>%
   select(-reliability_cd) %>% 
   mutate(length = str_length(site_no)) %>% 
   filter(length <= 8) %>%   # removes two provisional sites
-  mutate(site_no = as.character(site_no)) %>% 
-  mutate(site_no = zeroPad(site_no, 8)) %>% 
+
   select(-length)
 
 # 3. remove codes not needed for this project 
@@ -183,9 +189,10 @@ gage_meta <- gage_meta %>%
   # aquifer data, so NA 
   select(-c(well_depth_va, hole_depth_va, depth_src_cd)) 
 
+
 ```
 
-```{r import_daily_flow, eval=FALSE} 
+```{r import_daily_flow} 
 
 # set parameters for Egret::readNWISDaily 
 startDate    <- "1979-10-01" # note that blank gets earliest date 
@@ -222,7 +229,7 @@ gage_dv <-bind_rows(gage_most_dv, lon_riv_dv)
 
 ```{r clean_daily_flow_metadata, eval=FALSE}
 
-# filter gages with short flow records----------------------------------------
+# 1. filter gages with short flow records--------------------------------------
 # filter gages without flow data for the period of record 
 gage_id <- gage_dv %>% 
   select(site_no) %>% 
@@ -230,6 +237,8 @@ gage_id <- gage_dv %>%
 
 gage_meta <- semi_join(gage_meta, gage_id, 
                        by = "site_no")
+
+rm(gage_id)
 
 # calculate min & max years of record 
 yrs_summary <- gage_dv %>% 
@@ -241,36 +250,95 @@ yrs_summary <- gage_dv %>%
   ungroup() %>% 
   mutate(apparent_yrs = 1 + max_year - min_year) 
 
-# join year summary to metadata   
+#  drop stations with less than 6 years of record  
 gage_meta <- full_join(yrs_summary, gage_meta,  
                        by = "site_no") 
 
-# drop stations with less than 6 years of record 
 gage_meta <- gage_meta %>% 
-  filter(years_rec >= 6)
+  filter(years_rec >= 6) 
 
+rm(yrs_summary)
+
+# 2. check for incomplete days of record & years of record --------------------  
+yr_incomp <- gage_dv %>%                          
+  group_by(site_no, waterYear) %>%                  
+  summarise(days_yr = n()) %>%                    
+  ungroup() %>% 
+  filter(days_yr < 360) %>% 
+  group_by(site_no) %>%   
+  summarise(yrs_incomp = n()) %>%    
+  ungroup() 
+  
+gage_meta <- full_join(yr_incomp, gage_meta,  
+                       by = "site_no") 
+
+gage_meta <- gage_meta %>% 
+  mutate(yrs_incomp = replace_na(yrs_incomp, 0)) %>% 
+  mutate(yrs_comp = years_rec - yrs_incomp) 
+
+# 3. remove data with short record between 1990-2017 ------------------------- 
+## These didn't make the cut because the original data selection was 
+# for 1990-2017  & it would be extremely difficult to put in post-hoc.
+# it would be good for the future! 
+
+# station   min_yr  maxyr  name 
+# 06459175   1982   1995   SNAKE R AT DOUGHBOY, NE
+# 06459500   1980   1995   SNAKE RIVER NEAR BURGE, NEBR. 
+# 06454100   1980   1992   Niobrara River at Agate, Nebr. 
+# 06461000   1980   1995   MINNECHADUZA CREEK AT VALENTINE, NEBR.
+# 06462500   1980   1995   PLUM CREEK AT MEADVILLE, NE
+# 06400497   1980   1995   CASCADE SPRINGS NEAR HOT SPRINGS SD
+# 06463720   2012   2018   Niobrara River at Mariaville, Nebr.
+
+short_rec <- tibble(
+  site_no = c("06459175", "06459500", "06454100", "06461000", 
+              "06462500", "06400497", "06463720")
+  ) 
+
+gage_meta <- anti_join(gage_meta, short_rec, 
+                       by = "site_no") %>% 
+  filter(site_no != "06441000") 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
 # recreating past work -- have a difference of 19 stations!!!! 
 gage_dv_meta <- import("data/gage_dv_meta.csv")
 
 sta_names <- gage_dv_meta %>% 
   select(1:2)  %>%
     mutate(site_no = as.character(site_no)) %>% 
-  mutate(site_no = zeroPad(site_no, 8)) 
+  mutate(site_no = zeroPad(site_no, 8)) %>% 
+  filter(sta != "elk_rob") 
+
+add <- tibble(
+  
+)
 
 gage_meta <- full_join(sta_names, gage_meta, 
                        by = "site_no")
 
 gage_dropped <- gage_meta %>% 
-  filter(is.na(sta))
+  filter(is.na(sta)) 
+
+gage_dv_dropped <- semi_join(gage_dv, gage_dropped, 
+                             by = "site_no") 
+
+ggplot(gage_meta, aes(dec_lat_va, dec_long_va)) +  
+  geom_point() 
 ```
 
 
-# 1. check for incomplete days of record & years of record  
-yr_incomp <- gage_dv %>%                          
-  group_by(site_no, waterYear) %>%                  
-  summarise(days_yr = n()) %>%                    
-  ungroup() %>%  
-  filter(between(days_yr, .8 * 360, 364))  
 
 # 3. fill the station-years with missing data  
 wy_1991 <- tibble(date = seq.Date(from=as.Date("1990-10-01"),  
