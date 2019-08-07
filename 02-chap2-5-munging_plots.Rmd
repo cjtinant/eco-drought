@@ -10,34 +10,43 @@ Purpose:
 Refactors prior code to develop tables and plots for the study area description 
 section of Chapter 2 
 
-Data: 
- discuss
+Data:
+Predominant datasets used are:  
+1) USGS daily streamflow and station metadata,  
+2) Summary data from a QGIS analysis of ungaged watersheds of interest.  
 
 Approach: 
-1) find possible gages by bounding box 
--- find all gages within a bounding box 
--- add the metadata, 
-
-# bBox = a contiguous range of decimal latitude and longitude, starting with the west longitude, then the south latitude, then the east longitude, and then the north latitude with each value separated by a comma. 
+1) find potential USGS gages by bounding box 
+     bBox = a contiguous range of decimal latitude and longitude, starting 
+     with the west longitude, then the south latitude, then the east longitude, 
+     and then the north latitude with each value separated by a comma. 
 # https://waterservices.usgs.gov/rest/Site-Service.html#bBox 
-# the Pine Ridge Reservation boundary is c(-103, 43, -100.2, 43.8)
+# the Pine Ridge Reservation boundary is c(-103.0, 43.0, -100.2, 43.8)
 
 2) filter gages for the following reasons
      - upstream control, 
      - in crystaline or karst catchments
      - provisional data 
+     - (sigh) overlooked in the first data screening from 1990-2017 
 
 3) clean metadata by removing non-needed variables  
 
-4) Load USGS gage data for active stations individually, bind_rows 
+4) obtain USGS gage daily flow data
 
-5) filter based on record length 
-    - no data gages for 1990- 2018 water years 
+5) filter stations based on record length 
+    - no data gages for 1980-2018 water years 
+    - less than 6-years of continuous data for 1990-2018
       for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd 
-    - 
 
-6) filter 
+6) create metadata tables 
+    - gage_table - summary of gage metadata 
+    - ung_table - summary of ungaged watershed metadata 
+    - soils_table - summary of geology, soils, and vegetation 
+
+
+
 Next Steps: 
+-- line up gage_dv (n=474,070) with prior download data (n=438,231)
 -- check into stylr-packag
 
 Variable naming convention:   
@@ -69,6 +78,45 @@ gage_most_dv        scratch df for pulling !lon_riv
 yrs_rec             calculates years of record 
 gage_dv             daily flow values for waterYear 1980-2017 
 
+wsd_summary     zonal statistics of watershed environmental parameters 
+*   "_id"       unique id
+*  "_sta_id"    four- or seven-digit station ID   
+   "_type "     distinguishes gaged from ungaged 
+   "_watshed"   describes the HUC06 watershed 
+   "_HUC12"     hydrologic unit code 12
+   "_sta_name"    station name derived from outlet HUC12 catchment name
+   "_gage_num"    USGS site number 
+   "_gage_nm"     station name from USGS gage
+   "_dec_lat"     latitude in decimal degrees
+   "_dec_lon"     longitude in decimal degrees
+   "_cat_area"    catchment area in sq km
+*  "_cat_area_l"  natural logarithm of catchment area 
+   "_cat_length"  catchment length
+   "_cat_width"   catchment width
+*  "_lw_ratio"    catchment length divided by catchment width
+   "_str_len"     stream length
+*  "_drain_dens"  stream length divided by catchment area
+*  "_prcp_mean"   areal mean precipitation depth 1992-2012
+*  "_t07_mean"    average July temperature 1992-2012
+*  "_vpd_ann"     areal mean of max vapor deficit 1992-2012
+*  _"vpd_07"      areal mean of max July vapor deficit 1992-2012
+*  "_cat_out"     catchment outlet elevation
+*  "_cat_rel"     difference in max and min elevation
+*  "_slop_med"    median percent slope
+*  "_TWI_mean"    mean terrain wetness index
+*  "_perc_cov"    percent forest cover from NLCD 2016
+*  "_fc_mean"     mean field capacity
+*  "_ksat_mean"   mean horizontal saturated hydraulic conductivity
+*  "_kvert_mean"  mean vertical saturated hydrologic conductivity 
+
+gage_table        summary of gage metadata for flextable 
+ung_table         summary of ungaged watershed metadata for flextable  
+soils_table       summary of geology, soils, and vegetation for flextable  
+
+the tables above use flextable control keys: 
+col_key_char      controls character elelements for flextables
+col_key_int       controls integer elelements for flextables
+col_key_num       controls numeric elelements for flextables
 
 --> 
 
@@ -83,8 +131,9 @@ library("rio")                    # more robust I/O - to import and clean data
 library("lubridate")              # easier dates 
 library("janitor")                # tools for examining and cleaning dirty data  
 library("dataRetrieval")          # USGS data import  
-library("measurements") 
-library("flextable")             # construct complex table with 'kable'  
+library("measurements")           # eases measurement system manipulation 
+library("flextable")              # construct complex table with 'kable'  
+library("officer")                # facilitates '.docx' access for table export 
 library("tidyverse")              # data munging tools 
 ```
 
@@ -133,7 +182,7 @@ rm(gage_meta_int1,
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
 ```
 
-```{r filter_clean_gage_meta}
+```{r clean_gage_metadata}
 gage_meta_poss <- import("data/gage_meta_poss.csv")  
 
 # 1. remove gages that do not meet standards 
@@ -193,7 +242,7 @@ gage_meta <- gage_meta %>%
 
 ```
 
-```{r import_daily_flow} 
+```{r import_daily_flow_data} 
 
 # set parameters for Egret::readNWISDaily 
 startDate    <- "1979-10-01" # note that blank gets earliest date 
@@ -228,9 +277,9 @@ gage_dv <-bind_rows(gage_most_dv, lon_riv_dv)
 rm(startDate, endDate, parameter_cd)
 ``` 
 
-```{r clean_daily_flow_metadata, eval=FALSE}
-
-# 1. filter gages with short flow records--------------------------------------
+```{r filter_daily_flow_metadata, eval=FALSE}
+ 
+# 1. filter gages with short flow records-------------------------------------- 
 # filter gages without flow data for the period of record 
 gage_id <- gage_dv %>% 
   select(site_no) %>% 
@@ -301,12 +350,12 @@ gage_meta <- anti_join(gage_meta, short_rec,
 rm(short_rec, yr_incomp, yrs_summary, gage_meta_poss) 
 ```
 
-```{r prepare_table_metadata}
-
-# prepare df for gaging station metadata 
-gage_table <- gage_meta %>% 
+```{r prepare-table_gage_metadata}
+ 
+# prepare df for gaging station metadata  
+gage_table <- gage_meta %>%  
   mutate(contrib_drain_area_va = 
-           coalesce(contrib_drain_area_va, drain_area_va)
+           coalesce(contrib_drain_area_va, drain_area_va) 
   ) %>% 
   mutate(alt_si = 
            conv_unit(alt_va, "ft", "m")
@@ -315,28 +364,14 @@ gage_table <- gage_meta %>%
            conv_unit(contrib_drain_area_va, "mi2", "km2")
          ) 
 
-
 gage_table$years_rec <-  as.integer(gage_table$years_rec) 
 
 gage_table <- gage_table %>% 
 select(site_no, station_nm, dec_lat_va, dec_long_va, alt_si, years_rec, 
          contrib_drain_area_si) 
 
-```
-
-
-
-
-
-
-
-
-
-
-```{r make_docx-file_for_export} 
-
-# create a flextable objects  
-col_key_nm <-gage_table %>% 
+# set column keys for flextable -- these variables also used below 
+col_key_num <-gage_table %>% 
   select(dec_lat_va:alt_si, contrib_drain_area_si) %>% 
   names() 
 
@@ -344,42 +379,132 @@ col_key_int <-gage_table %>%
   select(years_rec, site_no) %>% 
   names() 
 
-tabl_meta <- flextable(gage_table) %>% 
-  colformat_num(col_keys = col_key_nm, 
+# convert tibble to a flextable 
+gage_table <- flextable(gage_table) %>% 
+  colformat_num(col_keys = col_key_num, 
                 big.mark=",", 
                 digits = 1, na_str = "N/A") %>% 
   set_header_labels(site_no = "Sta. Number", 
                     station_nm = "Name", 
                     dec_lat_va = "Latitude", 
                     dec_long_va = "Longitude", 
-                    alt_si = "Altitude, m",
+                    alt_si = "Elevation, m", 
                     years_rec = "Years of Record", 
                     contrib_drain_area_si = "Drainage Area, sq-km") %>% 
   autofit() %>% 
   theme_booktabs() 
 
-sht_sta_doc <- read_docx() %>% 
-  body_add_flextable(value = tabl_meta) 
+```
 
-print(sht_sta_doc, target = "output/example1.docx") 
+```{r prepare-table_ungaged_metadata}
 
-fileout <- tempfile(fileext = ".docx")
-# fileout <- "test.docx" # uncomment to write in your working directory
-print(doc, target = fileout)
+# get data from QGIS analysis of gaged & ungaged watersheds of interest 
+wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
+                       layer = "wbd_summary", 
+                       as_tibble = TRUE) %>% 
+  st_drop_geometry() %>% 
+  mutate_if(is.factor, as.character) 
 
-library(officer)
-my_doc <- read_docx() 
+# prepare df for ungaged watershed metadata 
+ung_table <- wsd_summary %>% 
+  filter(type == "ungaged") %>% 
+  select(HUC12, sta_id, sta_name, dec_lat, dec_lon, cat_out, cat_area)  
 
+# set column keys for flextable 
+col_key_num <- ung_table %>% 
+  select(dec_lat, dec_lon, cat_out, cat_area) %>% 
+  names() 
 
+col_key_int <-ung_table %>% 
+  select() %>% 
+  names() 
 
-my_doc <- my_doc %>% 
-#  body_add_img(src = src, width = 5, height = 6, style = "centered") %>% 
-#  body_add_par("Hello world!", style = "Normal") %>% 
-#  body_add_par("", style = "Normal") %>% # blank paragraph
-  body_add_table(tabl_meta, style = "table_template") 
-styles_info(my_doc) 
+# convert tibble to a flextable 
+ung_table <- flextable(ung_table) %>% 
+  colformat_num(col_keys = col_key_num, 
+                big.mark=",", 
+                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(HUC12 = "Hydrologic Unit Code", 
+                    sta_id = "Station Id", 
+                    sta_name = "Name", 
+                    dec_lat = "Latitude", 
+                    dec_lon = "Longitude", 
+                    cat_out = "Elevation, m", 
+                    cat_area = "Drainage Area, sq-km") %>% 
+  autofit() %>% 
+  theme_booktabs() 
 
-print(my_doc, target = "output/example.docx")
+```
+
+```{r prepare-table_soils}
+
+# prepare data for soils table 
+soils_table <- tibble(
+  order = c(6, 5, 4, 3, 2, 1), 
+  geo_age = c("Quaternary", "Tertiary", "Tertiary", 
+              "Tertiary", "Cretaceous", "Cretaceous"), 
+  geo_units = c("Eolean deposits", "Arikaree Group", "Arikaree Group", 
+            "White River Group", "Pierre Formation", "Inyan Kara Group"), 
+  ecoregion_lvl4	= 
+    c("Nebraska Sand Hills", 
+      "Keya Paha Tablelands", 
+      "Pine Ridge Escarpment", 
+      "White River Badlands", 
+      "Pierre Shale Plains", 
+      "Black Hills Foothills"), 
+  soil_order = c("Entisols", 
+                 "Entisols, Mollisols", 
+                 "Entisols, Mollisols", 
+                 "Aridisols, Entisols, Inceptisols", 
+                 "Mollisols", 
+                 "Alfisols, Entisols"),
+  vegetation = 
+    c("Sand bluestem, Little bluestem, Prairie sandreed, Big bluestem, Switchgrass", 
+      "Blue grama, Sideoats grama, Western wheatgrass, Little bluestem, Needleandthread", 
+      "Ponderosa pine, Eastern redcedar, Western snowberry, Skunkbush sumac, Chokecherry, Prairie rose, Little bluestem, Western wheatgrass, Green needlegrass, Prairie sandreed", 
+    "Sand sagebrush, Silver sagebrush, Western wheatgrass, Blue gramma, Sideoats grama, Buffalograss", 
+    "Little bluestem, Buffalograss", 
+    "Ponderosa pine, Little bluestem, Western wheatgrass, Sideoats gramma") 
+    ) %>% 
+  arrange(order)
+
+# export table for import later 
+export(soils_table, "data/soils_table.csv")
+
+#print.noquote(names(soils_table))
+
+# set column keys for flextable 
+col_key_char <- soils_table %>% 
+  select(geo_age, geo_units, ecoregion_lvl4, soil_order, vegetation) %>% 
+  names() 
+
+# convert tibble to a flextable 
+soils_table <- flextable(soils_table) %>% 
+   colformat_char(col_keys = col_key_char) %>% 
+  set_header_labels(geo_age = "Geologic age", 
+                    geo_units = "Major geologic unit", 
+                    ecoregion_lvl4	= "Level IV ecoregion", 
+                    soil_order = "Soil order", 
+                    vegetation = "Major vegetation types") %>% 
+  autofit() %>% 
+  theme_booktabs() 
+```
+
+```{r export_flextables_as_docx} 
+ 
+# export a docx of flextables 
+tables_ch2 <- read_docx() %>% 
+  body_add_flextable(value = gage_table)  %>% 
+  body_add_break() %>% 
+  body_add_flextable(value = ung_table) %>%  
+  body_add_break() %>% 
+  body_add_flextable(value = soils_table) 
+
+print(tables_ch2, target = "output/tables_ch2.docx") 
+
+rm(col_key_char, col_key_int, col_key_num, 
+   gage_table, soils_table, ung_table, tables_ch2) 
+
 ```
 
 
