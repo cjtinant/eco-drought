@@ -469,7 +469,7 @@ soils_table <- tibble(
   arrange(order)
 
 # export table for import later 
-export(soils_table, "data/soils_table.csv")
+#export(soils_table, "data/soils_table.csv")
 
 #print.noquote(names(soils_table))
 
@@ -487,7 +487,114 @@ soils_table <- flextable(soils_table) %>%
                     soil_order = "Soil order", 
                     vegetation = "Major vegetation types") %>% 
   autofit() %>% 
-  theme_booktabs() 
+  theme_booktabs()  
+```
+
+```{r prepare-table_hydro_metrics}
+
+# prepare df for hydrologic metric table 
+hydro_table <- wsd_summary %>% 
+  select(type, cat_area, lw_ratio, drain_dens, prcp_mean, t07_mean, vpd_ann, 
+         vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, fc_mean, 
+         ksat_mean, kvert_mean) %>% 
+  gather(metric, value, -type) %>% 
+  group_by(metric, type) %>% 
+  summarize(max = max(value), 
+            median = median(value), 
+            min = min(value)) %>% 
+  ungroup() %>% 
+  modify_if(is.numeric, ~round(., digits = 1)) %>% 
+  gather(key, stat, -c(type, metric)) %>% 
+  unite_("combined", c("key","type")) %>% 
+  spread(combined, stat) %>% 
+  select(metric, max_gaged, median_gaged, min_gaged, 
+         max_ungaged, median_ungaged, min_ungaged) 
+
+# add additional columns 
+hydro_tab2 <- tibble(metric = hydro_table$metric, 
+                     type = c("planimetric", "elevation", "elevation", 
+                              "planimetric", "soils", "soils", "soils", 
+                              "planimetric", "cover", "climate", 
+                              "elevation", "climate", "elevation", "climate",   
+                              "climate"), 
+                     transformation = c("1/ln(x)", "sqrt(x)", "sqrt(x)", 
+                                        "none", "none", "ln(x)", "ln(x)", 
+                                        "ln(x)", "ln(x)", "x^2", "ln(x)", 
+                                        "x^2", "x^2", "x^2", "x^2"), 
+                     description = c("catchment area", 
+                                     "catchment outlet elevation", 
+                                     "catchment relief", 
+                                     "drainage density", 
+                                     "field capacity", 
+                                     "forested area (proportion of catchment)", 
+                                     "horizontal saturated hydraulic conductivity", 
+                                     "vertical saturated hydraulic conductivity", 
+                                     "catchment length to width ratio", 
+                                     "mean annual precipitation", 
+                                     "median catchment slope", 
+                                     "mean July temperature", 
+                                     "mean topographic wetness index value", 
+                                     "July maximum vapor pressure deficit", 
+                                     "annual maximum vapor pressure deficit"), 
+                     units = c("hectares", "meters", "meters", 
+                               "km per square km", "meters per meter", 
+                               "sq. meters per sq. meter", "micrometers/sec", 
+                               "micrometers/sec", "meters per meter", 
+                               "millimeters", "percent", "Centigrade", 
+                               "dimensionless", "kilopascals", "kilopascals"), 
+                     base_data = c("USGS metadata & feature geometry", "NED", 
+                     "NED", "NED", "SSURGO", "NLCD", "SSURGO", "SSURGO", 
+                     "feature geometry", "PRISM", "NED", "PRISM", "NED", 
+                     "PRISM", "PRISM")
+                     ) 
+
+hydro_table <- full_join(hydro_table, hydro_tab2, 
+                         by = "metric"
+                         )  
+
+hydro_table <- hydro_table %>% 
+  select(metric, type, transformation, description, 
+         units, base_data, everything()) %>% 
+  arrange(type) 
+
+# set column keys & header labels for flextable 
+col_key_num <- hydro_table %>% 
+  select(-metric) %>% 
+  names() 
+
+header_labels <- c(
+    metric = "Indicator", 
+    type = "Indicator type",       
+    transformation = "Transformation", 
+    description = "Description",
+    units = "Units", 
+    base_data = "Base data",    
+    max_gaged = "max", 
+    median_gaged = "median", 
+    min_gaged = "min",      
+    max_ungaged = "max", 
+    median_ungaged = "median", 
+    min_ungaged = "min"
+    )    
+
+top_row <- c("", "", "", "", "", "", "Gaged", "Gaged", "Gaged", 
+             "Ungaged", "ungaged", "Ungaged")  
+
+hydro_table <- hydro_table %>% 
+  flextable() %>% 
+  theme_booktabs() %>% 
+  colformat_num(col_keys = col_key_num, 
+                big.mark=",", 
+                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(values = header_labels) %>% 
+  add_header_row(values = top_row, 
+  top = TRUE) %>% 
+  merge_at(i = 1, j = 7:9, part = "header") %>% 
+  merge_at(i = 1, j = 10:12, part = "header") %>% 
+  autofit() 
+
+hydro_table
+
 ```
 
 ```{r export_flextables_as_docx} 
@@ -498,13 +605,15 @@ tables_ch2 <- read_docx() %>%
   body_add_break() %>% 
   body_add_flextable(value = ung_table) %>%  
   body_add_break() %>% 
-  body_add_flextable(value = soils_table) 
+  body_add_flextable(value = soils_table) %>% 
+  body_add_break() %>% 
+  body_add_flextable(value = hydro_table) 
 
 print(tables_ch2, target = "output/tables_ch2.docx") 
 
-rm(col_key_char, col_key_int, col_key_num, 
-   gage_table, soils_table, ung_table, tables_ch2) 
-
+rm(col_key_char, col_key_int, col_key_num, header_labels, names, top_row, 
+   ung_summary)  
+rm(gage_table, soils_table, ung_table, tables_ch2)
 ```
 
 
