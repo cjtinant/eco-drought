@@ -7,8 +7,8 @@ output: html_document
 
 <!--
 Purpose: 
-Refactors prior code to develop tables and plots for the study area description 
-section of Chapter 2 
+1) Develop tables and plots for the study area description section of Chapter 2 
+2) Refactor prior code 
 
 Data:
 Predominant datasets used are:  
@@ -43,10 +43,10 @@ Approach:
     - ung_table - summary of ungaged watershed metadata 
     - soils_table - summary of geology, soils, and vegetation 
 
-
+7) prepare daily flow data for PCA 
 
 Next Steps: 
--- line up gage_dv (n=474,070) with prior download data (n=438,231)
+
 -- check into stylr-packag
 
 Variable naming convention:   
@@ -135,6 +135,7 @@ library("measurements")           # eases measurement system manipulation
 library("flextable")              # construct complex table with 'kable'  
 library("officer")                # facilitates '.docx' access for table export 
 library("tidyverse")              # data munging tools 
+library("mathpix")                # support for 'Mathpix' API--Image to 'LaTeX' 
 ```
 
 ```{r import_daily_flow_metadata, eval=FALSE} 
@@ -268,6 +269,8 @@ endDate      <- "2018-09-30"
 parameter_cd <- "00060" 
 
 # get daily flows ------------------------------------------------------------ 
+# note for EGRET::readNWISDailyQ the discharge is in m^3/s
+
 # Long River gage needs to be called separately or it creates an error 
 gage_lonriv_dv <- gage_meta %>% 
   filter(site_no == "06463500") %>% 
@@ -367,7 +370,6 @@ gage_meta <- gage_meta %>%
 # 06459200 SNAKE RIVER ABV MERRITT RESERVOIR NEBR
 # 10150005 Big Beaver Cr at Nebr Hwy 12 nr Valentine, Nebr
 
-
 # 3. check for incomplete days of record --------------------------------------  
 yr_incomp <- gage_dv %>%                          
   group_by(site_no, waterYear) %>%                  
@@ -420,6 +422,9 @@ gage_dv <- semi_join(gage_dv, gage_meta,
                      by = "site_no")   
 
 export(gage_dv, "data/gage_dv_posthoc.csv") 
+
+# clean up 
+rm(names, gage_lonriv_dv, gage_most_dv)
 ```
 
 ```{r prepare-table_gage_metadata}
@@ -681,42 +686,40 @@ rm(col_key_char, col_key_int, col_key_num, header_labels, names, top_row,
 rm(gage_table, soils_table, ung_table, tables_ch2)
 ```
 
-
-
-
-
 ```{r clean_daily_flow, eval=FALSE} 
+# checks missing records for Q1, Q7, Q30 
 
-# checking prior code - using gage_raw to avoid rerunning code above 
-gage_raw <- gage_dv 
-
-# 1. check NA vals for Q 
-gage_check <- gage_dv %>% 
-  filter(is.na(Q))  
-
-gage_dv <- gage_dv %>% 
-  filter(!is.na(Q)) # remove NA discharge values from record  
-
-## These are the missing records for Q1 
+## Q1 missing records 
 # "site_no"   "sta"   "Date"    "Q"   "Julian"    
 # 06448000 lcr_abv 2016-08-09   NA    60851
 # 06448000 lcr_abv 2016-08-10   NA    60852
 
-# 2. check NA vals for Q7 
+## Q7  missing data (n = 114 ~= 19 x 7) because of start of record for 19 sta  
+## Q30 missing data (n = 437 ~= 19 sta x 30 day - 114) 
+
+# 1. using gage_raw to avoid rerunning code above 
+gage_raw <- gage_dv 
+
+# 2. check NA vals for Q1 & remove NA discharge values from record  
+gage_check <- gage_dv %>% 
+  filter(is.na(Q))  
+
+gage_dv <- gage_dv %>% 
+  filter(!is.na(Q)) 
+
+# 3. check NA vals for Q7 & remove NA discharge values from record  
 gage_check <- gage_dv %>% 
   filter(is.na(Q7))  
 
 gage_dv <- gage_dv %>% 
-  filter(!is.na(Q7)) # remove NA discharge values from record  
-## the missing data (n = 114 ~= 19 x 7) because of start of record > WY 
+  filter(!is.na(Q7)) 
 
-# 3. check NA vals for Q30  
+# 3. check NA vals for Q30 & remove NA discharge values from record  
 gage_check <- gage_dv %>% 
   filter(is.na(Q30))  
 
 gage_dv <- gage_dv %>% 
-  filter(!is.na(Q30)) # remove NA discharge values from record  
-## the missing data (n = 437 ~= 19 x 30 - 114) because of start of record > WY 
+  filter(!is.na(Q30)) 
 
 # 4. remove provincial data - we removed WY 2018 in the prior analysis 
 gage_check <- gage_dv %>% 
@@ -732,82 +735,265 @@ gage_dv <- gage_dv %>%
 
 ``` 
 
+```{r censor_low_flows, message=FALSE} 
 
+# fix low flows ---- this step needed for the PCA  
+#   EGRET calculates a "better" zero-flow value, but causes issues with  results
+#   this code chunk fixes low flow values by substituting 0.01 cfs 
+#   for zero-flow values  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 
+# 1. gather the different flow values 
+gage_dv_gath <- gage_dv %>%  # using diff var name to check length later 
+  select(site_no, sta, Date, waterYear, Q, Q7, Q30) %>% 
+  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs
+         -c(site_no, sta, waterYear, Date)) 
 
+# 2. filter & censor zero flows & non-zero flows -> join flows
+gage_dv_low <- gage_dv_gath %>%  # n ~ 123,987/3 = 41,329 obs or ~7%/yr
+  filter(q_val < 0.01) %>%               
+  mutate(q_val = 0.01) 
 
+gage_dv_high <- gage_dv_gath %>% 
+  filter(q_val >= 0.01) %>% 
+  mutate(q_val = round(.$q_val, digits = 2))
 
+gage_dv_gath <- bind_rows(gage_dv_high, gage_dv_low) %>% 
+  spread(q_type, q_val) 
 
+# 3. check low-flow stations & results 
+gage_dv_low <- gage_dv_low %>% 
+  distinct(sta) %>% 
+  arrange(sta) 
 
-# 3. fill the station-years with missing data  
-wy_1991 <- tibble(date = seq.Date(from=as.Date("1990-10-01"),  
-                 to=as.Date("1991-09-30"), by="day")) 
+## Intermittant stations 1990 - 2017 (raw data)
+## bad_fpi, bat_bhr, bat_her, bev_buf, bev_pri, blc_wan, blp_bel, 
+## brsf_co, elk_elm, frn_fai, hat_edg ,hor_oel, lcr_bel, plu_hay, 
+## ros_ros, spr_her, wcc_ogl, whi_int, whi_kad, whi_ogl, whi_slm 
+## whi_sta, whi_whi, wkc_wok
 
-wy_2003 <- tibble(date = seq.Date(from=as.Date("2002-10-01"),  
-                 to=as.Date("2003-09-30"), by="day")) 
+rm(gage_check, gage_dv_gath, gage_dv_high, gage_dv_low)
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-bev_pri_1991 <- gage_dv_raw %>%  
-  filter(sta == "bev_pri") %>%  
-  filter(water_year == 1991) 
-
-bev_pri_1991 <- full_join(bev_pri_1991, wy_1991) 
-
-bev_pri_1991 <- bev_pri_1991 %>%  
-  mutate(sta = "bev_pri") %>%  
-  mutate(incomp_yr = "Y") %>%  
-  mutate(water_year = 1991) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-whi_slm_1991 <- gage_dv_raw %>%  
-  filter(sta == "whi_slm") %>%  
-  filter(water_year == 1991) 
-
-whi_slm_1991 <- full_join(whi_slm_1991, wy_1991) 
-
-whi_slm_1991 <- whi_slm_1991 %>%  
-  mutate(sta = "whi_slm") %>%  
-  mutate(incomp_yr = "Y") %>%  
-  mutate(water_year = 1991) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-lwr_aro_2003 <- gage_dv_raw %>%  
-  filter(sta == "lwr_aro") %>%  
-  filter(water_year == 2003) 
-
-lwr_aro_2003 <- full_join(lwr_aro_2003 , wy_2003) 
-
-lwr_aro_2003 <- lwr_aro_2003 %>%  
-  mutate(sta = "lwr_aro") %>%   
-  mutate(incomp_yr = "Y") %>%   
-  mutate(water_year = 2003) 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-
-# 4. append and join data  
-yr_dv_incomp <- bind_rows(bev_pri_1991, whi_slm_1991, lwr_aro_2003) 
-
-gage_dv <- bind_rows(yr_dv_incomp, gage_dv_raw) %>%  
-  distinct() %>%  
-  group_by(sta, water_year) %>%                  
-  mutate(days_yr = n()) %>%                   
-  ungroup()   
-
-# 4. remove short years  
-gage_dv_incomp <-  gage_dv %>% 
-  filter(days_yr < 365) 
-
-gage_dv <- gage_dv %>% 
-  filter(days_yr >= 365)  
-
-# 5. check results  
-gage_ck <- gage_dv %>%  
-  filter(sta == "lwr_aro") %>%  
-  filter(water_year == "2003") 
-
-yr_sum <- gage_dv %>%                          
-  group_by(sta, water_year) %>%                  
-  summarise(days_yr = n()) %>%                    
-  ungroup() 
-
-# 6. clean up  
-rm(bev_pri_1991, gage_dv_incomp, gage_dv_raw, lwr_aro_2003, whi_slm_1991, 
-   wy_1991, wy_2003, yr_dv_incomp, yr_incomp, wkc_wok, gage_ck)  
 ``` 
+
+```{r convert_to_depth, message=FALSE}
+
+# Eliminate effects of watershed size----
+# Calculate daily flow depths by dividing flow (cms) by watershed 
+#    area (sq-km) and multiplying the resultant by the number of 
+#    seconds in a day.  The result is cu-m-d per sq-km. 
+
+# 1. calculate contributing drainage area in square kilometers 
+gage_contrib_area <- gage_meta %>% 
+  select(sta, drain_area_va, contrib_drain_area_va) %>% 
+  mutate(contrib_drain_area_va = 
+           contrib_drain_area_va %>% 
+             is.na %>%
+             ifelse(drain_area_va, contrib_drain_area_va)) %>% 
+  select(-drain_area_va) %>% 
+  mutate(contrib_drain_km2 = 
+           measurements::conv_unit(contrib_drain_area_va, 
+                                   from = "mi2", 
+                                   to = "km2"
+                                   )
+         ) %>% 
+  mutate(contrib_drain_km2 = 
+           round( 
+             contrib_drain_km2, 
+             digits = 1 
+             ) 
+         ) 
+
+# 2. calculate Q-depth:: q = Q/DA [m3/km2]
+gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>% 
+  select(site_no, sta, Date, Q, Q7, Q30, contrib_drain_km2) %>% 
+  gather(type, value, 
+         -c(site_no, sta, Date, contrib_drain_km2)
+         ) %>% 
+  mutate(value = value/contrib_drain_km2) %>% 
+  spread(type, value) %>% 
+  clean_names() %>% 
+  select(-c(site_no, contrib_drain_km2)) 
+
+rm(gage_contrib_area)
+```
+
+
+
+
+```{r PCA_and_model_selection}  
+# Calculates PCA & clusters stations   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# this was first used for estimating missing values 
+# needs to be run separately (sorry!) 
+
+#gage_input <- gage %>%      # wet years 
+#  filter(water_year < 2003)    
+
+#gage_input <- gage %>% 
+#  filter(water_year >= 2003)  # dry years
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# prepare data 
+#pca_input <- gage_input %>%  
+#  select(date, sta, q, q7, q30, contrib_drain_area_va)
+
+# training data: 
+# num  lambda_q1  lambda_q7  lambda_q30 PC1perc PC2perc PC1cum  PC2cum 
+#  01    0.013      0.112      0.265     0.942   0.050   0.942   0.992  
+#  02   -0.005      0.070      0.223     0.949   0.047   0.949   0.994    
+#  03   -0.102     -0.136     -0.148     0.959   0.035   0.959   0.994   
+#  04   -0.008      0.071      0.242     0.947   0.047   0.947   0.994   
+#  05   -0.056     -0.113     -0.187     0.953   0.041   0.953   0.994 
+#  06   -0.031     -0.070     -0.120     0.960   0.034   0.960   0.994 
+#  07   -0.055     -0.067     -0.060     0.966   0.029   0.966   0.995 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# vars:
+# run  PC  q1_depth  q7_depth  q30_depth       
+#   01  1    0.577      0.589     0.566   
+#   01  2    0.584      0.186    -0.790     
+#   02  1    0.578      0.588     0.567       
+#   02  2    0.567      0.210    -0.796      
+#   03  1    0.578      0.584     0.569           
+#   03  2    0.545      0.243    -0.803       
+#   04  1    0.578      0.588     0.566           
+#   04  2    0.571      0.205    -0.795       
+#   05  1    0.578      0.586     0.568           
+#   05  2    0.555      0.228    -0.800       
+#   06  1    0.578      0.585     0.569            
+#   06  2    0.553      0.233    -0.800       
+#   06  1    0.578      0.583     0.571             
+#   06  2    0.542      0.248    -0.803  
+#   07
+#   07
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+#Mclust model:
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# num  model  log.likeli  n  df   BIC     ICL     purpose 
+#  01  VEV     116.42    26  25  151.4   151.0   estimate NA 
+#  02  VEV      82.65    23  17  112.0   111.6   estimate NA 
+#  03  VVV     139.30    29  19  214.6   214.5   estimate NA   
+#  04  EEV     161.53    24  65  116.5   116.4   estimate NA    
+#  05  EEE     139.33    24  37  161.6   161.0   estimate NA    
+#  06  EEV     130.93    27  19  199.2   199.2   estimate NA    
+#  07  VVV     151.58    31  19  237.9   237.7   estimate NA    
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# run#  Cl1#  Cl2#  Cl3#  Cl4#  Cl5#  Cl6#  Cl7#    Cl8#    Cl9#
+#  01   14      8     4    na    na    na    na      na      na  
+#  02   15      8    na    na    na    na    na      na      na  
+#  03   14     15    na    na    na    na    na      na      na  
+#  04    3      4     3     2     4     2     1       1       4    
+#  05    2      9     3     1     5     2     1       1      na  
+#  06   14     13    na    na    na    na    na      na      na  
+#  07    7     24    na    na    na    na    na      na      na  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# a final cluster analysis was conducted after missing values were found 
+# two runs for final cluster analysis are conducted 
+
+# | Run_num | description | num_obs | 
+# |:-------:|:-----------:|:-------:|
+# |    1    | all years   | 317,036 |                                     
+# |    2    | wet years   | 147,188 |
+# |    2    | dry years   | 169,848 |
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# the series of station runs are as follows: 
+
+pca_eigen 
+# num  lambda_q1  lambda_q7  lambda_q30 PC1perc PC2perc PC1cum  PC2cum 
+# all   -0.082     -0.086     -0.027     0.967   0.028   0.967   0.995 
+# wet   -0.060     -0.078     -0.089     0.963   0.031   0.963   0.994 
+# dry   -0.145     -0.185     -0.211     0.963   0.032   0.963   0.995
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+pca_vars 
+# run  PC  q1_depth  q7_depth  q30_depth   notes    
+#  all  1    0.578      0.583     0.571           
+#  wet  1    0.578      0.584     0.570           
+#  dry  1   -0.578     -0.584    -0.570   need to inverse
+#  all  2    0.540      0.251    -0.803       
+#  wet  2    0.546      0.243    -0.802    
+#  dry  2   -0.546     -0.243     0.802   need to inverse   
+
+# eigenvecter:
+#   96% of covarience is explained by PCA1 & 4% of varience by PCA2
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# variables:
+#   PC1 - approximately equal loadings of Q1, Q7, Q30; 
+#         approximates hydrologic export 
+#   PC2 - large opposite loadings of Q1 & Q30  
+#         contribution of baseflow vs event-flow
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Preparing to cluster by the central tendancy
+gage_pca_sum <- gage_pca_sum %>% 
+  arrange(sta)
+
+gage_clust <- gage_pca_sum %>% 
+  select(q1_mean:q30_mean)
+
+gage_clust_meta <- gage_pca_sum %>% 
+  select(sta)
+
+# apply model-based-clustering, extract results & add metadata
+gage_clust_l <- Mclust(gage_clust) 
+
+gage_clust <- as_tibble(gage_clust_l$z) 
+gage_clust <- bind_cols(gage_clust_meta, gage_clust) 
+
+# drop low probs - join & rearrange 
+gage_clust <- gage_clust %>% 
+  gather(key = group, value = prob, -sta) %>% 
+  filter(prob > 0.5) 
+
+gage_clust <- full_join(gage_pca_sum, gage_clust, 
+                             by = "sta")
+
+gage_clust <- gage_clust %>% 
+  dplyr::select(group, sta, everything()) %>% 
+  arrange(sta) %>%  
+  arrange(group)
+
+# join cluster to PCA data & arrange
+gage_mod <- full_join(gage_pca, gage_clust, by = "sta") 
+
+gage_mod <- gage_mod %>% 
+  select(group, sta, everything()) %>% 
+  select(-c(q:q30_tr)) %>% 
+  select(-eigen_dist) 
+
+summary(gage_clust_l) # Print a summary 
+
+#clean up environment 
+rm(pca_input, pca_matrix, pca_check, pca_eigen, pca_vars) 
+rm(gage_clust_meta, gage_pca_sum, gage_pca, gage_input) 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Mclust model:
+
+# num  model  log.likeli  n  df   BIC     ICL     
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# all  VEV     190.89    31  41  241.0   240.8  
+# wet  EEE     175.15    31  29  250.7   249.4  
+# dry  EEE     165.01    31  37  203.0   202.6   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Clustering table:
+# run#  Cl1#  Cl2#  Cl3#  Cl4#  Cl5#  Cl6#  Cl7#    Cl8#  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# all    7     11     5     3     5    na    na      na     
+# wet    3      5     1     4    16     2    na      na    
+# dry    4     12     5     1     1     6     1       1     
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Model-based clustering selected a model with two-three components 
+# (i.e. clusters). The optimal selected model name is VEV model. 
+# That is the five components are ellipsoidal with varying volume, 
+# and orientation, and equal shape. The summary contains also the 
+# clustering table specifying the number of observations in each 
+# clusters.
+
+```
+
