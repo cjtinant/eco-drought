@@ -44,9 +44,30 @@ Approach:
     - soils_table - summary of geology, soils, and vegetation 
 
 7) prepare daily flow data for PCA 
+     - check missing records & filter 
+     - remove provincial data 
+     - eliminate watershed size effects: 
+          Daily flow depth is calculated by dividing flow (cms) by watershed 
+          area (sq-km) and multiply the resultant by num. of sec. in a day.  
+          The resulting unit is cu-m-d per sq-km. 
+     - transform the data by BoxCox transformation by forcast::BoxCox
+          The daily flow data are highly skewed.  BoxCox transformation uses 
+          maximum likelihood to identify a best value (lambda) that best 
+          transforms a dataset to an ~ normal distribution.
+
+          # this is table of what the lambda values (probably) mean
+          # lambda = 1 is normal distribution (no change), 
+          # lambda = 0.5 is a square-root transformation, 
+          # lamda = 2 is a square transformation,
+          # lambda = 0 is a logrithmic transformation.
+
+8) make a PCA matrix and tidy the output 
+     - used prcomp() with center & scale = TRUE to center the data with a 
+         mean of zero and standard deviation of unity, e.g. a z-score.  
+         Note: '.' passes select(q1_tr, q7_tr, q30_tr) %>% to prcomp() 
+     - found eigenvectors-- the results about the PC axes
 
 Next Steps: 
-
 -- check into stylr-packag
 
 Variable naming convention:   
@@ -118,13 +139,48 @@ col_key_char      controls character elelements for flextables
 col_key_int       controls integer elelements for flextables
 col_key_num       controls numeric elelements for flextables
 
+gage_check        scratch variable used to check operations 
+gage_raw          the "raw" data, after removing the NA Qvals 
+  _site_no        Eight-digit USGS gage number
+  _sta            Short name used for this project 
+  _Date           Date 
+  _Q              Discharge in m3/s
+  _Julian         Num. days since January 1, 1850 
+  _Month          Month of the year [1-12] 
+  _Day            Day of the year [1-366] 
+  _DecYear        Decimal year 
+  _MonthSeq       Number of months since January 1, 1850 
+  _waterYear      Year following USGS water year 
+  _Qualifier      Qualifying code
+  _ i             Index of days, starting with 1 
+  _LogQ           Natural logarithm of Q 
+  _Q7             7-day running average of Q
+  _Q30            30-day running average of Q
+
+gage_dv_gath      scratch variable, gathers the Q, Q7, Q30 
+gage_dv_low       censored zero flows (q_val < 0.01)
+gage_dv_high      filtered non-zero flows -> join flows 
+lambda_qval       BoxCox lambda value for qval 
+gage_contrib_area used for converting Q [m3/s] -> q [m/day]
+
+gage_dv           the "main" daily mean flow values used in this .Rmd file 
+  _sta            Short name used for this project 
+  _Date           Date     
+  _waterYear      Year following USGS water year format
+  _q1_depth       discharge depth in m/day
+  _q7_depth       7-day running average of q_depth
+  _q30_depth      30-day running average of q_depth 
+
+pca_input         prcomp() input using gage_dv 
+
+
 --> 
 
 ```{r setup, include=FALSE, message=FALSE}  
 #knitr::opts_chunk$set(echo = FALSE)   
 options(tibble.print_max = 70) # sets tibble output for printing   
 
-# Sets up the library of packages   
+# Sets up the library of packages    
 library("here")                   # identifies where to save work  
 library("EGRET")                  # Exploration and Graphics for RivEr Trends 
 library("rio")                    # more robust I/O - to import and clean data  
@@ -133,16 +189,21 @@ library("janitor")                # tools for examining and cleaning dirty data
 library("dataRetrieval")          # USGS data import  
 library("measurements")           # eases measurement system manipulation 
 library("flextable")              # construct complex table with 'kable'  
-library("officer")                # facilitates '.docx' access for table export 
+library("officer")                # facilitates '.docx' access for table export  
+library("forecast")               # for BoxCox.lambda 
 library("tidyverse")              # data munging tools 
-library("mathpix")                # support for 'Mathpix' API--Image to 'LaTeX' 
+library("broom")                  # convert statistical objs into tidy tibbles
+library("ggfortify")              # data vis tools for statistical analysis 
+library("stringi")                # character string processing facilities
+
+# library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
 ```
 
 ```{r import_daily_flow_metadata, eval=FALSE} 
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),  
                        parameterCd = "00060", 
-                       hasDataTypeCd = "dv") %>% 
-  arrange(site_no)
+                       hasDataTypeCd = "dv") %>%  
+  arrange(site_no) 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 2. get metadata 
@@ -186,7 +247,7 @@ export(gage_meta_poss, "data/gage_meta_poss.csv")
 ```{r clean_gage_metadata}
 gage_meta_poss <- import("data/gage_meta_poss.csv")  
 
-# 1. remove gages that do not meet standards 
+# 1. remove gages that do not meet standards  
 gage_meta <- gage_meta_poss %>%   
   mutate(site_no = as.character(site_no)) %>% 
   mutate(site_no = zeroPad(site_no, 8)) %>%              # pad site_no  
@@ -197,7 +258,7 @@ gage_meta <- gage_meta_poss %>%
   filter(site_no != "06441000") %>%  # only active 180 days/yr 
   filter(site_no != "06438000") %>% 
   filter(site_no != "06437000") %>%  # remove northern Black Hills stations 
-  filter(site_no != "06442718") %>%  # remove East River stations
+  filter(site_no != "06442718") %>%  # remove East River stations 
   filter(reliability_cd != "M") %>% # M is minimal data 
   filter(!str_detect(station_nm, 'DAM|DITCH|DRAIN')) %>% # upstream control 
   filter(!str_detect(station_nm, 
@@ -238,6 +299,7 @@ gage_meta <- gage_meta %>%
   select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>% 
   select(-c(well_depth_va, hole_depth_va, depth_src_cd)) 
 
+rm(gage_meta_poss)
 ```
 
 ```{r add_names_to_gage_meta}
@@ -260,16 +322,15 @@ gage_meta <- full_join(names, gage_meta,
 
 ```
 
-
 ```{r import_daily_flow_data} 
 
-# set parameters for Egret::readNWISDaily 
+# set parameters for Egret::readNWISDaily  
 startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30 
 endDate      <- "2018-09-30" 
 parameter_cd <- "00060" 
 
 # get daily flows ------------------------------------------------------------ 
-# note for EGRET::readNWISDailyQ the discharge is in m^3/s
+# note for EGRET::readNWISDailyQ the discharge is in m^3/s 
 
 # Long River gage needs to be called separately or it creates an error 
 gage_lonriv_dv <- gage_meta %>% 
@@ -307,7 +368,7 @@ rm(startDate, endDate, parameter_cd)
 
 ```{r filter_short_flow_recs}
 
-# 1. prepare to filter gages with short flow records---------------------------
+# 1. prepare to filter gages with short flow records--------------------------- 
 # calculate min & max years of record 
 yrs_summary <- gage_dv %>% 
   group_by(site_no) %>%                  
@@ -475,9 +536,9 @@ gage_table <- flextable(gage_table) %>%
 
 ```{r prepare-table_ungaged_metadata}
 
-# prepare df for ungaged watershed metadata 
+# prepare df for ungaged watershed metadata  
 ung_table <- wsd_summary %>% 
-  filter(type == "ungaged") %>% 
+  filter(type == "ungaged") %>%  
   select(HUC12, sta_id, sta_name, dec_lat, dec_lon, cat_out, cat_area)  
 
 # set column keys for flextable 
@@ -691,14 +752,14 @@ rm(gage_table, soils_table, ung_table, tables_ch2)
 
 ## Q1 missing records 
 # "site_no"   "sta"   "Date"    "Q"   "Julian"    
-# 06448000 lcr_abv 2016-08-09   NA    60851
-# 06448000 lcr_abv 2016-08-10   NA    60852
+# 06448000 lcr_abv 2016-08-09   NA    60851 
+# 06448000 lcr_abv 2016-08-10   NA    60852 
 
 ## Q7  missing data (n = 114 ~= 19 x 7) because of start of record for 19 sta  
 ## Q30 missing data (n = 437 ~= 19 sta x 30 day - 114) 
 
-# 1. using gage_raw to avoid rerunning code above 
-gage_raw <- gage_dv 
+# 1. using gage_raw to avoid rerunning code above  
+#gage_raw <- gage_dv 
 
 # 2. check NA vals for Q1 & remove NA discharge values from record  
 gage_check <- gage_dv %>% 
@@ -719,7 +780,7 @@ gage_check <- gage_dv %>%
   filter(is.na(Q30))  
 
 gage_dv <- gage_dv %>% 
-  filter(!is.na(Q30)) 
+  filter(!is.na(Q30))  
 
 # 4. remove provincial data - we removed WY 2018 in the prior analysis 
 gage_check <- gage_dv %>% 
@@ -728,17 +789,17 @@ gage_check <- gage_dv %>%
   filter(Qualifier != "A:<")  
 
 gage_check <- gage_dv %>% 
-  filter(waterYear == "2018")
+  filter(waterYear == "2018") 
 
 gage_dv <- gage_dv %>% 
-  filter(waterYear != "2018")
+  filter(waterYear != "2018") 
 
 ``` 
 
 ```{r censor_low_flows, message=FALSE} 
-
+ 
 # fix low flows ---- this step needed for the PCA  
-#   EGRET calculates a "better" zero-flow value, but causes issues with  results
+#   EGRET calculates a "better" zero-flow value, but causes issues with results  
 #   this code chunk fixes low flow values by substituting 0.01 cfs 
 #   for zero-flow values  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
@@ -746,17 +807,17 @@ gage_dv <- gage_dv %>%
 # 1. gather the different flow values 
 gage_dv_gath <- gage_dv %>%  # using diff var name to check length later 
   select(site_no, sta, Date, waterYear, Q, Q7, Q30) %>% 
-  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs
+  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs 
          -c(site_no, sta, waterYear, Date)) 
 
-# 2. filter & censor zero flows & non-zero flows -> join flows
-gage_dv_low <- gage_dv_gath %>%  # n ~ 123,987/3 = 41,329 obs or ~7%/yr
+# 2. filter & censor zero flows & non-zero flows -> join flows 
+gage_dv_low <- gage_dv_gath %>%  # n ~ 123,987/3 = 41,329 obs or ~7%/yr 
   filter(q_val < 0.01) %>%               
   mutate(q_val = 0.01) 
 
 gage_dv_high <- gage_dv_gath %>% 
   filter(q_val >= 0.01) %>% 
-  mutate(q_val = round(.$q_val, digits = 2))
+  mutate(q_val = round(.$q_val, digits = 2)) 
 
 gage_dv_gath <- bind_rows(gage_dv_high, gage_dv_low) %>% 
   spread(q_type, q_val) 
@@ -766,74 +827,284 @@ gage_dv_low <- gage_dv_low %>%
   distinct(sta) %>% 
   arrange(sta) 
 
-## Intermittant stations 1990 - 2017 (raw data)
+## Intermittant stations 1990 - 2017 (raw data) 
 ## bad_fpi, bat_bhr, bat_her, bev_buf, bev_pri, blc_wan, blp_bel, 
 ## brsf_co, elk_elm, frn_fai, hat_edg ,hor_oel, lcr_bel, plu_hay, 
 ## ros_ros, spr_her, wcc_ogl, whi_int, whi_kad, whi_ogl, whi_slm 
-## whi_sta, whi_whi, wkc_wok
+## whi_sta, whi_whi, wkc_wok  
 
-rm(gage_check, gage_dv_gath, gage_dv_high, gage_dv_low)
+rm(gage_check, gage_dv_gath, gage_dv_high, gage_dv_low)  
 
 ``` 
 
-```{r convert_to_depth, message=FALSE}
+```{r convert_flow_to_depth, message=FALSE}
 
-# Eliminate effects of watershed size----
-# Calculate daily flow depths by dividing flow (cms) by watershed 
-#    area (sq-km) and multiplying the resultant by the number of 
-#    seconds in a day.  The result is cu-m-d per sq-km. 
-
-# 1. calculate contributing drainage area in square kilometers 
-gage_contrib_area <- gage_meta %>% 
+# 1. calculate contributing drainage area in square kilometers & sec/day 
+gage_contrib_area <- gage_meta %>%  
   select(sta, drain_area_va, contrib_drain_area_va) %>% 
   mutate(contrib_drain_area_va = 
            contrib_drain_area_va %>% 
-             is.na %>%
+             is.na %>% 
              ifelse(drain_area_va, contrib_drain_area_va)) %>% 
   select(-drain_area_va) %>% 
   mutate(contrib_drain_km2 = 
            measurements::conv_unit(contrib_drain_area_va, 
-                                   from = "mi2", 
-                                   to = "km2"
-                                   )
+                                   from = "mi2",  
+                                   to = "km2" 
+                                   ) 
          ) %>% 
   mutate(contrib_drain_km2 = 
            round( 
              contrib_drain_km2, 
              digits = 1 
              ) 
-         ) 
-
-# 2. calculate Q-depth:: q = Q/DA [m3/km2]
-gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>% 
-  select(site_no, sta, Date, Q, Q7, Q30, contrib_drain_km2) %>% 
-  gather(type, value, 
-         -c(site_no, sta, Date, contrib_drain_km2)
          ) %>% 
-  mutate(value = value/contrib_drain_km2) %>% 
-  spread(type, value) %>% 
-  clean_names() %>% 
-  select(-c(site_no, contrib_drain_km2)) 
+  mutate(sec_per_day = 60 * 60 * 24) 
 
-rm(gage_contrib_area)
+# 2. calculate Q-depth:: q = Q/DA [m3/km2] 
+gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>% 
+  select(site_no, sta, Date, Q, Q7, Q30, waterYear, 
+         contrib_drain_km2, sec_per_day)  %>% 
+  gather(type, value, 
+         -c(site_no, sta, Date, waterYear, contrib_drain_km2, sec_per_day) 
+         ) %>% 
+  mutate(value = value * sec_per_day / contrib_drain_km2) %>% 
+  spread(type, value) %>% 
+  rename(q1_depth = Q) %>% 
+  rename(q7_depth = Q7) %>% 
+  rename(q30_depth = Q30) %>% 
+  select(-c(site_no, contrib_drain_km2, sec_per_day)) 
+
+rm(gage_contrib_area) 
+```
+
+```{r PCA_graphs}  
+
+# 1. Prepare to approach normality using forcast::BoxCox --------------------- 
+
+# make dataframes of lambda values
+lambda_q1  <- enframe(
+  BoxCox.lambda(gage_dv$q1_depth)
+  )   
+
+lambda_q7  <- enframe(
+  BoxCox.lambda(gage_dv$q7_depth)
+  )   
+
+lambda_q30 <- enframe(
+  BoxCox.lambda(gage_dv$q30_depth)
+  )
+
+# join the dataframes & clean up 
+lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
+  select(-c(name1, name2)) %>% 
+  rename(lambda_q1  = value) %>% 
+  rename(lambda_q7  = value1) %>% 
+  rename(lambda_q30 = value2) 
+
+rm(lambda_q1, lambda_q7, lambda_q30)  
+
+# create a PCA input dataframe 
+pca_input <- gage_dv %>% 
+  mutate(q1_tr = BoxCox(.$q1_depth, lambda_vals$lambda_q1)) %>% 
+  mutate(q7_tr = BoxCox(.$q7_depth, lambda_vals$lambda_q7)) %>% 
+  mutate(q30_tr = BoxCox(.$q30_depth, lambda_vals$lambda_q30)) %>% 
+  dplyr::select(sta, Date, q1_tr, q7_tr, q30_tr)  
+
+# 2. calculate PCA matrix ----------------------------------------------------- 
+pca_matrix <- pca_input %>%  
+  select(q1_tr, q7_tr, q30_tr) %>%
+  prcomp(., center = TRUE, scale. = TRUE)      
+
+# 3. Gather & summarize PCA results ------------------------------------------
+pca_eigen <-tidy(pca_matrix, matrix = "pcs")          # results about PC axes
+
+pca_vars <-  tidy(pca_matrix, matrix = "variables") %>%     # PCA loadings 
+  filter(PC != 3) %>%              
+  rename(var = column) %>% 
+  mutate(PC = as.character(PC)) %>% 
+  mutate(pc_stem = "PC") %>% 
+  unite("pc_axis", 
+        c("pc_stem", "PC"),
+        sep = "", 
+        remove = TRUE
+        ) %>% 
+  spread(pc_axis, value)
+  
+gage_dv <- augment(pca_matrix, data = gage_dv) %>% 
+  select(-c(.rownames, .fittedPC3)) %>%       # bind sample vals to PCA matrix 
+      mutate(q1_q30_diff = q1_depth - q30_depth) 
+
+
+
+```
+
+```{r prepare-plot_add-ecoregions}
+# read in shapefile data of intersection of watershed area & 
+# merged SD, NE, WY ecoregions  
+
+ecoreg <- st_read("sp_data/ecoreg_int.shp", 
+                       as_tibble = TRUE) %>% 
+  st_drop_geometry() %>%                       #  we only want the data table 
+  mutate_if(is.factor, as.character) %>% 
+  rename(ecoreg_L4 = US_L4NAME) %>%    
+  rename(ecoreg_L3 = US_L3NAME) %>% 
+  rename(ecoreg_L2 = NA_L2NAME) %>% 
+  rename(ecoreg_L1 = NA_L1NAME) %>% 
+  rename(area_km = Shape_Area) %>% 
+  select(sta_id, watshed, ecoreg_L4, ecoreg_L3, 
+         ecoreg_L2, ecoreg_L1, area_km) %>% 
+# prep for gather -> change title case 
+  mutate(grouped_id = row_number()) %>% 
+  gather(key, val, -c(sta_id, watshed, grouped_id)) %>%  
+  mutate(val = stri_trans_totitle(val)) %>% 
+  spread(key, val) %>% 
+  select(-grouped_id) %>% 
+  mutate(area_km = as.numeric(area_km)  # round the areas 
+         ) %>% 
+  mutate(area_km = round(area_km, digits = 2)
+         )%>%  
+# get percentages by ecoregion 
+  group_by(sta_id) %>% 
+  mutate(area_tot = sum(area_km)) %>% 
+  mutate(area_perc = round(
+    area_km / area_tot, 
+    digits = 2)
+  ) %>% 
+  ungroup() %>% 
+  filter(area_perc > 0.10) %>% 
+  arrange(
+    desc(area_perc)
+    ) %>% 
+  arrange(sta_id) %>% 
+  select(sta_id, area_perc, ecoreg_L4, 
+         ecoreg_L3, ecoreg_L2, ecoreg_L1, watshed)  
+
+# generalize ecoregions using max percentage & percentage near the gage 
+ecoreg <- ecoreg %>% 
+  group_by(sta_id) %>%  
+  arrange(sta_id, desc(area_perc)) %>% 
+  # make a default pick based on the max % 
+  mutate(ecoreg_wtsd = head(ecoreg_L4, 1) ) %>% 
+  # refine the pick based on expert knowlege & percentage near the gage 
+  mutate(
+    ecoreg_wtsd = 
+           case_when(
+             sta_id == "bat_bhr" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "blp_bel" ~ "White River Badlands",   
+             sta_id == "che_buf" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_pla" ~ "Semiarid Pierre Shale Plains",   
+             sta_id == "che_red" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_sce" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_was" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "lcr_bel" ~ "Sand Hills",      
+             sta_id == "lwr_aro" ~ "Sand Hills", 
+             sta_id == "lwr_mar" ~ "Sand Hills", 
+             sta_id == "lwr_ros" ~ "Sand Hills", 
+             sta_id == "lwr_vet" ~ "Sand Hills", 
+             sta_id == "lwr_whi" ~ "Sand Hills", 
+             sta_id == "spr_her" ~ "Black Hills Plateau",   
+             sta_id == "whi_int" ~ "White River Badlands",  
+             sta_id == "whi_kad" ~ "White River Badlands",  
+             sta_id == "whi_oac" ~ "Subhumid Pierre Shale Plains",  
+                           TRUE ~ ecoreg_wtsd)
+   ) %>% 
+  select(sta_id, ecoreg_wtsd, everything()) %>% 
+  group_by(sta_id) %>% 
+  distinct(ecoreg_wtsd, .keep_all = TRUE) %>% 
+  # generalize the Pierre shale 
+  mutate(
+    ecoreg_wtsd = 
+           case_when(
+             ecoreg_wtsd == 
+               "Semiarid Pierre Shale Plains" ~ "Pierre Shale Plains", 
+             ecoreg_wtsd == 
+               "Subhumid Pierre Shale Plains" ~ "Pierre Shale Plains", 
+                           TRUE ~ ecoreg_wtsd)
+   ) %>% 
+  arrange(ecoreg_wtsd) 
+
+# join ecoregions to gage_dv 
+eco_join <- ecoreg %>% 
+  select(sta = sta_id, ecoreg = ecoreg_wtsd) 
+
+gage_dv <- full_join(gage_dv, eco_join, 
+                  by = "sta")
+
+
+#  4. Create summaries of the results ----------------------------------------
+
+pca_mon <- gage_dv %>% 
+  mutate(mon = month(Date)) %>% 
+  group_by(sta, mon, waterYear) %>% 
+  summarize(PC1_mean    = mean(.fittedPC1),
+            PC2_mean    = mean(.fittedPC2), 
+            q1_mean     = mean(q1_depth), 
+            q7_mean     = mean(q7_depth),
+            q30_mean    = mean(q30_depth), 
+            q1_q30_mean = mean(q1_q30_diff),  
+            ecoreg      = first(ecoreg)
+            ) %>% 
+  ungroup() %>% 
+  arrange(PC2_mean) %>% 
+  arrange(PC1_mean) 
+
+pca_ann <- gage_dv %>% 
+  group_by(sta, waterYear) %>% 
+  summarize(PC1_mean    = mean(.fittedPC1),
+            PC2_mean    = mean(.fittedPC2), 
+            q1_mean     = mean(q1_depth), 
+            q7_mean     = mean(q7_depth),
+            q30_mean    = mean(q30_depth), 
+            q1_q30_mean = mean(q1_q30_diff),  
+            ecoreg      = first(ecoreg)
+            ) %>% 
+  ungroup() %>% 
+  arrange(PC2_mean) %>% 
+  arrange(PC1_mean) 
+
+pca_sum <- gage_dv %>% 
+  group_by(sta) %>% 
+  summarize(PC1_mean    = mean(.fittedPC1),
+            PC2_mean    = mean(.fittedPC2), 
+            q1_mean     = mean(q1_depth), 
+            q7_mean     = mean(q7_depth),
+            q30_mean    = mean(q30_depth), 
+            q1_q30_mean = mean(q1_q30_diff),  
+            ecoreg      = first(ecoreg)
+            ) %>% 
+  ungroup() %>% 
+  arrange(PC2_mean) %>% 
+  arrange(PC1_mean) 
 ```
 
 
+```{r pc-plot} 
 
 
-```{r PCA_and_model_selection}  
-# Calculates PCA & clusters stations   
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# this was first used for estimating missing values 
-# needs to be run separately (sorry!) 
 
-#gage_input <- gage %>%      # wet years 
-#  filter(water_year < 2003)    
+p1 <- autoplot(pca_matrix, 
+               data = test, 
+               scale = 0, 
+               colour = "ecoreg", 
+               size = 0.1, 
+               alpha = 0.5) 
+p1 + theme_bw()
 
-#gage_input <- gage %>% 
-#  filter(water_year >= 2003)  # dry years
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ggplot(pca_sum, aes(PC1_mean, PC2_mean)) + 
+  geom_jitter(
+    aes(
+      shape = ecoreg, 
+      colour = ecoreg), 
+    size = 1.5
+    ) + 
+  theme_classic()
+
+
+```
+
+
 # prepare data 
 #pca_input <- gage_input %>%  
 #  select(date, sta, q, q7, q30, contrib_drain_area_va)
@@ -995,5 +1266,8 @@ rm(gage_clust_meta, gage_pca_sum, gage_pca, gage_input)
 # clustering table specifying the number of observations in each 
 # clusters.
 
+tidy(pca_matrix, matrix = "u")
+
+test <- augment(pca_matrix, pca_input)
 ```
 
