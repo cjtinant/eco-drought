@@ -195,7 +195,9 @@ library("tidyverse")              # data munging tools
 library("broom")                  # convert statistical objs into tidy tibbles 
 library("ggfortify")              # data vis tools for statistical analysis 
 library("stringi")                # character string processing facilities
-library("sf")                     # Simple features--spatial geometries for R 
+library("sf")                     # simple features--spatial geometries for R 
+library("anomalize")              # detect anomalies using the tidyverse
+
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
 ```
 
@@ -900,6 +902,8 @@ gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%
 rm(gage_contrib_area)  
 ```
 
+
+# START FIX 
 ```{r PCA_graphs}  
 
 # 1. Prepare to approach normality using forcast::BoxCox --------------------- 
@@ -958,9 +962,15 @@ gage_dv <- augment(pca_matrix, data = gage_dv) %>%
   select(-c(.rownames, .fittedPC3)) %>%       # bind sample vals to PCA matrix 
       mutate(q1_q30_diff = q1_depth - q30_depth) 
 
+
 ```
 
-```{r prepare-plot_add-ecoregions}
+```{r clean_global_and_make_tables}
+# need to decide on how to clean up the global environmenta and what 
+# tables to keep 
+```
+
+```{r add-ecoregions}
 
 # 1. read in shapefile data of intersection of watershed area & 
 # merged SD, NE, WY ecoregions -----------------------------------------------
@@ -1001,7 +1011,7 @@ ecoreg <- st_read("sp_data/ecoreg_int.shp",
   select(sta_id, area_perc, ecoreg_L4, 
          ecoreg_L3, ecoreg_L2, ecoreg_L1, watshed)  
 
-# generalize ecoregions using max percentage & percentage near the gage 
+# 2. generalize ecoregions using max percentage & percentage near the gage 
 ecoreg <- ecoreg %>% 
   group_by(sta_id) %>%  
   arrange(sta_id, desc(area_perc)) %>% 
@@ -1045,30 +1055,145 @@ ecoreg <- ecoreg %>%
    ) %>% 
   arrange(ecoreg_wtsd) 
 
-# join ecoregions to gage_dv 
+# 3. join ecoregions to gage_dv 
 eco_join <- ecoreg %>% 
   select(sta = sta_id, ecoreg = ecoreg_wtsd) 
 
 gage_dv <- full_join(gage_dv, eco_join, 
                   by = "sta")
 
-rm(eco_join)
-#  4. Create summaries of the results ----------------------------------------
+``` 
+# END FIX 
 
-pca_mon <- gage_dv %>% 
-  mutate(mon = month(Date)) %>% 
-  group_by(sta, mon, waterYear) %>% 
-  summarize(PC1_mean    = mean(.fittedPC1),
-            PC2_mean    = mean(.fittedPC2), 
-            q1_mean     = mean(q1_depth), 
-            q7_mean     = mean(q7_depth),
-            q30_mean    = mean(q30_depth), 
-            q1_q30_mean = mean(q1_q30_diff),  
+
+
+
+
+
+
+
+```{r deconvolute_pca}
+
+# Decompose a time series into trend, seasonal, and random components 
+
+# 1. scale daily flow values into monthly mean flows 
+gage_mon <- gage_dv %>% 
+  mutate(yr = year(Date)) %>% 
+  mutate(mon = month(Date)) %>%   
+  group_by(sta, mon, yr) %>% 
+  summarize(waterYear = first(waterYear),   
+            q1_mon     = mean(q1_depth), 
+            q7_mon     = mean(q7_depth),
+            q30_mon    = mean(q30_depth),           
+            PC1_mon    = mean(.fittedPC1),
+            PC2_mon    = mean(.fittedPC2), 
+            q1_q30_mon = mean(q1_q30_diff),  
             ecoreg      = first(ecoreg)
             ) %>% 
+  mutate(day = 15) %>%   
   ungroup() %>% 
-  arrange(PC2_mean) %>% 
-  arrange(PC1_mean) 
+  unite("Date", c("yr", "mon", "day")) %>% 
+  mutate(Date = ymd(Date))
+
+# 2. make a tibble for decomposing monthly averages 
+anom_mon <- gage_mon %>% 
+  # drop q_vars to focus on PC vals 
+  select(-starts_with("q")) %>%              
+  gather(key = axis, value = PCval, 
+         -c(sta, Date, waterYear, ecoreg) 
+         )  
+
+# 3. calculate a frequency parameter to adjust the "season" component that is removed from the "observed" values. 
+
+mon_freq <- anom_mon  %>% 
+      select(-c(waterYear,ecoreg)) %>%  
+  arrange(Date) %>% 
+  unite(sta_axis, c(sta, axis), sep = ".") %>% 
+    ungroup() %>%                       # not sure what this is for.... 
+    split(.$sta_axis) %>% 
+  map_dfc(~ time_frequency( 
+    period = "auto", data = .) 
+  ) %>% 
+  gather(key = sta.axis, value = freq) 
+
+# find the average frequency & enframe 
+mon_freq <- mean(mon_freq$freq)   
+
+mon_freq <- enframe(mon_freq) %>%
+  select(freq = value)
+
+# 4. find the characteristic time trend for pca data 
+mon_trend <- anom_mon  %>% 
+      select(-c(waterYear,ecoreg)) %>%  
+  arrange(Date) %>% 
+  unite(sta_axis, c(sta, axis), sep = ".") %>% 
+    ungroup() %>%                       # not sure what this is for.... 
+    split(.$sta_axis) %>% 
+  map_dfc(~ time_trend( 
+    period = "auto", data = .) 
+  ) %>% 
+  gather(key = sta.axis, value = trend) %>%  
+  separate(sta.axis, into = c("sta", "sta2", "axis"), extra = "merge") %>% 
+  unite(sta, c(sta, sta2)) %>% 
+  spread(axis, trend) %>% 
+  summarise(trend = median(PC1_mon)) 
+
+# 5. join and tidy 
+decomp_input <- bind_cols(mon_freq, mon_trend) 
+
+rm(mon_freq, mon_trend, eco_join)
+  
+# 6. mapping the time_decompose function requires data of the same length 
+  
+  
+  
+
+gage_anom_stl <- anom_mon %>% 
+  filter(axis == "PC1_mon") %>% 
+  arrange(Date) %>% 
+#  filter(sta == "hat_edg") #%>% 
+ # split(.$sta) %>% 
+  map_dfc(~ time_decompose(
+    data         = ., 
+    method       = "stl", 
+    target       = PCval, 
+#    frequency    = decomp_input$freq, 
+#    trend        = decomp_input$trend, 
+#    merge        = TRUE, 
+     message      = TRUE
+         )
+  ) 
+    
+   # %>% 
+  anomalize(remainder, method = "gesd") 
+
+plot_anomaly_decomposition(gage_anom_stl) 
+
+
+# Basic Usage 
+stl <- tidyverse_cran_downloads %>%
+  time_decompose(count, 
+                 method = "stl")
+
+# twitter
+tidyverse_cran_downloads %>% 
+  time_decompose(count, 
+                 method  = "stl", 
+                 frequency    = "1 week", 
+                 trend        = "2 months",
+                 merge        = TRUE,
+                 message      = FALSE)
+
+
+
+```
+
+
+```{r summarize-results-PCA}
+
+#  4. Create summaries of the results ----------------------------------------
+
+
 
 pca_ann <- gage_dv %>% 
   group_by(sta, waterYear) %>% 
@@ -1099,7 +1224,6 @@ pca_sum <- gage_dv %>%
   arrange(PC1_mean)  
 ```
 
-
 ```{r pc-plot} 
 
 
@@ -1118,7 +1242,7 @@ ggplot(pca_mon, aes(PC1_mean, PC2_mean)) +
     aes(
       shape = ecoreg, 
       colour = ecoreg), 
-    size = 1.5
+    size = 1.0
     ) + 
   theme_classic()
 
