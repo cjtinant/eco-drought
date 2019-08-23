@@ -199,6 +199,24 @@ library("sf")                     # simple features--spatial geometries for R
 library("anomalize")              # detect anomalies using the tidyverse
 
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
+
+
+# function to decompose into seasonal, trend, remainder & finds anomolies ----
+decomp_fun <- function(df) { 
+  arrange(df, .data$Date) %>% 
+  group_by(.data$sta) %>% 
+  time_decompose(
+    target  = PCval, 
+    data         = ., 
+    method       = "stl", 
+    frequency    = decomp_input$freq, 
+    trend        = decomp_input$trend, 
+    merge        = TRUE, 
+    message      = TRUE
+    ) %>% 
+  ungroup() %>% 
+  anomalize(remainder, method = "gesd")
+}
 ```
 
 ```{r import_daily_flow_metadata, eval=FALSE} 
@@ -375,7 +393,7 @@ gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%
 ``` 
 
 ```{r filter_short_flow_recs}
-
+ 
 # 1. prepare to filter gages with short flow records--------------------------- 
 # calculate min & max years of record  
 yrs_summary <- gage_dv %>% 
@@ -400,25 +418,25 @@ gage_check <- gage_meta %>%
 gage_meta <- gage_meta %>% 
   filter(!is.na(years_rec))                           # N = 69 
 
-# 06400500 CHEYENNE R NEAR HOT SPRINGS SD
-# 06403500 FRENCH CR NEAR FAIRBURN SD
-# 06404500 BATTLE CR NEAR HERMOSA SD
-# 06424500 ELK CR ABOVE PIEDMONT SD
-# 06437200 BEAR BUTTE CR NEAR GALENA,SD
-# 06437500 BEAR BUTTE CR NEAR STURGIS SD
-# 06440500 NORTH FORK BAD R NEAR PHILIP SD
-# 06445000 WHITE R BELW COTTONWOOD C N WHITNEY, NEBR.
-# 06445500 WHITE R NEAR CHADRON NEBR
-# 06446200 WHITE R NEAR ROCKYFORD SD
-# 06449250 SPRING CR NEAR ST FRANCIS SD
-# 06455900 NIOBRARA RIVER NEAR DUNLAP, NEBR.
-# 06456500 NIOBRARA RIVER NR HAY SPRINGS, NEBR.
-# 06457000 NIOBRARA RIVER NEAR COLCLESSER, NEBR.
-# 06458500 BEAR C NR ELI NEBR
-# 06459000 NIOBRARA R NEAR CODY, NEBR.
-# 06460900 MINNECHADUZA CREEK NEAR KILGORE, NEBRASKA
-# 06463000 NIOBRARA RIVER AT MEADVILLE NE
-# 06464000 KEYA PAHA R NEAR HIDDEN TIMBER SD 
+# 06400500 CHEYENNE R NEAR HOT SPRINGS SD 
+# 06403500 FRENCH CR NEAR FAIRBURN SD 
+# 06404500 BATTLE CR NEAR HERMOSA SD 
+# 06424500 ELK CR ABOVE PIEDMONT SD 
+# 06437200 BEAR BUTTE CR NEAR GALENA,SD 
+# 06437500 BEAR BUTTE CR NEAR STURGIS SD 
+# 06440500 NORTH FORK BAD R NEAR PHILIP SD 
+# 06445000 WHITE R BELW COTTONWOOD C N WHITNEY, NEBR. 
+# 06445500 WHITE R NEAR CHADRON NEBR 
+# 06446200 WHITE R NEAR ROCKYFORD SD 
+# 06449250 SPRING CR NEAR ST FRANCIS SD 
+# 06455900 NIOBRARA RIVER NEAR DUNLAP, NEBR. 
+# 06456500 NIOBRARA RIVER NR HAY SPRINGS, NEBR. 
+# 06457000 NIOBRARA RIVER NEAR COLCLESSER, NEBR. 
+# 06458500 BEAR C NR ELI NEBR 
+# 06459000 NIOBRARA R NEAR CODY, NEBR. 
+# 06460900 MINNECHADUZA CREEK NEAR KILGORE, NEBRASKA 
+# 06463000 NIOBRARA RIVER AT MEADVILLE NE 
+# 06464000 KEYA PAHA R NEAR HIDDEN TIMBER SD  
 
 # drop stations with less than 6 years of record  
 gage_check <- gage_meta %>% 
@@ -428,17 +446,17 @@ gage_meta <- gage_meta %>%
   filter(years_rec >= 6)                         # N = 58 
 
 # The following were removed because less than 6 years of record  
-# 06400870 HORSEHEAD CR NEAR OELRICHS SD
-# 06405400 GRACE COOLIDGE CR NEAR FAIRBURN SD
-# 06405500 GRACE COOLIDGE CR NEAR HERMOSA SD
-# 06437400 BEAR BUTTE CREEK AT STURGIS, SD
-# 06441400 WILLOW CREEK NEAR FORT PIERRE, SD
-# 06442130 CEDAR CREEK NR PRESHO, SD
-# 06442600 MEDICINE CREEK NR LOWER BRULE, SD
-# 06442950 CROW CR NEAR GANN VALLEY SD
-# 06445590 BIG BORDEAUX CREEK NEAR CHADRON NEBR
-# 06459200 SNAKE RIVER ABV MERRITT RESERVOIR NEBR
-# 10150005 Big Beaver Cr at Nebr Hwy 12 nr Valentine, Nebr
+# 06400870 HORSEHEAD CR NEAR OELRICHS SD 
+# 06405400 GRACE COOLIDGE CR NEAR FAIRBURN SD 
+# 06405500 GRACE COOLIDGE CR NEAR HERMOSA SD 
+# 06437400 BEAR BUTTE CREEK AT STURGIS, SD 
+# 06441400 WILLOW CREEK NEAR FORT PIERRE, SD 
+# 06442130 CEDAR CREEK NR PRESHO, SD 
+# 06442600 MEDICINE CREEK NR LOWER BRULE, SD 
+# 06442950 CROW CR NEAR GANN VALLEY SD 
+# 06445590 BIG BORDEAUX CREEK NEAR CHADRON NEBR 
+# 06459200 SNAKE RIVER ABV MERRITT RESERVOIR NEBR 
+# 10150005 Big Beaver Cr at Nebr Hwy 12 nr Valentine, Nebr 
 
 # 3. check for incomplete days of record --------------------------------------  
 yr_incomp <- gage_dv %>%                          
@@ -452,39 +470,37 @@ yr_incomp <- gage_dv %>%
 
 gage_meta <- full_join(yr_incomp, gage_meta,  
                        by = "site_no") %>% 
-  filter(!is.na(years_rec))
-
-
+  filter(!is.na(years_rec)) 
 
 # 4. remove data with short record between 1990-2015 ------------------------- 
 gage_check <- gage_meta %>% 
   filter(sta == "") 
 
 gage_meta <- gage_meta %>% 
-  filter(sta != "")
+  filter(sta != "") 
 
 ## These didn't make the cut because the original data selection was 
-# for 1990-2015  & it would be extremely difficult to put in post-hoc.
+# for 1990-2015  & it would be extremely difficult to put in post-hoc. 
 # it would be good for the future! 
-# Also - its possible to use these for model testing...
+# Also - its possible to use these for model testing... 
 
 # station   min_yr  maxyr  name 
-# 06442000   1980   1990   MEDICINE KNOLL CR NEAR BLUNT SD 
-# 06459175   1982   1995   SNAKE R AT DOUGHBOY, NE
-# 06459500   1980   1995   SNAKE RIVER NEAR BURGE, NEBR. 
-# 06454100   1980   1992   Niobrara River at Agate, Nebr. 
-# 06461000   1980   1995   MINNECHADUZA CREEK AT VALENTINE, NEBR.
-# 06462500   1980   1995   PLUM CREEK AT MEADVILLE, NE
-# 06463720   2012   2018   Niobrara River at Mariaville, Nebr. 
+# 06442000   1980   1990   MEDICINE KNOLL CR NEAR BLUNT SD  
+# 06459175   1982   1995   SNAKE R AT DOUGHBOY, NE 
+# 06459500   1980   1995   SNAKE RIVER NEAR BURGE, NEBR.  
+# 06454100   1980   1992   Niobrara River at Agate, Nebr.  
+# 06461000   1980   1995   MINNECHADUZA CREEK AT VALENTINE, NEBR. 
+# 06462500   1980   1995   PLUM CREEK AT MEADVILLE, NE 
+# 06463720   2012   2018   Niobrara River at Mariaville, Nebr.  
 # 06400497   1980   1995   CASCADE SPRINGS NEAR HOT SPRINGS SD  
-# 06462000   1980   1986   NIOBRARA RIVER NR NORDEN NEBR
-# 06463080   1980   1991   LONG PINE CREEK NR LONG PINE, NE
-# 06439300   1980   1994   CHEYENNE RIVER AT CHERRY CREEK,SD
-# 06442500   1980   1990   MEDICINE CR AT KENNEBEC SD
-# 06444000   1980   2004   White River at Crawford, Nebr.
-# 06454500   1980   1994   NIOBRARA RIVER ABOVE BOX BUTTE RESERVOIR, NE
-# 06455500   1980   1991   NIOBRARA RIVER BELOW BOX BUTTE RESERVOIR NEBR
-# 06457500   1980   1991   NIOBRARA RIVER NEAR GORDON, NEBR.
+# 06462000   1980   1986   NIOBRARA RIVER NR NORDEN NEBR 
+# 06463080   1980   1991   LONG PINE CREEK NR LONG PINE, NE 
+# 06439300   1980   1994   CHEYENNE RIVER AT CHERRY CREEK,SD 
+# 06442500   1980   1990   MEDICINE CR AT KENNEBEC SD 
+# 06444000   1980   2004   White River at Crawford, Nebr. 
+# 06454500   1980   1994   NIOBRARA RIVER ABOVE BOX BUTTE RESERVOIR, NE 
+# 06455500   1980   1991   NIOBRARA RIVER BELOW BOX BUTTE RESERVOIR NEBR 
+# 06457500   1980   1991   NIOBRARA RIVER NEAR GORDON, NEBR. 
 
 # sync gage_dv with gage_meta & export results as posthoc to avoid interference 
 names <- wsd_summary %>% 
@@ -495,16 +511,15 @@ names <- wsd_summary %>%
 gage_dv <- full_join(names, gage_dv, 
                      by ="site_no")  
 
-
 gage_dv <- semi_join(gage_dv, gage_meta, 
                      by = "site_no")   
 
-export(gage_dv, "data/gage_dv_posthoc.csv") 
-export(gage_meta, "data/gage_meta_posthoc.csv")
+
+export(gage_meta, "data/gage_meta_posthoc.csv") 
 
 # clean up 
-rm(startDate, endDate, parameter_cd, wsd_summary, names)
-rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv)
+rm(startDate, endDate, parameter_cd, wsd_summary, names) 
+rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv) 
 ```
 
 ```{r prepare-table_gage_metadata} 
@@ -748,7 +763,7 @@ hydro_table
 ```
 
 ```{r export_flextables_as_docx}  
- 
+  
 # export a docx of flextables 
 tables_ch2 <- read_docx() %>% 
   body_add_flextable(value = gage_table)  %>% 
@@ -764,13 +779,14 @@ print(tables_ch2, target = "output/tables_ch2.docx")
 rm(col_key_char, col_key_int, col_key_num, header_labels, names, top_row, 
    ung_summary)  
 rm(gage_table, soils_table, ung_table, tables_ch2) 
+
 ```
 
 ```{r clean_daily_flow} 
 
 # this is a small amount of code duplication to reduce API calls 
 
-gage_dv <- import("data/gage_dv_posthoc.csv") %>%  
+gage_dv <- import("data/gage_dv_posthoc.csv") %>%   
     mutate(site_no = zeroPad(site_no, 8)) 
 
 gage_meta <- import("data/gage_meta_posthoc.csv") %>%  
@@ -780,7 +796,7 @@ gage_meta <- import("data/gage_meta_posthoc.csv") %>%
 gage_dv <- gage_dv %>% 
   filter(!is.na(Q30) & 
            !is.na(Q7) & 
-           !is.na(Q)
+           !is.na(Q) 
          )  
 
 gage_check <- gage_dv %>% 
@@ -823,7 +839,7 @@ rm(gage_check)
  
 # fix low flows ---- this step needed for the PCA  
 #   EGRET calculates a "better" zero-flow value, but causes issues with results  
-#   this code chunk fixes low flow values by substituting 0.01 cfs 
+#   this code chunk fixes low flow values by substituting 0.01 cfs  
 #   for zero-flow values  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 
@@ -833,7 +849,7 @@ gage_dv_gath <- gage_dv %>%  # using diff var name to check length later
   gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs 
          -c(site_no, sta, waterYear, Date)) 
 
-# 2. filter & censor zero flows & non-zero flows -> join flows 
+# 2. filter & censor zero flows & non-zero flows -> join flows  
 gage_dv_low <- gage_dv_gath %>%  # n ~ 123,987/3 = 41,329 obs or ~7%/yr 
   filter(q_val < 0.01) %>%               
   mutate(q_val = 0.01) 
@@ -860,7 +876,7 @@ rm(gage_dv_gath, gage_dv_high, gage_dv_low)
 
 ``` 
 
-```{r convert_flow_to_depth, message=FALSE}
+```{r convert_flow_to_depth, message=FALSE} 
 
 # 1. calculate contributing drainage area in square kilometers & sec/day  
 gage_contrib_area <- gage_meta %>%  
@@ -908,21 +924,20 @@ rm(gage_contrib_area)
 
 # 1. Prepare to approach normality using forcast::BoxCox --------------------- 
 
-# make dataframes of lambda values
-lambda_q1  <- enframe(
-  BoxCox.lambda(gage_dv$q1_depth)
-) 
-   
+# make dataframes of lambda values 
+lambda_q1  <- enframe( 
+  BoxCox.lambda(gage_dv$q1_depth) 
+  )  
 
-lambda_q7  <- enframe(
-  BoxCox.lambda(gage_dv$q7_depth)
+lambda_q7  <- enframe( 
+  BoxCox.lambda(gage_dv$q7_depth) 
   )   
 
-lambda_q30 <- enframe(
-  BoxCox.lambda(gage_dv$q30_depth)
-  )
+lambda_q30 <- enframe( 
+  BoxCox.lambda(gage_dv$q30_depth) 
+  ) 
 
-# join the dataframes & clean up 
+# join the dataframes & clean up  
 lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
   select(-c(name1, name2)) %>% 
   rename(lambda_q1  = value) %>% 
@@ -940,11 +955,11 @@ pca_input <- gage_dv %>%
 
 # 2. calculate PCA matrix ----------------------------------------------------- 
 pca_matrix <- pca_input %>%  
-  select(q1_tr, q7_tr, q30_tr) %>%
+  select(q1_tr, q7_tr, q30_tr) %>% 
   prcomp(., center = TRUE, scale. = TRUE)      
 
-# 3. Gather & summarize PCA results ------------------------------------------
-pca_eigen <-tidy(pca_matrix, matrix = "pcs")          # results about PC axes
+# 3. Gather & summarize PCA results ------------------------------------------ 
+pca_eigen <-tidy(pca_matrix, matrix = "pcs")       # results about PC axes 
 
 pca_vars <-  tidy(pca_matrix, matrix = "variables") %>%     # PCA loadings 
   filter(PC != 3) %>%              
@@ -952,17 +967,18 @@ pca_vars <-  tidy(pca_matrix, matrix = "variables") %>%     # PCA loadings
   mutate(PC = as.character(PC)) %>% 
   mutate(pc_stem = "PC") %>% 
   unite("pc_axis", 
-        c("pc_stem", "PC"),
+        c("pc_stem", "PC"), 
         sep = "", 
-        remove = TRUE
-        ) %>% 
-  spread(pc_axis, value)
+        remove = TRUE 
+        ) %>%  
+  spread(pc_axis, value) 
   
 gage_dv <- augment(pca_matrix, data = gage_dv) %>% 
   select(-c(.rownames, .fittedPC3)) %>%       # bind sample vals to PCA matrix 
       mutate(q1_q30_diff = q1_depth - q30_depth) 
 
-
+# 4. save results 
+export(gage_dv, "data/gage_dv_posthoc.csv")  
 ```
 
 ```{r clean_global_and_make_tables}
@@ -1066,17 +1082,14 @@ gage_dv <- full_join(gage_dv, eco_join,
 # END FIX 
 
 
-
-
-
-
-
-
 ```{r deconvolute_pca}
 
 # Decompose a time series into trend, seasonal, and random components 
 
-# 1. scale daily flow values into monthly mean flows 
+
+# 1. make a tibble for decomposing monthly averages 
+#    by scaling daily flow values into monthly mean flows 
+
 gage_mon <- gage_dv %>% 
   mutate(yr = year(Date)) %>% 
   mutate(mon = month(Date)) %>%   
@@ -1093,19 +1106,19 @@ gage_mon <- gage_dv %>%
   mutate(day = 15) %>%   
   ungroup() %>% 
   unite("Date", c("yr", "mon", "day")) %>% 
-  mutate(Date = ymd(Date))
-
-# 2. make a tibble for decomposing monthly averages 
-anom_mon <- gage_mon %>% 
+  mutate(Date = ymd(Date)) %>% 
   # drop q_vars to focus on PC vals 
-  select(-starts_with("q")) %>%              
+#  select(-starts_with("q")) %>%              
   gather(key = axis, value = PCval, 
-         -c(sta, Date, waterYear, ecoreg) 
-         )  
+         -c(sta, Date, waterYear, ecoreg, q1_mon, 
+            q7_mon, q30_mon, q1_q30_mon) 
+         )  %>% 
+  as_tibble() 
 
-# 3. calculate a frequency parameter to adjust the "season" component that is removed from the "observed" values. 
 
-mon_freq <- anom_mon  %>% 
+# 3. calculate parameters to remove season & trend from observed vals -------- 
+# find the average monthly frequency & enframe 
+mon_freq <- gage_mon  %>% 
       select(-c(waterYear,ecoreg)) %>%  
   arrange(Date) %>% 
   unite(sta_axis, c(sta, axis), sep = ".") %>% 
@@ -1114,16 +1127,12 @@ mon_freq <- anom_mon  %>%
   map_dfc(~ time_frequency( 
     period = "auto", data = .) 
   ) %>% 
-  gather(key = sta.axis, value = freq) 
+  gather(key = sta.axis, value = freq) %>%
+  summarise(freq = mean(freq) 
+            ) 
 
-# find the average frequency & enframe 
-mon_freq <- mean(mon_freq$freq)   
-
-mon_freq <- enframe(mon_freq) %>%
-  select(freq = value)
-
-# 4. find the characteristic time trend for pca data 
-mon_trend <- anom_mon  %>% 
+# find the average monthly trend 
+mon_trend <- gage_mon  %>% 
       select(-c(waterYear,ecoreg)) %>%  
   arrange(Date) %>% 
   unite(sta_axis, c(sta, axis), sep = ".") %>% 
@@ -1138,53 +1147,23 @@ mon_trend <- anom_mon  %>%
   spread(axis, trend) %>% 
   summarise(trend = median(PC1_mon)) 
 
-# 5. join and tidy 
+# join and tidy 
 decomp_input <- bind_cols(mon_freq, mon_trend) 
 
 rm(mon_freq, mon_trend, eco_join)
-  
-# 6. mapping the time_decompose function requires data of the same length 
-  
-  
-  
 
-gage_anom_stl <- anom_mon %>% 
-  filter(axis == "PC1_mon") %>% 
-  arrange(Date) %>% 
-#  filter(sta == "hat_edg") #%>% 
- # split(.$sta) %>% 
-  map_dfc(~ time_decompose(
-    data         = ., 
-    method       = "stl", 
-    target       = PCval, 
-#    frequency    = decomp_input$freq, 
-#    trend        = decomp_input$trend, 
-#    merge        = TRUE, 
-     message      = TRUE
-         )
-  ) 
-    
-   # %>% 
-  anomalize(remainder, method = "gesd") 
+# map_dfr causes issues with indexing; using a manual split and combine 
+gage_mon1 <- gage_mon %>% 
+  filter(axis == "PC1_mon") 
 
-plot_anomaly_decomposition(gage_anom_stl) 
+gage_mon2 <- gage_mon %>% 
+  filter(axis == "PC2_mon") 
 
+gage_mon1 <- decomp_fun(gage_mon1) 
+gage_mon2 <- decomp_fun(gage_mon2)
 
-# Basic Usage 
-stl <- tidyverse_cran_downloads %>%
-  time_decompose(count, 
-                 method = "stl")
-
-# twitter
-tidyverse_cran_downloads %>% 
-  time_decompose(count, 
-                 method  = "stl", 
-                 frequency    = "1 week", 
-                 trend        = "2 months",
-                 merge        = TRUE,
-                 message      = FALSE)
-
-
+gage_mon <- bind_rows(gage_mon1, gage_mon2) 
+rm(gage_mon1, gage_mon2, decomp_input)
 
 ```
 
