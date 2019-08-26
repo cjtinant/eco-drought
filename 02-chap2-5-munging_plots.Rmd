@@ -196,27 +196,11 @@ library("broom")                  # convert statistical objs into tidy tibbles
 library("ggfortify")              # data vis tools for statistical analysis 
 library("stringi")                # character string processing facilities
 library("sf")                     # simple features--spatial geometries for R 
-library("anomalize")              # detect anomalies using the tidyverse
+library("anomalize")              # detect anomalies using the tidyverse 
+library("cowplot")
 
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
 
-
-# function to decompose into seasonal, trend, remainder & finds anomolies ----
-decomp_fun <- function(df) { 
-  arrange(df, .data$Date) %>% 
-  group_by(.data$sta) %>% 
-  time_decompose(
-    target  = PCval, 
-    data         = ., 
-    method       = "stl", 
-    frequency    = decomp_input$freq, 
-    trend        = decomp_input$trend, 
-    merge        = TRUE, 
-    message      = TRUE
-    ) %>% 
-  ungroup() %>% 
-  anomalize(remainder, method = "gesd")
-}
 ```
 
 ```{r import_daily_flow_metadata, eval=FALSE} 
@@ -343,8 +327,8 @@ gage_meta <- full_join(names, gage_meta,
 export(gage_meta, "data/gage_meta_fin.csv")  
 ```
 
-```{r import_daily_flow_data} 
-
+```{r import_daily_flow_data, eval=FALSE} 
+ 
 # this is a small amount of code duplication to reduce API calls 
 #   to allow for working remotely -- set above to eval=FALSE 
 gage_meta <- import("data/gage_meta_fin.csv") %>% 
@@ -392,7 +376,7 @@ gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%
 
 ``` 
 
-```{r filter_short_flow_recs}
+```{r filter_short_flow_recs, eval=FALSE}
  
 # 1. prepare to filter gages with short flow records--------------------------- 
 # calculate min & max years of record  
@@ -522,7 +506,7 @@ rm(startDate, endDate, parameter_cd, wsd_summary, names)
 rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv) 
 ```
 
-```{r prepare-table_gage_metadata} 
+```{r prepare-table_gage_metadata, eval=FALSE} 
  
 # prepare df for gaging station metadata  
 gage_table <- gage_meta %>%  
@@ -568,7 +552,7 @@ gage_table <- flextable(gage_table) %>%
 
 ```
 
-```{r prepare-table_ungaged_metadata} 
+```{r prepare-table_ungaged_metadata, eval=FALSE} 
 
 # prepare df for ungaged watershed metadata  
 ung_table <- wsd_summary %>% 
@@ -601,7 +585,7 @@ ung_table <- flextable(ung_table) %>%
 
 ```
 
-```{r prepare-table_soils} 
+```{r prepare-table_soils, eval=FALSE} 
 
 # prepare data for soils table 
 soils_table <- tibble(
@@ -655,7 +639,7 @@ soils_table <- flextable(soils_table) %>%
   theme_booktabs()  
 ```
 
-```{r prepare-table_hydro_metrics}
+```{r prepare-table_hydro_metrics, eval=FALSE}
  
 # prepare df for hydrologic metric table  
 hydro_table <- wsd_summary %>% 
@@ -762,9 +746,9 @@ hydro_table
 
 ```
 
-```{r export_flextables_as_docx}  
-  
-# export a docx of flextables 
+```{r export_flextables_as_docx, eval=FALSE}  
+   
+# export a docx of flextables  
 tables_ch2 <- read_docx() %>% 
   body_add_flextable(value = gage_table)  %>% 
   body_add_break() %>% 
@@ -782,12 +766,11 @@ rm(gage_table, soils_table, ung_table, tables_ch2)
 
 ```
 
-```{r clean_daily_flow} 
+```{r clean_daily_flow, eval=FALSE} 
+ 
+# this is a small amount of code duplication to reduce API calls  
 
-# this is a small amount of code duplication to reduce API calls 
-
-gage_dv <- import("data/gage_dv_posthoc.csv") %>%   
-    mutate(site_no = zeroPad(site_no, 8)) 
+gage_dv <- import("data/gage_dv_posthoc.csv") 
 
 gage_meta <- import("data/gage_meta_posthoc.csv") %>%  
     mutate(site_no = zeroPad(site_no, 8)) 
@@ -802,7 +785,7 @@ gage_dv <- gage_dv %>%
 gage_check <- gage_dv %>% 
   filter(is.na(Q30) | 
            is.na(Q7) | 
-           is.na(Q)
+           is.na(Q) 
          )  
 
 ## Q1 missing records 
@@ -920,14 +903,14 @@ rm(gage_contrib_area)
 
 
 # START FIX 
-```{r PCA_graphs}  
+```{r PCA}  
 
 # 1. Prepare to approach normality using forcast::BoxCox --------------------- 
 
 # make dataframes of lambda values 
 lambda_q1  <- enframe( 
-  BoxCox.lambda(gage_dv$q1_depth) 
-  )  
+  BoxCox.lambda(gage_dv$q1_depth)  
+  )   
 
 lambda_q7  <- enframe( 
   BoxCox.lambda(gage_dv$q7_depth) 
@@ -953,7 +936,7 @@ pca_input <- gage_dv %>%
   mutate(q30_tr = BoxCox(.$q30_depth, lambda_vals$lambda_q30)) %>% 
   dplyr::select(sta, Date, q1_tr, q7_tr, q30_tr)  
 
-# 2. calculate PCA matrix ----------------------------------------------------- 
+# 2. calculate PCA matrix -----------------------------------------------------  
 pca_matrix <- pca_input %>%  
   select(q1_tr, q7_tr, q30_tr) %>% 
   prcomp(., center = TRUE, scale. = TRUE)      
@@ -971,7 +954,8 @@ pca_vars <-  tidy(pca_matrix, matrix = "variables") %>%     # PCA loadings
         sep = "", 
         remove = TRUE 
         ) %>%  
-  spread(pc_axis, value) 
+  spread(pc_axis, value) %>% 
+  mutate(labels = c("q1", "q30", "q7"))
   
 gage_dv <- augment(pca_matrix, data = gage_dv) %>% 
   select(-c(.rownames, .fittedPC3)) %>%       # bind sample vals to PCA matrix 
@@ -979,21 +963,28 @@ gage_dv <- augment(pca_matrix, data = gage_dv) %>%
 
 # 4. save results 
 export(gage_dv, "data/gage_dv_posthoc.csv")  
+
+#NEED TO SAVE OTHER RESULTS 
+
 ```
 
-```{r clean_global_and_make_tables}
+```{r clean_global_and_make_tables} 
 # need to decide on how to clean up the global environmenta and what 
 # tables to keep 
 ```
 
-```{r add-ecoregions}
+# END FIX 
+```{r add-ecoregions, eval=FALSE}
+
+# 1. import cleaned dv data 
+gage_dv <- import("data/gage_dv_posthoc.csv")  
 
 # 1. read in shapefile data of intersection of watershed area & 
 # merged SD, NE, WY ecoregions -----------------------------------------------
 ecoreg <- st_read("sp_data/ecoreg_int.shp", 
                        as_tibble = TRUE) %>% 
   st_drop_geometry() %>%                       #  we only want the data table 
-  mutate_if(is.factor, as.character) %>% 
+  mutate_if(is.factor, as.character) %>%  
   rename(ecoreg_L4 = US_L4NAME) %>%    
   rename(ecoreg_L3 = US_L3NAME) %>% 
   rename(ecoreg_L2 = NA_L2NAME) %>% 
@@ -1009,7 +1000,7 @@ ecoreg <- st_read("sp_data/ecoreg_int.shp",
   select(-grouped_id) %>% 
   mutate(area_km = as.numeric(area_km)  # round the areas 
          ) %>% 
-  mutate(area_km = round(area_km, digits = 2)
+  mutate(area_km = round(area_km, digits = 2) 
          )%>%  
 # get percentages by ecoregion 
   group_by(sta_id) %>% 
@@ -1079,45 +1070,39 @@ gage_dv <- full_join(gage_dv, eco_join,
                   by = "sta")
 
 ``` 
-# END FIX 
-
 
 ```{r deconvolute_pca}
 
-# Decompose a time series into trend, seasonal, and random components 
+# 1. prep to deconvolute PC eigens into trend, seasonal, & random comps. ---- 
 
-
-# 1. make a tibble for decomposing monthly averages 
-#    by scaling daily flow values into monthly mean flows 
-
+# 1.2. dv plots too busy -- scale daily flow values into monthly mean depths  
 gage_mon <- gage_dv %>% 
   mutate(yr = year(Date)) %>% 
-  mutate(mon = month(Date)) %>%   
+  mutate(mon = month(Date)) %>% 
+  mutate(q30_q1_diff = q30_depth - q1_depth) %>%
   group_by(sta, mon, yr) %>% 
   summarize(waterYear = first(waterYear),   
             q1_mon     = mean(q1_depth), 
-            q7_mon     = mean(q7_depth),
+            q7_mon     = mean(q7_depth), 
             q30_mon    = mean(q30_depth),           
-            PC1_mon    = mean(.fittedPC1),
+            PC1_mon    = mean(.fittedPC1), 
             PC2_mon    = mean(.fittedPC2), 
-            q1_q30_mon = mean(q1_q30_diff),  
-            ecoreg      = first(ecoreg)
+            q30_q1_mon = mean(abs(q30_q1_diff)),  
+            ecoreg      = first(ecoreg) 
             ) %>% 
   mutate(day = 15) %>%   
   ungroup() %>% 
   unite("Date", c("yr", "mon", "day")) %>% 
   mutate(Date = ymd(Date)) %>% 
-  # drop q_vars to focus on PC vals 
-#  select(-starts_with("q")) %>%              
   gather(key = axis, value = PCval, 
          -c(sta, Date, waterYear, ecoreg, q1_mon, 
-            q7_mon, q30_mon, q1_q30_mon) 
+            q7_mon, q30_mon, q30_q1_mon) 
          )  %>% 
   as_tibble() 
 
 
-# 3. calculate parameters to remove season & trend from observed vals -------- 
-# find the average monthly frequency & enframe 
+# 2. calculate parameters to remove season & trend from observed vals ----
+# 2.1. find the average monthly frequency & enframe 
 mon_freq <- gage_mon  %>% 
       select(-c(waterYear,ecoreg)) %>%  
   arrange(Date) %>% 
@@ -1127,12 +1112,16 @@ mon_freq <- gage_mon  %>%
   map_dfc(~ time_frequency( 
     period = "auto", data = .) 
   ) %>% 
-  gather(key = sta.axis, value = freq) %>%
-  summarise(freq = mean(freq) 
+  gather(key = sta.axis, value = freq) %>%  
+  summarise(freq = mean(freq), 
+            max = max(freq),
+            min = min(freq), 
+            sd = sd(freq)
             ) 
 
-# find the average monthly trend 
-mon_trend <- gage_mon  %>% 
+
+# 2.2. find the average monthly trend by sta 
+mon_trend_sta <- gage_mon  %>% 
       select(-c(waterYear,ecoreg)) %>%  
   arrange(Date) %>% 
   unite(sta_axis, c(sta, axis), sep = ".") %>% 
@@ -1143,16 +1132,36 @@ mon_trend <- gage_mon  %>%
   ) %>% 
   gather(key = sta.axis, value = trend) %>%  
   separate(sta.axis, into = c("sta", "sta2", "axis"), extra = "merge") %>% 
-  unite(sta, c(sta, sta2)) %>% 
-  spread(axis, trend) %>% 
-  summarise(trend = median(PC1_mon)) 
+  unite(sta, c(sta, sta2)) %>%           
+  spread(axis, trend) 
 
-# join and tidy 
+# 2.3 find average monthly trend 
+mon_trend <- mon_trend_sta %>% 
+  summarise(trend = median(PC1_mon)) # no differnce in trend between PC1 & PC2 
+
+# 2.4 join and tidy 
 decomp_input <- bind_cols(mon_freq, mon_trend) 
 
 rm(mon_freq, mon_trend, eco_join)
 
-# map_dfr causes issues with indexing; using a manual split and combine 
+# 3. make function to decompose into seasonal, trend, & remainder -------------  
+decomp_fun <- function(df) { 
+  arrange(df, .data$Date) %>% 
+  group_by(.data$sta) %>% 
+  time_decompose( 
+    target  = PCval, 
+    data         = ., 
+    method       = "stl", 
+    frequency    = decomp_input$freq, 
+    trend        = decomp_input$trend, 
+    merge        = TRUE, 
+    message      = TRUE 
+    ) %>% 
+  ungroup() %>% 
+  anomalize(remainder, method = "gesd") 
+}
+
+# 3.1 map_dfr causes issues with indexing; using a manual split and combine  
 gage_mon1 <- gage_mon %>% 
   filter(axis == "PC1_mon") 
 
@@ -1160,97 +1169,409 @@ gage_mon2 <- gage_mon %>%
   filter(axis == "PC2_mon") 
 
 gage_mon1 <- decomp_fun(gage_mon1) 
-gage_mon2 <- decomp_fun(gage_mon2)
+gage_mon2 <- decomp_fun(gage_mon2)  
 
 gage_mon <- bind_rows(gage_mon1, gage_mon2) 
-rm(gage_mon1, gage_mon2, decomp_input)
+rm(gage_mon1, gage_mon2, decomp_input) 
 
-
-mon_plot <- gage_mon %>% 
+# 3.2 prepare for plotting by 
+gage_mon <- gage_mon %>% 
+  # Fixes error in rlang::is_quosure(index_quo) 
+  as_tibble() %>%                    
   group_by(ecoreg, Date, axis) %>% 
-  mutate(obs_ave  = mean(observed)) %>%   
-  mutate(seas_ave  = mean(season)) %>% 
-  mutate(trend_ave = mean(trend)) %>% 
-  mutate(remain_ave = mean(remainder)) %>% 
+  mutate(obs_eco  = mean(observed)) %>%   
+  mutate(seas_eco  = mean(season)) %>% 
+  mutate(trend_eco = mean(trend)) %>% 
+  mutate(remain_eco = mean(remainder)) %>% 
+  ungroup() %>% 
+  group_by(ecoreg, axis) %>% 
+  mutate(obs_eco_mean = mean(observed)  
+        ) %>% 
+  arrange(obs_eco_mean) %>% 
   ungroup() 
 
-mon_plot  %>%
-    group_by(ecoreg) %>%
-    summarise(
-        mean = mean(observed), 
-        med  = median(observed)
-        ) %>% 
-  arrange(mean) 
+```
+
+```{r plot-pca}
+# prepare for plotting the PC Axes
+pca_plot <- gage_mon %>% 
+  select(1:10) %>%
+  spread(axis, PCval) %>% 
+  group_by(sta) %>% 
+  mutate(PC1_sta = median(PC1_mon)) %>% 
+  mutate(PC2_sta = median(PC2_mon)) %>% 
+  ungroup() %>% 
+  group_by(ecoreg) %>% 
+  mutate(PC1_ecoreg = median(PC1_mon)) %>% 
+  mutate(PC2_ecoreg = median(PC2_mon)) %>% 
+  ungroup() %>% 
+  mutate(ecoreg = fct_reorder(
+    as.factor(ecoreg), PC1_sta)  # sets up the ordering by pc-axis 
+    ) %>% 
+  mutate(sta = fct_reorder(
+    as.factor(sta), PC1_sta)  # sets up the ordering by pc-axis 
+    ) %>% 
+  mutate(q1_q30_rat = q1_mon / q30_mon)
+
+# Plot PC1 vs PC2 plot 
+pc1_pc2_plot <- pca_plot %>% 
+  ggplot(aes(PC1_mon, PC2_mon)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_point(size = 0.5, 
+          aes(color = as.factor(sta) 
+              )
+          ) + 
+  geom_jitter(aes(PC1_sta, PC2_sta),  # station averages 
+        shape = 3,                   # cross 
+        size = 1.5, 
+    colour = "black") +  
+  geom_point(aes(PC1_ecoreg, PC2_ecoreg),  # ecoregion averages
+             shape = 15,                   # filled square 
+             size = 1.5, 
+    colour = "black") +  
+  geom_segment(data = pca_vars, 
+    aes(x = 0, y = 0, xend = PC1, yend = PC2),  # pc eigenvectors 
+    arrow = arrow(length = unit(0.03, "npc"))
+    ) + 
+  geom_text(data = pca_vars, 
+               size = 3,  
+               nudge_x = 0.5, 
+               nudge_y = -0.1, 
+                hjust = 'outside', 
+               aes(x = PC1, y = PC2, label = labels)
+            ) +   
+  scale_y_continuous(limits = c(-1, 2.5)) + 
+  theme_bw() + 
+  theme(legend.position="none")  + 
+  labs(title = "Principal components of mean daily streamflow for water years 1980-2017", 
+       subtitle = "Monthly averages of N = 42 stations") + 
+  xlab("PC1 axis (94.8%)") + 
+  ylab("PC2 axis (4.5%)")
+
+
+pc1_q7_plot <-pca_plot %>% 
+  ggplot(aes(y =PC1_mon, x = q7_mon))  + 
+  geom_jitter(aes(color = as.factor(sta)), 
+             size = 0.7) + 
+  geom_smooth(method = "lm", 
+              color = "black", 
+              size = 0.7) + 
+  facet_wrap( ~ ecoreg) + 
+  theme_bw() + 
+  scale_x_log10() + 
+  theme(legend.position="none") + 
+  xlab("7-day mean daily flow") + 
+  ylab("PC1 axis (94.8%)") 
+
+pc2_q_diff_plot <- pca_plot %>% 
+  ggplot(aes(y =PC2_mon, x = q1_q30_rat))  + 
+  geom_jitter(aes(color = as.factor(sta)), 
+             size = 0.7) + 
+  geom_smooth(method = "lm", 
+              color = "black", 
+              size = 0.7) +
+  facet_wrap( ~ ecoreg) + 
+  theme_bw() +
+  scale_x_log10() + 
+  theme(legend.position="none") + 
+  xlab("Ratio between 1-day and 30-day mean daily flow ratio") + 
+  ylab("PC2 axis (4.5%)") 
+
+plot_grid(
+  pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot, 
+  ncol = 1, 
+  align = "v"
+)
+
+ggsave2("figure/pc_plot.png", 
+        units = "in", 
+        width = 7, 
+        height = 9)
+```
+
+```{r}
+
+pca_plot %>% 
+  ggplot(aes(y =PC2_mon, x = q30_q1_mon + 0.1))  + 
+  geom_jitter(aes(color = as.factor(sta)), 
+             size = 0.7) + 
+  geom_smooth(method = "loess", 
+              color = "black", 
+              size = 0.7) +
+  facet_wrap( ~ ecoreg) + 
+  theme_bw() +
+  scale_x_log10() + 
+#  scale_y_log10() + 
+  theme(legend.position="none") + 
+  xlab("1-day mean daily flow") + 
+  ylab("PC2 axis (4.5%)") 
+
+
+# Prepare for PC1 vs Q 
+#pca_plot2 <- pca_plot %>% 
+#  select(sta:PC1_mon) %>% 
+#  select(-q30_q1_mon) %>% 
+#  gather(type, val, -c(sta, Date, waterYear, ecoreg, PC1_mon)) %>% 
+#  mutate(type = as.factor(type)) %>% 
+  # sets up the ordering by pc-axis 
+#  mutate(type = fct_relevel(type, c("q1_mon", "q7_mon", "q30_mon"))  
+#    ) 
+
+
+#pca_plot2 %>% 
+#  ggplot(aes(x =PC1_mon, y = val))  + 
+#  geom_jitter(aes(color = as.factor(sta))) + 
+#  geom_smooth(method = "lm", color = "black", size = 0.5) +
+#  scale_y_log10() +  
+#  facet_grid(type ~ ecoreg) + 
+#  theme_bw() + 
+#  xlab("Mean monthly PC1 value") + 
+#  theme(legend.position="none")  
+```
+
+```{r pc2_vs_q1_q30_rat}
+
 
 ```
 
-```{r plot_time-series}
 
 
 
-p1 <- mon_plot %>% 
-  filter(axis == "PC2_mon") %>% 
+
+```{r}
+pca_plot %>% 
+  ggplot(aes(y =PC2_mon, x = q30_q1_mon))  + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  facet_wrap( ~ ecoreg) + 
+  theme_bw() +
+  scale_x_log10()
+```
+
+```{r plot_time-series_PC1}
+
+# split out the PC1 axis 
+mon_plot_pc1 <- gage_mon %>% 
+    filter(axis == "PC1_mon") 
+
+mon_sum_pc1 <- mon_plot_pc1 %>% 
+#  select(sta, ecoreg, observed, season, trend, remainder) %
+  group_by(ecoreg) %>% 
+  summarize(median_pc1 = round(median(obs_eco), digits = 2), 
+            obs_eco    = median(abs(obs_eco)), 
+            seas_eco   = median(abs(seas_eco)), 
+            trend_eco  = median(abs(trend_eco)), 
+            remain_eco = median(abs(remain_eco)) 
+            ) %>%  
+  mutate(seas_perc   = seas_eco / obs_eco) %>% 
+  mutate(trend_perc  = trend_eco / obs_eco) %>% 
+  mutate(remain_perc = remain_eco / obs_eco) %>% 
+  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
+  # readjust to 100% 
+  mutate(interann_var   = round(seas_perc / sum, digits = 2)) %>% 
+  mutate(multi_yr_var  = round(trend_perc / sum, digits = 2)) %>% 
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
+  ungroup() %>% 
+  select(ecoreg, median_pc1, interann_var, multi_yr_var, remainder)
+
+# PC1-observation plot 
+pc1_obs <- mon_plot_pc1 %>% 
   ggplot(aes(Date, observed)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size = 1, 
+  facet_wrap(~ ecoreg) +   
+  geom_line(size = 0.5, 
             colour = "grey"
             ) + 
-  geom_line(aes(Date, obs_ave), 
-            size = 0.5, 
+  geom_line(aes(Date, obs_eco), 
+            size = 0.3, 
             colour = "black"
             ) + 
-  scale_y_continuous(limits = c(-1, 2.5)) + 
-  theme_bw() 
-
-p2 <- mon_plot %>% 
-  filter(axis == "PC2_mon") %>% 
+#  scale_y_continuous(limits = c(-1, 2.5)) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("")
+  
+# PC1-seasons plot 
+pc1_seas  <- mon_plot_pc1 %>% 
   ggplot(aes(Date, season)) + 
   facet_wrap(~ ecoreg) + 
-  geom_line(size = 1, 
+  geom_line(size = 0.5, 
             colour = "grey"
             ) + 
-  geom_line(aes(Date, seas_ave), 
-            size = 0.5, 
+  geom_line(aes(Date, seas_eco), 
+            size = 0.3, 
             colour = "black"
             ) + 
-  scale_y_continuous(limits = c(-1, 2.5)) + 
-#  scale_y_continuous(limits = c(-2.5, 5)) + 
-  theme_bw() 
+#  scale_y_continuous(limits = c(-1, 2.5)) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") 
 
-p3 <- mon_plot %>% 
-  filter(axis == "PC2_mon") %>% 
+# PC1-trend plot 
+pc1_trend  <- mon_plot_pc1 %>% 
   ggplot(aes(Date, trend)) + 
   facet_wrap(~ ecoreg) + 
-  geom_line(size = 1, 
+  geom_line(size = 0.5, 
             colour = "grey"
             ) + 
-  geom_line(aes(Date, trend_ave), 
-            size = 0.5, 
+  geom_line(aes(Date, trend_eco), 
+            size = 0.3, 
             colour = "black"
             ) + 
-#  scale_y_continuous(limits = c(-5, 5)) + 
-  theme_bw() 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") 
 
-
-p4 <- mon_plot %>% 
-  filter(axis == "PC1_mon") %>% 
+# PC1 - remainder plot 
+pc1_remainder <- mon_plot_pc1 %>% 
   ggplot(aes(Date, remainder)) + 
   facet_wrap(~ ecoreg) + 
-  geom_line(size = 1, 
+  geom_line(size =  0.5, 
             colour = "grey"
             ) + 
-  geom_line(aes(Date, remain_ave), 
-            size = 0.5, 
+  geom_line(aes(Date, remain_eco), 
+            size = 0.3, 
             colour = "black"
             ) + 
-#  scale_y_continuous(limits = c(-5, 5)) + 
-  theme_bw() 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") 
 
-p4
+
+plot_grid(
+  pc1_obs, pc1_seas, pc1_trend, pc1_remainder, 
+  ncol = 1, 
+  align = "v"
+)
+
+
+ggsave2("figure/pc1-deconv.png", 
+        units = "in", 
+        width = 7, 
+        height = 9)
+
+```
+
+```{r plot_time-series_PC2}
+
+# split out the PC1 axis 
+mon_plot_pc2 <- gage_mon %>% 
+    filter(axis == "PC2_mon") %>% 
+  mutate(ecoreg = fct_reorder(
+    as.factor(ecoreg), obs_eco_mean)  # sets up the ordering by pc-axis 
+    ) 
+
+mon_sum_pc2 <- mon_plot_pc2 %>% 
+#  select(sta, ecoreg, observed, season, trend, remainder) %
+  group_by(ecoreg) %>% 
+  summarize(median_pc2 = round(median(obs_eco), digits = 2), 
+            obs_eco    = median(abs(obs_eco)), 
+            seas_eco   = median(abs(seas_eco)), 
+            trend_eco  = median(abs(trend_eco)), 
+            remain_eco = median(abs(remain_eco)) 
+            ) %>% 
+  mutate(seas_perc   = seas_eco / obs_eco) %>% 
+  mutate(trend_perc  = trend_eco / obs_eco) %>% 
+  mutate(remain_perc = remain_eco / obs_eco) %>% 
+  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
+  # readjust to 100% 
+  mutate(interann_var   = round(seas_perc / sum, digits = 2)) %>% 
+  mutate(multi_yr_var  = round(trend_perc / sum, digits = 2)) %>% 
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>%
+  ungroup() %>% 
+  select(ecoreg, median_pc2, interann_var, multi_yr_var, remainder)
+
+# PC2-observation plot 
+pc2_obs <- mon_plot_pc2 %>% 
+  ggplot(aes(Date, observed)) + 
+  facet_wrap(~ ecoreg) +   
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, obs_eco), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-0.5, 2.5)) + 
+  theme_bw() + 
+  xlab("")
+
+# PC2-seasons plot 
+pc2_seas  <- mon_plot_pc2 %>% 
+  ggplot(aes(Date, season)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, seas_eco), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-0.5, 2.5)) + 
+  theme_bw() + 
+  xlab("") 
+
+pc2_seas 
+
+# PC2-trend plot 
+pc2_trend  <- mon_plot_pc2 %>% 
+  ggplot(aes(Date, trend)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, trend_eco), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-0.5, 2.5)) + 
+  theme_bw() + 
+  xlab("") 
+
+pc2_trend 
+
+# PC2 - remainder plot 
+pc2_remainder <- mon_plot_pc2 %>% 
+  ggplot(aes(Date, remainder)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size =  0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, remain_eco), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-0.5, 2.5)) + 
+  theme_bw() + 
+  xlab("") 
+
+pc2_remainder 
+
+plot_grid(
+  pc2_obs, pc2_seas, pc2_trend, pc2_remainder, 
+  ncol = 1, 
+  align = "v"
+)
+
+
+ggsave2("figure/pc2-deconv.png", 
+        units = "in", 
+        width = 7, 
+        height = 9)
 
 ```
 
 
+```{r}
+mon_plot_pc2 <- gage_mon %>% 
+    filter(axis == "PC2_mon") 
+
+```
+
+```{r}
+boxplot(Sepal.Width ~ Species, data = iris) 
+boxplot(Sepal.Width ~ fct_reorder(Species, Sepal.Width), data = iris)
+boxplot(Sepal.Width ~ fct_reorder(Species, Sepal.Width, .desc = TRUE), data = iris)
+```
 
 
 
