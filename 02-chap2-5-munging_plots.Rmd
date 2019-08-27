@@ -901,9 +901,7 @@ gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%
 rm(gage_contrib_area)  
 ```
 
-
-# START FIX 
-```{r PCA}  
+```{r PCA-calculations}  
  
 # 1. Prepare to approach normality using forcast::BoxCox ---------------------  
 
@@ -969,8 +967,6 @@ export(pca_vars, "data/pca_vars.csv")
 #NEED TO SAVE OTHER RESULTS 
 
 ```
-
-
 
 ```{r add-ecoregions, eval=FALSE}
 
@@ -1273,18 +1269,18 @@ gage_mon <- gage_mon %>%
 pca_plot <- gage_mon %>% 
   select(1:10) %>% 
   spread(axis, PCval) %>% 
-  mutate(q1_q30_rat = q1_mon / q30_mon) %>% 
+#  mutate(q1_q30_rat = q1_mon / q30_mon) %>% 
   group_by(sta) %>%  
   mutate(PC1_sta = mean(PC1_mon)) %>% 
   mutate(PC2_sta = mean(PC2_mon)) %>% 
   mutate(q7_sta = mean(q7_mon)) %>% 
-  mutate(q1_q30_sta = mean(q1_q30_rat)) %>% 
+  mutate(q30_q1_sta = mean(q30_q1_mon)) %>% 
   ungroup() %>% 
   group_by(ecoreg) %>% 
   mutate(PC1_ecoreg = mean(PC1_mon)) %>% 
   mutate(PC2_ecoreg = mean(PC2_mon)) %>% 
   mutate(q7_ecoreg = mean(q7_mon)) %>% 
-  mutate(q1_q30_ecoreg = mean(q1_q30_rat)) %>% 
+  mutate(q30_q1_ecoreg = mean(q30_q1_mon)) %>% 
   ungroup() %>%  
   arrange(PC1_ecoreg) %>% 
   mutate(ecoreg = fct_reorder( 
@@ -1293,7 +1289,12 @@ pca_plot <- gage_mon %>%
   arrange(PC1_sta) %>%   
   mutate(sta = fct_reorder( 
     as.factor(sta), PC1_sta)  # sets up the ordering by pc-axis 
-    ) 
+    ) %>% 
+  mutate()
+
+test <- pca_plot %>% 
+  filter(q30_q1_mon == 0)
+
 
 # Plot PC1 vs PC2 plot 
 pc1_pc2_plot <- pca_plot %>% 
@@ -1355,7 +1356,7 @@ pc1_q7_plot <-pca_plot %>%
   ylab("PC1 axis (94.8%)") 
 
 pc2_q_diff_plot <- pca_plot %>% 
-  ggplot(aes(y =PC2_mon, x = q1_q30_rat))  + 
+  ggplot(aes(y =PC2_mon, x = q30_q1_mon))  + 
   geom_jitter(size = 0.7, 
 #      aes(color = as.factor(sta)), 
               color = "gray" 
@@ -1363,11 +1364,11 @@ pc2_q_diff_plot <- pca_plot %>%
   geom_smooth(method = "lm", 
               color = "black", 
               size = 0.7) + 
-  geom_jitter(aes(q1_q30_sta, PC2_sta),  # station averages 
+  geom_jitter(aes(q30_q1_sta, PC2_sta),  # station averages 
         shape = 3,                   # cross 
         size = 1.5, 
     colour = "black") +  
-  geom_point(aes(q1_q30_ecoreg, PC2_ecoreg),  # ecoregion averages 
+  geom_point(aes(q30_q1_ecoreg, PC2_ecoreg),  # ecoregion averages 
              shape = 15,                   # filled square 
              size = 1.5, 
     colour = "black") +  
@@ -1375,8 +1376,11 @@ pc2_q_diff_plot <- pca_plot %>%
   theme_bw() + 
   scale_x_log10() + 
   theme(legend.position="none") + 
-  xlab("Ratio between 1-day and 30-day mean daily flow depths") + 
+  xlab("Difference between 30-day and 1-day mean daily flow depths") + 
   ylab("PC2 axis (4.5%)") 
+
+
+pc2_q_diff_plot
 
 plot_grid( 
   pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot, 
