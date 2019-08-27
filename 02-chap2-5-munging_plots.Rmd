@@ -1065,8 +1065,9 @@ eco_join <- ecoreg %>%
   select(sta = sta_id, ecoreg = ecoreg_wtsd) 
 
 gage_dv <- full_join(gage_dv, eco_join, 
-                  by = "sta")
+                  by = "sta") 
 
+rm(eco_join, ecoreg) 
 ``` 
 
 ```{r deconvolute_pca}
@@ -1171,13 +1172,91 @@ gage_mon2 <- gage_mon %>%
 gage_mon1 <- decomp_fun(gage_mon1) 
 gage_mon2 <- decomp_fun(gage_mon2)  
 
-gage_mon <- bind_rows(gage_mon1, gage_mon2) 
+
+# Fix error in rlang::is_quosure(index_quo) 
+gage_mon <- bind_rows(gage_mon1, gage_mon2) %>% 
+  as_tibble()   
+
 rm(gage_mon1, gage_mon2, decomp_input) 
 
-# 3.2 prepare for plotting by 
+rm(mon_trend_sta) 
+```
+
+```{r pca_table} 
+
+# summarize observations of the time series into observations for a summary table 
+mon_sum_gath <- gage_mon %>% 
+  group_by(ecoreg, axis) %>% 
+  summarize(value = round(mean(observed), digits = 2), 
+            obs_eco    = mean(abs(observed)), 
+            seas_eco   = mean(abs(season)), 
+            trend_eco  = mean(abs(trend)), 
+            remain_eco = mean(abs(remainder)) 
+            ) %>%  
+  ungroup() %>% 
+  mutate(seas_perc   = seas_eco / obs_eco) %>% 
+  mutate(trend_perc  = trend_eco / obs_eco) %>% 
+  mutate(remain_perc = remain_eco / obs_eco) %>% 
+  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
+  # readjust to 100% 
+  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>% 
+  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>% 
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
+  mutate(axis = str_remove_all(axis, "_mon")) %>% 
+  arrange(axis, value) %>% 
+  select(-c(obs_eco:sum)) 
+
+# split & mutate column names by PC  
+mon_sum_pc1 <- mon_sum_gath %>% 
+  filter(axis == "PC1") %>% 
+  select(-axis) %>% 
+  rename_all(function(x) paste0("PC1_", x)) 
+ 
+mon_sum_pc2 <- mon_sum_gath %>% 
+  filter(axis == "PC2") %>% 
+  select(-axis) %>% 
+  rename_all(function(x) paste0("PC2_", x)) 
+
+# find averages across all the stations 
+mon_sum_pc1_all <- gage_mon %>% 
+  filter(axis == "PC1_mon") %>% 
+  summarize(value = round(mean(observed), digits = 2), 
+            obs_eco    = mean(abs(observed)), 
+            seas_eco   = mean(abs(season)), 
+            trend_eco  = mean(abs(trend)), 
+            remain_eco = mean(abs(remainder)) 
+            ) %>%  
+  mutate(seas_perc   = seas_eco / obs_eco) %>% 
+  mutate(trend_perc  = trend_eco / obs_eco) %>% 
+  mutate(remain_perc = remain_eco / obs_eco) %>% 
+  mutate(sum = seas_perc + trend_perc + remain_perc)  %>% 
+  # readjust to 100% 
+  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>% 
+  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>% 
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
+#  mutate(axis = str_remove_all(axis, "_mon")) #%>% 
+#  arrange(axis, value) %>% 
+  select(-c(obs_eco:sum)) %>% 
+  mutate(ecoreg = "All Stations") %>% 
+  rename_all(function(x) paste0("PC1_", x)) 
+  
+  
+mon_sum <- bind_rows(mon_sum_pc1_all, mon_sum_pc1) %>% 
+  select(ecoreg = PC1_ecoreg, everything()) 
+
+rm(mon_sum_gath) 
+
+``` 
+
+
+
+```{r}
+
+pca_vars <- import("data/pca_vars.csv")   
+
+
+# prepare for plotting by 
 gage_mon <- gage_mon %>% 
-  # Fixes error in rlang::is_quosure(index_quo) 
-  as_tibble() %>%                    
   group_by(ecoreg, Date, axis) %>% 
   mutate(obs_eco  = mean(observed)) %>%   
   mutate(seas_eco  = mean(season)) %>% 
@@ -1190,31 +1269,28 @@ gage_mon <- gage_mon %>%
   arrange(obs_eco_mean) %>% 
   ungroup() 
 
-```
-
-```{r plot-pca} 
-
-
 # prepare for plotting the PC Axes 
 pca_plot <- gage_mon %>% 
   select(1:10) %>% 
   spread(axis, PCval) %>% 
   mutate(q1_q30_rat = q1_mon / q30_mon) %>% 
   group_by(sta) %>%  
-  mutate(PC1_sta = median(PC1_mon)) %>% 
-  mutate(PC2_sta = median(PC2_mon)) %>% 
-  mutate(q7_sta = median(q7_mon)) %>% 
-  mutate(q1_q30_sta = median(q1_q30_rat)) %>% 
+  mutate(PC1_sta = mean(PC1_mon)) %>% 
+  mutate(PC2_sta = mean(PC2_mon)) %>% 
+  mutate(q7_sta = mean(q7_mon)) %>% 
+  mutate(q1_q30_sta = mean(q1_q30_rat)) %>% 
   ungroup() %>% 
   group_by(ecoreg) %>% 
-  mutate(PC1_ecoreg = median(PC1_mon)) %>% 
-  mutate(PC2_ecoreg = median(PC2_mon)) %>% 
-  mutate(q7_ecoreg = median(q7_mon)) %>% 
-  mutate(q1_q30_ecoreg = median(q1_q30_rat)) %>% 
+  mutate(PC1_ecoreg = mean(PC1_mon)) %>% 
+  mutate(PC2_ecoreg = mean(PC2_mon)) %>% 
+  mutate(q7_ecoreg = mean(q7_mon)) %>% 
+  mutate(q1_q30_ecoreg = mean(q1_q30_rat)) %>% 
   ungroup() %>%  
+  arrange(PC1_ecoreg) %>% 
   mutate(ecoreg = fct_reorder( 
-    as.factor(ecoreg), PC1_sta)  # sets up the ordering by pc-axis 
+    as.factor(ecoreg), PC1_ecoreg)  # sets up the ordering by pc-axis 
     ) %>% 
+  arrange(PC1_sta) %>%   
   mutate(sta = fct_reorder( 
     as.factor(sta), PC1_sta)  # sets up the ordering by pc-axis 
     ) 
@@ -1312,19 +1388,22 @@ ggsave2("figure/pc_plot.png",
         units = "in",  
         width = 7, 
         height = 9) 
+
+rm(pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot) 
 ```
 
 
 ```{r plot_time-series_PC1}
 
+# prepare to order time series plot 
+pca_plot <- pca_plot %>% 
+    arrange(PC1_ecoreg) 
+  
 # split out the PC1 axis 
 mon_plot_pc1 <- gage_mon %>% 
     filter(axis == "PC1_mon") %>% 
-  mutate(ecoreg = fct_reorder(
-    as.factor(ecoreg), pca_plot$PC1_sta)  # sets up the ordering by pc-axis 
-    ) %>% 
-  mutate(sta = fct_reorder(
-    as.factor(sta), pca_plot$PC1_sta)  # sets up the ordering by pc-axis 
+  mutate(ecoreg = fct_reorder(      # sets up the ordering by pc-axis 
+    as.factor(ecoreg), pca_plot$PC1_ecoreg)  
     ) 
 
 # filter anomonies to plot below   
@@ -1413,79 +1492,14 @@ ggsave2("figure/pc1-deconv.png",
         width = 7, 
         height = 9)
 
+
 rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder) 
 ```
 
-```{r}
-# summarize observations of the time series into observations for a summary table 
 
 
 
-mon_sum_pc1_eco <- mon_plot_pc1 %>% 
-#  select(sta, ecoreg, observed, season, trend, remainder) %
-  group_by(ecoreg) %>% 
-  summarize(median_pc1 = round(median(obs_eco), digits = 2), 
-            obs_eco    = median(abs(obs_eco)), 
-            seas_eco   = median(abs(seas_eco)), 
-            trend_eco  = median(abs(trend_eco)), 
-            remain_eco = median(abs(remain_eco)) 
-            ) %>%  
-  mutate(seas_perc   = seas_eco / obs_eco) %>% 
-  mutate(trend_perc  = trend_eco / obs_eco) %>% 
-  mutate(remain_perc = remain_eco / obs_eco) %>% 
-  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
-  # readjust to 100% 
-  mutate(interann_var   = round(seas_perc / sum, digits = 2)) %>% 
-  mutate(multi_yr_var  = round(trend_perc / sum, digits = 2)) %>% 
-  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
-  ungroup() %>% 
-  select(ecoreg, median_pc1, interann_var, multi_yr_var, remainder)
-
-
-mon_sum_pc1_all <- mon_plot_pc1 %>% 
-  summarize(median_pc1 = round(mean(observed), digits = 2), 
-            obs_eco    = mean(abs(observed)), 
-            seas_eco   = mean(abs(season)), 
-            trend_eco  = mean(abs(trend)), 
-            remain_eco = mean(abs(remainder)) 
-            ) %>%  
-  mutate(seas_perc   = seas_eco / obs_eco) %>% 
-  mutate(trend_perc  = trend_eco / obs_eco) %>% 
-  mutate(remain_perc = remain_eco / obs_eco) %>% 
-  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
-  # readjust to 100% 
-  mutate(interann_var   = round(seas_perc / sum, digits = 2)) %>% 
-  mutate(multi_yr_var  = round(trend_perc / sum, digits = 2)) %>% 
-  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
-  mutate(ecoreg = "all stations") %>% 
-  select(ecoreg, median_pc1, interann_var, multi_yr_var, remainder)
-
-
-
-mon_sum_pc1 <- mon_plot_pc1 %>% 
-#  select(sta, ecoreg, observed, season, trend, remainder) %
-  group_by(ecoreg) %>% 
-  summarize(median_pc1 = round(mean(obs_eco), digits = 2), 
-            obs_eco    = median(abs(obs_eco)), 
-            seas_eco   = median(abs(seas_eco)), 
-            trend_eco  = median(abs(trend_eco)), 
-            remain_eco = median(abs(remain_eco)) 
-            ) %>%  
-  mutate(seas_perc   = seas_eco / obs_eco) %>% 
-  mutate(trend_perc  = trend_eco / obs_eco) %>% 
-  mutate(remain_perc = remain_eco / obs_eco) %>% 
-  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
-  # readjust to 100% 
-  mutate(interann_var   = round(seas_perc / sum, digits = 2)) %>% 
-  mutate(multi_yr_var  = round(trend_perc / sum, digits = 2)) %>% 
-  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
-  ungroup() %>% 
-  select(ecoreg, median_pc1, interann_var, multi_yr_var, remainder)
-
-```
-
-
-```{r plot_time-series_PC2}
+```{r plot_time-series_PC2, eval=FALSE}
 
 # split out the PC1 axis 
 mon_plot_pc2 <- gage_mon %>% 
@@ -1595,22 +1609,10 @@ ggsave2("figure/pc2-deconv.png",
 ```
 
 
-```{r}
-mon_plot_pc2 <- gage_mon %>% 
-    filter(axis == "PC2_mon") 
-
-```
-
-```{r}
-boxplot(Sepal.Width ~ Species, data = iris) 
-boxplot(Sepal.Width ~ fct_reorder(Species, Sepal.Width), data = iris)
-boxplot(Sepal.Width ~ fct_reorder(Species, Sepal.Width, .desc = TRUE), data = iris)
-```
 
 
 
-
-```{r summarize-results-PCA}
+```{r summarize-results-PCA_delete,eval=FALSE}
 
 #  4. Create summaries of the results ----------------------------------------
 
@@ -1645,7 +1647,7 @@ pca_sum <- gage_dv %>%
   arrange(PC1_mean)  
 ```
 
-```{r pc-plot} 
+```{r pc-plot_delete,eval=FALSE} 
 
 
 
