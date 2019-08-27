@@ -7,7 +7,7 @@ output: html_document
 
 <!--
 Purpose: 
-1) Develop tables and plots for the study area description section of Chapter 2 
+1) Develop tables and plots for Chapter 2 
 2) Refactor prior code 
 
 Data:
@@ -160,7 +160,6 @@ gage_raw          the "raw" data, after removing the NA Qvals
 gage_dv_gath      scratch variable, gathers the Q, Q7, Q30 
 gage_dv_low       censored zero flows (q_val < 0.01)
 gage_dv_high      filtered non-zero flows -> join flows 
-lambda_qval       BoxCox lambda value for qval 
 gage_contrib_area used for converting Q [m3/s] -> q [m/day]
 
 gage_dv           the "main" daily mean flow values used in this .Rmd file 
@@ -172,6 +171,40 @@ gage_dv           the "main" daily mean flow values used in this .Rmd file
   _q30_depth      30-day running average of q_depth 
 
 pca_input         prcomp() input using gage_dv 
+pca_matrix        the matrix created by prcomp() 
+lambda_q1         lambda values for BoxCox transform prior to PCA 
+lambda_q7  
+lambda_q30 
+pca_eigen         results about PC axes -- the eigenvalues
+pca_vars          results about PC rotation -- magnitude and direction of vars  
+
+ecoreg            shapefile data of intersection of watershed area & 
+                    merged SD, NE, WY ecoregions 
+eco_join          join variable for ecoreg & gage_dv 
+
+gage_mon          monthly dv depths used in decomposing PC eigens into trend, 
+                    seasonal, & random comps 
+mon_freq          'anomolize' parameter to remove season from observed vals  
+mon_trend          'anomolize' parameter to remove trend from observed vals 
+decomp_input      input for 'anomolize' decomp function 
+decomp_fun        function to decompose into seasonal, trend, & remainder vals 
+
+mon_sum           summary table of PC1 & seasonal, trend explained 
+mon_sum_gath      prepares to summarize monthly data 
+mon_sum_pc1       summary PC1 & seasonal, trend explained by ecoregion 
+mon_sum_pc2       summary PC2 & seasonal, trend explained by ecoregion  
+mon_sum_pc1_all   summary PC1 & seasonal, trend explained by station 
+  
+pca_plot          prepares PCA data for plotting 
+pc1_pc2_plot      ggplot PC1 vs PC2 plot  
+pc1_q7_plot       ggplot PC1 vs q7 plot  
+pc2_q_diff_plot   ggplot PC2 vs q_diff plot  
+
+mon_plot_pc1     prepares PC1 data for plotting 
+pc1_obs          ggplot of PC1 observations vs time 
+pc1_seas         ggplot of PC1 seasons vs time 
+pc1_trend        ggplot of PC1 trend vs time 
+pc1_remainder    ggplot of PC1 remainder vs time  
 
 
 --> 
@@ -767,7 +800,7 @@ rm(gage_table, soils_table, ung_table, tables_ch2)
 ```
 
 ```{r clean_daily_flow, eval=FALSE} 
- 
+  
 # this is a small amount of code duplication to reduce API calls  
 
 gage_dv <- import("data/gage_dv_posthoc.csv") 
@@ -779,7 +812,7 @@ gage_meta <- import("data/gage_meta_posthoc.csv") %>%
 gage_dv <- gage_dv %>% 
   filter(!is.na(Q30) & 
            !is.na(Q7) & 
-           !is.na(Q) 
+           !is.na(Q)  
          )  
 
 gage_check <- gage_dv %>% 
@@ -800,7 +833,7 @@ gage_check <- gage_dv %>%
 gage_dv <- gage_dv %>% 
   filter(Qualifier == "A"   |  
          Qualifier == "A:e" |  
-         Qualifier == "A:<"
+         Qualifier == "A:<" 
          )   
 
 gage_check <- gage_dv %>% 
@@ -819,7 +852,7 @@ rm(gage_check)
 ``` 
 
 ```{r censor_low_flows, message=FALSE} 
- 
+  
 # fix low flows ---- this step needed for the PCA  
 #   EGRET calculates a "better" zero-flow value, but causes issues with results  
 #   this code chunk fixes low flow values by substituting 0.01 cfs  
@@ -860,7 +893,7 @@ rm(gage_dv_gath, gage_dv_high, gage_dv_low)
 ``` 
 
 ```{r convert_flow_to_depth, message=FALSE} 
- 
+  
 # 1. calculate contributing drainage area in square kilometers & sec/day   
 gage_contrib_area <- gage_meta %>%  
   select(sta, drain_area_va, contrib_drain_area_va) %>% 
@@ -963,8 +996,6 @@ gage_dv <- augment(pca_matrix, data = gage_dv) %>%
 export(gage_dv, "data/gage_dv_posthoc.csv")  
 export(pca_eigen, "data/pca_eigen.csv")  
 export(pca_vars, "data/pca_vars.csv")  
-
-#NEED TO SAVE OTHER RESULTS 
 
 ```
 
@@ -1244,9 +1275,7 @@ rm(mon_sum_gath)
 
 ``` 
 
-
-
-```{r}
+```{r plot pca}
 
 pca_vars <- import("data/pca_vars.csv")   
 
@@ -1379,9 +1408,6 @@ pc2_q_diff_plot <- pca_plot %>%
   xlab("Difference between 30-day and 1-day mean daily flow depths") + 
   ylab("PC2 axis (4.5%)") 
 
-
-pc2_q_diff_plot
-
 plot_grid( 
   pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot, 
   ncol = 1, 
@@ -1395,7 +1421,6 @@ ggsave2("figure/pc_plot.png",
 
 rm(pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot) 
 ```
-
 
 ```{r plot_time-series_PC1}
 
