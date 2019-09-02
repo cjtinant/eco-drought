@@ -67,6 +67,52 @@ Approach:
          Note: '.' passes select(q1_tr, q7_tr, q30_tr) %>% to prcomp() 
      - found eigenvectors-- the results about the PC axes
 
+9) construct bootstrap confidence intervals of PC axes to identify a difference 
+     in means. We obtained a 95% confidence interval (95% CI) around the our  
+     estimate of the mean difference. The 95% indicates that any such confidence 
+     interval will capture the population mean difference 95% of the time. 
+     That is to say, we can be 95% confident the interval contains the true mean  
+     of the population.  We can calculated the 95% CI of the mean difference by 
+     performing bootstrap resampling (Bradley Efron).
+
+     The bootstrap creates multiple resamples (with replacement) from a single 
+     set of observations, and computes the effect size of interest on each of 
+     these resamples. The bootstrap resamples of the effect size can then be 
+     used to determine the 95% CI.
+
+     The resampling distribution of the difference in means approaches a normal 
+     distribution. This is due to the Central Limit Theorem: a large number of 
+     independent random samples will approach a normal distribution even if the 
+     underlying population is not normally distributed.
+
+# Bootstrap resampling gives us two important benefits:
+
+# Non-parametric statistical analysis. There is no need to assume that our 
+# observations, or the underlying populations, are normally distributed. 
+# Thanks to the Central Limit Theorem, the resampling distribution of the 
+# effect size will approach a normality.
+# Easy construction of the 95% CI from the resampling distribution. 
+# For 1000 bootstrap resamples of the mean difference, one can use the 25th 
+# value and the 75th value of the ranked differences as boundaries of the 
+# 95% confidence interval. (This captures the central 95% of the distribution.) 
+# Such an interval construction is known as a percentile interval.
+
+# Adjusting for asymmetrical resampling distributions
+# While resampling distributions of the difference in means often have a normal 
+# distribution, it is not uncommon to encounter a skewed distribution. Thus, 
+# Efron developed the bias-corrected and accelerated bootstrap (BCa bootstrap) 
+# to account for the skew, and still obtain the central 95% of the distribution. 
+# dabestr applies the BCa correction to the resampling bootstrap distributions 
+# of the effect size.
+
+# Estimation plots incorporate bootstrap resampling
+# The estimation plot produced by dabest presents the rawdata and the 
+# bootstrap confidence # interval of the effect size (the difference in means) 
+# side-by-side as a single integrated plot. It thus tightly couples visual 
+# presentation of the raw data with an indication of the population mean 
+# difference, and its confidence interval.
+
+
 Next Steps: 
 -- check into stylr-packag
 
@@ -230,10 +276,14 @@ library("ggfortify")              # data vis tools for statistical analysis
 library("stringi")                # character string processing facilities
 library("sf")                     # simple features--spatial geometries for R 
 library("anomalize")              # detect anomalies using the tidyverse 
-library("cowplot")
+library("mclust")
+
+library("dabestr")                # data analysis using bootstrap estimation 
+# usethis::edit_r_environ("project") # used to increase memory allocation 
+#   for dabest()
 
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
-
+# library("cowplot")
 ```
 
 ```{r import_daily_flow_metadata, eval=FALSE} 
@@ -851,7 +901,7 @@ gage_check <- gage_dv %>%
 rm(gage_check)   
 ``` 
 
-```{r censor_low_flows, message=FALSE} 
+```{r censor_low_flows, message=FALSE, eval=FALSE} 
   
 # fix low flows ---- this step needed for the PCA  
 #   EGRET calculates a "better" zero-flow value, but causes issues with results  
@@ -892,8 +942,8 @@ rm(gage_dv_gath, gage_dv_high, gage_dv_low)
 
 ``` 
 
-```{r convert_flow_to_depth, message=FALSE} 
-  
+```{r convert_flow_to_depth, message=FALSE, eval=FALSE} 
+   
 # 1. calculate contributing drainage area in square kilometers & sec/day   
 gage_contrib_area <- gage_meta %>%  
   select(sta, drain_area_va, contrib_drain_area_va) %>% 
@@ -934,12 +984,12 @@ gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%
 rm(gage_contrib_area)  
 ```
 
-```{r PCA-calculations}  
+```{r PCA-calculations, eval=FALSE}  
  
 # 1. Prepare to approach normality using forcast::BoxCox ---------------------  
 
 # make dataframes of lambda values 
-lambda_q1  <- enframe( 
+lambda_q1  <- enframe(  
   BoxCox.lambda(gage_dv$q1_depth)  
   )   
 
@@ -947,14 +997,14 @@ lambda_q7  <- enframe(
   BoxCox.lambda(gage_dv$q7_depth) 
   )   
 
-lambda_q30 <- enframe( 
-  BoxCox.lambda(gage_dv$q30_depth) 
+lambda_q30 <- enframe(  
+  BoxCox.lambda(gage_dv$q30_depth)  
   ) 
 
-# join the dataframes & clean up  
-lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>% 
+# join the dataframes & clean up   
+lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>%  
   select(-c(name1, name2)) %>% 
-  rename(lambda_q1  = value) %>% 
+  rename(lambda_q1  = value) %>%  
   rename(lambda_q7  = value1) %>% 
   rename(lambda_q30 = value2) 
 
@@ -1000,7 +1050,7 @@ export(pca_vars, "data/pca_vars.csv")
 ```
 
 ```{r add-ecoregions, eval=FALSE}
-
+ 
 # 1. import cleaned dv data 
 gage_dv <- import("data/gage_dv_posthoc.csv")  
 
@@ -1094,7 +1144,7 @@ eco_join <- ecoreg %>%
 gage_dv <- full_join(gage_dv, eco_join, 
                   by = "sta") 
 
-rm(eco_join, ecoreg) 
+rm(ecoreg) 
 ``` 
 
 ```{r deconvolute_pca}
@@ -1102,10 +1152,10 @@ rm(eco_join, ecoreg)
 # 1. prep to deconvolute PC eigens into trend, seasonal, & random comps. ---- 
 
 # 1.1. dv plots too busy -- scaling daily flow values into monthly mean depths  
-gage_mon <- gage_dv %>% 
+gage_mon <- gage_dv %>%  
   mutate(yr = year(Date)) %>% 
-  mutate(mon = month(Date)) %>% 
-  mutate(q30_q1_diff = q30_depth - q1_depth) %>%
+  mutate(mon = month(Date)) %>%  
+  mutate(q30_q1_diff = q30_depth - q1_depth) %>% 
   group_by(sta, mon, yr) %>% 
   summarize(waterYear = first(waterYear),   
             q1_mon     = mean(q1_depth), 
@@ -1209,7 +1259,187 @@ rm(gage_mon1, gage_mon2, decomp_input)
 rm(mon_trend_sta) 
 ```
 
-```{r pca_table} 
+
+```{r bootstrap}
+
+# dabest for monthly scale (28,054 obs) takes ~2 hours 
+# calculate 95% CI for PC1 - 'control' is Pierre Shale Plains 
+ci_input_pc1 <- gage_mon %>%  
+  filter(axis == "PC1_mon") %>% 
+  dabest(ecoreg, observed,  
+         idx = c("Pierre Shale Plains", 
+                 "Pine Ridge Escarpment", 
+                 "White River Badlands", 
+                 "Black Hills Plateau", 
+                 "Keya Paha Tablelands", 
+                 "Sand Hills"), 
+         paired = FALSE, 
+         reps = 40000 
+         ) 
+
+ci_input_pc1
+#DABEST (Data Analysis with Bootstrap Estimation) v0.2.2
+#=======================================================
+
+# Variable: observed 
+# 40000 bootstrap resamples.
+# All confidence intervals are bias-corrected and accelerated.
+
+# Unpaired mean difference of: 
+#   Pine Ridge Escarpment (n=4195) minus Pierre Shale Plains (n=1261)
+#   0.385 [95CI  0.304; 0.465]
+
+#   White River Badlands (n=4195) minus Pierre Shale Plains (n=941)
+#   0.75 [95CI  0.65; 0.851]
+
+#   Black Hills Plateau (n=4195) minus Pierre Shale Plains (n=2501)
+#   1.62 [95CI  1.55; 1.68]
+
+#   Keya Paha Tablelands (n=4195) minus Pierre Shale Plains (n=1466)
+#   1.78 [95CI  1.71; 1.84]
+
+#   Sand Hills (n=4195) minus Pierre Shale Plains (n=3663)
+#   2.62 [95CI  2.56; 2.67]
+
+
+
+
+# calculate 95% CI for PC2 - 'control' is Pierre Shale Plains 
+ci_input_pc2 <- gage_mon %>%  
+  filter(axis == "PC2_mon") %>% 
+#  filter(ecoreg == "Pierre Shale Plains") %>% 
+  dabest(ecoreg, observed,  
+         idx = c("Pierre Shale Plains", 
+                 "Pine Ridge Escarpment", 
+                 "White River Badlands", 
+                 "Black Hills Plateau", 
+                 "Keya Paha Tablelands", 
+                 "Sand Hills"), 
+         paired = FALSE, 
+         reps = 40000 
+         ) 
+
+# export results as Rdata files 
+export(ci_input_pc1, "data/dabest_pc1.rdata")  
+
+
+```
+
+```{r bootstrap-swarmplot-pc1}
+plot(ci_input_pc1, rawplot.type = "swarmplot")   
+
+```
+
+```{r stuff}
+ci_input_pc2 
+
+
+export(ci_input_pc2, "data/dabest_pc2.rdata")  
+#DABEST (Data Analysis with Bootstrap Estimation) v0.2.2
+#=======================================================
+
+#Variable: observed 
+
+#Unpaired mean difference of 
+#Pine Ridge Escarpment (n=4195) minus Pierre Shale Plains (n=1261)
+# -0.132 [95CI  -0.15; -0.114]
+
+# White River Badlands (n=4195) minus Pierre Shale Plains (n=941)
+# 0.0399 [95CI  0.0152; 0.0646]
+
+Unpaired mean difference of Black Hills Plateau (n=4195) minus Pierre Shale Plains (n=2501)
+ -0.147 [95CI  -0.16; -0.133]
+
+Unpaired mean difference of Keya Paha Tablelands (n=4195) minus Pierre Shale Plains (n=1466)
+ -0.173 [95CI  -0.188; -0.159]
+
+Unpaired mean difference of Sand Hills (n=4195) minus Pierre Shale Plains (n=3663)
+ -0.0326 [95CI  -0.0463; -0.0191]
+
+
+40000 bootstrap resamples.
+All confidence intervals are bias-corrected and accelerated.
+
+```
+
+```{r bootstrap-swarmplot-pc2}
+plot(ci_input_pc2, rawplot.type = "swarmplot")   
+
+```
+
+
+
+
+```{r new-clust-attempt}
+clust_input <- gage_mon %>% 
+  select(sta, Date, waterYear, axis, remainder) %>% 
+  spread(axis, remainder) 
+
+X <- clust_input %>%                # this gets rid of categorical data for Mclust 
+  select(-c(sta, Date, waterYear))  
+
+
+BIC <- mclustBIC(X) 
+
+mod <- Mclust(X, x = BIC) 
+
+mod_tidy <- tidy(mod) 
+mod_tidy2 <- augment(mod, clust_input) 
+
+
+mod_tidy3 <- mod_tidy2 %>% 
+  group_by(sta, .class, waterYear) %>% 
+  summarise(count = n(), 
+            PC1_mon = mean(PC1_mon), 
+            PC2_mon = mean(PC2_mon), 
+            uncertainty = mean(.uncertainty)
+            ) %>% 
+  ungroup() 
+
+mod_tidy4 <- full_join(mod_tidy3, eco_join)
+
+mod_tidy5 <- full_join(mod_tidy3, mod_tidy4, 
+                       by = "sta") %>% 
+  mutate(prop = count.x / count.y)  %>% 
+  arrange(desc(prop)) %>% 
+  distinct(sta, .keep_all = TRUE) 
+
+
+
+
+
+glance(mod) 
+
+ggplot(mod_tidy4, aes(PC1_mon, PC2_mon)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_jitter(aes(color = .class), 
+              size = 1)  +
+#  geom_point(data = mod_tidy5, 
+ #            aes(PC1_mon, PC2_mon) 
+ #            ) +  
+  theme_bw()  
+
+
+
+plot_class <- fviz_mclust(mod, 
+                          "classification", 
+                          geom = "point", 
+                          ellipse.type = "t", 
+                          ellipse.level = 0.7, 
+                          pointsize = 1.5,  
+                          palatte = "npg"
+                          ) 
+plot_class
+```
+
+
+
+
+
+
+
+
+```{r pca_decomp_table} 
 
 # summarize observations of the time series into observations for a summary table 
 mon_sum_gath <- gage_mon %>% 
@@ -1525,9 +1755,6 @@ ggsave2("figure/pc1-deconv.png",
 rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder) 
 ```
 
-
-
-
 ```{r plot_time-series_PC2, eval=FALSE}
 
 # split out the PC1 axis 
@@ -1638,6 +1865,8 @@ ggsave2("figure/pc2-deconv.png",
 ```
 
 
+
+```
 
 
 
