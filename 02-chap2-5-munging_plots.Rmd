@@ -1541,7 +1541,141 @@ cowplot::ggsave2("figure/pc1-deconv.png",
         height = 9)
 
 
-rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder) 
+rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder, anom_PC1) 
+```
+
+
+
+```{r Mclust}
+
+# monthly clusters 
+clust_input <- gage_mon %>% 
+  select(sta, Date, waterYear, ecoreg, q1_mon, q7_mon, q30_mon) %>% 
+  group_by(sta) %>% 
+  distinct(Date, .keep_all = TRUE) %>% 
+  ungroup() 
+
+
+# Get rid of categorical data for Mclust 
+X <- clust_input %>%           
+  select(-c(sta, Date, waterYear, ecoreg))  
+
+# find Bayesian Information Criterion for mlust 
+BIC <- mclustBIC(X) 
+
+# run Mclust
+mod <- Mclust(X, x = BIC) 
+
+# get Mclust model results 
+mod_glance_mon <-glance(mod) 
+
+#  use broom to tidy up the Mclust model 
+mod_tidy_mon <- tidy(mod)           
+
+# add Mclust model classes to the orig data & add ecoregions 
+mod_tidy_mon <- augment(mod, gage_mon)  
+
+# sample cluster plot 
+factoextra::fviz_mclust(mod, 
+                          "classification", 
+                          geom = "point", 
+                          ellipse.type = "t", 
+                          ellipse.level = 0.7, 
+                          pointsize = 1.5,  
+                          palatte = "npg"
+                          ) 
+
+```
+
+
+
+
+```{r Mclust-plot}
+
+# prepare for plotting - reorganize flow by centroids 
+mod_tidy_sum <- mod_tidy_mon %>% 
+  group_by(.class) %>% 
+  summarize(q1_flow = mean(q1_mon), 
+            q7_flow = mean(q7_mon), 
+            q30_flow = mean(q30_mon),
+            PC1_flow = mean(mon_PC1), 
+            PC2_flow = mean(mon_PC2)            
+            ) %>% 
+  ungroup() %>% 
+  arrange(q1_flow) %>% 
+  mutate(flow_type = c("type1", "type2", "type3", 
+                       "type4", "type5", "type6", 
+                       "type7", "type8", "type9")
+         ) 
+
+# join flow_type to tidy cluster model 
+mod_tidy_mon <- full_join(mod_tidy_mon, mod_tidy_sum,  by = ".class") %>% 
+  group_by(.class, ecoreg) %>% 
+  mutate(q1_flow_eco = mean(q1_mon)) %>% 
+  mutate(q7_flow_eco = mean(q7_mon)) %>%  
+  mutate(q30_flow_eco = mean(q30_mon))  %>% 
+  mutate(PC1_flow_eco = mean(mon_PC1)) %>% 
+  mutate(PC2_flow_eco = mean(mon_PC2)) %>%  
+  ungroup() %>% 
+  mutate(flow_type = as.factor(flow_type))
+
+
+# plot clusters by ecoregion
+mclust_eco_plot  <-mod_tidy_mon %>%  
+ggplot(aes(mon_PC1, mon_PC2)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_jitter(
+    aes(color = flow_type), 
+              size = 2)  + 
+# map the title of the geom for the legend  
+#  scale_shape_discrete(name="Ecoregion") + 
+  scale_color_hue(name="Flow type") +
+  geom_point(
+    aes(ecoreg_PC1, ecoreg_PC2),
+   show.legend=FALSE, 
+    color = "black", 
+        shape = 3,                   # cross 
+              size = 2.5)  + 
+  theme_bw() + 
+  xlab("PC1 axis (94.8%)") + 
+  ylab("PC2 axis (4.5%)") + 
+  theme(legend.position="bottom") 
+
+# plot clusters by flow type 
+mclust_flow_plot  <- mod_tidy_mon %>%  
+ggplot(aes(mon_PC1, mon_PC2)) + 
+  facet_wrap(~ flow_type) + 
+  geom_jitter(
+    aes(shape = ecoreg, color = ecoreg), 
+              size = 2)  + 
+# map the title of the geom for the legend  
+  scale_shape_discrete(name="Ecoregion") + 
+  scale_color_discrete(name="Ecoregion") +
+  geom_point(
+    aes(PC1_flow_eco, PC2_flow_eco, 
+      shape = ecoreg),
+   show.legend=FALSE, 
+    color = "black", 
+              size = 3)  + 
+  theme_bw() + 
+  xlab("PC1 axis (94.8%)") + 
+  ylab("PC2 axis (4.5%)") + 
+  theme(legend.position="bottom") 
+
+# plot grid of ggplots 
+cowplot::plot_grid( 
+  mclust_eco_plot,
+  mclust_flow_plot, 
+  ncol = 1, 
+  align = "v" 
+) 
+
+cowplot::ggsave2("figure/mclust_plot.png", 
+        units = "in",  
+        width = 7, 
+        height = 9) 
+
+rm(mclust_flow_plot, mclust_eco_plot) 
 ```
 
 ```{r bootstrap}
@@ -1652,129 +1786,84 @@ plot(ci_input_pc2, rawplot.type = "swarmplot")
 ```
 
 
-```{r Mclust}
-
-# monthly clusters 
-clust_input <- gage_mon %>% 
-  select(sta, Date, waterYear, ecoreg, q1_mon, q7_mon, q30_mon) %>% 
-  group_by(sta) %>% 
-  distinct(Date, .keep_all = TRUE) %>% 
-  ungroup() 
-
-
-# Get rid of categorical data for Mclust 
-X <- clust_input %>%           
-  select(-c(sta, Date, waterYear, ecoreg))  
-
-# find Bayesian Information Criterion for mlust 
-BIC <- mclustBIC(X) 
-
-# run Mclust
-mod <- Mclust(X, x = BIC) 
-
-# get Mclust model results 
-mod_glance_mon <-glance(mod) 
-
-#  use broom to tidy up the Mclust model 
-mod_tidy_mon <- tidy(mod)           
-
-# add Mclust model classes to the orig data & add ecoregions 
-mod_tidy_mon <- augment(mod, clust_input)  
-
-#mod_tidy_mon <- full_join(mod_tidy_mon, eco_join, by = "sta")
-
-# prepare for plotting 
-
-df <- data.frame(month=rep(1:3,2),
-                 student=rep(c("Amy", "Bob"), each=3),
-                 A=c(9, 7, 6, 8, 6, 9),
-                 B=c(6, 7, 8, 5, 6, 7))
-
-
-
-mod_plot <- mod_tidy_mon %>% 
-  rename(q1 = q1_mon) %>% 
-  rename(q7 = q7_mon) %>% 
-  rename(q30 = q30_mon) %>% 
-  gather(key = axis, mon, -c(sta, Date, waterYear, .class, 
-                                     .uncertainty, ecoreg)) %>% 
-  group_by(sta, axis) %>% 
-  mutate(station = mean(mon)  # find station means 
-        ) %>% 
-  ungroup() %>%    
-  group_by(ecoreg, axis) %>%   
-  mutate(eco  = mean(mon)) %>%   # find ecoregion means 
-   ungroup()  %>% 
-  nest(mon, station, eco, .key = 'value_col') %>%
-  spread(key = axis, value = value_col) %>%       # spread ecoreg, sta, obs 
-  unnest(q1, q7, q30, .sep = '_') %>% 
-  arrange(q7_station) %>% 
-  mutate(sta = fct_reorder( 
-    as.factor(sta), q7_station)  # sets up the ordering by pc-axis 
-    ) %>% 
-  arrange(q7_eco) %>%  
-  mutate(ecoreg = fct_reorder( 
-    as.factor(ecoreg), q7_eco)  # sets up the ordering by pc-axis 
-    )  
-
-    
-
-
-
-
-
-
-#mod_tidy_ann <- mod_tidy %>% 
-#  group_by(sta, .class, waterYear) %>% 
-#  summarise(count = n(), 
-#            PC1_mon = mean(PC1_mon), 
-#            PC2_mon = mean(PC2_mon), 
-#            uncertainty = mean(.uncertainty)
-#            ) %>% 
-#  ungroup() 
-
-
-
-#mod_tidy5 <- full_join(mod_tidy3, mod_tidy4, 
-#                       by = "sta") %>% 
-#  mutate(prop = count.x / count.y)  %>% 
-#  arrange(desc(prop)) %>% 
-#  distinct(sta, .keep_all = TRUE) 
-
-
-#rm(mod_tidy5)
-
-plot_class <- factoextra::fviz_mclust(mod, 
-                          "classification", 
-                          geom = "point", 
-                          ellipse.type = "t", 
-                          ellipse.level = 0.7, 
-                          pointsize = 1.5,  
-                          palatte = "npg"
-                          ) 
-
-plot_class #+ facet_wrap(~ ecoreg) 
-
-  
-```
-
-
 
 
 ```{r}
 
-ggplot(mod_plot, aes(q1_mon, q30_mon)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_jitter(aes(color = .class), 
-              size = 1)  +
+
+
+
+#test2 <- full_join(mod_tidy_mon, test,  by = ".class") 
+#test3 <- test2 %>% 
+#  group_by(.class, ecoreg) %>% 
+#  mutate(q1_flow = mean(q1_mon)) %>% 
+#  mutate(q7_flow = mean(q7_mon)) %>%  
+#  mutate(q30_flow = mean(q30_mon))  %>% 
+#  mutate(PC1_flow = mean(mon_PC1)) %>% 
+#  mutate(PC2_flow = mean(mon_PC2)) %>%  
+#  ungroup()  
+
+  
+
+
+
+test3 %>%  
+ggplot(aes(q1_mon, q7_mon)) + 
+  facet_wrap(~ flow_type) + 
+  geom_jitter(
+    aes(color = ecoreg), 
+#    color = "gray", 
+              size = 1)  + 
+  geom_point(
+    aes(q1_flow, q7_flow, shape = ecoreg), 
+    color = "black", 
+              size = 1)  +   
   scale_x_log10() + 
   scale_y_log10() + 
-#  geom_point(data = mod_tidy5, 
-#             aes(PC1_mon, PC2_mon) 
-#             ) +  
   theme_bw()  
 
+test2 %>%  
+ggplot(aes(q1_mon, q30_mon)) + 
+  facet_wrap(~ flow_type) + 
+  geom_jitter(
+    color = "gray", 
+              size = 1)  + 
+  geom_point(
+    aes(q1_flow, q30_flow), 
+    color = "black", 
+              size = 1)  +   
+  scale_x_log10() + 
+  scale_y_log10() + 
+  theme_bw()  
 
+test3 %>%  
+ggplot(aes(mon_PC1, mon_PC2)) + 
+  facet_wrap(~ flow_type) + 
+  geom_jitter(
+    aes(shape = ecoreg, color = ecoreg), 
+#    color = "gray", 
+              size = 1)  + 
+#  geom_jitter(aes(sta_PC1, sta_PC2),  # station averages 
+#        shape = 3,                   # cross 
+#        size = 1.5, 
+#    colour = "black") +  
+#  geom_point(aes(ecoreg_PC1, ecoreg_PC2, shape = ecoreg, legend = FALSE),  # ecoregion averages 
+#             shape = 15,                   # filled square 
+#             size = 2, 
+ #   colour = "black") +  
+  geom_point(
+    aes(PC1_flow, PC2_flow, 
+        shape = ecoreg),
+    show.legend=FALSE, 
+    color = "black", 
+              size = 1)  + 
+#  geom_point(
+#    aes(q7_flow, q30_flow), 
+#    color = "black", 
+#              size = 1)  +   
+# scale_x_continuous(trans = "log10") + 
+#  scale_y_log10() + 
+  theme_bw()   
 
 ```
 
