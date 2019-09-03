@@ -1049,13 +1049,13 @@ export(pca_vars, "data/pca_vars.csv")
 
 ```
 
-```{r add-ecoregions, eval=FALSE}
- 
-# 1. import cleaned dv data 
-gage_dv <- import("data/gage_dv_posthoc.csv")  
+```{r add-ecoregions}
+   
+# 1. import cleaned dv data   
+gage_dv <- import("data/gage_dv_posthoc.csv")   
 
 # 1. read in shapefile data of intersection of watershed area & 
-# merged SD, NE, WY ecoregions -----------------------------------------------
+# merged SD, NE, WY ecoregions ----------------------------------------------- 
 ecoreg <- st_read("sp_data/ecoreg_int.shp", 
                        as_tibble = TRUE) %>% 
   st_drop_geometry() %>%                       #  we only want the data table 
@@ -1135,6 +1135,7 @@ ecoreg <- ecoreg %>%
                "Subhumid Pierre Shale Plains" ~ "Pierre Shale Plains", 
                            TRUE ~ ecoreg_wtsd)
    ) %>% 
+  ungroup %>% 
   arrange(ecoreg_wtsd) 
 
 # 3. join ecoregions to gage_dv 
@@ -1143,7 +1144,7 @@ eco_join <- ecoreg %>%
 
 gage_dv <- full_join(gage_dv, eco_join, 
                   by = "sta") 
-
+ 
 rm(ecoreg) 
 ``` 
 
@@ -1152,6 +1153,7 @@ rm(ecoreg)
 # 1. prep to deconvolute PC eigens into trend, seasonal, & random comps. ---- 
 
 # 1.1. dv plots too busy -- scaling daily flow values into monthly mean depths  
+
 gage_mon <- gage_dv %>%  
   mutate(yr = year(Date)) %>% 
   mutate(mon = month(Date)) %>%  
@@ -1249,16 +1251,298 @@ gage_mon2 <- gage_mon %>%
 gage_mon1 <- decomp_fun(gage_mon1) 
 gage_mon2 <- decomp_fun(gage_mon2)  
 
+# prepare to rejoin the dataframes 
+gage_mon0 <- gage_mon1 %>% 
+  select(sta:ecoreg) 
+  
+gage_mon1 <- gage_mon1 %>% 
+  select(sta, Date, PCval:anomaly) %>% 
+  rename(mon = PCval) %>% 
+  rename_all(paste0, "_PC1") %>% 
+  rename(sta = sta_PC1) %>% 
+  rename(Date = Date_PC1)
+  
+gage_mon2 <- gage_mon2 %>% 
+  select(sta, Date, PCval:anomaly) %>% 
+  rename(mon = PCval) %>% 
+  rename_all(paste0, "_PC2") %>% 
+  rename(sta = sta_PC2) %>% 
+  rename(Date = Date_PC2)
 
-# Fix error in rlang::is_quosure(index_quo) 
-gage_mon <- bind_rows(gage_mon1, gage_mon2) %>% 
-  as_tibble()   
+# join the datatables   
+gage_mon1 <- full_join(gage_mon0, gage_mon1, 
+                  by = c("sta", "Date")
+                  ) 
 
-rm(gage_mon1, gage_mon2, decomp_input) 
+gage_mon <- full_join(gage_mon1, gage_mon2, 
+                  by = c("sta", "Date")
+                  ) 
 
-rm(mon_trend_sta) 
+rm(gage_mon0, gage_mon1, gage_mon2, decomp_input, mon_trend_sta, decomp_fun)  
+
+
+# create station and ecoregion summaries 
+gage_mon <- gage_mon %>% 
+  group_by(sta) %>%  
+  mutate(sta_q1 = mean(q1_mon)) %>% 
+  mutate(sta_q7 = mean(q7_mon)) %>%   
+  mutate(sta_q30 = mean(q30_mon)) %>% 
+  mutate(sta_q30_q1 = mean(q30_q1_mon)) %>% 
+  mutate(sta_PC1 = mean(mon_PC1)) %>% 
+  mutate(sta_PC2 = mean(mon_PC2)) %>% 
+  ungroup() %>% 
+  group_by(ecoreg) %>%  
+  mutate(ecoreg_q1 = mean(q1_mon)) %>% 
+  mutate(ecoreg_q7 = mean(q7_mon)) %>%   
+  mutate(ecoreg_q30 = mean(q30_mon)) %>% 
+  mutate(ecoreg_q30_q1 = mean(q30_q1_mon)) %>% 
+  mutate(ecoreg_PC1 = mean(mon_PC1)) %>% 
+  mutate(ecoreg_PC2 = mean(mon_PC2)) %>% 
+  ungroup() %>%  
+  group_by(Date, ecoreg) %>% 
+  mutate(ecoreg_mean_PC1 = mean(mon_PC1)) %>% 
+  mutate(ecoreg_seas_PC1 = mean(season_PC1)) %>% 
+  mutate(ecoreg_trend_PC1 = mean(trend_PC1)) %>%   
+  mutate(ecoreg_remain_PC1 = mean(remainder_PC1)) %>%   
+  ungroup() %>% 
+  arrange(ecoreg_PC1) %>% 
+  mutate(ecoreg = fct_reorder( 
+    as.factor(ecoreg), ecoreg_PC1)  # sets up the ordering by pc-axis 
+    ) %>% 
+  arrange(sta_PC1) %>%   
+  mutate(sta = fct_reorder( 
+    as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
+    ) 
 ```
 
+
+```{r plot pca}
+
+pca_vars <- import("data/pca_vars.csv")   
+
+
+
+# prepare for plotting the PC Axes 
+#pca_plot <- gage_mon %>% 
+#  mutate(q1_q30_rat = q1_mon / q30_mon) %>% 
+#  group_by(sta) %>%  
+#  mutate(sta_PC1 = mean(PC1_mon)) %>% 
+#  mutate(PC2_sta = mean(PC2_mon)) %>% 
+#  mutate(q7_sta = mean(q7_mon)) %>% 
+#  mutate(q30_q1_sta = mean(q30_q1_mon)) %>% 
+#  ungroup() %>% 
+#  group_by(ecoreg) %>% 
+#  mutate(PC1_ecoreg = mean(PC1_mon)) %>% 
+#  mutate(PC2_ecoreg = mean(PC2_mon)) %>% 
+#  mutate(q7_ecoreg = mean(q7_mon)) %>% 
+#  mutate(q30_q1_ecoreg = mean(q30_q1_mon)) %>% 
+#  ungroup() %>%  
+#  arrange(PC1_ecoreg) #%>% 
+#  mutate(ecoreg = fct_reorder( 
+#    as.factor(ecoreg), PC1_ecoreg)  # sets up the ordering by pc-axis 
+#    ) %>% 
+#  arrange(sta_PC1) %>%   
+#  mutate(sta = fct_reorder( 
+#    as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
+#    ) %>% 
+#  mutate()
+
+# Plot PC1 vs PC2 plot 
+pc1_pc2_plot <- gage_mon %>% 
+  ggplot(aes(mon_PC1, mon_PC2)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_point(size = 0.5, color = "gray",  
+          aes(color = as.factor(sta)) 
+          ) +  
+  geom_jitter(aes(sta_PC1, sta_PC2),  # station averages 
+        shape = 3,                   # cross  
+        size = 1.5, 
+    colour = "black") +  
+  geom_point(aes(ecoreg_PC1, ecoreg_PC2),  # ecoregion averages 
+             shape = 15,                   # filled square 
+             size = 2, 
+    colour = "black") +  
+# plot pc eigenvectors ###
+    geom_segment(data = pca_vars, 
+    aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+    arrow = arrow(length = unit(0.03, "npc")) 
+    ) + 
+  geom_text(data = pca_vars, 
+               size = 3,  
+               nudge_x = 0.5, 
+               nudge_y = -0.1, 
+                hjust = 'outside', 
+               aes(x = PC1, y = PC2, label = labels) 
+            ) +   
+  scale_y_continuous(limits = c(-1, 2.5)) + 
+  theme_bw() + 
+  theme(legend.position="none")  +  
+#  labs(title = "Principal components of mean daily streamflow for water years 1980-2017", #     subtitle = "Monthly averages of N = 42 stations") + 
+  xlab("PC1 axis (94.8%)") + 
+  ylab("PC2 axis (4.5%)") 
+
+
+pc1_q7_plot <- gage_mon %>% 
+  ggplot(aes(y =mon_PC1, x = q7_mon))  + 
+  geom_jitter(size = 0.7, 
+              color = "gray" 
+              ) + 
+  geom_smooth(method = "lm", 
+              color = "black", 
+              size = 0.7) + 
+  facet_wrap( ~ ecoreg) + 
+  geom_jitter(aes(sta_q7, sta_PC1),  # station averages 
+        shape = 3,                   # cross 
+        size = 1.5, 
+    colour = "black") +  
+  geom_point(aes(ecoreg_q7, ecoreg_PC1),  # ecoregion averages 
+             shape = 15,                   # filled square 
+             size = 2, 
+    colour = "black") +  
+  theme_bw() + 
+  scale_x_log10() + 
+  theme(legend.position="none") + 
+  xlab("7-day mean daily flow") + 
+  ylab("PC1 axis (94.8%)") 
+
+pc2_q_diff_plot <- gage_mon %>% 
+  ggplot(aes(y = mon_PC2, x = q30_q1_mon))  + 
+  geom_jitter(size = 0.7, 
+              color = "gray" 
+              ) + 
+  geom_smooth(method = "lm", 
+              color = "black", 
+              size = 0.7) + 
+  geom_jitter(aes(sta_q30_q1, sta_PC2),  # station averages 
+        shape = 3,                   # cross 
+        size = 1.5, 
+    colour = "black") +  
+  geom_point(aes(ecoreg_q30_q1, ecoreg_PC2),  # ecoregion averages 
+             shape = 15,                   # filled square 
+             size = 2, 
+    colour = "black") +  
+  facet_wrap( ~ ecoreg) + 
+  theme_bw() + 
+  scale_x_log10() + 
+  theme(legend.position="none") + 
+  xlab("Difference between 30-day and 1-day mean daily flow depths") + 
+  ylab("PC2 axis (4.5%)") 
+
+cowplot::plot_grid( 
+  pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot, 
+  ncol = 1, 
+  align = "v" 
+) 
+
+cowplot::ggsave2("figure/pc_plot.png", 
+        units = "in",  
+        width = 7, 
+        height = 9) 
+
+rm(pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot) 
+```
+
+```{r plot_time-series_PC1}
+
+# prepare to order time series plot 
+#pca_plot <- pca_plot %>% 
+#    arrange(PC1_ecoreg) 
+  
+# split out the PC1 axis 
+#mon_plot_pc1 <- gage_mon %>% 
+#    filter(axis == "PC1_mon") %>% 
+#  mutate(ecoreg = fct_reorder(      # sets up the ordering by pc-axis 
+#    as.factor(ecoreg), pca_plot$PC1_ecoreg)  
+#    ) 
+
+# filter anomonies to plot below   
+anom_PC1 <- gage_mon %>% 
+  filter(anomaly_PC1 == "Yes")
+
+# PC1-observation plot 
+pc1_obs <- gage_mon %>% 
+  ggplot(aes(Date, observed_PC1)) + 
+  facet_wrap(~ ecoreg) +   
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_mean_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("PC1 axis values")
+  
+# PC1-seasons plot 
+pc1_seas  <- gage_mon %>% 
+  ggplot(aes(Date, season_PC1)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_seas_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Season (12-months)")
+
+# PC1-trend plot 
+pc1_trend  <- gage_mon %>% 
+  ggplot(aes(Date, trend_PC1)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_trend_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Trend (60-months)")
+
+# PC1 - remainder plot 
+pc1_remainder <- gage_mon %>%   
+  ggplot(aes(Date, remainder_PC1)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size =  0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_remain_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  geom_jitter(aes(Date, ecoreg_remain_PC1), 
+              data = anom_PC1, 
+              shape = 4, 
+              size = 0.7) + 
+  scale_y_continuous(limits = c(-4.0, 5.8)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Remainder")
+
+
+# plot the plots above as a grid & save 
+cowplot::plot_grid(
+  pc1_obs, pc1_seas, pc1_trend, pc1_remainder, 
+  ncol = 1, 
+  align = "v"
+)
+
+cowplot::ggsave2("figure/pc1-deconv.png", 
+        units = "in", 
+        width = 7, 
+        height = 9)
+
+
+rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder) 
+```
 
 ```{r bootstrap}
 
@@ -1368,60 +1652,99 @@ plot(ci_input_pc2, rawplot.type = "swarmplot")
 ```
 
 
+```{r Mclust}
 
-
-```{r new-clust-attempt}
+# monthly clusters 
 clust_input <- gage_mon %>% 
-  select(sta, Date, waterYear, axis, remainder) %>% 
-  spread(axis, remainder) 
-
-X <- clust_input %>%                # this gets rid of categorical data for Mclust 
-  select(-c(sta, Date, waterYear))  
-
-
-BIC <- mclustBIC(X) 
-
-mod <- Mclust(X, x = BIC) 
-
-mod_tidy <- tidy(mod) 
-mod_tidy2 <- augment(mod, clust_input) 
-
-
-mod_tidy3 <- mod_tidy2 %>% 
-  group_by(sta, .class, waterYear) %>% 
-  summarise(count = n(), 
-            PC1_mon = mean(PC1_mon), 
-            PC2_mon = mean(PC2_mon), 
-            uncertainty = mean(.uncertainty)
-            ) %>% 
+  select(sta, Date, waterYear, ecoreg, q1_mon, q7_mon, q30_mon) %>% 
+  group_by(sta) %>% 
+  distinct(Date, .keep_all = TRUE) %>% 
   ungroup() 
 
-mod_tidy4 <- full_join(mod_tidy3, eco_join)
 
-mod_tidy5 <- full_join(mod_tidy3, mod_tidy4, 
-                       by = "sta") %>% 
-  mutate(prop = count.x / count.y)  %>% 
-  arrange(desc(prop)) %>% 
-  distinct(sta, .keep_all = TRUE) 
+# Get rid of categorical data for Mclust 
+X <- clust_input %>%           
+  select(-c(sta, Date, waterYear, ecoreg))  
+
+# find Bayesian Information Criterion for mlust 
+BIC <- mclustBIC(X) 
+
+# run Mclust
+mod <- Mclust(X, x = BIC) 
+
+# get Mclust model results 
+mod_glance_mon <-glance(mod) 
+
+#  use broom to tidy up the Mclust model 
+mod_tidy_mon <- tidy(mod)           
+
+# add Mclust model classes to the orig data & add ecoregions 
+mod_tidy_mon <- augment(mod, clust_input)  
+
+#mod_tidy_mon <- full_join(mod_tidy_mon, eco_join, by = "sta")
+
+# prepare for plotting 
+
+df <- data.frame(month=rep(1:3,2),
+                 student=rep(c("Amy", "Bob"), each=3),
+                 A=c(9, 7, 6, 8, 6, 9),
+                 B=c(6, 7, 8, 5, 6, 7))
+
+
+
+mod_plot <- mod_tidy_mon %>% 
+  rename(q1 = q1_mon) %>% 
+  rename(q7 = q7_mon) %>% 
+  rename(q30 = q30_mon) %>% 
+  gather(key = axis, mon, -c(sta, Date, waterYear, .class, 
+                                     .uncertainty, ecoreg)) %>% 
+  group_by(sta, axis) %>% 
+  mutate(station = mean(mon)  # find station means 
+        ) %>% 
+  ungroup() %>%    
+  group_by(ecoreg, axis) %>%   
+  mutate(eco  = mean(mon)) %>%   # find ecoregion means 
+   ungroup()  %>% 
+  nest(mon, station, eco, .key = 'value_col') %>%
+  spread(key = axis, value = value_col) %>%       # spread ecoreg, sta, obs 
+  unnest(q1, q7, q30, .sep = '_') %>% 
+  arrange(q7_station) %>% 
+  mutate(sta = fct_reorder( 
+    as.factor(sta), q7_station)  # sets up the ordering by pc-axis 
+    ) %>% 
+  arrange(q7_eco) %>%  
+  mutate(ecoreg = fct_reorder( 
+    as.factor(ecoreg), q7_eco)  # sets up the ordering by pc-axis 
+    )  
+
+    
 
 
 
 
 
-glance(mod) 
 
-ggplot(mod_tidy4, aes(PC1_mon, PC2_mon)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_jitter(aes(color = .class), 
-              size = 1)  +
-#  geom_point(data = mod_tidy5, 
- #            aes(PC1_mon, PC2_mon) 
- #            ) +  
-  theme_bw()  
-
+#mod_tidy_ann <- mod_tidy %>% 
+#  group_by(sta, .class, waterYear) %>% 
+#  summarise(count = n(), 
+#            PC1_mon = mean(PC1_mon), 
+#            PC2_mon = mean(PC2_mon), 
+#            uncertainty = mean(.uncertainty)
+#            ) %>% 
+#  ungroup() 
 
 
-plot_class <- fviz_mclust(mod, 
+
+#mod_tidy5 <- full_join(mod_tidy3, mod_tidy4, 
+#                       by = "sta") %>% 
+#  mutate(prop = count.x / count.y)  %>% 
+#  arrange(desc(prop)) %>% 
+#  distinct(sta, .keep_all = TRUE) 
+
+
+#rm(mod_tidy5)
+
+plot_class <- factoextra::fviz_mclust(mod, 
                           "classification", 
                           geom = "point", 
                           ellipse.type = "t", 
@@ -1429,12 +1752,31 @@ plot_class <- fviz_mclust(mod,
                           pointsize = 1.5,  
                           palatte = "npg"
                           ) 
-plot_class
+
+plot_class #+ facet_wrap(~ ecoreg) 
+
+  
 ```
 
 
 
 
+```{r}
+
+ggplot(mod_plot, aes(q1_mon, q30_mon)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_jitter(aes(color = .class), 
+              size = 1)  +
+  scale_x_log10() + 
+  scale_y_log10() + 
+#  geom_point(data = mod_tidy5, 
+#             aes(PC1_mon, PC2_mon) 
+#             ) +  
+  theme_bw()  
+
+
+
+```
 
 
 
@@ -1505,255 +1847,9 @@ rm(mon_sum_gath)
 
 ``` 
 
-```{r plot pca}
-
-pca_vars <- import("data/pca_vars.csv")   
 
 
-# prepare for plotting by 
-gage_mon <- gage_mon %>% 
-  group_by(ecoreg, Date, axis) %>% 
-  mutate(obs_eco  = mean(observed)) %>%   
-  mutate(seas_eco  = mean(season)) %>% 
-  mutate(trend_eco = mean(trend)) %>% 
-  mutate(remain_eco = mean(remainder)) %>% 
-  ungroup() %>% 
-  group_by(ecoreg, axis) %>% 
-  mutate(obs_eco_mean = mean(observed)  
-        ) %>% 
-  arrange(obs_eco_mean) %>% 
-  ungroup() 
 
-# prepare for plotting the PC Axes 
-pca_plot <- gage_mon %>% 
-  select(1:10) %>% 
-  spread(axis, PCval) %>% 
-#  mutate(q1_q30_rat = q1_mon / q30_mon) %>% 
-  group_by(sta) %>%  
-  mutate(PC1_sta = mean(PC1_mon)) %>% 
-  mutate(PC2_sta = mean(PC2_mon)) %>% 
-  mutate(q7_sta = mean(q7_mon)) %>% 
-  mutate(q30_q1_sta = mean(q30_q1_mon)) %>% 
-  ungroup() %>% 
-  group_by(ecoreg) %>% 
-  mutate(PC1_ecoreg = mean(PC1_mon)) %>% 
-  mutate(PC2_ecoreg = mean(PC2_mon)) %>% 
-  mutate(q7_ecoreg = mean(q7_mon)) %>% 
-  mutate(q30_q1_ecoreg = mean(q30_q1_mon)) %>% 
-  ungroup() %>%  
-  arrange(PC1_ecoreg) %>% 
-  mutate(ecoreg = fct_reorder( 
-    as.factor(ecoreg), PC1_ecoreg)  # sets up the ordering by pc-axis 
-    ) %>% 
-  arrange(PC1_sta) %>%   
-  mutate(sta = fct_reorder( 
-    as.factor(sta), PC1_sta)  # sets up the ordering by pc-axis 
-    ) %>% 
-  mutate()
-
-test <- pca_plot %>% 
-  filter(q30_q1_mon == 0)
-
-
-# Plot PC1 vs PC2 plot 
-pc1_pc2_plot <- pca_plot %>% 
-  ggplot(aes(PC1_mon, PC2_mon)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_point(size = 0.5, color = "gray" 
-#          aes(color = as.factor(sta)) 
-          ) +  
-  geom_jitter(aes(PC1_sta, PC2_sta),  # station averages 
-        shape = 3,                   # cross  
-        size = 1.5, 
-    colour = "black") +  
-  geom_point(aes(PC1_ecoreg, PC2_ecoreg),  # ecoregion averages 
-             shape = 15,                   # filled square 
-             size = 1.5, 
-    colour = "black") +  
-# plot pc eigenvectors ###
-    geom_segment(data = pca_vars, 
-    aes(x = 0, y = 0, xend = PC1, yend = PC2), 
-    arrow = arrow(length = unit(0.03, "npc")) 
-    ) + 
-  geom_text(data = pca_vars, 
-               size = 3,  
-               nudge_x = 0.5, 
-               nudge_y = -0.1, 
-                hjust = 'outside', 
-               aes(x = PC1, y = PC2, label = labels) 
-            ) +   
-  scale_y_continuous(limits = c(-1, 2.5)) + 
-  theme_bw() + 
-  theme(legend.position="none")  +  
-#  labs(title = "Principal components of mean daily streamflow for water years 1980-2017", #     subtitle = "Monthly averages of N = 42 stations") + 
-  xlab("PC1 axis (94.8%)") + 
-  ylab("PC2 axis (4.5%)") 
-
-
-pc1_q7_plot <-pca_plot %>% 
-  ggplot(aes(y =PC1_mon, x = q7_mon))  + 
-  geom_jitter(size = 0.7, 
-#      aes(color = as.factor(sta)), 
-              color = "gray" 
-              ) + 
-  geom_smooth(method = "lm", 
-              color = "black", 
-              size = 0.7) + 
-  facet_wrap( ~ ecoreg) + 
-  geom_jitter(aes(q7_sta, PC1_sta),  # station averages 
-        shape = 3,                   # cross 
-        size = 1.5, 
-    colour = "black") +  
-  geom_point(aes(q7_ecoreg, PC1_ecoreg),  # ecoregion averages 
-             shape = 15,                   # filled square 
-             size = 1.5, 
-    colour = "black") +  
-  theme_bw() + 
-  scale_x_log10() + 
-  theme(legend.position="none") + 
-  xlab("7-day mean daily flow") + 
-  ylab("PC1 axis (94.8%)") 
-
-pc2_q_diff_plot <- pca_plot %>% 
-  ggplot(aes(y =PC2_mon, x = q30_q1_mon))  + 
-  geom_jitter(size = 0.7, 
-#      aes(color = as.factor(sta)), 
-              color = "gray" 
-              ) + 
-  geom_smooth(method = "lm", 
-              color = "black", 
-              size = 0.7) + 
-  geom_jitter(aes(q30_q1_sta, PC2_sta),  # station averages 
-        shape = 3,                   # cross 
-        size = 1.5, 
-    colour = "black") +  
-  geom_point(aes(q30_q1_ecoreg, PC2_ecoreg),  # ecoregion averages 
-             shape = 15,                   # filled square 
-             size = 1.5, 
-    colour = "black") +  
-  facet_wrap( ~ ecoreg) + 
-  theme_bw() + 
-  scale_x_log10() + 
-  theme(legend.position="none") + 
-  xlab("Difference between 30-day and 1-day mean daily flow depths") + 
-  ylab("PC2 axis (4.5%)") 
-
-plot_grid( 
-  pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot, 
-  ncol = 1, 
-  align = "v" 
-) 
-
-ggsave2("figure/pc_plot.png", 
-        units = "in",  
-        width = 7, 
-        height = 9) 
-
-rm(pc1_pc2_plot, pc1_q7_plot, pc2_q_diff_plot) 
-```
-
-```{r plot_time-series_PC1}
-
-# prepare to order time series plot 
-pca_plot <- pca_plot %>% 
-    arrange(PC1_ecoreg) 
-  
-# split out the PC1 axis 
-mon_plot_pc1 <- gage_mon %>% 
-    filter(axis == "PC1_mon") %>% 
-  mutate(ecoreg = fct_reorder(      # sets up the ordering by pc-axis 
-    as.factor(ecoreg), pca_plot$PC1_ecoreg)  
-    ) 
-
-# filter anomonies to plot below   
-anom <- mon_plot_pc1 %>% 
-  filter(anomaly == "Yes")
-
-# PC1-observation plot 
-pc1_obs <- mon_plot_pc1 %>% 
-  ggplot(aes(Date, observed)) + 
-  facet_wrap(~ ecoreg) +   
-  geom_line(size = 0.5, 
-            colour = "grey"
-            ) + 
-  geom_line(aes(Date, obs_eco), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("PC1 axis values")
-  
-# PC1-seasons plot 
-pc1_seas  <- mon_plot_pc1 %>% 
-  ggplot(aes(Date, season)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size = 0.5, 
-            colour = "grey"
-            ) + 
-  geom_line(aes(Date, seas_eco), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Season (12-months)")
-
-# PC1-trend plot 
-pc1_trend  <- mon_plot_pc1 %>% 
-  ggplot(aes(Date, trend)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size = 0.5, 
-            colour = "grey"
-            ) + 
-  geom_line(aes(Date, trend_eco), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Trend (60-months)")
-
-# PC1 - remainder plot 
-pc1_remainder <- mon_plot_pc1 %>% 
-  ggplot(aes(Date, remainder)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size =  0.5, 
-            colour = "grey"
-            ) + 
-  geom_jitter(aes(Date, remainder), 
-              data = anom, 
-              shape = 4, 
-              size = 0.7) + 
-  geom_line(aes(Date, remain_eco), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-
-  scale_y_continuous(limits = c(-4.0, 5.8)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Remainder")
-
-
-# plot the plots above as a grid & save 
-plot_grid(
-  pc1_obs, pc1_seas, pc1_trend, pc1_remainder, 
-  ncol = 1, 
-  align = "v"
-)
-
-ggsave2("figure/pc1-deconv.png", 
-        units = "in", 
-        width = 7, 
-        height = 9)
-
-
-rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder) 
-```
 
 ```{r plot_time-series_PC2, eval=FALSE}
 
