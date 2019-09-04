@@ -279,8 +279,7 @@ library("anomalize")              # detect anomalies using the tidyverse
 library("mclust")
 
 library("dabestr")                # data analysis using bootstrap estimation 
-# usethis::edit_r_environ("project") # used to increase memory allocation 
-#   for dabest()
+
 
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
 # library("cowplot")
@@ -590,7 +589,7 @@ rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv)
 ```
 
 ```{r prepare-table_gage_metadata, eval=FALSE} 
-  
+   
 # prepare df for gaging station metadata  
 gage_table <- gage_meta %>%   
   mutate(contrib_drain_area_va = 
@@ -600,7 +599,7 @@ gage_table <- gage_meta %>%
            conv_unit(alt_va, "ft", "m") 
          ) %>% 
   mutate(contrib_drain_area_si = 
-           conv_unit(contrib_drain_area_va, "mi2", "km2")
+           conv_unit(contrib_drain_area_va, "mi2", "km2") 
          ) 
 
 gage_table$years_rec <-  as.integer(gage_table$years_rec) 
@@ -1315,37 +1314,9 @@ gage_mon <- gage_mon %>%
     ) 
 ```
 
-
 ```{r plot pca}
 
 pca_vars <- import("data/pca_vars.csv")   
-
-
-
-# prepare for plotting the PC Axes 
-#pca_plot <- gage_mon %>% 
-#  mutate(q1_q30_rat = q1_mon / q30_mon) %>% 
-#  group_by(sta) %>%  
-#  mutate(sta_PC1 = mean(PC1_mon)) %>% 
-#  mutate(PC2_sta = mean(PC2_mon)) %>% 
-#  mutate(q7_sta = mean(q7_mon)) %>% 
-#  mutate(q30_q1_sta = mean(q30_q1_mon)) %>% 
-#  ungroup() %>% 
-#  group_by(ecoreg) %>% 
-#  mutate(PC1_ecoreg = mean(PC1_mon)) %>% 
-#  mutate(PC2_ecoreg = mean(PC2_mon)) %>% 
-#  mutate(q7_ecoreg = mean(q7_mon)) %>% 
-#  mutate(q30_q1_ecoreg = mean(q30_q1_mon)) %>% 
-#  ungroup() %>%  
-#  arrange(PC1_ecoreg) #%>% 
-#  mutate(ecoreg = fct_reorder( 
-#    as.factor(ecoreg), PC1_ecoreg)  # sets up the ordering by pc-axis 
-#    ) %>% 
-#  arrange(sta_PC1) %>%   
-#  mutate(sta = fct_reorder( 
-#    as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
-#    ) %>% 
-#  mutate()
 
 # Plot PC1 vs PC2 plot 
 pc1_pc2_plot <- gage_mon %>% 
@@ -1374,6 +1345,7 @@ pc1_pc2_plot <- gage_mon %>%
                 hjust = 'outside', 
                aes(x = PC1, y = PC2, label = labels) 
             ) +   
+# set up the axes ### 
   scale_y_continuous(limits = c(-1, 2.5)) + 
   theme_bw() + 
   theme(legend.position="none")  +  
@@ -1544,8 +1516,6 @@ cowplot::ggsave2("figure/pc1-deconv.png",
 rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder, anom_PC1) 
 ```
 
-
-
 ```{r Mclust}
 
 # monthly clusters 
@@ -1587,9 +1557,6 @@ factoextra::fviz_mclust(mod,
 
 ```
 
-
-
-
 ```{r Mclust-plot}
 
 # prepare for plotting - reorganize flow by centroids 
@@ -1617,43 +1584,61 @@ mod_tidy_mon <- full_join(mod_tidy_mon, mod_tidy_sum,  by = ".class") %>%
   mutate(PC1_flow_eco = mean(mon_PC1)) %>% 
   mutate(PC2_flow_eco = mean(mon_PC2)) %>%  
   ungroup() %>% 
-  mutate(flow_type = as.factor(flow_type))
-
+  mutate(flow_type = as.factor(flow_type)) 
 
 # plot clusters by ecoregion
-mclust_eco_plot  <-mod_tidy_mon %>%  
+mclust_eco_plot  <- mod_tidy_mon %>%  
 ggplot(aes(mon_PC1, mon_PC2)) + 
   facet_wrap(~ ecoreg) + 
   geom_jitter(
-    aes(color = flow_type), 
-              size = 2)  + 
+    aes(color = flow_type,
+        shape = ecoreg), 
+    size = 2, 
+    show.legend = FALSE)  + 
+ #   scale_colour_brewer(palette = "Greys") +
 # map the title of the geom for the legend  
 #  scale_shape_discrete(name="Ecoregion") + 
-  scale_color_hue(name="Flow type") +
+#  scale_color_hue(name="Flow type") + 
+# plot centroids 
   geom_point(
-    aes(ecoreg_PC1, ecoreg_PC2),
-   show.legend=FALSE, 
+    aes(ecoreg_PC1, 
+        ecoreg_PC2),
+    show.legend = FALSE, 
     color = "black", 
-        shape = 3,                   # cross 
-              size = 2.5)  + 
+    shape = 3,                   # cross 
+    size = 2.5)  + 
+# plot pc eigenvectors ###
+    geom_segment(data = pca_vars, 
+    aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+    arrow = arrow(length = unit(0.03, "npc")) 
+    ) + 
+  geom_text(data = pca_vars, 
+               size = 3,  
+               nudge_x = 0.5, 
+               nudge_y = -0.1, 
+                hjust = 'outside', 
+               aes(x = PC1, y = PC2, label = labels) 
+            ) +   
+# set up the axes ### 
   theme_bw() + 
   xlab("PC1 axis (94.8%)") + 
   ylab("PC2 axis (4.5%)") + 
   theme(legend.position="bottom") 
 
 # plot clusters by flow type 
-mclust_flow_plot  <- mod_tidy_mon %>%  
+mclust_flow_plot <- mod_tidy_mon %>%  
 ggplot(aes(mon_PC1, mon_PC2)) + 
   facet_wrap(~ flow_type) + 
   geom_jitter(
-    aes(shape = ecoreg, color = ecoreg), 
-              size = 2)  + 
-# map the title of the geom for the legend  
-  scale_shape_discrete(name="Ecoregion") + 
-  scale_color_discrete(name="Ecoregion") +
+    aes(shape = ecoreg, 
+        color = flow_type), 
+    show.legend=FALSE, 
+    size = 2)  + 
+#    scale_colour_brewer(palette = "Greys") + 
   geom_point(
-    aes(PC1_flow_eco, PC2_flow_eco, 
-      shape = ecoreg),
+    aes(PC1_flow_eco, 
+        PC2_flow_eco, 
+        shape = ecoreg),
    show.legend=FALSE, 
     color = "black", 
               size = 3)  + 
@@ -1676,24 +1661,105 @@ cowplot::ggsave2("figure/mclust_plot.png",
         height = 9) 
 
 rm(mclust_flow_plot, mclust_eco_plot) 
+
+mclust_flow_plot 
 ```
 
-```{r bootstrap}
+```{r bootstrap, eval=FALSE}
 
-# dabest for monthly scale (28,054 obs) takes ~2 hours 
+# Construct bootstrap confidence intervals of PC axes to identify a difference 
+#   in means 
+#
+# Notes on dabest
+# dabest for monthly scale (14,027 obs; 40,000 reps) takes ~2 hours.  
+# even with increasing memory, I ran into a memory allocation 
+#  limit at 50,000 reps
+
+# increase memory allocation for dabest() 
+usethis::edit_r_environ("project") 
+
+# remove 'leftover' attributes introduced by stl 
+gage_mon <- gage_mon %>% 
+  as_tibble() 
+
+# shorten names of ecoregion to fix overplotting 
+
 # calculate 95% CI for PC1 - 'control' is Pierre Shale Plains 
-ci_input_pc1 <- gage_mon %>%  
-  filter(axis == "PC1_mon") %>% 
-  dabest(ecoreg, observed,  
-         idx = c("Pierre Shale Plains", 
+ci_input_pc1 <- gage_mon %>%      
+  dabest(ecoreg, observed_PC1,  
+         idx = c("Pierre Shale Plains",     # groups to test - first is control
                  "Pine Ridge Escarpment", 
                  "White River Badlands", 
                  "Black Hills Plateau", 
                  "Keya Paha Tablelands", 
                  "Sand Hills"), 
          paired = FALSE, 
-         reps = 40000 
+         reps = 40000                     # number of bootstraps 
          ) 
+
+# calculate 95% CI for PC2 - 'control' is Pierre Shale Plains 
+ci_input_pc2 <- gage_mon %>%  
+  dabest(ecoreg2, observed_PC2,  
+         idx = c("Pierre Shale", 
+                 "PR Escarpment", 
+                 "WR Badlands", 
+                 "BH Plateau", 
+                 "KP Tablelands", 
+                 "Sand Hills"), 
+         paired = FALSE, 
+         reps = 50000 
+         ) 
+
+# export results as Rdata files 
+# how???
+
+
+```
+
+```{r ci_results, eval=FALSE} 
+# IN PROGRESS -- code is from abobe
+# prepare df for gaging station metadata  
+gage_table <- gage_meta %>%   
+  mutate(contrib_drain_area_va = 
+           coalesce(contrib_drain_area_va, drain_area_va) 
+  ) %>% 
+  mutate(alt_si = 
+           conv_unit(alt_va, "ft", "m") 
+         ) %>% 
+  mutate(contrib_drain_area_si = 
+           conv_unit(contrib_drain_area_va, "mi2", "km2") 
+         ) 
+
+gage_table$years_rec <-  as.integer(gage_table$years_rec) 
+
+gage_table <- gage_table %>% 
+select(site_no, station_nm, dec_lat_va, dec_long_va, alt_si, years_rec, 
+         contrib_drain_area_si) 
+
+# set column keys for flextable -- these variables also used below 
+col_key_num <-gage_table %>% 
+  select(dec_lat_va:alt_si, contrib_drain_area_si) %>% 
+  names() 
+
+col_key_int <-gage_table %>% 
+  select(years_rec, site_no) %>% 
+  names() 
+
+# convert tibble to a flextable 
+gage_table <- flextable(gage_table) %>% 
+  colformat_num(col_keys = col_key_num, 
+                big.mark=",", 
+                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(site_no = "Sta. Number", 
+                    station_nm = "Name", 
+                    dec_lat_va = "Latitude", 
+                    dec_long_va = "Longitude", 
+                    alt_si = "Elevation, m", 
+                    years_rec = "Years of Record", 
+                    contrib_drain_area_si = "Drainage Area, sq-km") %>% 
+  autofit() %>% 
+  theme_booktabs() 
+# -->
 
 ci_input_pc1
 #DABEST (Data Analysis with Bootstrap Estimation) v0.2.2
@@ -1719,34 +1785,65 @@ ci_input_pc1
 #   Sand Hills (n=4195) minus Pierre Shale Plains (n=3663)
 #   2.62 [95CI  2.56; 2.67]
 
-
-
-
 # calculate 95% CI for PC2 - 'control' is Pierre Shale Plains 
-ci_input_pc2 <- gage_mon %>%  
-  filter(axis == "PC2_mon") %>% 
-#  filter(ecoreg == "Pierre Shale Plains") %>% 
-  dabest(ecoreg, observed,  
-         idx = c("Pierre Shale Plains", 
-                 "Pine Ridge Escarpment", 
-                 "White River Badlands", 
-                 "Black Hills Plateau", 
-                 "Keya Paha Tablelands", 
-                 "Sand Hills"), 
-         paired = FALSE, 
-         reps = 40000 
-         ) 
 
-# export results as Rdata files 
-export(ci_input_pc1, "data/dabest_pc1.rdata")  
+# reframe results from av
+
+# use the listviewer to find the shape of the list 
+listviewer::jsonedit(ci_input_pc1) 
+
+# pluck results for summary table
+ci_results_pc1 <- ci_input_pc1 %>% 
+  pluck("result") %>% 
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
+  
+  
 
 
 ```
 
-```{r bootstrap-swarmplot-pc1}
-plot(ci_input_pc1, rawplot.type = "swarmplot")   
+
+```{r bootstrap-swarmplot-pc1} 
+#ci_input_pc1 <- load("data/dabest_pc1.rdata") 
+
+ci_plot_pc1 <- plot(ci_input_pc1, 
+                    rawplot.type = "swarmplot", 
+                    rawplot.ylabel = "PC1 Axis", 
+                    tick.fontsize = 7, 
+                    axes.title.fontsize = 11, 
+                    palette = "Greys"  
+                    )    
+
+ci_plot_pc2 <- plot(ci_input_pc2, 
+                    rawplot.type = "swarmplot", 
+                    rawplot.ylabel = "PC2 Axis", 
+                    tick.fontsize = 7, 
+                    axes.title.fontsize = 11, 
+                    palette = "Greys"  
+                    )    
+
+
+cowplot::plot_grid( 
+  ci_plot_pc1,
+  ci_plot_pc2,  
+  ncol = 1, 
+  align = "v" 
+) 
+# save the plot 
+
+cowplot::ggsave2("figure/ci_plot.png", 
+        units = "in",  
+        width = 7, 
+        height = 9) 
+```
+
+
+
+```{r bootstrap-swarmplot-pc2}
+plot(ci_input_pc2, rawplot.type = "swarmplot")   
 
 ```
+
 
 ```{r stuff}
 ci_input_pc2 
@@ -1779,96 +1876,6 @@ Unpaired mean difference of Sand Hills (n=4195) minus Pierre Shale Plains (n=366
 All confidence intervals are bias-corrected and accelerated.
 
 ```
-
-```{r bootstrap-swarmplot-pc2}
-plot(ci_input_pc2, rawplot.type = "swarmplot")   
-
-```
-
-
-
-
-```{r}
-
-
-
-
-#test2 <- full_join(mod_tidy_mon, test,  by = ".class") 
-#test3 <- test2 %>% 
-#  group_by(.class, ecoreg) %>% 
-#  mutate(q1_flow = mean(q1_mon)) %>% 
-#  mutate(q7_flow = mean(q7_mon)) %>%  
-#  mutate(q30_flow = mean(q30_mon))  %>% 
-#  mutate(PC1_flow = mean(mon_PC1)) %>% 
-#  mutate(PC2_flow = mean(mon_PC2)) %>%  
-#  ungroup()  
-
-  
-
-
-
-test3 %>%  
-ggplot(aes(q1_mon, q7_mon)) + 
-  facet_wrap(~ flow_type) + 
-  geom_jitter(
-    aes(color = ecoreg), 
-#    color = "gray", 
-              size = 1)  + 
-  geom_point(
-    aes(q1_flow, q7_flow, shape = ecoreg), 
-    color = "black", 
-              size = 1)  +   
-  scale_x_log10() + 
-  scale_y_log10() + 
-  theme_bw()  
-
-test2 %>%  
-ggplot(aes(q1_mon, q30_mon)) + 
-  facet_wrap(~ flow_type) + 
-  geom_jitter(
-    color = "gray", 
-              size = 1)  + 
-  geom_point(
-    aes(q1_flow, q30_flow), 
-    color = "black", 
-              size = 1)  +   
-  scale_x_log10() + 
-  scale_y_log10() + 
-  theme_bw()  
-
-test3 %>%  
-ggplot(aes(mon_PC1, mon_PC2)) + 
-  facet_wrap(~ flow_type) + 
-  geom_jitter(
-    aes(shape = ecoreg, color = ecoreg), 
-#    color = "gray", 
-              size = 1)  + 
-#  geom_jitter(aes(sta_PC1, sta_PC2),  # station averages 
-#        shape = 3,                   # cross 
-#        size = 1.5, 
-#    colour = "black") +  
-#  geom_point(aes(ecoreg_PC1, ecoreg_PC2, shape = ecoreg, legend = FALSE),  # ecoregion averages 
-#             shape = 15,                   # filled square 
-#             size = 2, 
- #   colour = "black") +  
-  geom_point(
-    aes(PC1_flow, PC2_flow, 
-        shape = ecoreg),
-    show.legend=FALSE, 
-    color = "black", 
-              size = 1)  + 
-#  geom_point(
-#    aes(q7_flow, q30_flow), 
-#    color = "black", 
-#              size = 1)  +   
-# scale_x_continuous(trans = "log10") + 
-#  scale_y_log10() + 
-  theme_bw()   
-
-```
-
-
-
 
 ```{r pca_decomp_table} 
 
@@ -1935,9 +1942,6 @@ mon_sum <- bind_rows(mon_sum_pc1_all, mon_sum_pc1) %>%
 rm(mon_sum_gath) 
 
 ``` 
-
-
-
 
 
 ```{r plot_time-series_PC2, eval=FALSE}
@@ -2050,11 +2054,7 @@ ggsave2("figure/pc2-deconv.png",
 ```
 
 
-
-```
-
-
-
+# THis is probably to be deleted 
 ```{r summarize-results-PCA_delete,eval=FALSE}
 
 #  4. Create summaries of the results ----------------------------------------
@@ -2114,6 +2114,9 @@ ggplot(pca_mon, aes(PC1_mean, PC2_mean)) +
 
 
 ```
+
+```{r things}
+
 
 
 # prepare data 
@@ -2279,6 +2282,8 @@ rm(gage_clust_meta, gage_pca_sum, gage_pca, gage_input)
 
 tidy(pca_matrix, matrix = "u")
 
-test <- augment(pca_matrix, pca_input)
+test <- augment(pca_matrix, pca_input) 
+
+```
 ```
 
