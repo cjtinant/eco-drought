@@ -669,8 +669,8 @@ ung_table <- flextable(ung_table) %>%
 
 ```{r prepare-table_soils, eval=FALSE} 
 
-# prepare data for soils table 
-soils_table <- tibble(
+# prepare data for soils table  
+soils_table <- tibble( 
   order = c(6, 5, 4, 3, 2, 1), 
   geo_age = c("Quaternary", "Tertiary", "Tertiary", 
               "Tertiary", "Cretaceous", "Cretaceous"), 
@@ -830,10 +830,10 @@ hydro_table
 
 ```{r export_flextables_as_docx, eval=FALSE}  
    
-# export a docx of flextables  
+# export a docx of flextables   
 tables_ch2 <- read_docx() %>% 
   body_add_flextable(value = gage_table)  %>% 
-  body_add_break() %>% 
+  body_add_break() %>%  
   body_add_flextable(value = ung_table) %>%  
   body_add_break() %>% 
   body_add_flextable(value = soils_table) %>% 
@@ -1518,13 +1518,12 @@ rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder, anom_PC1)
 
 ```{r Mclust}
 
-# monthly clusters 
+# make monthly inputs for clustering 
 clust_input <- gage_mon %>% 
   select(sta, Date, waterYear, ecoreg, q1_mon, q7_mon, q30_mon) %>% 
   group_by(sta) %>% 
   distinct(Date, .keep_all = TRUE) %>% 
   ungroup() 
-
 
 # Get rid of categorical data for Mclust 
 X <- clust_input %>%           
@@ -1543,7 +1542,7 @@ mod_glance_mon <-glance(mod)
 mod_tidy_mon <- tidy(mod)           
 
 # add Mclust model classes to the orig data & add ecoregions 
-mod_tidy_mon <- augment(mod, gage_mon)  
+mod_tidy_mon <- augment(mod, gage_mon)   
 
 # sample cluster plot 
 factoextra::fviz_mclust(mod, 
@@ -1552,8 +1551,10 @@ factoextra::fviz_mclust(mod,
                           ellipse.type = "t", 
                           ellipse.level = 0.7, 
                           pointsize = 1.5,  
-                          palatte = "npg"
+                          palatte = "npg" 
                           ) 
+ 
+rm(clust_input)  
 
 ```
 
@@ -1595,6 +1596,7 @@ ggplot(aes(mon_PC1, mon_PC2)) +
         shape = ecoreg), 
     size = 2, 
     show.legend = FALSE)  + 
+  scale_alpha(".uncertainty") + 
  #   scale_colour_brewer(palette = "Greys") +
 # map the title of the geom for the legend  
 #  scale_shape_discrete(name="Ecoregion") + 
@@ -1638,10 +1640,11 @@ ggplot(aes(mon_PC1, mon_PC2)) +
   geom_point(
     aes(PC1_flow_eco, 
         PC2_flow_eco, 
-        shape = ecoreg),
+        shape = ecoreg), 
    show.legend=FALSE, 
     color = "black", 
               size = 3)  + 
+  scale_alpha(".uncertainty") + 
   theme_bw() + 
   xlab("PC1 axis (94.8%)") + 
   ylab("PC2 axis (4.5%)") + 
@@ -1660,9 +1663,11 @@ cowplot::ggsave2("figure/mclust_plot.png",
         width = 7, 
         height = 9) 
 
-rm(mclust_flow_plot, mclust_eco_plot) 
+rm(mclust_flow_plot, mclust_eco_plot, X, BIC, 
+   mod_tidy_mon, mod_tidy_sum, mod_glance_mon, 
+   mod)  
 
-mclust_flow_plot 
+
 ```
 
 ```{r bootstrap, eval=FALSE}
@@ -1697,113 +1702,29 @@ ci_input_pc1 <- gage_mon %>%
          reps = 40000                     # number of bootstraps 
          ) 
 
-# calculate 95% CI for PC2 - 'control' is Pierre Shale Plains 
+# calculate 95% CI for PC2 - 'control' is Sand Hills
 ci_input_pc2 <- gage_mon %>%  
-  dabest(ecoreg2, observed_PC2,  
-         idx = c("Pierre Shale", 
-                 "PR Escarpment", 
-                 "WR Badlands", 
-                 "BH Plateau", 
-                 "KP Tablelands", 
-                 "Sand Hills"), 
+  dabest(ecoreg, observed_PC2,  
+         idx = c("Pierre Shale Plains",     
+                 "Pine Ridge Escarpment", 
+                 "White River Badlands", 
+                 "Black Hills Plateau", 
+                 "Keya Paha Tablelands", 
+                 "Sand Hills"
+                 ), 
          paired = FALSE, 
-         reps = 50000 
+         reps = 40000 
          ) 
 
 # export results as Rdata files 
 # how???
 
-
+# this is the output of the runs 
+ci_input_pc1 
+co_input_pc2
 ```
 
-```{r ci_results, eval=FALSE} 
-# IN PROGRESS -- code is from abobe
-# prepare df for gaging station metadata  
-gage_table <- gage_meta %>%   
-  mutate(contrib_drain_area_va = 
-           coalesce(contrib_drain_area_va, drain_area_va) 
-  ) %>% 
-  mutate(alt_si = 
-           conv_unit(alt_va, "ft", "m") 
-         ) %>% 
-  mutate(contrib_drain_area_si = 
-           conv_unit(contrib_drain_area_va, "mi2", "km2") 
-         ) 
-
-gage_table$years_rec <-  as.integer(gage_table$years_rec) 
-
-gage_table <- gage_table %>% 
-select(site_no, station_nm, dec_lat_va, dec_long_va, alt_si, years_rec, 
-         contrib_drain_area_si) 
-
-# set column keys for flextable -- these variables also used below 
-col_key_num <-gage_table %>% 
-  select(dec_lat_va:alt_si, contrib_drain_area_si) %>% 
-  names() 
-
-col_key_int <-gage_table %>% 
-  select(years_rec, site_no) %>% 
-  names() 
-
-# convert tibble to a flextable 
-gage_table <- flextable(gage_table) %>% 
-  colformat_num(col_keys = col_key_num, 
-                big.mark=",", 
-                digits = 1, na_str = "N/A") %>% 
-  set_header_labels(site_no = "Sta. Number", 
-                    station_nm = "Name", 
-                    dec_lat_va = "Latitude", 
-                    dec_long_va = "Longitude", 
-                    alt_si = "Elevation, m", 
-                    years_rec = "Years of Record", 
-                    contrib_drain_area_si = "Drainage Area, sq-km") %>% 
-  autofit() %>% 
-  theme_booktabs() 
-# -->
-
-ci_input_pc1
-#DABEST (Data Analysis with Bootstrap Estimation) v0.2.2
-#=======================================================
-
-# Variable: observed 
-# 40000 bootstrap resamples.
-# All confidence intervals are bias-corrected and accelerated.
-
-# Unpaired mean difference of: 
-#   Pine Ridge Escarpment (n=4195) minus Pierre Shale Plains (n=1261)
-#   0.385 [95CI  0.304; 0.465]
-
-#   White River Badlands (n=4195) minus Pierre Shale Plains (n=941)
-#   0.75 [95CI  0.65; 0.851]
-
-#   Black Hills Plateau (n=4195) minus Pierre Shale Plains (n=2501)
-#   1.62 [95CI  1.55; 1.68]
-
-#   Keya Paha Tablelands (n=4195) minus Pierre Shale Plains (n=1466)
-#   1.78 [95CI  1.71; 1.84]
-
-#   Sand Hills (n=4195) minus Pierre Shale Plains (n=3663)
-#   2.62 [95CI  2.56; 2.67]
-
-# calculate 95% CI for PC2 - 'control' is Pierre Shale Plains 
-
-# reframe results from av
-
-# use the listviewer to find the shape of the list 
-listviewer::jsonedit(ci_input_pc1) 
-
-# pluck results for summary table
-ci_results_pc1 <- ci_input_pc1 %>% 
-  pluck("result") %>% 
-  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
-  
-  
-
-
-```
-
-
-```{r bootstrap-swarmplot-pc1} 
+```{r bootstrap-swarmplots} 
 #ci_input_pc1 <- load("data/dabest_pc1.rdata") 
 
 ci_plot_pc1 <- plot(ci_input_pc1, 
@@ -1822,7 +1743,6 @@ ci_plot_pc2 <- plot(ci_input_pc2,
                     palette = "Greys"  
                     )    
 
-
 cowplot::plot_grid( 
   ci_plot_pc1,
   ci_plot_pc2,  
@@ -1835,48 +1755,66 @@ cowplot::ggsave2("figure/ci_plot.png",
         units = "in",  
         width = 7, 
         height = 9) 
+
+rm(ci_plot_pc1, ci_plot_pc2)
+```
+
+```{r ci_result_table, eval=FALSE}  
+
+# pluck results for summary tables & bind
+ci_results_pc1 <- ci_input_pc1 %>% 
+  pluck("result") %>% 
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
+  
+ci_results_pc2 <- ci_input_pc2 %>% 
+  pluck("result") %>% 
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
+
+ci_table <- rbind(ci_results_pc1, ci_results_pc2) 
+
+# prepare results for presentation 
+ci_table <- ci_table %>% 
+  mutate(variable =  case_when( 
+    variable == "observed_PC1" ~ "PC1", 
+    variable == "observed_PC2" ~ "PC2"    
+    )
+    ) %>% 
+  mutate(ci = as.integer(ci)) %>% 
+  select(variable, everything())
+
+# convert tibble to a flextable after fixing vars for presentation 
+ci_table <- ci_table %>% 
+  flextable() %>% 
+#  colformat_num(col_keys = col_key_num, 
+#                big.mark=",", 
+#                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(control_group = "Control Group", 
+                    test_group = "Test Groups", 
+                    control_size = "Control Size",
+                    test_size = "Test Size", 
+                    func = "Test Statistic", 
+                    variable = "Variable",
+                    difference = "Mean Difference", 
+                    ci = "CI", 
+                    bca_ci_low = "Lower Limit", 
+                    bca_ci_high = "Upper Limit") %>% 
+  autofit() %>% 
+  align(., part = "all", align = "center") %>% 
+  theme_booktabs() 
+
+  
+ci_table2 <- read_docx() %>% 
+  body_add_flextable(value = ci_table)  
+
+print(ci_table2, target = "output/ci_table.docx") 
+
+rm(ci_results_pc1, ci_results_pc2, ci_table)
+
 ```
 
 
 
-```{r bootstrap-swarmplot-pc2}
-plot(ci_input_pc2, rawplot.type = "swarmplot")   
-
-```
-
-
-```{r stuff}
-ci_input_pc2 
-
-
-export(ci_input_pc2, "data/dabest_pc2.rdata")  
-#DABEST (Data Analysis with Bootstrap Estimation) v0.2.2
-#=======================================================
-
-#Variable: observed 
-
-#Unpaired mean difference of 
-#Pine Ridge Escarpment (n=4195) minus Pierre Shale Plains (n=1261)
-# -0.132 [95CI  -0.15; -0.114]
-
-# White River Badlands (n=4195) minus Pierre Shale Plains (n=941)
-# 0.0399 [95CI  0.0152; 0.0646]
-
-Unpaired mean difference of Black Hills Plateau (n=4195) minus Pierre Shale Plains (n=2501)
- -0.147 [95CI  -0.16; -0.133]
-
-Unpaired mean difference of Keya Paha Tablelands (n=4195) minus Pierre Shale Plains (n=1466)
- -0.173 [95CI  -0.188; -0.159]
-
-Unpaired mean difference of Sand Hills (n=4195) minus Pierre Shale Plains (n=3663)
- -0.0326 [95CI  -0.0463; -0.0191]
-
-
-40000 bootstrap resamples.
-All confidence intervals are bias-corrected and accelerated.
-
-```
-
+# check this
 ```{r pca_decomp_table} 
 
 # summarize observations of the time series into observations for a summary table 
@@ -1945,6 +1883,7 @@ rm(mon_sum_gath)
 
 
 ```{r plot_time-series_PC2, eval=FALSE}
+
 
 # split out the PC1 axis 
 mon_plot_pc2 <- gage_mon %>% 
