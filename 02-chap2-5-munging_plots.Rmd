@@ -723,8 +723,8 @@ soils_table <- flextable(soils_table) %>%
 
 ```{r prepare-table_hydro_metrics, eval=FALSE}
  
-# prepare df for hydrologic metric table  
-hydro_table <- wsd_summary %>% 
+# prepare df for hydrologic metric table   
+hydro_table <- wsd_summary %>%  
   select(type, cat_area, lw_ratio, drain_dens, prcp_mean, t07_mean, vpd_ann, 
          vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, fc_mean, 
          ksat_mean, kvert_mean) %>% 
@@ -746,7 +746,7 @@ hydro_tab2 <- tibble(metric = hydro_table$metric,
                      type = c("planimetric", "elevation", "elevation", 
                               "planimetric", "soils", "soils", "soils", 
                               "planimetric", "cover", "climate", 
-                              "elevation", "climate", "elevation", "climate",   
+                              "elevation", "climate", "elevation", "climate",    
                               "climate"), 
                      transformation = c("1/ln(x)", "sqrt(x)", "sqrt(x)", 
                                         "none", "none", "ln(x)", "ln(x)", 
@@ -984,9 +984,9 @@ rm(gage_contrib_area)
 ```
 
 ```{r PCA-calculations, eval=FALSE}  
- 
+  
 # 1. Prepare to approach normality using forcast::BoxCox ---------------------  
-
+ 
 # make dataframes of lambda values 
 lambda_q1  <- enframe(  
   BoxCox.lambda(gage_dv$q1_depth)  
@@ -1035,7 +1035,7 @@ pca_vars <-  tidy(pca_matrix, matrix = "variables") %>%     # PCA loadings
         remove = TRUE 
         ) %>%  
   spread(pc_axis, value) %>% 
-  mutate(labels = c("q1", "q30", "q7"))
+  mutate(labels = c("q1", "q30", "q7")) 
   
 gage_dv <- augment(pca_matrix, data = gage_dv) %>% 
   select(-c(.rownames, .fittedPC3)) %>%       # bind sample vals to PCA matrix 
@@ -1146,6 +1146,203 @@ gage_dv <- full_join(gage_dv, eco_join,
  
 rm(ecoreg) 
 ``` 
+
+```{r import_spatial_data} 
+
+# check layer names for the project geopackage 
+gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>% 
+  tibble::enframe(.) %>% 
+  select(value) 
+
+# read in geopackage data of zonal summaries for watersheds 
+gage_summary <- st_read("sp_data/eco-drought.gpkg", 
+                       layer = "gage_summary", 
+                       as_tibble = TRUE) %>% 
+  st_drop_geometry() 
+
+wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
+                       layer = "wbd_summary", 
+                       as_tibble = TRUE) %>% 
+  st_drop_geometry() 
+
+# convert environmental data to tibbles 
+gage_summary <- as_tibble(gage_summary) %>% 
+  modify_if(., is.factor, as.character) 
+
+wsd_summary <- as_tibble(wsd_summary) %>% 
+  modify_if(., is.factor, as.character) %>% 
+  select(id, everything()) 
+
+```
+
+```{r munge_explore_spatial_data} 
+
+# Create function ------------------------------------------------------------
+# basic EDA function from 
+# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/
+basic_eda <- function(data)      
+{                                
+  glimpse(data)
+  df_status(data)
+  freq(data) 
+  profiling_num(data)
+  plot_num(data)
+  describe(data)
+}  
+# ----------------------------------------------------------------------------- 
+env_vars <-  wsd_summary %>% 
+  filter(type == "gaged") %>%          # we are only looking at training data 
+  select(sta_id, cat_area_l, lw_ratio, drain_dens, prcp_mean, t07_mean, 
+         vpd_ann, vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, 
+         fc_mean, ksat_mean, kvert_mean) %>% 
+  rename(cat_area_ln = cat_area_l) 
+
+basic_eda(env_vars) 
+
+```
+
+```{r EDA_01-box-cox_spatial-data}
+
+# use Box Cox to estimate transforms  
+lambda <- env_vars %>%  
+  select(-sta_id)  
+ 
+lambda <- enframe( 
+                  sapply(lambda, forecast::BoxCox.lambda)  
+                  ) %>%   
+  rename(sta = name) %>%  
+  rename(lambda_val = value) %>%  
+  arrange(sta)  
+
+``` 
+
+```{r EDA_02-transforms_spatial-data} 
+
+print(lambda) 
+
+# transform variables in the following way:  
+## variable    lambda_val- gaged      transform 
+## ------------------------------------------ 
+## cat_area_ln	-1.00			    reciprocal     1 
+## cat_out	     0.36			    square root    2 
+## cat_rel       0.46			    square root 	 3		
+## drain_dens	   0.66			    square root 	 4	 	
+## fc_mean	     1.36                        5 
+## kvert_mean	  -0.13			    natural log    6 
+## ksat_mean  	-0.11			    natural log    7  
+## lw_ratio	    -0.18			    natural log    8 
+## perc_cov	     0.17			    natural log    9 
+## prcp_mean	   2.00			    square        10 
+## slop_med	    -0.13			    natural log   11 
+## t07_mean	     2.00			    square        12 
+## TWI_mean	     2.00				  square        13 
+## vpd_ann	     2.00				  square		    14 
+## vpd_07	       2.00					square	      15 
+
+env_vars <- env_vars %>% 
+  mutate(area_linv  = 1/cat_area_ln) %>%       
+  mutate(cout_sqr   = sqrt(cat_out)) %>% 
+  mutate(crel_sqr   = sqrt(cat_rel)) %>% 
+  mutate(dden_sqr   = sqrt(drain_dens)) %>% 
+  mutate(ksat_ln    = log(ksat_mean)) %>% 		
+  mutate(kvert_ln   = log(kvert_mean)) %>% 
+  mutate(lwrat_sqr  = log(lw_ratio)) %>% 
+  mutate(pcov_ln    = log(1 + perc_cov)) %>% 	
+  mutate(prcp_sq    = prcp_mean^2) %>% 
+  mutate(slop_ln    = log(slop_med)) %>%    
+  mutate(t07_sq     = t07_mean^2) %>%      
+  mutate(TWI_sq     = TWI_mean^2) %>%    
+  mutate(vpd07_sq   = vpd_07^2) %>% 	 
+  mutate(vpdan_sq   = vpd_ann^2) 
+  
+   
+# plot quantiles 
+plot_qq(env_vars) 
+  
+```
+
+```{r EDA_03-correlation_spatial-data} 
+
+# select environmental variables for correlation 
+env_vars <- env_vars %>% 
+  mutate(cat_area_ln = 1/area_linv) %>%  
+  select(area_linv:cat_area_ln)  
+
+plot_correlation(env_vars) 
+ 
+## variable    transform_var    correlated vars (> 0.65)   drop? 
+## --------------------------------------------------------------------------- 
+## drain_dens	  dden_sqr			  fc_mean, prcp_sq, 
+##                              ksat_ln, kvert_ln			      
+## fc_mean	                    ksat_ln, k_vert_ln, 
+##                              dden_sqr           
+## ksat_mean  	ksat_ln 		    dden_sqrm fc_mean, 
+##                              kvert_ln                    yes 
+## kvert_mean	  kvert_ln        dden_sqr, fc_mean, 
+##                              ksat_ln 
+## lw_ratio	    lwrat_sqr		     
+## prcp_mean	 	prcp_sq         vpd_ann, vpd_07	
+## perc_cov	    pcov_ln		      slop_ln, t07_ln            
+##                              TWI_sq, vpd07_sq 
+##                              vpdan_sq                    
+## slop_med	    slop_ln         pcov_ln, TWI_sq 
+## t07_mean	    t07_sq          pcov_ln, vpdann_sq, 
+##                              vpd07_sq 
+## TWI_mean	    TWI_sq 				  pcov_ln, slop_ln 
+## vpd_ann	    vpdan_sq			  pcov_ln, prcp_sq, 
+##                              t07_mean, vpd07_sq 
+## vpd_07	      vpd07_sq			  pcov_ln, prcp_sq, 
+##                              t07_mean, vpdan_sq          yes 
+
+``` 
+
+```{r EDA_04-response_var} 
+
+# get the watershed summaries with the stations attached 
+#gaged <- wsd_summary %>% 
+#  filter(type == "gaged") 
+
+# keep just the uncorrelated and transformed variables 
+gaged <- right_join(wsd_summary, env_vars, 
+                    by = c("sta_id", "lw_ratio", "drain_dens", 
+                           "prcp_mean", "t07_mean", "vpd_ann", 
+                           "vpd_07", "cat_out", "cat_rel", 
+                           "slop_med", "TWI_mean", "perc_cov", 
+                           "fc_mean", "ksat_mean", "kvert_mean") 
+                    ) %>% 
+  select(sta_id, area_linv:vpdan_sq) %>% 
+  select(-c(ksat_ln, vpd07_sq))  
+
+
+
+# response variable needs to be an ordered PC for training/test splits 
+resp_vars <- gage_summary %>% 
+  select(sta, log_q1_dep, log_q7_dep, log_q30_de) 
+
+resp_vars <- gage_summary %>% 
+  select(sta, log_q1_dep, log_q7_dep, log_q30_de) 
+
+
+pca_PC1 <- prcomp(resp_vars_PC1[,c(2:4)], 
+              center = TRUE, scale. = TRUE) 
+
+tidy(pca, "pcs") 
+
+resp_vars_PC1 <- augment(pca, data = resp_vars_PC1) %>% 
+  select(sta_id = sta, hydro_exp = .fittedPC1) 
+  
+# prepare for regression 
+gaged <- full_join(gaged, resp_vars, 
+                   by = "sta_id") %>% 
+  arrange(hydro_exp) %>% 
+  select(sta_id, hydro_exp, everything()) 
+
+# clean up global environment 
+rm(gage_summary, gpg_layers, lambda, pca, resp_vars)  
+```
+
+
+
 
 ```{r deconvolute_pca}
 
@@ -1808,7 +2005,7 @@ ci_table2 <- read_docx() %>%
 
 print(ci_table2, target = "output/ci_table.docx") 
 
-rm(ci_results_pc1, ci_results_pc2, ci_table)
+rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table) 
 
 ```
 
