@@ -1227,7 +1227,7 @@ lambda <- enframe(
   rename(lambda_val = value) %>%  
   arrange(sta)   
 
-print(lambda) 
+# print(lambda) 
 
 rm(lambda)  
 ```  
@@ -1481,7 +1481,6 @@ rm(mae_call_pc1, mae_call_pc2, mae_vals_pc1, mae_vals_pc2)
 # plot model MAE
 ggplot(mae_vals, aes(x = as.factor(model))) + 
   facet_grid(cols = vars(axis)) +
-#  facet_grid(.~ axis) %>% 
   geom_point(aes(y = med)) + 
   geom_boxplot(aes(
       lower = Q1, 
@@ -1493,18 +1492,18 @@ ggplot(mae_vals, aes(x = as.factor(model))) +
     geom_point(
       aes(y = mean)
       ) + 
-  labs(title = "Regression method accuracy") + 
+ # labs(title = "Regression method accuracy") + 
   xlab("") + 
   ylab("MAE") 
 
 # save ggplot above & clean up 
-ggsave("figure/super_reg_acc.png") 
+ggsave("figure/super_reg_acc.png", width = 7, height = 3.5, units = "in")  
 
 #listviewer::jsonedit(rmse_call) 
 
 ```  
 
-```{r model-coefs-catchments}
+```{r tidy-glm-coefs}
 
 # this code chunk tidies model coefficients 
 
@@ -1575,7 +1574,7 @@ coef_elastic <- full_join(coef_elastic_pc1,coef_elastic_pc2,
 rm(coef_elastic_pc1, coef_elastic_pc2) 
 
 
-# join model coeff & arrange ------------------------------------------------- 
+# join model coeff ----------------------------------------------------------- 
 coefs <- bind_rows(coef_ridge, coef_lasso, coef_elastic) %>% 
   select(coeff, type, everything()) 
 
@@ -1585,37 +1584,79 @@ coefs <- coefs %>%
   spread(temp, value) %>% 
   select(coeff, starts_with("pc1"), everything()) 
 
+rm(coef_ridge, coef_lasso, coef_elastic) 
+
+```
+
+```{r prepare-export-table_glm-coeffs, eval=FALSE} 
+
 coefs <- coefs %>% 
   filter(coeff != "(Intercept)") %>%           # drop the model intercept term   
   arrange(desc(pc2_lasso)) %>% 
   arrange(desc(pc1_lasso)) %>% 
-  mutate(pc2_arrange = abs(pc2_lasso)) %>% 
+  mutate(pc2_arrange = abs(pc2_lasso)) %>%     # temp terms to arrange coeffs  
   mutate(pc1_arrange = abs(pc1_lasso)) %>% 
   mutate(arrange = case_when(
     pc1_arrange != 0 ~ pc1_arrange, 
     TRUE ~ pc2_arrange) 
     ) %>% 
   arrange(desc(arrange)) %>% 
-  select(coeff,pc1_lasso, pc2_lasso, 
-         pc1_elastic, pc2_elastic, 
-         pc1_ridge, pc2_ridge)  
+  select(coeff, 
+         pc1_lasso, pc1_elastic, pc1_ridge, 
+         pc2_lasso, pc2_elastic, pc2_ridge)  
 
+# convert tibble to a flextable 
+coef_table <- coefs %>%   
+  flextable() %>% 
+  colformat_num(col_keys = col_key_num, 
+                big.mark=",", 
+                digits = 2, na_str = "N/A") %>% 
+  add_header_row(values = c("", "", "PC1", "", "", "PC2", "")) %>% 
+  set_header_labels( 
+  coeff  = "Explanatory variable", 
+  pc1_lasso  = "Lasso", 
+  pc1_elastic = "Elastic net",   
+  pc1_ridge = "Ridge",     
+  pc2_lasso  = "Lasso", 
+  pc2_elastic = "Elastic net", 
+  pc2_ridge = "Ridge") %>%     
+  autofit() %>% 
+  theme_booktabs() 
 
-rm(coef_ridge, coef_lasso, coef_elastic) 
+# export a docx of flextables   
 
+coef_table <- read_docx() %>% 
+  body_add_flextable(value = coef_table) 
+print(coef_table, target = "output/table_coef.docx")  
+
+rm(coef_table) 
 ```
 
+```{r plot_glm_observations_predictions}
 
-```{r}
+#  prepare to plot training observations and predictions ---------------------
+# get observations 
+obs_train_pc1    <- tibble(observed = train_pc1$pc1_sta) 
+obs_train_pc2    <- tibble(observed = train_pc2$pc2_sta) 
 
+# get predictions 
+preds_train_pc1 <- map_dfc(models_pc1, predict, newdata = train_pc1) 
+preds_train_pc2 <- map_dfc(models_pc2, predict, newdata = train_pc2) 
 
-# ---------------------------------------------------------------------------- 
-observed_train   <- tibble(observed = train_pc1$pc1_sta) 
-preds_train <- map_dfc(models_pc1, predict, newdata = train_pc1) 
-fit_train <- bind_cols(observed_train, preds_train) 
+# combine observations & predictiont 
+fit_train_pc1 <- bind_cols(obs_train_pc1, preds_train_pc1) %>% 
+  mutate(axis = "pc1")
+fit_train_pc2 <- bind_cols(obs_train_pc2, preds_train_pc2) %>% 
+  mutate(axis = "pc2")
+
+fit_train <- bind_rows(fit_train_pc1, fit_train_pc2)
+
+rm(obs_train_pc1, obs_train_pc2, 
+   preds_train_pc1, preds_train_pc2, 
+   fit_train_pc1, fit_train_pc2)
 
 #  prepare to plot test observations and predictions 
-observed_test   <- tibble(observed = test_pc1$pc1_sta) 
+obs_test_pc1   <- tibble(observed = test_pc1$pc1_sta) 
 preds_test <- map_dfc(models_pc1, predict, newdata = test_pc1) 
 fit_test <- bind_cols(observed_test, preds_test) 
 
