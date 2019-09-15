@@ -281,7 +281,8 @@ library("caret")            # classification and regression training
 library("doMC")             # parallelization for caret 
 library("glmnet")           # fit a GLM with lasso or elasticnet regularization 
 library("dabestr")          # data analysis using bootstrap estimation 
-library("Metrics")          # evaluation metrics for machine learning
+library("Metrics")          # evaluation metrics for machine learning 
+library("DataExplorer") #--- used for plot_correlation() ---
 
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
 # library("cowplot")
@@ -904,7 +905,7 @@ rm(gage_check)
 
 ```{r censor_low_flows, message=FALSE, eval=FALSE} 
   
-# fix low flows ---- this step needed for the PCA   
+# fix low flows ---- this step needed for the PCA    
 #   EGRET calculates a "better" zero-flow value, but causes issues with results  
 #   this code chunk fixes low flow values by substituting 0.01 cfs  
 #   for zero-flow values  
@@ -945,45 +946,44 @@ rm(gage_dv_gath, gage_dv_high, gage_dv_low)
 
 ```{r convert_flow_to_depth, message=FALSE, eval=FALSE} 
    
-# 1. calculate contributing drainage area in square kilometers & sec/day    
-gage_contrib_area <- gage_meta %>%  
-  select(sta, drain_area_va, contrib_drain_area_va) %>% 
-  mutate(contrib_drain_area_va = 
-           contrib_drain_area_va %>% 
-             is.na %>% 
-             ifelse(drain_area_va, contrib_drain_area_va)) %>% 
-  select(-drain_area_va) %>% 
-  mutate(contrib_drain_km2 = 
-           measurements::conv_unit(contrib_drain_area_va, 
-                                   from = "mi2",  
-                                   to = "km2" 
-                                   ) 
-         ) %>% 
-  mutate(contrib_drain_km2 = 
-           round( 
-             contrib_drain_km2, 
-             digits = 1 
-             ) 
-         ) %>% 
+# 1. calculate contributing drainage area in square kilometers & sec/day     
+gage_contrib_area <- gage_meta %>%   
+  select(sta, drain_area_va, contrib_drain_area_va) %>%  
+  mutate(contrib_drain_area_va =  
+           contrib_drain_area_va %>%  
+             is.na %>%  
+             ifelse(drain_area_va, contrib_drain_area_va)) %>%  
+  select(-drain_area_va) %>%  
+  mutate(contrib_drain_km2 =  
+           measurements::conv_unit(contrib_drain_area_va,  
+                                   from = "mi2",   
+                                   to = "km2"  
+                                   )  
+         ) %>%  
+  mutate(contrib_drain_km2 =  
+           round(  
+             contrib_drain_km2,  
+             digits = 1  
+             )  
+         ) %>%  
   mutate(sec_per_day = 60 * 60 * 24)  
 
-
-# 2. calculate Q-depth:: q = Q/DA [m/km2 day]  
+# 2. calculate Q-depth:: q = Q/DA [m/km2 day]   
 gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>% 
-  select(site_no, sta, Date, Q, Q7, Q30, waterYear, 
-         contrib_drain_km2, sec_per_day)  %>% 
-  gather(type, value, 
-         -c(site_no, sta, Date, waterYear, contrib_drain_km2, sec_per_day) 
+  select(site_no, sta, Date, Q, Q7, Q30, waterYear,  
+         contrib_drain_km2, sec_per_day)  %>%  
+  gather(type, value,  
+         -c(site_no, sta, Date, waterYear, contrib_drain_km2, sec_per_day)  
          ) %>% 
-  mutate(value = value * sec_per_day / contrib_drain_km2) %>% 
-  spread(type, value) %>% 
-  rename(q1_depth = Q) %>% 
-  rename(q7_depth = Q7) %>% 
-  rename(q30_depth = Q30) %>% 
-  select(-c(site_no, contrib_drain_km2, sec_per_day))  
-
-rm(gage_contrib_area)  
-```
+  mutate(value = value * sec_per_day / contrib_drain_km2) %>%  
+  spread(type, value) %>%  
+  rename(q1_depth = Q) %>%  
+  rename(q7_depth = Q7) %>%  
+  rename(q30_depth = Q30) %>%  
+  select(-c(site_no, contrib_drain_km2, sec_per_day))   
+ 
+rm(gage_contrib_area)   
+``` 
 
 ```{r PCA-calculations, eval=FALSE}  
   
@@ -1150,42 +1150,29 @@ gage_dv <- full_join(gage_dv, eco_join,
 
 ``` 
 
-```{r to-delete}
-# read in geopackage data of zonal summaries for watersheds 
-#gage_summary <- st_read("sp_data/eco-drought.gpkg", 
-#                       layer = "gage_summary", 
-#                       as_tibble = TRUE) %>% 
-#  st_drop_geometry() 
-
-# convert environmental data to tibbles -- delete after fixing plots 
-#gage_summary <- gage_summary %>% 
-#  as_tibble() %>% 
-#  modify_if(., is.factor, as.character) 
-```
-
 ```{r import_spatial_data} 
  
 # this chunk adds and joins spatial data 
-
-# check layer names for the project geopackage 
-gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>% 
-  tibble::enframe(.) %>% 
-  select(value) 
-
-# read in geopackage data of zonal summaries for watersheds 
-wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
-                       layer = "wbd_summary", 
-                       as_tibble = TRUE) %>% 
+ 
+# check layer names for the project geopackage  
+gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>%  
+  tibble::enframe(.) %>%  
+  select(value)  
+  
+# read in geopackage data of zonal summaries for watersheds  
+wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
+                       layer = "wbd_summary",  
+                       as_tibble = TRUE) %>%  
   st_drop_geometry() 
-
-wsd_summary <- wsd_summary %>% 
-  as_tibble() %>% 
-  modify_if(., is.factor, as.character) %>% 
-  select(id, everything()) 
-
-rm(gpg_layers) 
-
-```
+ 
+wsd_summary <- wsd_summary %>%  
+  as_tibble() %>%  
+  modify_if(., is.factor, as.character) %>%  
+  select(id, everything())  
+ 
+rm(gpg_layers)  
+ 
+```  
 
 ```{r get_enviro_vars} 
 
@@ -1203,25 +1190,25 @@ env_vars <- full_join(ecoreg, env_vars,
             ecoreg_L2, ecoreg_L1, watshed)) %>% 
   rename(ecoreg = ecoreg_wtsd)
 
- 
 ```
 
 ```{r box-cox_spatial-data, eval=FALSE}
 
 # use Box Cox to estimate transforms  
 lambda <- env_vars %>%  
-  select(-sta_id)   
-   
+  select(-sta_id)    
+    
 lambda <- enframe( 
                   sapply(lambda, forecast::BoxCox.lambda)  
                   ) %>%   
   rename(sta = name) %>%  
-  rename(lambda_val = value) %>%  
-  arrange(sta)   
-
+  rename(lambda_val = value) %>%   
+  arrange(sta)    
+ 
 # print(lambda) 
-
-rm(lambda)  
+ 
+rm(lambda)   
+  
 ```  
 
 ```{r visually_explore_spatial_data, eval=FALSE}
@@ -1268,7 +1255,7 @@ env_vars <- env_vars %>%
 # plot quantiles  
 plot_qq(env_vars)   
   
-```   
+```      
 
 ```{r correlate_spatial-data} 
  
@@ -1316,16 +1303,717 @@ env_vars <- env_vars %>%
 
 ```{r add-response-var_spatial-data} 
 
-
+# join the environmental vars to the daily flow values 
 gaged <- full_join(gage_dv, env_vars, 
                    by = c("sta" = "sta_id", "ecoreg")) %>% 
-  select(sta, .fittedPC1:.fittedPC2, ecoreg:vpdan_sq)
+  select(sta, q1_depth, .fittedPC1:.fittedPC2, ecoreg:vpdan_sq) 
+
+# prepare for glm-model by calculating log-q1 depths 
+gaged <- gaged %>% 
+  mutate(log_q1_depth = log10(q1_depth)) %>% 
+  select(sta, q1_depth, log_q1_depth, everything()) 
 
 # clean up global environment 
 rm(env_vars)    
 
 ```
 
+```{r build-glm-models-dv} 
+
+# set up random seed & parallel processing for glmnet & caret ----------------  
+
+seed <- 42  
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE) 
+registerDoMC(cores)   
+ 
+# set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2] 
+set.seed(seed) 
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
+                          search = "grid", allowParallel = TRUE) 
+  
+lambda <- 10^seq(-2, 2, length = 100) 
+  
+# Split the data into training and test set ----------------------------------  
+# create a data partition balanced by ecoregion 
+set.seed(seed) 
+train_index <- createDataPartition(gaged$log_q1_depth, p=0.8)[[1]]  
+#train_index <- createDataPartition(as.factor(gaged$ecoreg), p=0.8)[[1]]  
+  
+train_dv <- gaged[train_index,] %>%
+  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2))   
+ 
+test_dv <- gaged[-train_index,] %>% 
+    select(-c(sta, q1_depth, .fittedPC1, .fittedPC2))    
+
+# ridge -- alpha = 0 ---------------------------------------------------------  
+set.seed(seed)             # need to set a seed each time you call a rand num 
+ridge_dv <- train(  
+  log_q1_depth ~.,           # x = 'medv', y = the rest of the columns, from   
+  data = train_dv,        #   the dataset 'train.data' 
+  method = "glmnet",       #   using method "glmnet"  
+  preProcess = c("center", "scale"), 
+  trControl = reg.ctrl,   
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values  
+  )  
+ 
+# lasso -- alpha = 1 ---------------------------------------------------------  
+set.seed(seed)              # need to set a seed each time you call a rand num 
+lasso_dv <- train( 
+  log_q1_depth ~.,            # x = 'medv', y = the rest of the columns, from   
+  data = train_dv,         #   the dataset 'train.data'   
+  method = "glmnet",        #   using method "glmnet" 
+  preProcess = c("center", "scale"),  
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
+  ) 
+ 
+# elastic net -- alpha vals [0, 1] by caret ---------------------------------- 
+set.seed(seed) 
+elastic_dv <- train( 
+  log_q1_depth ~.,           # x = 'medv', y = the rest of the columns, from 
+  data = train_dv,        #   the dataset 'train.data' 
+  method = "glmnet",       #   using method "glmnet" 
+  preProcess = c("center", "scale"), 
+  trControl = reg.ctrl, 
+  tuneLength = 10          # tune length  
+  )  
+ 
+# make a list of the models -------------------------------------------------- 
+models_dv <- list( 
+  ridge = ridge_dv, 
+  lasso = lasso_dv,  
+  elastic = elastic_dv)   
+  
+rm(cores, lambda, reg.ctrl)   
+ 
+```  
+
+```{r get-glm-coefs_dv}
+
+# get & tidy model coefficients for each of the GLMs 
+# get number of parameters for each of the GLMs
+
+# ridge coeffs --------------------------------------------------------------- 
+coef_ridge_dv <- coef(  
+  ridge_dv$finalModel, 
+  ridge_dv$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  mutate(type = "ridge") 
+
+# lasso coeffs  --------------------------------------------------------------- 
+coef_lasso_dv <- coef( 
+  lasso_dv$finalModel, 
+  lasso_dv$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  mutate(type = "lasso") 
+
+# elastic coeffs  ------------------------------------------------------------  
+coef_elastic_dv <- coef( 
+  elastic_dv$finalModel, 
+  elastic_dv$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  mutate(type = "elastic") 
+
+# join model coeff ----------------------------------------------------------- 
+coefs_dv <- bind_rows(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv) 
+
+coefs_dv <- coefs_dv %>% 
+  rename(value = 2) %>% 
+  mutate(value = round(
+    value, digits = 3)
+    ) %>% 
+  spread(type, value) 
+
+# prepare for export table ---------------------------------------------------
+# arrange by absolute value of the lasso model 
+coefs_dv <- coefs_dv %>%  
+ # arrange(desc(lasso))  %>% 
+  mutate(arrange_ridge = abs(ridge)) %>%   # temp terms to arrange coeffs  
+  mutate(arrange_lasso = abs(lasso)) %>%   # temp terms to arrange coeffs  
+ arrange(desc(arrange_ridge)) %>%   
+ arrange(desc(arrange_lasso)) %>% 
+  select(-c(arrange_lasso, arrange_ridge)) 
+
+# rename coefficients to fit the hydrologic coefficient table 
+coefs_dv <- coefs_dv %>%  
+  mutate(coeff = case_when( 
+    coeff == "(Intercept)"                  ~ "Intercept", 
+    coeff == "pcov_ln"                      ~ "perc_cov",                   
+    coeff == "kvert_ln"                     ~ "kvert_mean",                  
+    coeff == "vpdan_sq"                     ~ "vpd_ann",               
+    coeff ==  "cout_sqr"                    ~ "cat_out",                
+    coeff ==  "ecoregSand Hills"            ~ "Ecoreg::Sand Hills",          
+    coeff == "ecoregKeya Paha Tablelands"   ~ "Ecoreg::Keya Paha Tablelands", 
+    coeff == "lwrat_sqr"                    ~ "lw_ratio",           
+    coeff == "area_linv"                    ~ "cat_area", 
+    coeff == "dden_sqr"                     ~ "drain_dens", 
+    coeff == "ecoregPierre Shale Plains"    ~ "Ecoreg::Pierre Shale Plains", 
+    coeff ==  "ecoregPine Ridge Escarpment" ~ "Ecoreg::Pine Ridge Escarpment", 
+    coeff == "crel_sqr"                     ~ "cat_rel", 
+    coeff ==  "TWI_sq"                      ~ "TWI_mean", 
+    coeff == "slop_ln"                      ~ "slop_med", 
+    coeff == "ecoregWhite River Badlands"   ~ "Ecoreg::White River Badlands", 
+    coeff == "t07_sq"                       ~ "t07_mean", 
+    coeff ==  "prcp_sq"                     ~ "prcp_mean", 
+    TRUE ~ coeff)) 
+
+# get number of parameters for each regression method ------------------------
+num_param <- coefs_dv %>% 
+  map_dfc(~sum(. != 0)) %>% 
+  select(-coeff) %>%                   # transpose df 
+  gather(model, num_param) 
+
+rmse_vals_dv <- full_join(rmse_vals_dv, num_param, 
+                              by = "model")
+
+rm(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv) 
+
+```  
+
+```{r export-table_glm-coeffs_dv} 
+# set the numeric columns 
+col_key_num <- coefs_dv %>% 
+  select(-coeff) %>% 
+  names() 
+
+# convert tibble to a flextable  
+coef_table <- coefs_dv %>%   
+  flextable() %>% 
+  colformat_num(col_keys = col_key_num, 
+                big.mark=",", 
+                digits = 2, na_str = "N/A") %>%  
+  set_header_labels(  
+  coeff  = "Explanatory variable",  
+  lasso  = "Lasso",  
+  elastic = "Elastic net",    
+  ridge = "Ridge") %>%      
+  autofit() %>%  
+  theme_booktabs()  
+ 
+# export a docx of flextables    
+coef_table <- read_docx() %>% 
+  body_add_flextable(value = coef_table) 
+print(coef_table, target = "output/table_coef.docx")  
+    
+rm(coef_table, col_key_num)    
+ 
+```
+
+```{r select-glm-models_dv}
+
+# evaluate performance of models -- ridge, lasso and elastic net --   
+#   best model is the one that minimizes the prediction error. 
+
+# pick out the mse from the output lists  
+rmse_call_dv <- resamples(models_dv) %>%   
+  summary(metric = c("RMSE", "MAE"))  
+
+# change list to tibble 
+rmse_vals_dv <- as_tibble(   
+  as.data.frame( 
+    pluck(rmse_call_dv, 'statistics')  
+    ), rownames = "model" 
+  )   %>% 
+  gather(key, val, -c(model))  %>%  
+  mutate(key = str_replace(key, "[.]", "_")) %>% 
+  separate(key, c("statistic", "position"), extra = "drop") %>% 
+  filter(position != "NA") %>% 
+  spread(position, val)
+
+rm(rmse_call_dv)
+```   
+
+```{r plot-glm-models_dv} 
+
+rmse_vals_dv <- rmse_vals_dv %>% 
+  mutate(num_param = as.character(num_param)) %>% 
+  mutate(temp = ", p = ") %>% 
+  mutate(model_text = str_c(model, temp, num_param))  %>% 
+  mutate(num_param = as.integer(num_param))
+
+ggplot(rmse_vals_dv) + 
+  facet_grid(cols = vars(statistic)) + 
+  geom_boxplot(aes(x = as.factor(model_text), 
+                   group = model, 
+      lower = `1st`, 
+      upper = `3rd`, 
+      middle = `Median`, 
+      ymin = `Min`, 
+      ymax = `Max`), 
+    stat = "identity") + 
+  ylim(0, 1.0) +  
+  xlab("") + 
+  ylab("Log10 of mean daily flow per unit area") +   
+  theme_bw() 
+
+# save ggplot above & clean up 
+ggsave("figure/model_fit_dv.png", width = 7, height = 3.5, units = "in")  
+
+#listviewer::jsonedit(rmse_call) 
+```
+
+```{r get_glm_observations_and_predictions_dv}
+
+# get observations & predictions -- training --------------------------------  
+obs_train_dv    <- tibble(observed = train_dv$log_q1_depth) 
+preds_train_dv <- map_dfc(models_dv, predict, newdata = train_dv)  
+ 
+# combine observations & predictions  
+fit_train_dv <- bind_cols(obs_train_dv, preds_train_dv) %>% 
+  mutate(split = "train") %>% 
+  as_tibble() 
+  
+# get observations & predictions -- test ------------------------------------  
+obs_test_dv   <- tibble(observed = test_dv$log_q1_depth)  
+preds_test_dv <- map_dfc(models_dv, predict, newdata = test_dv)  
+ 
+# combine observations & predictions 
+fit_test_dv <- bind_cols(obs_test_dv, preds_test_dv) %>% 
+  mutate(split = "test") %>% 
+  as_tibble() 
+ 
+fit_model_dv <-  bind_rows(fit_test_dv, fit_train_dv)  
+ 
+# clean-up global environment 
+rm(obs_train_dv,  preds_train_dv, obs_test_dv, 
+   preds_test_dv, fit_test_dv, fit_train_dv)  
+ 
+``` 
+
+```{r plot_glm_observations_predictions_dv}
+
+# model plot test - pc1 --- remove later  
+fit_model_dv_plot <- fit_model_dv %>%  
+  select(-c(ridge, elastic)) %>% 
+  mutate(obs_antilog = 10^observed) %>% 
+  mutate(fit_antilog = 10^lasso)    
+
+ggplot(fit_model_dv_plot, aes(obs_antilog, fit_antilog)) +  
+  facet_grid(cols = vars(split)) +  
+    theme_bw() + 
+
+# geom_point( 
+#   shape = ".", 
+#   color = "gray")  + 
+# plot points as a density plot to reduce overplotting 
+geom_density2d( 
+   color = "gray")  + 
+  geom_smooth( 
+    method = "lm", 
+    color = "black") + 
+# plot a 45-degree line 
+  geom_abline( 
+    intercept = 0,  
+    slope = 1,  
+    size = 0.25) +  
+# set limits  
+  scale_x_log10(limits = c(0.1, 1000)) + 
+  scale_y_log10(limits = c(0.1, 1000)) + 
+# set theme 
+  theme_bw() + 
+  theme(legend.position = "none") 
+ 
+ggsave("figure/dv1-fit.png", width = 7, height = 7, units = "in")  
+ 
+``` 
+
+
+```{r get_glm_model-fits_dv}
+
+# get train data model statistics --------------------------------------------  
+# dv model fits 
+model_fits_train_dv <- fit_model_dv %>% 
+  filter(split == "train") %>%    
+  gather(model, value, -c(observed, split)) %>% 
+  group_by(model) %>% 
+  mutate(rmse = rmse(.$observed, .$value)) %>% 
+  mutate(mae = mae(.$observed, .$value)) %>% 
+  mutate(rsquare = cor(observed, value)^2) %>% 
+  summarise(rsquare = first(rsquare) %>% 
+              round(., digits = 3), 
+            rmse    = first(rmse) %>% 
+              round(., digits = 3), 
+            mae     = first(mae)  %>% 
+              round(., digits = 3), 
+            split   = first(split) 
+            ) %>% 
+    ungroup() 
+
+# get test data model statistics ---------------------------------------------  
+# dv model fits 
+model_fits_test_dv <- fit_model_dv %>% 
+  filter(split == "test") %>%    
+  gather(model, value, -c(observed, split)) %>% 
+  group_by(model) %>% 
+  mutate(rmse = rmse(.$observed, .$value)) %>% 
+  mutate(mae = mae(.$observed, .$value)) %>% 
+  mutate(rsquare = cor(observed, value)^2) %>% 
+  summarise(rsquare = first(rsquare) %>% 
+              round(., digits = 3), 
+            rmse    = first(rmse) %>% 
+              round(., digits = 3), 
+            mae     = first(mae)  %>% 
+              round(., digits = 3), 
+            split   = first(split) 
+            ) %>% 
+    ungroup() 
+
+# bind the pc1 & pc2 model fit data ------------------------------------------ 
+model_fits <- bind_rows(model_fits_train_dv, model_fits_test_dv) %>% 
+  mutate(split = as.character(split)) 
+
+# join number of parameters ------------------------------------------------
+model_fits <- full_join(model_fits, num_param,    
+                  by = c("axis", "model")) 
+
+# get number of observations -------------------------------------------------
+n_train <- tibble( axis = c("pc1", "pc2"), 
+  split = "train", 
+  n = nrow(train_pc1) 
+  ) 
+
+n_test <- tibble( axis = c("pc1", "pc2"), 
+  split = "test", 
+  n = nrow(test_pc1) 
+  ) 
+
+num_obs <- bind_rows(n_test, n_train) 
+
+# join obs, params & clean up ------------------------------------------------
+model_fits <- full_join(model_fits, num_obs, 
+                  by = c("axis", "split")) %>% 
+  select(model, split, axis, num_param, n)
+
+rm(model_fits_train_pc1, model_fits_train_pc2, 
+   model_fits_test_pc1, model_fits_test_pc2, 
+   n_test, n_train, num_obs, num_param)  
+
+``` 
+
+
+
+```{r ggplot-glm_dv} 
+ggplot(obs_fitted_l, aes(observed, fitted)) + 
+  facet_grid(model ~ split) +
+    geom_text(
+    data = num_obs_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("n: ", n, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 2.8   
+    ) # + 
+
+
+
+  geom_text(
+    data = adjR2_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("adjR^2: ", R2adj, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 1.7
+    ) + 
+  geom_text(
+    data = mae_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("MAE: ", MAE, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 0.5
+    ) + 
+  geom_point(aes(shape = split)) + 
+  geom_smooth(method = "lm") + 
+  geom_abline(intercept = 0, slope = 1, size = 0.25) +
+  xlim(-4, 4) + 
+  ylim(-4, 4) + 
+  theme(legend.position = "none") + 
+  labs(title = "Observed vs. fitted hydrologic export coefficients") 
+```
+
+
+
+
+
+
+# building models based on PC1 & PC2 - delete after making sure log dv works 
+
+```{r get_glm_observations_predictions}
+
+# get observations -- training ----------------------------------------------  
+
+obs_train_pc1    <- tibble(observed = train_pc1$.fittedPC1) 
+obs_train_pc2    <- tibble(observed = train_pc2$.fittedPC2) 
+
+# get predictions 
+preds_train_pc1 <- map_dfc(models_pc1, predict, newdata = train_pc1) 
+preds_train_pc2 <- map_dfc(models_pc2, predict, newdata = train_pc2) 
+
+# combine observations & predictions  
+fit_train_pc1 <- bind_cols(obs_train_pc1, preds_train_pc1) %>% 
+  mutate(split = "train") %>% 
+  as_tibble() 
+
+fit_train_pc2 <- bind_cols(obs_train_pc2, preds_train_pc2) %>% 
+  mutate(split = "train") %>% 
+  as_tibble() 
+  
+# get observations -- test ---------------------------------------------------  
+obs_test_pc1   <- tibble(observed = test_pc1$.fittedPC1) 
+obs_test_pc2   <- tibble(observed = test_pc2$.fittedPC2)  
+
+# get predictions 
+preds_test_pc1 <- map_dfc(models_pc1, predict, newdata = test_pc1) 
+preds_test_pc2 <- map_dfc(models_pc2, predict, newdata = test_pc2)  
+
+# combine observations & predictions 
+fit_test_pc1 <- bind_cols(obs_test_pc1, preds_test_pc1) %>% 
+  mutate(split = "test") %>% 
+  as_tibble() 
+
+fit_test_pc2 <- bind_cols(obs_test_pc2, preds_test_pc2) %>% 
+  mutate(split = "test") %>% 
+  as_tibble() 
+
+# clean-up global environment 
+rm(obs_train_pc1, obs_train_pc2, preds_train_pc1, preds_train_pc2) 
+rm(obs_test_pc1, obs_test_pc2, preds_test_pc1, preds_test_pc2)  
+rm(fit_train_pc1, fit_test_pc1, fit_train_pc2, fit_test_pc2) 
+``` 
+
+```{r plot_glm_observations_predictions}
+
+# model plot test - pc1 --- remove later 
+fit_model_pc1_l <- fit_model_pc1 %>% 
+  gather(key = "model", value = "fitted", -c(observed, split)) 
+
+ggplot(fit_model_pc1_l, aes(observed, fitted)) + 
+  facet_grid(model ~ split) + 
+# plot points as a density plot to reduce overplotting 
+  geom_density2d( 
+    color = "gray")  + 
+  geom_smooth( 
+    method = "lm", 
+    color = "black") + 
+# plot a 45-degree line 
+  geom_abline( 
+    intercept = 0, 
+    slope = 1, 
+    size = 0.25) + 
+# set limits 
+  xlim(-4, 4) + 
+  ylim(-4, 4) + 
+# set theme 
+  theme_bw() + 
+  theme(legend.position = "none") + 
+  labs(title = "Observed vs. fitted hydrologic export coefficients") 
+
+ggsave("figure/pc1-fit.png", width = 7, height = 7, units = "in") 
+
+# model plot test - pc2 --- remove later 
+fit_model_pc2_l <- fit_model_pc2 %>% 
+  gather(key = "model", value = "fitted", -c(observed, split)) 
+
+
+ggplot(fit_model_pc2_l, aes(observed, fitted)) + 
+  facet_grid(model ~ split) + 
+# plot points as a density plot to reduce overplotting 
+  geom_density2d( 
+    color = "gray")  + 
+  geom_smooth( 
+    method = "lm", 
+    color = "black") + 
+# plot a 45-degree line 
+  geom_abline( 
+    intercept = 0, 
+    slope = 1, 
+    size = 0.25) + 
+# set limits 
+ xlim(-0.5, 0.8) + 
+  ylim(-0.5, 0.8) + 
+# set theme 
+  theme_bw() + 
+  theme(legend.position = "none") +   
+  labs(title = "Observed vs. fitted q30 - q1 diff") 
+ 
+ggsave("figure/pc2-fit.png", width = 7, height = 7, units = "in")  
+
+```
+
+```{r get_glm_observations_model-fits}
+
+# get train data model statistics --------------------------------------------  
+# pc1 model fits 
+model_fits_train_pc1 <- fit_model_pc1 %>% 
+  filter(split == "train") %>%    
+  gather(model, value, -c(observed, split)) %>% 
+  group_by(model) %>% 
+  mutate(rmse = rmse(.$observed, .$value)) %>% 
+  mutate(mae = mae(.$observed, .$value)) %>% 
+  mutate(rsquare = cor(observed, value)^2) %>% 
+  summarise(rsquare = first(rsquare) %>% 
+              round(., digits = 3), 
+            rmse    = first(rmse) %>% 
+              round(., digits = 3), 
+            mae     = first(mae)  %>% 
+              round(., digits = 3), 
+            split   = first(split) 
+            ) %>% 
+    ungroup() %>% 
+  mutate(axis = "pc1") 
+
+# pc2 model fits 
+model_fits_train_pc2 <- fit_model_pc2 %>% 
+  filter(split == "train") %>%    
+  gather(model, value, -c(observed, split)) %>% 
+  group_by(model) %>% 
+  mutate(rmse = rmse(.$observed, .$value)) %>% 
+  mutate(mae = mae(.$observed, .$value)) %>% 
+  mutate(rsquare = cor(observed, value)^2) %>% 
+  summarise(rsquare = first(rsquare) %>% 
+              round(., digits = 3), 
+            rmse    = first(rmse) %>% 
+              round(., digits = 3), 
+            mae     = first(mae)  %>% 
+              round(., digits = 3),  
+            split   = first(split) 
+            ) %>% 
+    ungroup() %>% 
+  mutate(axis = "pc2") 
+
+# get test data model statistics ---------------------------------------------  
+# pc1 model fits 
+model_fits_test_pc1 <- fit_model_pc1 %>% 
+  filter(split == "test") %>%    
+  gather(model, value, -c(observed, split)) %>% 
+  group_by(model) %>% 
+  mutate(rmse = rmse(.$observed, .$value)) %>% 
+  mutate(mae = mae(.$observed, .$value)) %>% 
+  mutate(rsquare = cor(observed, value)^2) %>% 
+  summarise(rsquare = first(rsquare) %>% 
+              round(., digits = 3), 
+            rmse    = first(rmse) %>% 
+              round(., digits = 3), 
+            mae     = first(mae)  %>% 
+              round(., digits = 3), 
+            split   = first(split) 
+            ) %>% 
+    ungroup() %>% 
+  mutate(axis = "pc1") 
+
+# pc2 model fits 
+model_fits_test_pc2 <- fit_model_pc2 %>% 
+  filter(split == "test") %>%    
+  gather(model, value, -c(observed, split)) %>% 
+  group_by(model) %>% 
+  mutate(rmse = rmse(.$observed, .$value)) %>% 
+  mutate(mae = mae(.$observed, .$value)) %>% 
+  mutate(rsquare = cor(observed, value)^2) %>% 
+  summarise(rsquare = first(rsquare) %>% 
+              round(., digits = 3), 
+            rmse    = first(rmse) %>% 
+              round(., digits = 3), 
+            mae     = first(mae)  %>% 
+              round(., digits = 3),  
+            split   = first(split) 
+            ) %>% 
+    ungroup() %>% 
+  mutate(axis = "pc2") 
+
+# bind the pc1 & pc2 model fit data ------------------------------------------ 
+model_fits <- bind_rows(model_fits_train_pc1, model_fits_train_pc2, 
+                        model_fits_test_pc1, model_fits_test_pc2) %>% 
+  mutate(split = as.character(split)) 
+
+# get number of parameters for each regression method ------------------------
+num_param <- coefs %>% 
+  map_dfc(~sum(. != 0)) %>% 
+  select(-coeff) %>%                   # transpose df 
+  gather(model, num_param) %>%                 
+  separate(model, c("axis", "model")) 
+
+# join number of parameters 
+model_fits <- full_join(model_fits, num_param,    
+                  by = c("axis", "model")) 
+
+# get number of observations -------------------------------------------------
+n_train <- tibble( axis = c("pc1", "pc2"), 
+  split = "train", 
+  n = nrow(train_pc1) 
+  ) 
+
+n_test <- tibble( axis = c("pc1", "pc2"), 
+  split = "test", 
+  n = nrow(test_pc1) 
+  ) 
+
+num_obs <- bind_rows(n_test, n_train) 
+
+# join obs, params & clean up ------------------------------------------------
+model_fits <- full_join(model_fits, num_obs, 
+                  by = c("axis", "split")) %>% 
+  select(model, split, axis, num_param, n)
+
+rm(model_fits_train_pc1, model_fits_train_pc2, 
+   model_fits_test_pc1, model_fits_test_pc2, 
+   n_test, n_train, num_obs, num_param)  
+
+``` 
+
+```{r ggplot-glm} 
+
+
+ggplot(obs_fitted_l, aes(observed, fitted)) + 
+  facet_grid(model ~ split) +
+    geom_text(
+    data = num_obs_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("n: ", n, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 2.8   
+    ) # + 
+
+
+  geom_text(
+    data = adjR2_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("adjR^2: ", R2adj, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 1.7
+    ) + 
+  geom_text(
+    data = mae_text,
+    mapping = aes(x = -4, 
+                  y = -4, 
+                  label = paste("MAE: ", MAE, sep="")),
+    parse = TRUE, 
+    size = 2.5,  
+    nudge_x = 7,
+    nudge_y = 0.5
+    ) + 
+  geom_point(aes(shape = split)) + 
+  geom_smooth(method = "lm") + 
+  geom_abline(intercept = 0, slope = 1, size = 0.25) +
+  xlim(-4, 4) + 
+  ylim(-4, 4) + 
+  theme(legend.position = "none") + 
+  labs(title = "Observed vs. fitted hydrologic export coefficients") 
+```
 
 ```{r prepare-glm-models-old-to-delete} 
 
@@ -1495,11 +2183,11 @@ train_index <- createDataPartition(as.factor(gaged$ecoreg), p=0.8)[[1]]
 train_all <- gaged[train_index,] 
  
 train_pc1 <- train_all %>% 
-  select(-c(sta, .fittedPC2))   
+  select(-c(sta, q1_depth, .fittedPC2))   
 #  select(-c(sta, ecoreg, .fittedPC2))    
 
 train_pc2 <- train_all %>% 
-  select(-c(sta, .fittedPC1))   
+  select(-c(sta, q1_depth, .fittedPC1))   
 #  select(-c(sta, ecoreg, .fittedPC1))     
 
 test_all <- gaged[-train_index,] 
@@ -1812,274 +2500,7 @@ rm(coef_table, col_key_num)
  
 ```
 
-```{r get_glm_observations_predictions}
-
-# get observations -- training ----------------------------------------------  
-
-obs_train_pc1    <- tibble(observed = train_pc1$.fittedPC1) 
-obs_train_pc2    <- tibble(observed = train_pc2$.fittedPC2) 
-
-# get predictions 
-preds_train_pc1 <- map_dfc(models_pc1, predict, newdata = train_pc1) 
-preds_train_pc2 <- map_dfc(models_pc2, predict, newdata = train_pc2) 
-
-# combine observations & predictions  
-fit_train_pc1 <- bind_cols(obs_train_pc1, preds_train_pc1) %>% 
-  mutate(split = "train") %>% 
-  as_tibble() 
-
-fit_train_pc2 <- bind_cols(obs_train_pc2, preds_train_pc2) %>% 
-  mutate(split = "train") %>% 
-  as_tibble() 
-  
-# get observations -- test ---------------------------------------------------  
-
-obs_test_pc1   <- tibble(observed = test_pc1$.fittedPC1) 
-obs_test_pc2   <- tibble(observed = test_pc2$.fittedPC2)  
-
-# get predictions 
-preds_test_pc1 <- map_dfc(models_pc1, predict, newdata = test_pc1) 
-preds_test_pc2 <- map_dfc(models_pc2, predict, newdata = test_pc2)  
-
-# combine observations & predictions 
-fit_test_pc1 <- bind_cols(obs_test_pc1, preds_test_pc1) %>% 
-  mutate(split = "test") %>% 
-  as_tibble() 
-
-fit_test_pc2 <- bind_cols(obs_test_pc2, preds_test_pc2) %>% 
-  mutate(split = "test") %>% 
-  as_tibble() 
-
-# clean-up global environment 
-rm(obs_train_pc1, obs_train_pc2, preds_train_pc1, preds_train_pc2) 
-rm(obs_test_pc1, obs_test_pc2, preds_test_pc1, preds_test_pc2)  
-rm(fit_train_pc1, fit_test_pc1, fit_train_pc2, fit_test_pc2) 
-``` 
-
-```{r plot_glm_observations_predictions}
-
-# model plot test - pc1 --- remove later 
-fit_model_pc1_l <- fit_model_pc1 %>% 
-  gather(key = "model", value = "fitted", -c(observed, split)) 
-
-ggplot(fit_model_pc1_l, aes(observed, fitted)) + 
-  facet_grid(model ~ split) + 
-# plot points as a density plot to reduce overplotting 
-  geom_density2d( 
-    color = "gray")  + 
-  geom_smooth( 
-    method = "lm", 
-    color = "black") + 
-# plot a 45-degree line 
-  geom_abline( 
-    intercept = 0, 
-    slope = 1, 
-    size = 0.25) + 
-# set limits 
-  xlim(-4, 4) + 
-  ylim(-4, 4) + 
-# set theme 
-  theme_bw() + 
-  theme(legend.position = "none") + 
-  labs(title = "Observed vs. fitted hydrologic export coefficients") 
-
-ggsave("figure/pc1-fit.png", width = 7, height = 7, units = "in") 
-
-
-# model plot test - pc2 --- remove later 
-fit_model_pc2_l <- fit_model_pc2 %>% 
-  gather(key = "model", value = "fitted", -c(observed, split)) 
-
-
-ggplot(fit_model_pc2_l, aes(observed, fitted)) + 
-  facet_grid(model ~ split) + 
-# plot points as a density plot to reduce overplotting 
-  geom_density2d( 
-    color = "gray")  + 
-  geom_smooth( 
-    method = "lm", 
-    color = "black") + 
-# plot a 45-degree line 
-  geom_abline( 
-    intercept = 0, 
-    slope = 1, 
-    size = 0.25) + 
-# set limits 
- xlim(-0.5, 0.8) + 
-  ylim(-0.5, 0.8) + 
-# set theme 
-  theme_bw() + 
-  theme(legend.position = "none") +   
-  labs(title = "Observed vs. fitted q30 - q1 diff") 
- 
-ggsave("figure/pc2-fit.png", width = 7, height = 7, units = "in")  
-
-```
-
-```{r get_glm_observations_model-fits}
-
-# get train data model statistics --------------------------------------------  
-# pc1 model fits 
-model_fits_train_pc1 <- fit_model_pc1 %>% 
-  filter(split == "train") %>%    
-  gather(model, value, -c(observed, split)) %>% 
-  group_by(model) %>% 
-  mutate(rmse = rmse(.$observed, .$value)) %>% 
-  mutate(mae = mae(.$observed, .$value)) %>% 
-  mutate(rsquare = cor(observed, value)^2) %>% 
-  summarise(rsquare = first(rsquare) %>% 
-              round(., digits = 3), 
-            rmse    = first(rmse) %>% 
-              round(., digits = 3), 
-            mae     = first(mae)  %>% 
-              round(., digits = 3), 
-            split   = first(split) 
-            ) %>% 
-    ungroup() %>% 
-  mutate(axis = "pc1") 
-
-# pc2 model fits 
-model_fits_train_pc2 <- fit_model_pc2 %>% 
-  filter(split == "train") %>%    
-  gather(model, value, -c(observed, split)) %>% 
-  group_by(model) %>% 
-  mutate(rmse = rmse(.$observed, .$value)) %>% 
-  mutate(mae = mae(.$observed, .$value)) %>% 
-  mutate(rsquare = cor(observed, value)^2) %>% 
-  summarise(rsquare = first(rsquare) %>% 
-              round(., digits = 3), 
-            rmse    = first(rmse) %>% 
-              round(., digits = 3), 
-            mae     = first(mae)  %>% 
-              round(., digits = 3),  
-            split   = first(split) 
-            ) %>% 
-    ungroup() %>% 
-  mutate(axis = "pc2") 
-
-# get test data model statistics ---------------------------------------------  
-# pc1 model fits 
-model_fits_test_pc1 <- fit_model_pc1 %>% 
-  filter(split == "test") %>%    
-  gather(model, value, -c(observed, split)) %>% 
-  group_by(model) %>% 
-  mutate(rmse = rmse(.$observed, .$value)) %>% 
-  mutate(mae = mae(.$observed, .$value)) %>% 
-  mutate(rsquare = cor(observed, value)^2) %>% 
-  summarise(rsquare = first(rsquare) %>% 
-              round(., digits = 3), 
-            rmse    = first(rmse) %>% 
-              round(., digits = 3), 
-            mae     = first(mae)  %>% 
-              round(., digits = 3), 
-            split   = first(split) 
-            ) %>% 
-    ungroup() %>% 
-  mutate(axis = "pc1") 
-
-# pc2 model fits 
-model_fits_test_pc2 <- fit_model_pc2 %>% 
-  filter(split == "test") %>%    
-  gather(model, value, -c(observed, split)) %>% 
-  group_by(model) %>% 
-  mutate(rmse = rmse(.$observed, .$value)) %>% 
-  mutate(mae = mae(.$observed, .$value)) %>% 
-  mutate(rsquare = cor(observed, value)^2) %>% 
-  summarise(rsquare = first(rsquare) %>% 
-              round(., digits = 3), 
-            rmse    = first(rmse) %>% 
-              round(., digits = 3), 
-            mae     = first(mae)  %>% 
-              round(., digits = 3),  
-            split   = first(split) 
-            ) %>% 
-    ungroup() %>% 
-  mutate(axis = "pc2") 
-
-# bind the pc1 & pc2 model fit data ------------------------------------------ 
-model_fits <- bind_rows(model_fits_train_pc1, model_fits_train_pc2, 
-                        model_fits_test_pc1, model_fits_test_pc2) %>% 
-  mutate(split = as.character(split)) 
-
-# get number of parameters for each regression method ------------------------
-num_param <- coefs %>% 
-  map_dfc(~sum(. != 0)) %>% 
-  select(-coeff) %>%                   # transpose df 
-  gather(model, num_param) %>%                 
-  separate(model, c("axis", "model")) 
-
-# join number of parameters 
-model_fits <- full_join(model_fits, num_param,    
-                  by = c("axis", "model")) 
-
-# get number of observations -------------------------------------------------
-n_train <- tibble( axis = c("pc1", "pc2"), 
-  split = "train", 
-  n = nrow(train_pc1) 
-  ) 
-
-n_test <- tibble( axis = c("pc1", "pc2"), 
-  split = "test", 
-  n = nrow(test_pc1) 
-  ) 
-
-num_obs <- bind_rows(n_test, n_train) 
-
-# join obs, params & clean up ------------------------------------------------
-model_fits <- full_join(model_fits, num_obs, 
-                  by = c("axis", "split")) %>% 
-  select(model, split, axis, num_param, n)
-
-rm(model_fits_train_pc1, model_fits_train_pc2, 
-   model_fits_test_pc1, model_fits_test_pc2, 
-   n_test, n_train, num_obs, num_param)  
-
-``` 
-
-```{r ggplot-glm} 
-ggplot(obs_fitted_l, aes(observed, fitted)) + 
-  facet_grid(model ~ split) +
-    geom_text(
-    data = num_obs_text,
-    mapping = aes(x = -4, 
-                  y = -4, 
-                  label = paste("n: ", n, sep="")),
-    parse = TRUE, 
-    size = 2.5,  
-    nudge_x = 7,
-    nudge_y = 2.8   
-    ) # + 
-
-
-
-  geom_text(
-    data = adjR2_text,
-    mapping = aes(x = -4, 
-                  y = -4, 
-                  label = paste("adjR^2: ", R2adj, sep="")),
-    parse = TRUE, 
-    size = 2.5,  
-    nudge_x = 7,
-    nudge_y = 1.7
-    ) + 
-  geom_text(
-    data = mae_text,
-    mapping = aes(x = -4, 
-                  y = -4, 
-                  label = paste("MAE: ", MAE, sep="")),
-    parse = TRUE, 
-    size = 2.5,  
-    nudge_x = 7,
-    nudge_y = 0.5
-    ) + 
-  geom_point(aes(shape = split)) + 
-  geom_smooth(method = "lm") + 
-  geom_abline(intercept = 0, slope = 1, size = 0.25) +
-  xlim(-4, 4) + 
-  ylim(-4, 4) + 
-  theme(legend.position = "none") + 
-  labs(title = "Observed vs. fitted hydrologic export coefficients") 
-```
+# above is old and will be deleted 
 
 ```{r deconvolute_pca}
 
@@ -2963,6 +3384,19 @@ pca_sum <- gage_dv %>%
   arrange(PC1_mean)  
 ```
 
+
+```{r to-delete}
+# read in geopackage data of zonal summaries for watersheds 
+#gage_summary <- st_read("sp_data/eco-drought.gpkg", 
+#                       layer = "gage_summary", 
+#                       as_tibble = TRUE) %>% 
+#  st_drop_geometry() 
+
+# convert environmental data to tibbles -- delete after fixing plots 
+#gage_summary <- gage_summary %>% 
+#  as_tibble() %>% 
+#  modify_if(., is.factor, as.character) 
+```
 ```{r pc-plot_delete,eval=FALSE} 
 
 
