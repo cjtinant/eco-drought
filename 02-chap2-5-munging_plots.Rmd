@@ -1327,6 +1327,7 @@ cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)
 registerDoMC(cores)   
  
 # set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2] 
+# note these values are used below for individual model fits 
 set.seed(seed) 
 reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
                           search = "grid", allowParallel = TRUE) 
@@ -1334,7 +1335,7 @@ reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5,
 lambda <- 10^seq(-2, 2, length = 100) 
   
 # Split the data into training and test set ----------------------------------  
-# create a data partition balanced by ecoregion 
+# create a data partition balanced by flow depths 
 set.seed(seed) 
 train_index <- createDataPartition(gaged$log_q1_depth, p=0.8)[[1]]  
 #train_index <- createDataPartition(as.factor(gaged$ecoreg), p=0.8)[[1]]  
@@ -1384,7 +1385,7 @@ models_dv <- list(
   lasso = lasso_dv,  
   elastic = elastic_dv)   
   
-rm(cores, lambda, reg.ctrl)   
+rm(cores, train_index)   
  
 ```  
 
@@ -1430,12 +1431,11 @@ coefs_dv <- coefs_dv %>%
 # prepare for export table ---------------------------------------------------
 # arrange by absolute value of the lasso model 
 coefs_dv <- coefs_dv %>%  
- # arrange(desc(lasso))  %>% 
   mutate(arrange_ridge = abs(ridge)) %>%   # temp terms to arrange coeffs  
   mutate(arrange_lasso = abs(lasso)) %>%   # temp terms to arrange coeffs  
- arrange(desc(arrange_ridge)) %>%   
- arrange(desc(arrange_lasso)) %>% 
-  select(-c(arrange_lasso, arrange_ridge)) 
+  arrange(desc(arrange_ridge)) %>%   
+  arrange(desc(arrange_lasso)) %>% 
+  select(coeff, lasso, ridge, elastic) 
 
 # rename coefficients to fit the hydrologic coefficient table 
 coefs_dv <- coefs_dv %>%  
@@ -1476,9 +1476,9 @@ rm(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv)
 ```{r export-table_glm-coeffs_dv} 
 # set the numeric columns 
 col_key_num <- coefs_dv %>% 
-  select(-coeff) %>% 
+  select(-coeff) %>%  
   names() 
-
+ 
 # convert tibble to a flextable  
 coef_table <- coefs_dv %>%   
   flextable() %>% 
@@ -1498,7 +1498,7 @@ coef_table <- read_docx() %>%
   body_add_flextable(value = coef_table) 
 print(coef_table, target = "output/table_coef.docx")  
     
-rm(coef_table, col_key_num)    
+rm(coef_table, col_key_num, coefs_dv)    
  
 ```
 
@@ -1620,28 +1620,27 @@ ggsave("figure/dv1-fit.png", width = 7, height = 7, units = "in")
  
 ``` 
 
-
 ```{r get_glm_model-fits_dv}
 
 # get train data model statistics --------------------------------------------  
 # dv model fits 
-model_fits_train_dv <- fit_model_dv %>% 
+model_fits_train_dv <- fit_model_dv %>%  
   filter(split == "train") %>%    
   gather(model, value, -c(observed, split)) %>% 
   group_by(model) %>% 
   mutate(rmse = rmse(.$observed, .$value)) %>% 
   mutate(mae = mae(.$observed, .$value)) %>% 
-  mutate(rsquare = cor(observed, value)^2) %>% 
-  summarise(rsquare = first(rsquare) %>% 
+  mutate(rsquare = cor(observed, value)^2) %>%  
+  summarise(rsquare = first(rsquare) %>%  
               round(., digits = 3), 
-            rmse    = first(rmse) %>% 
+            rmse    = first(rmse) %>%  
               round(., digits = 3), 
             mae     = first(mae)  %>% 
               round(., digits = 3), 
             split   = first(split) 
             ) %>% 
     ungroup() 
-
+ 
 # get test data model statistics ---------------------------------------------  
 # dv model fits 
 model_fits_test_dv <- fit_model_dv %>% 
@@ -1658,42 +1657,39 @@ model_fits_test_dv <- fit_model_dv %>%
             mae     = first(mae)  %>% 
               round(., digits = 3), 
             split   = first(split) 
-            ) %>% 
-    ungroup() 
-
-# bind the pc1 & pc2 model fit data ------------------------------------------ 
-model_fits <- bind_rows(model_fits_train_dv, model_fits_test_dv) %>% 
-  mutate(split = as.character(split)) 
-
-# join number of parameters ------------------------------------------------
-model_fits <- full_join(model_fits, num_param,    
-                  by = c("axis", "model")) 
-
-# get number of observations -------------------------------------------------
-n_train <- tibble( axis = c("pc1", "pc2"), 
-  split = "train", 
+            ) %>%  
+    ungroup()  
+ 
+# bind the pc1 & pc2 model fit data ------------------------------------------  
+model_fits <- bind_rows(model_fits_train_dv, model_fits_test_dv) %>%  
+  mutate(split = as.character(split))  
+ 
+# join number of parameters ------------------------------------------------ 
+model_fits <- full_join(model_fits, num_param,     
+                  by = c("axis", "model"))  
+  
+# get number of observations ------------------------------------------------- 
+n_train <- tibble( axis = c("pc1", "pc2"),  
+  split = "train",  
   n = nrow(train_pc1) 
-  ) 
-
+  )  
+ 
 n_test <- tibble( axis = c("pc1", "pc2"), 
   split = "test", 
   n = nrow(test_pc1) 
-  ) 
-
-num_obs <- bind_rows(n_test, n_train) 
-
-# join obs, params & clean up ------------------------------------------------
-model_fits <- full_join(model_fits, num_obs, 
-                  by = c("axis", "split")) %>% 
-  select(model, split, axis, num_param, n)
-
-rm(model_fits_train_pc1, model_fits_train_pc2, 
-   model_fits_test_pc1, model_fits_test_pc2, 
+  )  
+ 
+num_obs <- bind_rows(n_test, n_train)  
+ 
+# join obs, params & clean up ------------------------------------------------ 
+model_fits <- full_join(model_fits, num_obs,  
+                  by = c("axis", "split")) %>%  
+  select(model, split, axis, num_param, n) 
+ 
+rm(model_fits_train_dv, model_fits_test_dv, 
    n_test, n_train, num_obs, num_param)  
-
+ 
 ``` 
-
-
 
 ```{r ggplot-glm_dv} 
 ggplot(obs_fitted_l, aes(observed, fitted)) + 
@@ -1738,7 +1734,364 @@ ggplot(obs_fitted_l, aes(observed, fitted)) +
   ylim(-4, 4) + 
   theme(legend.position = "none") + 
   labs(title = "Observed vs. fitted hydrologic export coefficients") 
+``` 
+ 
+```{r prepare-glm-model-inputs_ecoreg}  
+
+# clean up model data from above 
+rm(train_dv, test_dv, elastic_dv, lasso_dv, ridge_dv, models_dv,
+   rmse_vals_dv, fit_model_dv, fit_model_dv_plot, model_fits)  
+
+# set up random seed & parallel processing for glmnet & caret ----------------  
+
+seed <- 42  
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE) 
+registerDoMC(cores)   
+ 
+# set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2] 
+# note these values are used below for individual model fits 
+set.seed(seed) 
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
+                          search = "grid", allowParallel = TRUE) 
+  
+lambda <- 10^seq(-2, 2, length = 100) 
+
+# drop unimportant predictors - from lasso above ----------------------------- 
+gaged_ecoreg <- gaged %>% 
+  select(-c(prcp_sq, crel_sqr, vpdan_sq, t07_sq, TWI_sq)) 
+
+# Split the data into training and test sets by ecoreg ----------------------- 
+# get train and test one by one -- a bit klugy but works... 
+
+# pierre shale --------------------------------------------------------------- 
+dv_pshale <- gaged_ecoreg %>% 
+  filter(ecoreg == "Pierre Shale Plains") 
+
+set.seed(seed) 
+index_pshale <- dv_pshale %>% 
+     select(sta) %>% 
+     unique() %>% 
+     mutate(len = length(sta)) %>% 
+     sample_n(0.8*.$len) %>% 
+     select(-len) 
+
+train_pshale <- index_pshale %>%  
+   semi_join(dv_pshale, ., 
+             by = "sta") %>% 
+  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2, ecoreg))   
+
+test_pshale <- anti_join(dv_pshale, train_pshale)  
+
+# pine ridge escarpment  ----------------------------------------------------- 
+dv_escarp <- gaged_ecoreg %>% 
+  filter(ecoreg == "Pine Ridge Escarpment")  
+
+set.seed(seed) 
+index_escarp <- dv_escarp %>% 
+     select(sta) %>% 
+     unique() %>% 
+     mutate(len = length(sta)) %>% 
+     sample_n(0.8*.$len) %>% 
+     select(-len) 
+
+train_escarp <- index_escarp %>%  
+   semi_join(dv_escarp, ., 
+             by = "sta") %>% 
+  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2, ecoreg))   
+
+test_escarp <- anti_join(dv_escarp, train_escarp)  
+
+# white river badlands ------------------------------------------------------ 
+dv_wrbad <- gaged_ecoreg %>% 
+  filter(ecoreg == "White River Badlands") 
+
+set.seed(seed) 
+index_wrbad <- dv_wrbad %>% 
+     select(sta) %>% 
+     unique() %>% 
+     mutate(len = length(sta)) %>% 
+     sample_n(0.8*.$len) %>% 
+     select(-len) 
+
+train_wrbad <- index_wrbad %>%  
+   semi_join(dv_wrbad, ., 
+             by = "sta") %>% 
+  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2, ecoreg))   
+
+test_wrbad <- anti_join(dv_wrbad, train_wrbad)  
+
+# black hills plateau ------------------------------------------------------- 
+dv_bhplat <- gaged_ecoreg %>% 
+  filter(ecoreg == "Black Hills Plateau") 
+
+set.seed(seed) 
+index_bhplat <- dv_bhplat %>% 
+     select(sta) %>% 
+     unique() %>% 
+     mutate(len = length(sta)) %>% 
+     sample_n(0.8*.$len) %>% 
+     select(-len) 
+
+train_bhplat <- index_bhplat %>%  
+   semi_join(dv_bhplat, ., 
+             by = "sta") %>% 
+  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2, ecoreg))   
+
+test_bhplat <- anti_join(dv_bhplat, train_bhplat)  
+
+# keya paha tablelands  ------------------------------------------------------ 
+dv_kptabl <- gaged_ecoreg %>% 
+  filter(ecoreg == "Keya Paha Tablelands") 
+
+set.seed(seed) 
+index_kptabl <- dv_kptabl %>% 
+     select(sta) %>% 
+     unique() %>% 
+     mutate(len = length(sta)) %>% 
+     sample_n(0.8*.$len) %>% 
+     select(-len) 
+
+train_kptabl <- index_kptabl %>%  
+   semi_join(dv_kptabl, ., 
+             by = "sta") %>% 
+  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2, ecoreg))   
+
+test_kptabl <- anti_join(dv_kptabl, train_kptabl)  
+
+# sand hills  --------------------------------------------------------------- 
+dv_sandhill <- gaged_ecoreg %>% 
+  filter(ecoreg == "Sand Hills") 
+
+set.seed(seed) 
+index_sandhill <- dv_sandhill %>% 
+     select(sta) %>% 
+     unique() %>% 
+     mutate(len = length(sta)) %>% 
+     sample_n(0.8*.$len) %>% 
+     select(-len) 
+
+train_sandhill <- index_sandhill %>%  
+   semi_join(dv_sandhill, ., 
+             by = "sta") %>% 
+  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2, ecoreg))   
+
+test_sandhill <- anti_join(dv_sandhill, train_sandhill)  
+
 ```
+
+```{r build_lasso_models_ecoreg}
+
+# pshale - lasso -- alpha = 1 -----------------------------------------------  
+set.seed(seed)              # need to set a seed each time you call a rand num 
+lasso_pshale <- train( 
+  log_q1_depth ~.,            # x = 'medv', y = the rest of the columns, from   
+  data = train_pshale,         #   the dataset 'train.data'   
+  method = "glmnet",        #   using method "glmnet" 
+  preProcess = c("center", "scale"),  
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
+  ) 
+
+# escarp - lasso -- alpha = 1 -----------------------------------------------  
+set.seed(seed)              # need to set a seed each time you call a rand num 
+lasso_escarp <- train( 
+  log_q1_depth ~.,            # x = 'medv', y = the rest of the columns, from   
+  data = train_escarp,         #   the dataset 'train.data'   
+  method = "glmnet",        #   using method "glmnet" 
+  preProcess = c("center", "scale"),  
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
+  ) 
+
+# wrbad - lasso -- alpha = 1 -----------------------------------------------  
+set.seed(seed)              # need to set a seed each time you call a rand num 
+lasso_wrbad <- train( 
+  log_q1_depth ~.,            # x = 'medv', y = the rest of the columns, from   
+  data = train_wrbad,         #   the dataset 'train.data'   
+  method = "glmnet",        #   using method "glmnet" 
+  preProcess = c("center", "scale"),  
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
+  )  
+
+# bhplat - lasso -- alpha = 1 -----------------------------------------------  
+set.seed(seed)              # need to set a seed each time you call a rand num 
+lasso_bhplat <- train( 
+  log_q1_depth ~.,            # x = 'medv', y = the rest of the columns, from   
+  data = train_bhplat,         #   the dataset 'train.data'   
+  method = "glmnet",        #   using method "glmnet" 
+  preProcess = c("center", "scale"),  
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
+  ) 
+
+# kptabl - lasso -- alpha = 1 -----------------------------------------------  
+set.seed(seed)              # need to set a seed each time you call a rand num 
+lasso_kptabl <- train( 
+  log_q1_depth ~.,            # x = 'medv', y = the rest of the columns, from   
+  data = train_kptabl,         #   the dataset 'train.data'   
+  method = "glmnet",        #   using method "glmnet" 
+  preProcess = c("center", "scale"),  
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
+  ) 
+
+# sandhill - lasso -- alpha = 1 -----------------------------------------------  
+set.seed(seed)              # need to set a seed each time you call a rand num 
+lasso_sandhill <- train( 
+  log_q1_depth ~.,            # x = 'medv', y = the rest of the columns, from   
+  data = train_sandhill,         #   the dataset 'train.data'   
+  method = "glmnet",        #   using method "glmnet" 
+  preProcess = c("center", "scale"),  
+  trControl = reg.ctrl,  
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
+  ) 
+
+```  
+
+```{r not-run_functional_programming_lasso_by_ecoreg}
+# this is a future implementation ------------------------------------------ 
+#df <- data.frame(x = 1:10000, y = sample(1:1000, 10000, replace = TRUE), 
+#                 group = sample(c('A', 'B', 'C'), 10000, 
+#                                replace = TRUE, prob = c(.1, .5, .4))) 
+ 
+#df_list <- split(df, df$group) 
+ 
+#df_list <- lapply(df_list, function(x) select(x, -group)) 
+ 
+#train_test <- lapply(df_list, function(x) { 
+#  return(createDataPartition(x$y, p = .8, list = FALSE)) 
+#  }) 
+# 
+# model_list <- purrr::map2(df_list, train_test, 
+#                          function(df, train_index)  { 
+#                            train(x ~ ., df[train_index,], 
+#                                  method = 'lm', 
+#                                  trControl = trainControl(method = 'cv', 
+#                                                           number = 10, 
+#                                                         verboseIter = TRUE), 
+#                                  preProcess = c('nzv', 'center', 'scale')) 
+#                            }) 
+# 
+# gaged_list <- gaged %>% 
+#  select(-c(sta:.fittedPC2)) %>% 
+#  split(gaged$ecoreg) 
+# 
+# gaged_list <- lapply(gaged_list, function(x) select(x, -ecoreg)) 
+# 
+#train_gaged <- lapply(gaged_list, function(x) { 
+#  return(createDataPartition(x$log_q1_depth, p = .8, list = FALSE)) 
+#  }) 
+# 
+# 
+# model_list <- purrr::map2(gaged_list, train_gaged, 
+#                          function(gaged, train_index)  { 
+#                            train(log_q1_depth ~., df[gaged_index,], 
+#                                  method = 'glmnet', 
+#                                  trControl = reg.ctrl,  
+#                                  preProcess = c('nzv', 'center', 'scale')) 
+#                            }) 
+# --------------------------------------------------------------------------- 
+
+
+
+```
+
+```{r get-glm-coefs_ecoreg}
+
+# get & tidy model coefficients for each of the GLMs 
+
+# get coeffs  ------------------------------------------------------------- 
+coef_lasso_pshale <- coef( 
+  lasso_pshale$finalModel, 
+  lasso_pshale$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  rename(pshale = 2) 
+
+coef_lasso_escarp <- coef( 
+  lasso_escarp$finalModel, 
+  lasso_escarp$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  rename(escarp = 2) 
+
+coef_lasso_wrbad <- coef( 
+  lasso_wrbad$finalModel, 
+  lasso_wrbad$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  rename(wrbad = 2) 
+
+coef_lasso_bhplat <- coef( 
+  lasso_bhplat$finalModel, 
+  lasso_bhplat$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  rename(bhplat = 2) 
+
+coef_lasso_kptabl <- coef( 
+  lasso_kptabl$finalModel, 
+  lasso_kptabl$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  rename(kptabl = 2) 
+
+coef_lasso_sandhill <- coef( 
+  lasso_sandhill$finalModel, 
+  lasso_sandhill$bestTune$lambda) %>% 
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>% 
+  rename(sandhill = 2) 
+
+# join model coeff ----------------------------------------------------------- 
+coefs_ecoreg <- bind_cols( 
+  coef_lasso_pshale, 
+  coef_lasso_escarp, 
+  coef_lasso_wrbad, 
+  coef_lasso_bhplat, 
+  coef_lasso_kptabl, 
+  coef_lasso_sandhill
+  )  %>% 
+# remove dupicate columns 
+  select(coeff, pshale, escarp, wrbad, bhplat, kptabl, sandhill) %>% 
+  gather(key = ecoreg, value = val, -coeff) %>% 
+  mutate(val = round(
+    val, digits = 3)
+    ) %>% 
+  spread(ecoreg, val) %>% 
+# fix column order
+  select(coeff, pshale, escarp, wrbad, bhplat, kptabl, sandhill) %>%  
+# fix row order 
+  arrange(desc(sandhill)) %>% 
+  arrange(desc(kptabl)) %>% 
+  arrange(desc(bhplat)) %>% 
+      arrange(desc(wrbad)) %>% 
+      arrange(desc(escarp)) %>% 
+      arrange(desc(pshale))  
+
+  
+# rename coefficients to fit the hydrologic coefficient table 
+#coefs_ecoreg <- coefs_ecoreg %>%  
+#  mutate(coeff = case_when( 
+#    coeff == "(Intercept)"                  ~ "Intercept", 
+#    coeff == "pcov_ln"                      ~ "perc_cov",                   
+#    coeff == "kvert_ln"                     ~ "kvert_mean",      
+#    coeff == "lwrat_sqr"                    ~ "lw_ratio",     
+#    coeff == "area_linv"                    ~ "cat_area", 
+##    coeff == "dden_sqr"                     ~ "drain_dens", 
+#    coeff ==  "cout_sqr"                    ~ "cat_out",                
+#    coeff == "slop_ln"                      ~ "slop_med", 
+#    TRUE ~ coeff)) 
+
+
+```  
+
+
+
+
+
+
 
 
 
@@ -2511,7 +2864,7 @@ rm(coef_table, col_key_num)
 gage_mon <- gage_dv %>%  
   mutate(yr = year(Date)) %>% 
   mutate(mon = month(Date)) %>%  
-  mutate(q30_q1_diff = q30_depth - q1_depth) %>% 
+  mutate(q30_q1_diff = q30_depth - q1_depth) %>%  
   group_by(sta, mon, yr) %>% 
   summarize(waterYear = first(waterYear),   
             q1_mon     = mean(q1_depth), 
