@@ -1774,17 +1774,29 @@ gaged_ecoreg <- gaged %>%
 ecoreg_list <- gaged_ecoreg %>%
   split(., .$ecoreg2) 
 
-# drop ecoreg from the list
-ecoreg_list <- lapply(ecoreg_list, function(x) select(x, -ecoreg2)) 
- 
 # create an index of values 
 ecoreg_index <- lapply(ecoreg_list, function(x) { 
   return(createDataPartition(x$log_q1_depth, p = .8, list = FALSE)) 
   }) 
 
 # get separate training and test df from the index (used in a code-chunk below)
-train_ecoreg <- (ecoreg_list[[1]])[ecoreg_index[[1]],]
-test_ecoreg <- (ecoreg_list[[1]])[-ecoreg_index[[1]],]
+train_bhplat <- (ecoreg_list[[1]])[ecoreg_index[[1]],] 
+train_kptabl <- (ecoreg_list[[2]])[ecoreg_index[[2]],] 
+train_pshale <- (ecoreg_list[[3]])[ecoreg_index[[3]],] 
+train_escarp <- (ecoreg_list[[4]])[ecoreg_index[[4]],] 
+train_sndhil <- (ecoreg_list[[5]])[ecoreg_index[[5]],] 
+train_wrbadl <- (ecoreg_list[[6]])[ecoreg_index[[6]],] 
+
+test_bhplat <- (ecoreg_list[[1]])[-ecoreg_index[[1]],] 
+test_kptabl <- (ecoreg_list[[2]])[-ecoreg_index[[2]],] 
+test_pshale <- (ecoreg_list[[3]])[-ecoreg_index[[3]],] 
+test_escarp <- (ecoreg_list[[4]])[-ecoreg_index[[4]],] 
+test_sndhil <- (ecoreg_list[[5]])[-ecoreg_index[[5]],] 
+test_wrbadl <- (ecoreg_list[[6]])[-ecoreg_index[[6]],] 
+
+
+# drop ecoreg from the list
+ecoreg_list <- lapply(ecoreg_list, function(x) select(x, -ecoreg2)) 
 
 set.seed(seed) 
 model_list <- purrr::map2(ecoreg_list, ecoreg_index, 
@@ -1806,6 +1818,9 @@ rm(cores, lambda, seed, reg.ctrl)
 # having challenges with extracting elements from lists....
 pshale <- model_list %>% 
   pluck("pshale")
+
+pshale_check <- pshale %>% 
+  pluck("trainingData")
 
 bhplat <- model_list %>% 
   pluck("bhplat") 
@@ -1950,14 +1965,40 @@ rm(coef_table, col_key_num, coefs_ecoreg)
 
 #listviewer::jsonedit(ecoreg_index) 
 
+
+# join the train and test sets ----------------------------------------------
+train_ecoreg <- bind_rows(train_bhplat, train_kptabl, train_pshale, 
+                          train_escarp, train_sndhil, train_wrbadl) 
+
+test_ecoreg <- bind_rows(test_bhplat, test_kptabl, test_pshale, 
+                          test_escarp, test_sndhil, test_wrbadl) 
+
+
 # get observations & predictions -- training --------------------------------  
-obs_train_ecoreg    <- tibble(observed = train_ecoreg$log_q1_depth) 
-preds_train_ecoreg <- map_dfc(model_list, predict, newdata = train_ecoreg)   
- 
+obs_train_ecoreg   <- tibble(observed = train_ecoreg$log_q1_depth, 
+                             ecoreg = train_ecoreg$ecoreg2) 
+
+preds_train_ecoreg <- map_dfr(model_list, 
+                               predict, 
+                              newdata = train_ecoreg)   
+
 # combine observations & predictions  
 fit_train_ecoreg <- bind_cols(obs_train_ecoreg, preds_train_ecoreg) %>% 
   mutate(split = "train") %>% 
   as_tibble() 
+
+# the preds_train_ecoreg output fits models to all the model fits 
+try <- fit_train_ecoreg %>% 
+  gather(ecoreg_mod, value, -c(observed, ecoreg, split)) %>% 
+  filter(ecoreg == ecoreg_mod) %>% 
+  select(-ecoreg_mod) %>% 
+  group_by(ecoreg) %>% 
+  mutate(null = mean(observed)) %>% 
+  ungroup() 
+  
+
+
+
   
 # get observations & predictions -- test ------------------------------------  
 obs_test_ecoreg   <- tibble(observed = test_ecoreg$log_q1_depth)  
@@ -1973,8 +2014,58 @@ fit_model_ecoreg <-  bind_rows(fit_test_ecoreg, fit_train_ecoreg)
 # clean-up global environment 
 rm(obs_train_ecoreg,  preds_train_ecoreg, obs_test_ecoreg, 
    preds_test_ecoreg, fit_test_ecoreg, fit_train_ecoreg)  
+
+
+rm(train_bhplat, train_kptabl, train_pshale, 
+   train_escarp, train_sndhil, train_wrbadl, 
+   test_bhplat, test_kptabl, test_pshale, 
+   test_escarp, test_sndhil, test_wrbadl)  
   
 ``` 
+
+```{r plot_glm_observations_predictions_dv}
+
+# model plot test - ecoreg --- remove later  
+try_plot <- try %>%  
+  mutate(obs_antilog = 10^observed) %>% 
+  mutate(fit_antilog = 10^value)    
+
+ggplot(try, aes(observed, value)) +  
+  facet_grid(rows = vars(split), 
+             cols = vars(ecoreg)) +  
+    theme_bw() + 
+
+# geom_point( 
+#   shape = ".", 
+#   color = "gray")  + 
+# plot points as a density plot to reduce overplotting 
+geom_density2d( 
+   color = "gray")  + 
+  geom_smooth( 
+    method = "lm", 
+    color = "black") + 
+  geom_smooth(aes(observed, null), 
+              method = "lm", 
+              color = "red") +
+# plot a 45-degree line 
+  geom_abline( 
+    intercept = 0,  
+    slope = 1,  
+    size = 0.25) +  
+# set limits  
+#  scale_x_log10(limits = c(0.1, 1000)) + 
+#  scale_y_log10(limits = c(0.1, 1000)) + 
+# set theme 
+  theme_bw() + 
+  theme(legend.position = "none") 
+ 
+ggsave("figure/dv1-fit.png", width = 7, height = 7, units = "in")  
+ 
+``` 
+
+
+
+
 
 
 # building models based on PC1 & PC2 - delete after making sure log dv works 
