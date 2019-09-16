@@ -1782,6 +1782,11 @@ ecoreg_index <- lapply(ecoreg_list, function(x) {
   return(createDataPartition(x$log_q1_depth, p = .8, list = FALSE)) 
   }) 
 
+# get separate training and test df from the index (used in a code-chunk below)
+train_ecoreg <- (ecoreg_list[[1]])[ecoreg_index[[1]],]
+test_ecoreg <- (ecoreg_list[[1]])[-ecoreg_index[[1]],]
+
+set.seed(seed) 
 model_list <- purrr::map2(ecoreg_list, ecoreg_index, 
                           function(df, train_index)  { 
                             train(log_q1_depth ~ ., df[train_index,], 
@@ -1792,8 +1797,6 @@ model_list <- purrr::map2(ecoreg_list, ecoreg_index,
                                     alpha = 1, lambda = lambda) 
                                   ) 
                             }) 
-
-#listviewer::jsonedit(model_list) 
 
 rm(cores, lambda, seed, reg.ctrl)
 ```
@@ -1910,7 +1913,7 @@ coefs_ecoreg <- coefs_ecoreg %>%
 
 ```  
 
-```{r export-table_glm-coeffs_dv} 
+```{r export-table_glm-coeffs_ecoreg} 
 # set the numeric columns 
 col_key_num <- coefs_ecoreg %>% 
   select(-coeff) %>%  
@@ -1943,47 +1946,35 @@ rm(coef_table, col_key_num, coefs_ecoreg)
  
 ```
 
+```{r get_glm_observations_and_predictions_ecoreg} 
 
-```{r get_glm_observations_and_predictions_dv} 
- 
+#listviewer::jsonedit(ecoreg_index) 
+
 # get observations & predictions -- training --------------------------------  
-obs_train_ecoreg <- bind_rows( 
-  train_pshale, 
-  train_escarp, 
-  train_wrbad, 
-  train_bhplat, 
-  train_kptabl, 
-  train_sandhill) 
-  
-#rm(train_pshale, train_escarp, train_wrbad, 
-#   train_bhplat, train_kptabl, train_sandhill) 
-train_ecoreg <- c("pshale", "escarp", "wrbad", "bhplat", "kptabl", "sandhill") 
-
-preds_train_ecoreg <- map2_dfc(models_ecoreg, train_ecoreg, 
-                               predict, newdata = train_ecoreg)    
+obs_train_ecoreg    <- tibble(observed = train_ecoreg$log_q1_depth) 
+preds_train_ecoreg <- map_dfc(model_list, predict, newdata = train_ecoreg)   
  
 # combine observations & predictions  
-fit_train_dv <- bind_cols(obs_train_dv, preds_train_dv) %>% 
+fit_train_ecoreg <- bind_cols(obs_train_ecoreg, preds_train_ecoreg) %>% 
   mutate(split = "train") %>% 
   as_tibble() 
   
 # get observations & predictions -- test ------------------------------------  
-obs_test_dv   <- tibble(observed = test_dv$log_q1_depth)  
-preds_test_dv <- map_dfc(models_dv, predict, newdata = test_dv)  
+obs_test_ecoreg   <- tibble(observed = test_ecoreg$log_q1_depth)  
+preds_test_ecoreg <- map_dfc(model_list, predict, newdata = test_ecoreg)  
  
 # combine observations & predictions 
-fit_test_dv <- bind_cols(obs_test_dv, preds_test_dv) %>% 
+fit_test_ecoreg <- bind_cols(obs_test_ecoreg, preds_test_ecoreg) %>% 
   mutate(split = "test") %>% 
   as_tibble() 
  
-fit_model_dv <-  bind_rows(fit_test_dv, fit_train_dv)  
+fit_model_ecoreg <-  bind_rows(fit_test_ecoreg, fit_train_ecoreg)  
  
 # clean-up global environment 
-rm(obs_train_dv,  preds_train_dv, obs_test_dv, 
-   preds_test_dv, fit_test_dv, fit_train_dv)  
+rm(obs_train_ecoreg,  preds_train_ecoreg, obs_test_ecoreg, 
+   preds_test_ecoreg, fit_test_ecoreg, fit_train_ecoreg)  
   
-```  
-
+``` 
 
 
 # building models based on PC1 & PC2 - delete after making sure log dv works 
