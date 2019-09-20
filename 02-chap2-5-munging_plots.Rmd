@@ -283,6 +283,8 @@ library("glmnet")           # fit a GLM with lasso or elasticnet regularization
 library("dabestr")          # data analysis using bootstrap estimation 
 library("Metrics")          # evaluation metrics for machine learning 
 library("DataExplorer") #--- used for plot_correlation() ---
+library("assertthat")
+
 
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
 # library("cowplot")
@@ -1254,8 +1256,8 @@ env_vars <- env_vars %>%
    
 # plot quantiles  
 plot_qq(env_vars)   
-  
-```      
+   
+```       
 
 ```{r correlate_spatial-data} 
  
@@ -1298,7 +1300,7 @@ env_vars <- env_vars %>%
 ## vpd_07	      vpd07_sq			  pcov_ln, prcp_sq,  
 ##                              t07_mean, vpdan_sq          yes   
 
-
+ 
 ```   
 
 ```{r add-response-var_spatial-data} 
@@ -1311,7 +1313,11 @@ gaged <- full_join(gage_dv, env_vars,
 # prepare for glm-model by calculating log-q1 depths 
 gaged <- gaged %>% 
   mutate(log_q1_depth = log10(q1_depth)) %>% 
-  select(sta, q1_depth, log_q1_depth, everything()) 
+  select(sta, q1_depth, log_q1_depth, everything()) %>% 
+  mutate(Date = ymd(Date)) %>% 
+  mutate(mon = month(Date)) %>% 
+  mutate(yr = year(Date)) 
+  
 
 # clean up global environment 
 rm(env_vars)    
@@ -1323,7 +1329,7 @@ rm(env_vars)
 # set up random seed & parallel processing for glmnet & caret ----------------  
 
 seed <- 42  
-cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE) 
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)  
 registerDoMC(cores)   
  
 # set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2] 
@@ -1348,7 +1354,6 @@ test_dv <- gaged[-train_index,] %>%
  
 # ridge -- alpha = 0 ---------------------------------------------------------  
 set.seed(seed)             # need to set a seed each time you call a rand num 
-
 ridge_dv <- train_dv %>% 
   select(-Date) %>%        # drop the data just prior to running the model 
   train(  
@@ -1473,7 +1478,7 @@ num_param <- coefs_dv %>%
   select(-coeff) %>%                   # transpose df 
   gather(model, num_param) 
  
-rm(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv) 
+rm(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv)   
  
 ```  
 
@@ -1516,7 +1521,7 @@ rm(eco_join, ecoreg)
 
 # pick out the mse from the output lists  
 error_call_dv <- resamples(models_dv) %>%   
-  summary(metric = c("RMSE", "MAE"))   
+  summary(metric = c("RMSE", "MAE"))    
   
 # change list to tibble  
 error_vals_dv <- error_call_dv %>%  
@@ -1547,8 +1552,8 @@ rm(error_call_dv, num_param)
 
 ggplot(error_vals_dv) + 
   facet_grid(cols = vars(statistic)) + 
-  geom_boxplot(aes(x = as.factor(model_text), 
-                   group = model, 
+  geom_boxplot(aes(x = as.factor(model_text),  
+                   group = model,  
       lower = `1st`, 
       upper = `3rd`, 
       middle = `Median`, 
@@ -1590,22 +1595,358 @@ obs_test_dv   <- tibble(observed = test_dv$log_q1_depth,
 
 preds_test_dv <- map_dfc(models_dv, predict, newdata = test_dv)  
   
-# combine observations & predictions  
+# combine observations & predictions 
 fit_test_dv <- bind_cols(obs_test_dv, preds_test_dv) %>%  
   mutate(split = "test") %>% 
   as_tibble()  
  
 fit_model_dv <-  bind_rows(fit_test_dv, fit_train_dv)  
+
+# clean-up 
+rm(preds_test_dv, preds_train_dv, obs_train_dv, 
+   obs_test_dv, test_dv, train_dv, fit_test_dv, fit_train_dv)
+
+# drop the training data -- find model errors & fit a null model 
+fit_model_test <- fit_model_dv %>% 
+  filter(split == "test") %>%           # only want to see test data 
+  select(-c(split, ridge, elastic)) %>%        # drop non-selected models 
+  group_by(Date)  %>%                   # fit a null model to the data by Date  
+  mutate(null_mod = mean(observed)) %>% 
+  ungroup() %>%  
+  gather(model, fitted, -c(observed, Date, ecoreg)) %>% 
+  group_by(model) %>% 
+  mutate(MAE = round( 
+    MAE(observed, fitted),              # find the model errors 
+    digits = 3) 
+    ) %>% 
+  ungroup() %>% 
+  mutate(residual = observed - fitted) 
+
+```  
+
+
+```{r plot_glm_observations_predictions_dv}
+
+p1 <- fit_model_test %>% 
+ggplot(., aes(observed, fitted)) +  
+  facet_wrap(vars(model), ncol = 2) +  
+# plot points as a density plot to reduce overplotting 
+geom_point( 
+  shape = ".", 
+  color = "gray80")  + 
+ # plot points as a density plot to reduce overplotting  
+geom_density2d( 
+   color = "gray50")  + 
+  geom_smooth( 
+    method = "lm", 
+    color = "black") + 
+# plot a 45-degree line 
+  geom_abline( 
+    intercept = 0,  
+    slope = 1,  
+    size = 0.25) +  
+# set limits  
+  scale_x_continuous(limits = c(-1, 4)) + 
+  scale_y_continuous(limits = c(-1, 4)) + 
+# set theme 
+  theme_bw() + 
+  theme(legend.position = "none") 
+
+p1 
+
+``` 
+
+```{r plot_glm_observations_predictions_dv_old}
+
+
+# time-series plot 
+p2 <- try %>% 
+# plot only the test data
+  filter(split == "test") %>%         
+ggplot(., aes(Date, observed)) +  
+  facet_wrap(vars(model), ncol = 2) +  
+# plot points as a density plot to reduce overplotting 
+geom_point( 
+  shape = ".", 
+  color = "gray80")  + 
+geom_point(aes(Date, fitted), 
+  shape = ".", 
+  color = "gray50")  + 
+  geom_smooth( 
+    method = "lm", 
+    color = "black")  + 
+# plot a 45-degree line 
+  geom_abline( 
+    intercept = 0,  
+    slope = 1,  
+    size = 0.25) +  
+# set limits  
+#  scale_x_continuous(limits = c(0, 4)) + 
+#  scale_y_continuous(limits = c(0, 4)) + 
+# set theme 
+  theme_bw() + 
+  theme(legend.position = "none") 
  
+p1
+
+# %>%               # get residuals 
+  gather(type, value, -c(Date, ecoreg, model, MAE, residual)) %>% 
+  mutate(type = case_when( 
+    type == "fitted" ~ model, 
+    TRUE ~ type)) %>% 
+  select(-model) %>% 
+  mutate(my_rank = 1- percent_rank(value)) %>%
+  mutate(my_rank = if_else(my_rank == 1, 0.9999, my_rank)) 
+
+#try2 <- try %>% 
+#  group_by(Date, split, model) %>% 
+#  summarise(fitted = mean(fitted), 
+#            obserced = mean(observed)) %>% 
+#  ungroup() 
+
 # clean-up global environment 
 rm(obs_train_dv,  preds_train_dv, obs_test_dv, 
    preds_test_dv, fit_test_dv, fit_train_dv, 
    train_dv, test_dv)  
 
-```  
+p1 +  
+  geom_smooth( 
+    method = "loess", 
+    color = "black")  
+    
+ggsave("figure/dv1-fit.png", width = 7, height = 7, units = "in")  
 
-```{r plot_glm_observations_predictions_dv}
+library(tidyverse)
+library(lubridate)
+library(assertthat)
 
+
+
+# Helper functions --------------------------------------------------------
+
+# Function to plot minor breaks at a log scale
+# https://stackoverflow.com/questions/30179442/plotting-minor-breaks-on-a-log-scale-with-ggplot
+log10_minor_break = function (...){
+  function(x) {
+    minx         = floor(min(log10(x), na.rm=T))-1;
+    maxx         = ceiling(max(log10(x), na.rm=T))+1;
+    n_major      = maxx-minx+1;
+    major_breaks = seq(minx, maxx, by=1)
+    minor_breaks = 
+      rep(log10(seq(1, 9, by=1)), times = n_major)+
+      rep(major_breaks, each = 9)
+    return(10^(minor_breaks))
+  }
+}
+
+log10_major_break = function (...){
+  function(x) {
+    minx         = floor(min(log10(x), na.rm=T))-1;
+    maxx         = ceiling(max(log10(x), na.rm=T))+1;
+    n_major      = maxx-minx+1;
+    major_breaks = seq(minx, maxx, by=1)
+    return(10^(major_breaks))
+  }
+}
+
+
+# FDC using all flows
+
+
+
+
+  ggplot(aes(x = my_rank, y = flow_mean)) +
+  geom_line() +
+  scale_y_continuous(name = 'Mean daily flow (ML/d)',
+                     trans = 'log10', 
+                     breaks = c(0.01, 0.1, 1, 10, 100, 1000, 10000),
+                     minor_breaks = log10_minor_break(),
+                     limits = c(0.01, 10000),
+                     labels = c(0.01, 0.1, 1, 10, 100, 1000, '10,000')) +
+  scale_x_continuous(name = 'Percentage of time flow exceeded',
+                     trans = 'probit', 
+                     limits = c(0.01, 0.99),
+                     breaks = c(0.01, 0.1,0.25,0.5,0.75, 0.9, 0.99),
+                     labels = c('1%', '10%', '25%', '50%', '75%', '90%', '99%')) 
+
+
+#_____________________________________________________________________________ 
+# Read in the data
+
+
+
+# 
+# Site 404216 BROKEN RIVER @ GOORAMBAT (CASEY WEIR H. GAUGE) Lat:-36.47353488 Long:145.9417393 
+# Data on google drive
+# https://drive.google.com/open?id=1-g1rOfeOxquPow4YM1aifdEkdBboUzu4
+
+
+
+id <- "1-g1rOfeOxquPow4YM1aifdEkdBboUzu4" # google file ID
+flow_daily <- read_csv(file =sprintf("https://docs.google.com/uc?id=%s&export=download", id),
+                       col_types = cols(
+                         X1 = col_character(),
+                         X2 = col_double(),
+                         X3 = col_integer(),
+                         X4 = col_double(),
+                         X5 = col_integer(),
+                         X6 = col_double(),
+                         X7 = col_integer()
+                       ),
+                       col_names = FALSE,
+                       skip = 17
+)
+
+names(flow_daily) <- c('date',
+                       'flow_mean',
+                       'qcode_mean',
+                       'flow_min',
+                       'qcode_min',
+                       'flow_max',
+                       'qcode_max')
+
+
+
+#_____________________________________________________________________________ 
+# Checks
+# Missing data
+
+colSums(is.na(flow_daily))
+
+# Remove first line (contains missing data and add columns we'll use later)
+
+flow_daily <- flow_daily %>% 
+  slice(2:nrow(flow_daily)) %>%  # There is only one missing value, which is the first, so lets remove it.
+  mutate(date = as.Date(str_sub(date, 1, 10), format = '%d/%m/%Y')) %>%  # Convert time, just you days
+  mutate(flow_year = year(date)) %>% 
+  mutate(flow_month = month(date)) %>% 
+  mutate(jday = yday(date))
+
+
+
+# Check time step
+# should be consistent between all values
+x <- flow_daily %>% 
+  mutate(date_diff = date - lag(date)) %>% 
+  count(date_diff) # ok
+res <- assert_that(x[1,2] == nrow(flow_daily)-1) 
+
+
+# Look for incomplete years
+
+flow_daily %>% 
+  mutate(flow_year = year(date)) %>%
+  group_by(flow_year) %>% 
+  summarise(days_measured = n()) %>% 
+  filter(!(days_measured %in% c(365,366))) # Years without 365 or 366 days
+
+# Delete 1972 and 2017 (first and last year)
+
+flow_daily <- flow_daily %>% 
+  filter(!(flow_year %in% c(1972, 2017)))
+
+# Check the occurance of Zero values
+colSums(flow_daily == 0)
+# date  flow_mean qcode_mean   flow_min  qcode_min   flow_max  qcode_max  flow_year flow_month 
+# 0        560          0        783          0        557          0          0          0 
+# jday 
+# 0 
+
+
+
+# Flow duration curves ----------------------------------------------------
+
+
+# FDC using all flows
+
+flow_daily %>% 
+  mutate(my_rank = 1- percent_rank(flow_mean)) %>%
+  mutate(my_rank = if_else(my_rank == 1, 0.9999, my_rank)) %>% 
+  ggplot(aes(x = my_rank, y = flow_mean)) +
+  geom_line() +
+  scale_y_continuous(name = 'Mean daily flow (ML/d)',
+                     trans = 'log10', 
+                     breaks = c(0.01, 0.1, 1, 10, 100, 1000, 10000),
+                     minor_breaks = log10_minor_break(),
+                     limits = c(0.01, 10000),
+                     labels = c(0.01, 0.1, 1, 10, 100, 1000, '10,000')) +
+  scale_x_continuous(name = 'Percentage of time flow exceeded',
+                     trans = 'probit', 
+                     limits = c(0.01, 0.99),
+                     breaks = c(0.01, 0.1,0.25,0.5,0.75, 0.9, 0.99),
+                     labels = c('1%', '10%', '25%', '50%', '75%', '90%', '99%')) 
+
+
+
+# FDC for each year of record (in grey)
+
+p1 <- flow_daily %>% 
+  group_by(flow_year) %>% 
+  mutate(my_rank = 1-percent_rank(flow_mean)) %>%
+  mutate(my_rank = if_else(my_rank == 1, 0.9999, my_rank)) %>% 
+  ggplot(aes(x = my_rank, y = flow_mean, group = flow_year)) +
+  geom_line(colour = 'grey70', size = 0.2)+
+  scale_y_continuous(name = 'Mean daily flow (ML/d)',
+                     trans = 'log10', 
+                     breaks = c(0.01, 0.1, 1, 10, 100, 1000, 10000),
+                     minor_breaks = log10_minor_break(),
+                     limits = c(1, 10000),
+                     labels = c(0.01, 0.1, 1, 10, 100, 1000, '10,000')) +
+  scale_x_continuous(name = 'Percentage of time flow exceeded',
+                     trans = 'probit', 
+                     limits = c(0.01, 0.99),
+                     breaks = c(0.01, 0.1,0.25,0.5,0.75, 0.9, 0.99),
+                     labels = c('1%', '10%', '25%', '50%', '75%', '90%', '99%')) 
+
+p1
+
+# with some years highlighted
+
+year_highlights <- flow_daily %>% 
+  filter(flow_year %in% c(1976, 1993, 1974)) %>% 
+  group_by(flow_year) %>% 
+  mutate(my_rank = 1- percent_rank(flow_mean)) %>%
+  mutate(my_rank = if_else(my_rank == 1, 0.9999, my_rank)) 
+
+
+# FDC using all flows
+fdc_all <- flow_daily %>%
+  mutate(my_rank =  1-percent_rank(flow_mean) ) %>%
+  mutate(my_rank = if_else(my_rank == 1, 0.9999, my_rank)) %>%
+  mutate(my_rank = if_else(my_rank == 0, 0.0001, my_rank)) %>%
+  select(my_rank, flow_mean)
+
+fdc_all$flow_year <-  2000
+
+
+# Overplot the selected years and the average for all years
+p2 <- p1 +
+  geom_line(data = year_highlights, aes(x = my_rank, y = flow_mean, colour = factor(flow_year)), size = 0.4) +
+  scale_colour_discrete(name = NULL) +
+  theme(legend.position = 'bottom', 
+        text = element_text(size = 8)) +
+  geom_line(data = fdc_all, aes(my_rank, flow_mean ), colour = 'black', size = 0.4)
+
+
+p2
+
+#ggsave("../figures/fdc_example.png", p2, width=4, height=4)
+```
+
+
+
+
+
+
+# model plot test - pc1 --- remove later  
+#fit_model_dv_plot <- fit_model_dv %>%  
+#  select(-c(ridge, elastic)) %>% 
+#  mutate(obs_antilog = 10^observed) %>% 
+#  mutate(fit_antilog = 10^lasso)    
+
+# geom_point( 
+#   shape = ".", 
+#   color = "gray")  + 
 # model plot test - pc1 --- remove later  
 fit_model_dv_plot <- fit_model_dv %>%  
   select(-c(ridge, elastic)) %>% 
