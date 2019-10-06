@@ -6,9 +6,9 @@ output: html_document
 ---
 
 <!--
-Purpose: 
+This R markdown file refactors prior code for data cleaning 
+
 1) Develop tables and plots for Chapter 2 
-2) Refactor prior code 
 
 Data:
 Predominant datasets used are:  
@@ -255,10 +255,10 @@ pc1_remainder    ggplot of PC1 remainder vs time
 
 --> 
 
-```{r setup, include=FALSE, message=FALSE}  
-#knitr::opts_chunk$set(echo = FALSE)     
+```{r setup, include=FALSE, message=FALSE}   
+#knitr::opts_chunk$set(echo = FALSE)      
 options(tibble.print_max = 70) # sets tibble output for printing      
- 
+  
 # Sets up the library of packages     
 library("here")             # identifies where to save work  
 library("EGRET")            # Exploration and Graphics for RivEr Trends 
@@ -273,57 +273,58 @@ library("forecast")         # for BoxCox.lambda
 library("tidyverse")        # data munging tools 
 library("broom")            # convert statistical objs into tidy tibbles 
 library("ggfortify")        # data vis tools for statistical analysis 
-library("stringi")          # character string processing facilities
+library("stringi")          # character string processing facilities 
 library("sf")               # simple features--spatial geometries for R 
 library("anomalize")        # detect anomalies using the tidyverse  
-library("mclust")           # model-based clustering & density estimation
+library("mclust")           # model-based clustering & density estimation 
 library("caret")            # classification and regression training 
 library("doMC")             # parallelization for caret 
 library("glmnet")           # fit a GLM with lasso or elasticnet regularization 
 library("dabestr")          # data analysis using bootstrap estimation 
-library("Metrics")          # evaluation metrics for machine learning 
-library("DataExplorer") #--- used for plot_correlation() ---
-library("assertthat")
+library("Metrics")          # evaluation metrics for machine learning  
+library("DataExplorer") #--- used for plot_correlation() --- 
+library("assertthat") 
+ 
+ 
+# library("mathpix")                # support for 'Mathpix' image to 'LaTeX'   
+# library("cowplot") 
 
+``` 
 
-# library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
-# library("cowplot")
-```
-
-```{r import_daily_flow_metadata, eval=FALSE} 
+```{r import_daily_flow_metadata, eval=FALSE}  
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),    
                        parameterCd = "00060",  
                        hasDataTypeCd = "dv") %>%  
   arrange(site_no)   
- 
+  
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 # 2. get metadata 
 # this needs to be run in parts because some project numbers & 
 # inventories are stored as integers & others are stored as characters 
-
+ 
 gage_meta_int1 <- gage_poss %>% 
     slice(7, 17, 142, 148) %>% 
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
- 
+  
 gage_meta_int2 <- gage_poss %>% 
     slice(94) %>% 
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
- 
+  
 gage_meta_int3 <- gage_poss %>% 
     slice(-c(7, 17, 94, 142, 148)) %>% 
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
- 
+  
 # 3. join gage metadata 
 gage_meta_poss <- bind_rows(gage_meta_int1, 
                             gage_meta_int2, 
                             gage_meta_int3)  
- 
+  
 gage_meta_poss <- gage_meta_poss %>%  
   mutate(site_no = zeroPad(site_no, 8))  
  
@@ -332,21 +333,21 @@ rm(gage_meta_int1, gage_meta_int2, gage_meta_int3, gage_poss)
  
 # 4. export metadata to data folder ----------------------------------------- 
 # export(gage_meta_poss, "data/gage_meta_poss.csv")  
-
+ 
 ``` 
 
-```{r clean_gage_metadata, eval=FALSE}
-gage_meta_poss <- import("data/gage_meta_poss.csv")     
- 
-# 1. remove gages that do not meet standards  
-gage_meta <- gage_meta_poss %>%   
-  mutate(site_no = as.character(site_no)) %>% 
-  mutate(site_no = zeroPad(site_no, 8)) %>%              # pad site_no  
-  mutate(reliability_cd = replace_na(reliability_cd, 0))  %>% #  NA <- zero 
+```{r clean_gage_metadata, eval=FALSE} 
+gage_meta_poss <- import("data/gage_meta_poss.csv")      
+  
+# 1. remove gages that do not meet standards   
+gage_meta <- gage_meta_poss %>%    
+  mutate(site_no = as.character(site_no)) %>%  
+  mutate(site_no = zeroPad(site_no, 8)) %>%              # pad site_no   
+  mutate(reliability_cd = replace_na(reliability_cd, 0))  %>% #  NA <- zero  
   filter(site_no != "06461150"& 
          site_no != "06463670"&   
          site_no != "06461595") %>%  # remove short sites w/ provisional data  
-  filter(site_no != "06441000") %>%  # only active 180 days/yr 
+  filter(site_no != "06441000") %>%  # only active 180 days/yr  
   filter(site_no != "06438000") %>% 
   filter(site_no != "06437000") %>%  # remove northern Black Hills stations 
   filter(site_no != "06442718") %>%  # remove East River stations 
@@ -361,25 +362,24 @@ gage_meta <- gage_meta_poss %>%
   # crystaline catchments 
   filter(!str_detect(station_nm, 'CLEGHORN')) %>% # karstic? spring 
   filter(!str_detect(station_nm, 'BOXELDER|LIME')) %>% # karstic 
-  filter(!str_detect(station_nm, 'RAPID')) %>%   
+  filter(!str_detect(station_nm, 'RAPID')) %>%    
   # Rapid Creek & upper Spring Creek 
   filter(!str_detect(station_nm, 'MISSOURI')) 
  
-# 2. remove provisional sites 
-# ---------------------------------------------------------------------------  
+# 2. remove provisional sites ---------------------------------------------     
 gage_meta <- gage_meta %>% 
   mutate(site_no = as.character(site_no)) %>% 
   select(-reliability_cd) %>% 
   mutate(length = str_length(site_no)) %>% 
   filter(length <= 8) %>%   # removes two provisional sites 
   select(-length) 
- 
-# 3. remove codes not needed for this project 
+  
+# 3. remove codes not needed for this project  
 gage_meta <- gage_meta %>% 
   select(-agency_cd) %>% 
   select(-site_tp_cd) %>% # all streams so delete 
   select(-c(lat_va, long_va)) %>% # in DMS so delete  
-  select(-c(coord_meth_cd, coord_acy_cd)) %>% # coord meth. & agency, so delete  
+  select(-c(coord_meth_cd, coord_acy_cd)) %>% # coord meth & agency, so delete  
   select(-c(coord_datum_cd, dec_coord_datum_cd)) %>% # NAD83 or NAD27 
   select(-c(district_cd, country_cd)) %>% # Congressional dist & Country 
   select(-c(land_net_ds, map_nm, map_scale_fc)) %>%  # refers to USGS maps 
@@ -389,181 +389,180 @@ gage_meta <- gage_meta %>%
   select(-c(tz_cd, local_time_fg)) %>% # daily data, so NA 
   select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>% 
   select(-c(well_depth_va, hole_depth_va, depth_src_cd)) 
- 
+  
 rm(gage_meta_poss) 
-
-```
-
-```{r add_names_to_gage_meta, eval=FALSE} 
  
+``` 
+
+```{r add_names_to_gage_meta, eval=FALSE}  
+  
 # get data from QGIS analysis of gaged & ungaged watersheds of interest  
 wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
                        layer = "wbd_summary", 
                        as_tibble = TRUE) %>% 
   st_drop_geometry() %>% 
   mutate_if(is.factor, as.character) 
- 
+  
 # join names to gage_meta  
 names <- wsd_summary %>% 
   select(site_no = gage_num, sta = sta_id) %>% 
   drop_na() %>% 
   mutate(site_no = zeroPad(site_no, 8)) 
- 
+  
 gage_meta <- full_join(names, gage_meta, 
                      by ="site_no")  
- 
+  
 # export metadata to data folder ---------------------------------------------  
 export(gage_meta, "data/gage_meta_fin.csv")  
  
 ``` 
 
 ```{r import_daily_flow_data, eval=FALSE} 
+   
+# this is a small amount of code duplication to reduce API calls   
+#   to allow for working remotely -- set above to eval=FALSE  
+gage_meta <- import("data/gage_meta_fin.csv") %>%  
+    mutate(site_no = zeroPad(site_no, 8))  
   
-# this is a small amount of code duplication to reduce API calls  
-#   to allow for working remotely -- set above to eval=FALSE 
-gage_meta <- import("data/gage_meta_fin.csv") %>% 
-    mutate(site_no = zeroPad(site_no, 8)) 
- 
 wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
                        layer = "wbd_summary", 
                        as_tibble = TRUE) %>% 
   st_drop_geometry() %>% 
   mutate_if(is.factor, as.character) 
  
- 
-# set parameters for Egret::readNWISDaily  
-startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30 
-endDate      <- "2018-09-30" 
+# set parameters for Egret::readNWISDaily   
+startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30  
+endDate      <- "2018-09-30"  
 parameter_cd <- "00060" 
- 
+  
 # get daily flows ------------------------------------------------------------ 
-# note for EGRET::readNWISDailyQ the discharge is in m^3/s  
- 
-# Long River gage needs to be called separately or it creates an error 
-gage_lonriv_dv <- gage_meta %>% 
-  filter(site_no == "06463500") %>% 
-  split(.$site_no)  %>% 
-  map_dfr(~ readNWISDaily(
+# note for EGRET::readNWISDailyQ the discharge is in m^3/s   
+  
+# Long River gage needs to be called separately or it creates an error  
+gage_lonriv_dv <- gage_meta %>%  
+  filter(site_no == "06463500") %>%  
+  split(.$site_no)  %>%  
+  map_dfr(~ readNWISDaily( 
     siteNumber = .$site_no, 
     parameter_cd, 
     startDate, 
     endDate), 
     .id = "site_no") 
- 
+  
 gage_most_dv <- gage_meta %>% 
-  filter(site_no != "06463500") %>%           # drop long river from call 
-  split(.$site_no) %>% 
-  map_dfr(~ readNWISDaily(
+  filter(site_no != "06463500") %>%           # drop long river from call  
+  split(.$site_no) %>%  
+  map_dfr(~ readNWISDaily( 
     siteNumber = .$site_no, 
     parameter_cd, 
     startDate, 
     endDate), 
     .id = "site_no") 
- 
+  
 # remove the 1978 data needed to calculate Q7 & Q30 
 gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>% 
   filter(waterYear > "1979") 
- 
+  
 ```  
 
 ```{r filter_short_flow_recs, eval=FALSE}
   
-# 1. prepare to filter gages with short flow records---------------------------  
+# 1. prepare to filter gages with short flow records---------------------------   
 # calculate min & max years of record   
 yrs_summary <- gage_dv %>% 
   group_by(site_no) %>%                  
-  summarise(years_rec = n_distinct(waterYear),  
-            min_year = min(waterYear),  
-            max_year = max(waterYear)  
-            ) %>%                    
-  ungroup() %>% 
-  mutate(apparent_yrs = 1 + max_year - min_year) 
- 
-gage_meta <- full_join(yrs_summary, gage_meta,      # N = 88 
-                       by = "site_no") 
- 
-rm(yrs_summary) 
- 
+  summarise(years_rec = n_distinct(waterYear),   
+            min_year = min(waterYear),   
+            max_year = max(waterYear)   
+            ) %>%                     
+  ungroup() %>%  
+  mutate(apparent_yrs = 1 + max_year - min_year)  
+  
+gage_meta <- full_join(yrs_summary, gage_meta,      # N = 88  
+                       by = "site_no")  
+  
+rm(yrs_summary)  
+  
 # 2. filter gages with less than 6 years of record----------------------------  
-# filter gages with no records 
-gage_check <- gage_meta %>% 
-  filter(is.na(years_rec)) 
- 
-gage_meta <- gage_meta %>% 
-  filter(!is.na(years_rec))                           # N = 69 
- 
-# 06400500 CHEYENNE R NEAR HOT SPRINGS SD 
-# 06403500 FRENCH CR NEAR FAIRBURN SD 
-# 06404500 BATTLE CR NEAR HERMOSA SD 
-# 06424500 ELK CR ABOVE PIEDMONT SD 
-# 06437200 BEAR BUTTE CR NEAR GALENA,SD 
-# 06437500 BEAR BUTTE CR NEAR STURGIS SD 
-# 06440500 NORTH FORK BAD R NEAR PHILIP SD 
-# 06445000 WHITE R BELW COTTONWOOD C N WHITNEY, NEBR. 
-# 06445500 WHITE R NEAR CHADRON NEBR 
-# 06446200 WHITE R NEAR ROCKYFORD SD 
-# 06449250 SPRING CR NEAR ST FRANCIS SD 
-# 06455900 NIOBRARA RIVER NEAR DUNLAP, NEBR. 
-# 06456500 NIOBRARA RIVER NR HAY SPRINGS, NEBR. 
-# 06457000 NIOBRARA RIVER NEAR COLCLESSER, NEBR. 
-# 06458500 BEAR C NR ELI NEBR 
-# 06459000 NIOBRARA R NEAR CODY, NEBR. 
-# 06460900 MINNECHADUZA CREEK NEAR KILGORE, NEBRASKA 
-# 06463000 NIOBRARA RIVER AT MEADVILLE NE 
-# 06464000 KEYA PAHA R NEAR HIDDEN TIMBER SD  
- 
-# drop stations with less than 6 years of record  
-gage_check <- gage_meta %>% 
-  filter(years_rec < 6) 
- 
-gage_meta <- gage_meta %>% 
-  filter(years_rec >= 6)                         # N = 58 
- 
-# The following were removed because less than 6 years of record  
-# 06400870 HORSEHEAD CR NEAR OELRICHS SD 
-# 06405400 GRACE COOLIDGE CR NEAR FAIRBURN SD 
-# 06405500 GRACE COOLIDGE CR NEAR HERMOSA SD 
-# 06437400 BEAR BUTTE CREEK AT STURGIS, SD 
-# 06441400 WILLOW CREEK NEAR FORT PIERRE, SD 
-# 06442130 CEDAR CREEK NR PRESHO, SD 
-# 06442600 MEDICINE CREEK NR LOWER BRULE, SD 
-# 06442950 CROW CR NEAR GANN VALLEY SD 
-# 06445590 BIG BORDEAUX CREEK NEAR CHADRON NEBR 
-# 06459200 SNAKE RIVER ABV MERRITT RESERVOIR NEBR 
+# filter gages with no records  
+gage_check <- gage_meta %>%  
+  filter(is.na(years_rec))  
+  
+gage_meta <- gage_meta %>%  
+  filter(!is.na(years_rec))                           # N = 69  
+  
+# 06400500 CHEYENNE R NEAR HOT SPRINGS SD  
+# 06403500 FRENCH CR NEAR FAIRBURN SD  
+# 06404500 BATTLE CR NEAR HERMOSA SD  
+# 06424500 ELK CR ABOVE PIEDMONT SD  
+# 06437200 BEAR BUTTE CR NEAR GALENA,SD  
+# 06437500 BEAR BUTTE CR NEAR STURGIS SD  
+# 06440500 NORTH FORK BAD R NEAR PHILIP SD  
+# 06445000 WHITE R BELW COTTONWOOD C N WHITNEY, NEBR.  
+# 06445500 WHITE R NEAR CHADRON NEBR  
+# 06446200 WHITE R NEAR ROCKYFORD SD  
+# 06449250 SPRING CR NEAR ST FRANCIS SD  
+# 06455900 NIOBRARA RIVER NEAR DUNLAP, NEBR.  
+# 06456500 NIOBRARA RIVER NR HAY SPRINGS, NEBR.  
+# 06457000 NIOBRARA RIVER NEAR COLCLESSER, NEBR.  
+# 06458500 BEAR C NR ELI NEBR  
+# 06459000 NIOBRARA R NEAR CODY, NEBR.  
+# 06460900 MINNECHADUZA CREEK NEAR KILGORE, NEBRASKA  
+# 06463000 NIOBRARA RIVER AT MEADVILLE NE  
+# 06464000 KEYA PAHA R NEAR HIDDEN TIMBER SD   
+  
+# drop stations with less than 6 years of record   
+gage_check <- gage_meta %>%  
+  filter(years_rec < 6)  
+  
+gage_meta <- gage_meta %>%  
+  filter(years_rec >= 6)                         # N = 58  
+  
+# The following were removed because less than 6 years of record   
+# 06400870 HORSEHEAD CR NEAR OELRICHS SD  
+# 06405400 GRACE COOLIDGE CR NEAR FAIRBURN SD  
+# 06405500 GRACE COOLIDGE CR NEAR HERMOSA SD  
+# 06437400 BEAR BUTTE CREEK AT STURGIS, SD  
+# 06441400 WILLOW CREEK NEAR FORT PIERRE, SD  
+# 06442130 CEDAR CREEK NR PRESHO, SD  
+# 06442600 MEDICINE CREEK NR LOWER BRULE, SD  
+# 06442950 CROW CR NEAR GANN VALLEY SD  
+# 06445590 BIG BORDEAUX CREEK NEAR CHADRON NEBR  
+# 06459200 SNAKE RIVER ABV MERRITT RESERVOIR NEBR  
 # 10150005 Big Beaver Cr at Nebr Hwy 12 nr Valentine, Nebr 
- 
-# 3. check for incomplete days of record ------------------------------------  
-yr_incomp <- gage_dv %>%                          
-  group_by(site_no, waterYear) %>%                  
-  summarise(days_yr = n()) %>%                    
-  ungroup() %>% 
-  filter(days_yr < 360) %>% 
-  group_by(site_no) %>%   
-  summarise(yrs_incomp = n()) %>%    
-  ungroup() 
- 
-gage_meta <- full_join(yr_incomp, gage_meta,  
-                       by = "site_no") %>% 
-  filter(!is.na(years_rec)) 
- 
+  
+# 3. check for incomplete days of record ------------------------------------   
+yr_incomp <- gage_dv %>%                           
+  group_by(site_no, waterYear) %>%                   
+  summarise(days_yr = n()) %>%                     
+  ungroup() %>%  
+  filter(days_yr < 360) %>%  
+  group_by(site_no) %>%    
+  summarise(yrs_incomp = n()) %>%     
+  ungroup()  
+  
+gage_meta <- full_join(yr_incomp, gage_meta,   
+                       by = "site_no") %>%  
+  filter(!is.na(years_rec))  
+  
 # 4. remove data with short record between 1990-2015 ------------------------- 
-gage_check <- gage_meta %>% 
-  filter(sta == "") 
- 
-gage_meta <- gage_meta %>% 
-  filter(sta != "") 
- 
-## These didn't make the cut because the original data selection was 
-# for 1990-2015  & it would be extremely difficult to put in post-hoc. 
-# it would be good for the future! 
-# Also - its possible to use these for model testing... 
- 
-# station   min_yr  maxyr  name 
-# 06442000   1980   1990   MEDICINE KNOLL CR NEAR BLUNT SD  
-# 06459175   1982   1995   SNAKE R AT DOUGHBOY, NE 
+gage_check <- gage_meta %>%  
+  filter(sta == "")  
+  
+gage_meta <- gage_meta %>%  
+  filter(sta != "")  
+  
+## These didn't make the cut because the original data selection was  
+# for 1990-2015  & it would be extremely difficult to put in post-hoc.  
+# it would be good for the future!  
+# Also - its possible to use these for model testing...  
+  
+# station   min_yr  maxyr  name  
+# 06442000   1980   1990   MEDICINE KNOLL CR NEAR BLUNT SD   
+# 06459175   1982   1995   SNAKE R AT DOUGHBOY, NE  
 # 06459500   1980   1995   SNAKE RIVER NEAR BURGE, NEBR.  
 # 06454100   1980   1992   Niobrara River at Agate, Nebr.  
-# 06461000   1980   1995   MINNECHADUZA CREEK AT VALENTINE, NEBR. 
+# 06461000   1980   1995   MINNECHADUZA CREEK AT VALENTINE, NEBR.  
 # 06462500   1980   1995   PLUM CREEK AT MEADVILLE, NE 
 # 06463720   2012   2018   Niobrara River at Mariaville, Nebr.  
 # 06400497   1980   1995   CASCADE SPRINGS NEAR HOT SPRINGS SD  
@@ -574,27 +573,27 @@ gage_meta <- gage_meta %>%
 # 06444000   1980   2004   White River at Crawford, Nebr. 
 # 06454500   1980   1994   NIOBRARA RIVER ABOVE BOX BUTTE RESERVOIR, NE 
 # 06455500   1980   1991   NIOBRARA RIVER BELOW BOX BUTTE RESERVOIR NEBR 
-# 06457500   1980   1991   NIOBRARA RIVER NEAR GORDON, NEBR. 
- 
-# sync gage_dv w/ gage_meta & export results as posthoc to avoid interference 
-names <- wsd_summary %>% 
-  select(site_no = gage_num, sta = sta_id) %>% 
-  drop_na() %>% 
-  mutate(site_no = zeroPad(site_no, 8)) 
- 
-gage_dv <- full_join(names, gage_dv, 
-                     by ="site_no")  
- 
-gage_dv <- semi_join(gage_dv, gage_meta, 
-                     by = "site_no")   
- 
+# 06457500   1980   1991   NIOBRARA RIVER NEAR GORDON, NEBR.  
+  
+# sync gage_dv w/ gage_meta & export results as posthoc to avoid interference  
+names <- wsd_summary %>%  
+  select(site_no = gage_num, sta = sta_id) %>%  
+  drop_na() %>%  
+  mutate(site_no = zeroPad(site_no, 8))  
+  
+gage_dv <- full_join(names, gage_dv,  
+                     by ="site_no")   
+  
+gage_dv <- semi_join(gage_dv, gage_meta,  
+                     by = "site_no")    
+  
 export(gage_meta, "data/gage_meta_posthoc.csv")  
- 
+  
 # clean up 
 rm(startDate, endDate, parameter_cd, wsd_summary, names) 
 rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv)  
- 
-``` 
+  
+```  
 
 ```{r prepare-table_gage_metadata, eval=FALSE} 
    
@@ -644,313 +643,315 @@ gage_table <- flextable(gage_table) %>%
 
 ```{r prepare-table_ungaged_metadata, eval=FALSE} 
 
-# prepare df for ungaged watershed metadata  
+# prepare df for ungaged watershed metadata   
 ung_table <- wsd_summary %>% 
-  filter(type == "ungaged") %>%  
-  select(HUC12, sta_id, sta_name, dec_lat, dec_lon, cat_out, cat_area)  
-
-# set column keys for flextable 
-col_key_num <- ung_table %>% 
-  select(dec_lat, dec_lon, cat_out, cat_area) %>% 
+  filter(type == "ungaged") %>%   
+  select(HUC12, sta_id, sta_name, dec_lat, dec_lon, cat_out, cat_area)   
+  
+# set column keys for flextable   
+col_key_num <- ung_table %>%  
+  select(dec_lat, dec_lon, cat_out, cat_area) %>%   
   names() 
-
-col_key_int <-ung_table %>% 
-  select() %>% 
+  
+col_key_int <-ung_table %>%   
+  select() %>%  
   names() 
-
-# convert tibble to a flextable 
-ung_table <- flextable(ung_table) %>% 
-  colformat_num(col_keys = col_key_num, 
-                big.mark=",", 
-                digits = 1, na_str = "N/A") %>% 
-  set_header_labels(HUC12 = "Hydrologic Unit Code", 
-                    sta_id = "Station Id", 
-                    sta_name = "Name", 
-                    dec_lat = "Latitude", 
-                    dec_lon = "Longitude", 
+  
+# convert tibble to a flextable   
+ung_table <- flextable(ung_table) %>%   
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 1, na_str = "N/A") %>%  
+  set_header_labels(HUC12 = "Hydrologic Unit Code",  
+                    sta_id = "Station Id",   
+                    sta_name = "Name",  
+                    dec_lat = "Latitude",  
+                    dec_lon = "Longitude",  
                     cat_out = "Elevation, m", 
-                    cat_area = "Drainage Area, sq-km") %>% 
-  autofit() %>% 
+                    cat_area = "Drainage Area, sq-km") %>%  
+  autofit() %>%  
   theme_booktabs() 
-
-```
+ 
+``` 
 
 ```{r prepare-table_soils, eval=FALSE} 
 
-# prepare data for soils table  
-soils_table <- tibble( 
-  order = c(6, 5, 4, 3, 2, 1), 
-  geo_age = c("Quaternary", "Tertiary", "Tertiary", 
-              "Tertiary", "Cretaceous", "Cretaceous"), 
-  geo_units = c("Eolean deposits", "Arikaree Group", "Arikaree Group", 
-            "White River Group", "Pierre Formation", "Inyan Kara Group"), 
-  ecoregion_lvl4	= 
-    c("Nebraska Sand Hills", 
-      "Keya Paha Tablelands", 
-      "Pine Ridge Escarpment", 
+# prepare data for soils table    
+soils_table <- tibble(   
+  order = c(6, 5, 4, 3, 2, 1),   
+  geo_age = c("Quaternary", "Tertiary", "Tertiary",   
+              "Tertiary", "Cretaceous", "Cretaceous"),   
+  geo_units = c("Eolean deposits", "Arikaree Group", "Arikaree Group",   
+            "White River Group", "Pierre Formation", "Inyan Kara Group"),   
+  ecoregion_lvl4	=  
+    c("Nebraska Sand Hills",  
+      "Keya Paha Tablelands",  
+      "Pine Ridge Escarpment",  
       "White River Badlands", 
-      "Pierre Shale Plains", 
-      "Black Hills Foothills"), 
-  soil_order = c("Entisols", 
+      "Pierre Shale Plains",  
+      "Black Hills Foothills"),   
+  soil_order = c("Entisols",  
                  "Entisols, Mollisols", 
-                 "Entisols, Mollisols", 
-                 "Aridisols, Entisols, Inceptisols", 
-                 "Mollisols", 
-                 "Alfisols, Entisols"),
-  vegetation = 
-    c("Sand bluestem, Little bluestem, Prairie sandreed, Big bluestem, Switchgrass", 
-      "Blue grama, Sideoats grama, Western wheatgrass, Little bluestem, Needleandthread", 
-      "Ponderosa pine, Eastern redcedar, Western snowberry, Skunkbush sumac, Chokecherry, Prairie rose, Little bluestem, Western wheatgrass, Green needlegrass, Prairie sandreed", 
-    "Sand sagebrush, Silver sagebrush, Western wheatgrass, Blue gramma, Sideoats grama, Buffalograss", 
-    "Little bluestem, Buffalograss", 
-    "Ponderosa pine, Little bluestem, Western wheatgrass, Sideoats gramma") 
-    ) %>% 
-  arrange(order)
-
-# export table for import later 
-#export(soils_table, "data/soils_table.csv")
-
-#print.noquote(names(soils_table))
-
-# set column keys for flextable 
-col_key_char <- soils_table %>% 
-  select(geo_age, geo_units, ecoregion_lvl4, soil_order, vegetation) %>% 
-  names() 
-
-# convert tibble to a flextable 
-soils_table <- flextable(soils_table) %>% 
-   colformat_char(col_keys = col_key_char) %>% 
-  set_header_labels(geo_age = "Geologic age", 
-                    geo_units = "Major geologic unit", 
-                    ecoregion_lvl4	= "Level IV ecoregion", 
-                    soil_order = "Soil order", 
-                    vegetation = "Major vegetation types") %>% 
-  autofit() %>% 
+                 "Entisols, Mollisols",   
+                 "Aridisols, Entisols, Inceptisols",   
+                 "Mollisols",   
+                 "Alfisols, Entisols"),  
+  vegetation =   
+    c("Sand bluestem, Little bluestem, Prairie sandreed, Big bluestem, Switchgrass",   
+      "Blue grama, Sideoats grama, Western wheatgrass, Little bluestem, Needleandthread",   
+      "Ponderosa pine, Eastern redcedar, Western snowberry, Skunkbush sumac, Chokecherry, Prairie rose, Little bluestem, Western wheatgrass, Green needlegrass, Prairie sandreed",   
+    "Sand sagebrush, Silver sagebrush, Western wheatgrass, Blue gramma, Sideoats grama, Buffalograss",   
+    "Little bluestem, Buffalograss",  
+    "Ponderosa pine, Little bluestem, Western wheatgrass, Sideoats gramma")  
+    ) %>%   
+  arrange(order)  
+  
+# export table for import later   
+#export(soils_table, "data/soils_table.csv")  
+  
+#print.noquote(names(soils_table))  
+  
+# set column keys for flextable   
+col_key_char <- soils_table %>%   
+  select(geo_age, geo_units, ecoregion_lvl4, soil_order, vegetation) %>%   
+  names()   
+  
+# convert tibble to a flextable   
+soils_table <- flextable(soils_table) %>%  
+   colformat_char(col_keys = col_key_char) %>%  
+  set_header_labels(geo_age = "Geologic age",  
+                    geo_units = "Major geologic unit",  
+                    ecoregion_lvl4	= "Level IV ecoregion",  
+                    soil_order = "Soil order",   
+                    vegetation = "Major vegetation types") %>%  
+  autofit() %>%   
   theme_booktabs()  
-```
+  
+```  
 
-```{r prepare-table_hydro_metrics, eval=FALSE}
- 
-# prepare df for hydrologic metric table   
-hydro_table <- wsd_summary %>%  
-  select(type, cat_area, lw_ratio, drain_dens, prcp_mean, t07_mean, vpd_ann, 
-         vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, fc_mean, 
-         ksat_mean, kvert_mean) %>% 
-  gather(metric, value, -type) %>% 
-  group_by(metric, type) %>% 
-  summarize(max = max(value), 
-            median = median(value), 
-            min = min(value)) %>% 
-  ungroup() %>% 
-  modify_if(is.numeric, ~round(., digits = 1)) %>% 
-  gather(key, stat, -c(type, metric)) %>% 
-  unite_("combined", c("key","type")) %>% 
-  spread(combined, stat) %>% 
-  select(metric, max_gaged, median_gaged, min_gaged, 
-         max_ungaged, median_ungaged, min_ungaged) 
-
-# add additional columns 
-hydro_tab2 <- tibble(metric = hydro_table$metric, 
-                     type = c("planimetric", "elevation", "elevation", 
-                              "planimetric", "soils", "soils", "soils", 
-                              "planimetric", "cover", "climate", 
-                              "elevation", "climate", "elevation", "climate",    
-                              "climate"), 
-                     transformation = c("1/ln(x)", "sqrt(x)", "sqrt(x)", 
-                                        "none", "none", "ln(x)", "ln(x)", 
-                                        "ln(x)", "ln(x)", "x^2", "ln(x)", 
-                                        "x^2", "x^2", "x^2", "x^2"), 
-                     description = c("catchment area", 
-                                     "catchment outlet elevation", 
-                                     "catchment relief", 
-                                     "drainage density", 
-                                     "field capacity", 
-                                     "forested area (proportion of catchment)", 
-                                     "horizontal saturated hydraulic conductivity", 
-                                     "vertical saturated hydraulic conductivity", 
-                                     "catchment length to width ratio", 
-                                     "mean annual precipitation", 
-                                     "median catchment slope", 
-                                     "mean July temperature", 
-                                     "mean topographic wetness index value", 
-                                     "July maximum vapor pressure deficit", 
-                                     "annual maximum vapor pressure deficit"), 
-                     units = c("hectares", "meters", "meters", 
-                               "km per square km", "meters per meter", 
-                               "sq. meters per sq. meter", "micrometers/sec", 
-                               "micrometers/sec", "meters per meter", 
-                               "millimeters", "percent", "Centigrade", 
-                               "dimensionless", "kilopascals", "kilopascals"), 
-                     base_data = c("USGS metadata & feature geometry", "NED", 
-                     "NED", "NED", "SSURGO", "NLCD", "SSURGO", "SSURGO", 
-                     "feature geometry", "PRISM", "NED", "PRISM", "NED", 
-                     "PRISM", "PRISM")
-                     ) 
-
-hydro_table <- full_join(hydro_table, hydro_tab2, 
-                         by = "metric"
-                         )  
-
-hydro_table <- hydro_table %>% 
-  select(metric, type, transformation, description, 
-         units, base_data, everything()) %>% 
-  arrange(type) 
-
-# set column keys & header labels for flextable 
-col_key_num <- hydro_table %>% 
-  select(-metric) %>% 
-  names() 
-
-header_labels <- c(
-    metric = "Indicator", 
-    type = "Indicator type",       
-    transformation = "Transformation", 
-    description = "Description",
-    units = "Units", 
-    base_data = "Base data",    
-    max_gaged = "max", 
-    median_gaged = "median", 
-    min_gaged = "min",      
-    max_ungaged = "max", 
-    median_ungaged = "median", 
-    min_ungaged = "min"
-    )    
-
-top_row <- c("", "", "", "", "", "", "Gaged", "Gaged", "Gaged", 
-             "Ungaged", "ungaged", "Ungaged")  
-
-hydro_table <- hydro_table %>% 
-  flextable() %>% 
-  theme_booktabs() %>% 
-  colformat_num(col_keys = col_key_num, 
-                big.mark=",", 
-                digits = 1, na_str = "N/A") %>% 
-  set_header_labels(values = header_labels) %>% 
-  add_header_row(values = top_row, 
-  top = TRUE) %>% 
-  merge_at(i = 1, j = 7:9, part = "header") %>% 
-  merge_at(i = 1, j = 10:12, part = "header") %>% 
-  autofit() 
-
-hydro_table 
-
-```
-
-```{r export_flextables_as_docx, eval=FALSE}  
+```{r prepare-table_hydro_metrics, eval=FALSE}  
    
-# export a docx of flextables   
-tables_ch2 <- read_docx() %>% 
-  body_add_flextable(value = gage_table)  %>% 
+# prepare df for hydrologic metric table    
+hydro_table <- wsd_summary %>%    
+  select(type, cat_area, lw_ratio, drain_dens, prcp_mean, t07_mean, vpd_ann,   
+         vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, fc_mean,   
+         ksat_mean, kvert_mean) %>%   
+  gather(metric, value, -type) %>%   
+  group_by(metric, type) %>%   
+  summarize(max = max(value),   
+            median = median(value),   
+            min = min(value)) %>%   
+  ungroup() %>%   
+  modify_if(is.numeric, ~round(., digits = 1)) %>%   
+  gather(key, stat, -c(type, metric)) %>%   
+  unite_("combined", c("key","type")) %>%   
+  spread(combined, stat) %>%  
+  select(metric, max_gaged, median_gaged, min_gaged,   
+         max_ungaged, median_ungaged, min_ungaged)   
+  
+# add additional columns   
+hydro_tab2 <- tibble(metric = hydro_table$metric,   
+                     type = c("planimetric", "elevation", "elevation",  
+                              "planimetric", "soils", "soils", "soils",  
+                              "planimetric", "cover", "climate",  
+                              "elevation", "climate", "elevation", "climate",     
+                              "climate"),  
+                     transformation = c("1/ln(x)", "sqrt(x)", "sqrt(x)",  
+                                        "none", "none", "ln(x)", "ln(x)",  
+                                        "ln(x)", "ln(x)", "x^2", "ln(x)",  
+                                        "x^2", "x^2", "x^2", "x^2"),  
+                     description = c("catchment area",  
+                                     "catchment outlet elevation",  
+                                     "catchment relief",  
+                                     "drainage density",  
+                                     "field capacity",  
+                                     "forested area (proportion of catchment)",  
+                                     "horizontal saturated hydraulic   conductivity",  
+                                "vertical saturated hydraulic conductivity",   
+                                     "catchment length to width ratio",  
+                                     "mean annual precipitation",  
+                                     "median catchment slope",  
+                                     "mean July temperature",  
+                                     "mean topographic wetness index value",  
+                                     "July maximum vapor pressure deficit",  
+                                     "annual maximum vapor pressure deficit"),  
+                     units = c("hectares", "meters", "meters",   
+                               "km per square km", "meters per meter",  
+                               "sq. meters per sq. meter", "micrometers/sec",  
+                               "micrometers/sec", "meters per meter",  
+                               "millimeters", "percent", "Centigrade",  
+                               "dimensionless", "kilopascals", "kilopascals"),  
+                     base_data = c("USGS metadata & feature geometry", "NED",  
+                     "NED", "NED", "SSURGO", "NLCD", "SSURGO", "SSURGO",  
+                     "feature geometry", "PRISM", "NED", "PRISM", "NED",   
+                     "PRISM", "PRISM")  
+                     )   
+  
+hydro_table <- full_join(hydro_table, hydro_tab2,   
+                         by = "metric"  
+                         )    
+  
+hydro_table <- hydro_table %>%   
+  select(metric, type, transformation, description,   
+         units, base_data, everything()) %>%  
+  arrange(type)   
+  
+# set column keys & header labels for flextable   
+col_key_num <- hydro_table %>%   
+  select(-metric) %>%   
+  names()   
+  
+header_labels <- c(  
+    metric = "Indicator",   
+    type = "Indicator type",         
+    transformation = "Transformation",   
+    description = "Description",  
+    units = "Units",   
+    base_data = "Base data",     
+    max_gaged = "max",   
+    median_gaged = "median",   
+    min_gaged = "min",        
+    max_ungaged = "max",   
+    median_ungaged = "median",   
+    min_ungaged = "min"  
+    )     
+  
+top_row <- c("", "", "", "", "", "", "Gaged", "Gaged", "Gaged",  
+             "Ungaged", "ungaged", "Ungaged")    
+  
+hydro_table <- hydro_table %>%   
+  flextable() %>%   
+  theme_booktabs() %>%   
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 1, na_str = "N/A") %>%   
+  set_header_labels(values = header_labels) %>%  
+  add_header_row(values = top_row,   
+  top = TRUE) %>%   
+  merge_at(i = 1, j = 7:9, part = "header") %>%   
+  merge_at(i = 1, j = 10:12, part = "header") %>%   
+  autofit()   
+  
+hydro_table   
+  
+```  
+
+```{r export_flextables_as_docx, eval=FALSE}   
+  
+# export a docx of flextables    
+tables_ch2 <- read_docx() %>%   
+  body_add_flextable(value = gage_table)  %>%  
+  body_add_break() %>%   
+  body_add_flextable(value = ung_table) %>%   
   body_add_break() %>%  
-  body_add_flextable(value = ung_table) %>%  
-  body_add_break() %>% 
-  body_add_flextable(value = soils_table) %>% 
-  body_add_break() %>% 
-  body_add_flextable(value = hydro_table) 
-
+  body_add_flextable(value = soils_table) %>%  
+  body_add_break() %>%  
+  body_add_flextable(value = hydro_table)  
+  
 print(tables_ch2, target = "output/tables_ch2.docx") 
-
+  
 rm(col_key_char, col_key_int, col_key_num, header_labels, names, top_row, 
    ung_summary)  
 rm(gage_table, soils_table, ung_table, tables_ch2) 
-
-```
+  
+```  
 
 ```{r clean_daily_flow, eval=FALSE} 
   
-# this is a small amount of code duplication to reduce API calls   
-
+# this is a small amount of code duplication to reduce API calls     
+  
 gage_dv <- import("data/gage_dv_posthoc.csv") 
-
+  
 gage_meta <- import("data/gage_meta_posthoc.csv") %>%  
     mutate(site_no = zeroPad(site_no, 8)) 
-
+  
 # filter missing records from Q1, Q7, Q30 
 gage_dv <- gage_dv %>% 
   filter(!is.na(Q30) & 
            !is.na(Q7) & 
            !is.na(Q)  
          )  
-
+  
 gage_check <- gage_dv %>% 
   filter(is.na(Q30) | 
            is.na(Q7) | 
            is.na(Q) 
          )  
-
+  
 ## Q1 missing records 
 # "site_no"   "sta"   "Date"    "Q"   "Julian"    
 # 06448000 lcr_abv 2016-08-09   NA    60851 
 # 06448000 lcr_abv 2016-08-10   NA    60852 
-
+  
 ## Q7  missing data (n = 114 ~= 19 x 7) because of start of record for 19 sta  
 ## Q30 missing data (n = 437 ~= 19 sta x 30 day - 114) 
-
+  
 # 4. remove provincial data - we removed WY 2018 in the prior analysis 
 gage_dv <- gage_dv %>% 
   filter(Qualifier == "A"   |  
          Qualifier == "A:e" |  
          Qualifier == "A:<" 
          )   
-
+  
 gage_check <- gage_dv %>% 
   filter(Qualifier != "A") %>% 
   filter(Qualifier != "A:e") %>%  
   filter(Qualifier != "A:<")  
-
+  
 # 5. remove 2018 data 
 gage_dv <- gage_dv %>% 
   filter(waterYear != "2018")  
-
-gage_check <- gage_dv %>% 
-  filter(waterYear == "2018") 
-
+  
+gage_check <- gage_dv %>%  
+  filter(waterYear == "2018")  
+  
 rm(gage_check)   
+  
 ``` 
 
 ```{r censor_low_flows, message=FALSE, eval=FALSE} 
-  
+    
 # fix low flows ---- this step needed for the PCA    
 #   EGRET calculates a "better" zero-flow value, but causes issues with results  
 #   this code chunk fixes low flow values by substituting 0.01 cfs  
-#   for zero-flow values  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-
-# 1. gather the different flow values 
-gage_dv_gath <- gage_dv %>%  # using diff var name to check length later 
-  select(site_no, sta, Date, waterYear, Q, Q7, Q30) %>% 
-  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs 
-         -c(site_no, sta, waterYear, Date)) 
-
+#   for zero-flow values   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+  
+# 1. gather the different flow values  
+gage_dv_gath <- gage_dv %>%  # using diff var name to check length later  
+  select(site_no, sta, Date, waterYear, Q, Q7, Q30) %>%  
+  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs  
+         -c(site_no, sta, waterYear, Date))   
+  
 # 2. filter & censor zero flows & non-zero flows -> join flows  
 gage_dv_low <- gage_dv_gath %>%  # n ~ 123,987/3 = 41,329 obs or ~7%/yr 
-  filter(q_val < 0.01) %>%               
-  mutate(q_val = 0.01) 
-
-gage_dv_high <- gage_dv_gath %>% 
-  filter(q_val >= 0.01) %>% 
-  mutate(q_val = round(.$q_val, digits = 2)) 
-
-gage_dv <- bind_rows(gage_dv_high, gage_dv_low) %>% 
-  spread(q_type, q_val) 
-
-# 3. check low-flow stations & results 
-gage_dv_low <- gage_dv_low %>% 
+  filter(q_val < 0.01) %>%                
+  mutate(q_val = 0.01)  
+  
+gage_dv_high <- gage_dv_gath %>%  
+  filter(q_val >= 0.01) %>%  
+  mutate(q_val = round(.$q_val, digits = 2))  
+  
+gage_dv <- bind_rows(gage_dv_high, gage_dv_low) %>%  
+  spread(q_type, q_val)  
+  
+# 3. check low-flow stations & results   
+gage_dv_low <- gage_dv_low %>%  
   distinct(sta) %>% 
-  arrange(sta) 
-
-## Intermittant stations 1990 - 2017 (raw data) 
-## bad_fpi, bat_bhr, bat_her, bev_buf, bev_pri, blc_wan, blp_bel, 
-## brsf_co, elk_elm, frn_fai, hat_edg ,hor_oel, lcr_bel, plu_hay, 
-## ros_ros, spr_her, wcc_ogl, whi_int, whi_kad, whi_ogl, whi_slm 
+  arrange(sta)  
+  
+## Intermittant stations 1990 - 2017 (raw data)  
+## bad_fpi, bat_bhr, bat_her, bev_buf, bev_pri, blc_wan, blp_bel,  
+## brsf_co, elk_elm, frn_fai, hat_edg ,hor_oel, lcr_bel, plu_hay,  
+## ros_ros, spr_her, wcc_ogl, whi_int, whi_kad, whi_ogl, whi_slm  
 ## whi_sta, whi_whi, wkc_wok  
-
+  
 rm(gage_dv_gath, gage_dv_high, gage_dv_low)   
-
+  
 ``` 
 
 ```{r convert_flow_to_depth, message=FALSE, eval=FALSE} 
-   
+  
 # 1. calculate contributing drainage area in square kilometers & sec/day     
 gage_contrib_area <- gage_meta %>%   
   select(sta, drain_area_va, contrib_drain_area_va) %>%  
@@ -972,22 +973,23 @@ gage_contrib_area <- gage_meta %>%
              )  
          ) %>%  
   mutate(sec_per_day = 60 * 60 * 24)  
-
-# 2. calculate Q-depth:: q = Q/DA [m/km2 day]   
-gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>% 
+   
+# 2. calculate Q-depth:: q = Q/DA [m/km2 day]    
+gage_dv <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%  
   select(site_no, sta, Date, Q, Q7, Q30, waterYear,  
          contrib_drain_km2, sec_per_day)  %>%  
-  gather(type, value,  
+  gather(type, value,   
          -c(site_no, sta, Date, waterYear, contrib_drain_km2, sec_per_day)  
-         ) %>% 
+         ) %>%  
   mutate(value = value * sec_per_day / contrib_drain_km2) %>%  
   spread(type, value) %>%  
   rename(q1_depth = Q) %>%  
   rename(q7_depth = Q7) %>%  
   rename(q30_depth = Q30) %>%  
   select(-c(site_no, contrib_drain_km2, sec_per_day))   
- 
-rm(gage_contrib_area)   
+   
+rm(gage_contrib_area)    
+  
 ``` 
 
 ```{r PCA-calculations, eval=FALSE}  
@@ -1152,349 +1154,359 @@ eco_join <- ecoreg %>%
 
 gage_dv <- full_join(gage_dv, eco_join, 
                   by = "sta") 
-
-``` 
+  
+```   
 
 ```{r import_spatial_data} 
- 
-# this chunk adds and joins spatial data 
- 
+  
+# this chunk adds and joins spatial data  
+  
 # check layer names for the project geopackage  
 gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>%  
   tibble::enframe(.) %>%  
   select(value)  
   
 # read in geopackage data of zonal summaries for watersheds  
-wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
-                       layer = "wbd_summary",  
+wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
+                       layer = "wbd_summary",    
                        as_tibble = TRUE) %>%  
   st_drop_geometry() 
- 
+  
 wsd_summary <- wsd_summary %>%  
   as_tibble() %>%  
   modify_if(., is.factor, as.character) %>%  
   select(id, everything())  
- 
+  
 rm(gpg_layers)  
- 
-```  
+
+wsd_summary <- full_join(wsd_summary, eco_join, 
+                      by = c("sta_id" = "sta")) 
+  
+```   
 
 ```{r get_enviro_vars} 
 
 env_vars <-  wsd_summary %>% 
-  filter(type == "gaged") %>%          # we are only looking at training data 
-  select(sta_id, cat_area_l, lw_ratio, drain_dens, prcp_mean, t07_mean, 
-         vpd_ann, vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, 
-         fc_mean, ksat_mean, kvert_mean) %>% 
-  rename(cat_area_ln = cat_area_l) 
-
-# join ecoreg 
-env_vars <- full_join(ecoreg, env_vars, 
-                      by = "sta_id") %>% 
-  select(-c(area_perc, ecoreg_L4, ecoreg_L3, 
-            ecoreg_L2, ecoreg_L1, watshed)) %>% 
-  rename(ecoreg = ecoreg_wtsd)
-
-```
+  filter(type == "gaged") %>%          # we are only looking at training data  
+  select(sta_id, cat_area_l, lw_ratio, drain_dens, prcp_mean, t07_mean,   
+         vpd_ann, vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov,   
+         fc_mean, ksat_mean, kvert_mean) %>%   
+  rename(cat_area_ln = cat_area_l)   
+  
+# join ecoreg   
+env_vars <- full_join(ecoreg, env_vars,  
+                      by = "sta_id") %>%  
+  select(-c(area_perc, ecoreg_L4, ecoreg_L3,  
+            ecoreg_L2, ecoreg_L1, watshed)) %>%  
+  rename(ecoreg = ecoreg_wtsd)  
+  
+``` 
 
 ```{r box-cox_spatial-data, eval=FALSE} 
   
 # use Box Cox to estimate transforms  
 lambda <- env_vars %>%  
-  select(-sta_id)    
-    
-lambda <- enframe( 
-                  sapply(lambda, forecast::BoxCox.lambda)  
+  select(-sta_id)     
+
+lambda <- enframe(  
+                  sapply(lambda, forecast::BoxCox.lambda)   
                   ) %>%   
-  rename(sta = name) %>%  
+  rename(sta = name) %>%   
   rename(lambda_val = value) %>%   
   arrange(sta)    
- 
-# print(lambda) 
- 
-rm(lambda)   
+   
+# print(lambda)  
   
-```  
+rm(lambda)    
+   
+```   
 
 ```{r visually_explore_spatial_data, eval=FALSE}
   
-# Create function ------------------------------------------------------------ 
+# Create eda function -------------------------------------------------------   
 # basic EDA function from  
-# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/ 
-basic_eda <- function(data)      
-{                                 
-  glimpse(data) 
-  df_status(data) 
-  freq(data)  
-  profiling_num(data) 
-  plot_num(data) 
-  describe(data) 
-}  
+# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/  
+basic_eda <- function(data)       
+{                                  
+  glimpse(data)  
+  df_status(data)  
+  freq(data)   
+  profiling_num(data)  
+  plot_num(data)  
+  describe(data)  
+}   
+
+basic_eda(env_vars)   
   
-# ----------------------------------------------------------------------------   
- 
-basic_eda(env_vars)  
- 
-``` 
+```  
 
 ```{r transform_spatial-data} 
   
 # this code chunk transforms spatial data to approximate a normal distribution 
 
-env_vars <- env_vars %>%  
-  mutate(area_linv  = 1/cat_area_ln) %>%       
-  mutate(cout_sqr   = sqrt(cat_out)) %>% 
-  mutate(crel_sqr   = sqrt(cat_rel)) %>% 
-  mutate(dden_sqr   = sqrt(drain_dens)) %>%  
-  mutate(ksat_ln    = log(ksat_mean)) %>% 		
-  mutate(kvert_ln   = log(kvert_mean)) %>% 
-  mutate(lwrat_sqr  = log(lw_ratio)) %>% 
-  mutate(pcov_ln    = log(1 + perc_cov)) %>% 	
-  mutate(prcp_sq    = prcp_mean^2) %>% 
+env_vars <- env_vars %>%   
+  mutate(area_linv  = 1/cat_area_ln) %>%        
+  mutate(cout_sqr   = sqrt(cat_out)) %>%  
+  mutate(crel_sqr   = sqrt(cat_rel)) %>%  
+  mutate(dden_sqr   = sqrt(drain_dens)) %>%   
+  mutate(ksat_ln    = log(ksat_mean)) %>% 		 
+  mutate(kvert_ln   = log(kvert_mean)) %>%  
+  mutate(lwrat_sqr  = log(lw_ratio)) %>%  
+  mutate(pcov_ln    = log(1 + perc_cov)) %>% 	 
+  mutate(prcp_sq    = prcp_mean^2) %>%  
   mutate(slop_ln    = log(slop_med)) %>%    
   mutate(t07_sq     = t07_mean^2) %>%       
   mutate(TWI_sq     = TWI_mean^2) %>%     
   mutate(vpd07_sq   = vpd_07^2) %>% 	 
   mutate(vpdan_sq   = vpd_ann^2)  
-   
+  
 # plot quantiles  
 plot_qq(env_vars)   
-   
+  
 ```       
 
 ```{r correlate_spatial-data} 
  
 # this code chunk identifies perfectly correlated spatial variables   
   
-# select environmental variables for correlation  
-env_vars <- env_vars %>% 
-  select(sta_id, ecoreg, area_linv:vpdan_sq)  
-
-# plot correlations 
-env_vars %>% 
+# select environmental variables for correlation    
+env_vars <- env_vars %>%  
+  select(sta_id, ecoreg, area_linv:vpdan_sq)   
+  
+# plot correlations   
+env_vars %>%   
   select(-ecoreg) %>% 
   plot_correlation()   
-
+  
 # drop 100% correlated variables 
 env_vars <- env_vars %>% 
  select(-c(vpd07_sq, ksat_ln))  
-
-## variable    transform_var    correlated vars (> 0.65)   drop? 
-## --------------------------------------------------------------------------- 
+  
+## variable    transform_var    correlated vars (> 0.65)   drop?   
+## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 ## drain_dens	  dden_sqr			  fc_mean, prcp_sq, 
 ##                              ksat_ln, kvert_ln			      
 ## fc_mean	                    ksat_ln, k_vert_ln,  
 ##                              dden_sqr            
-## ksat_mean  	ksat_ln 		    dden_sqrm fc_mean, 
-##                              kvert_ln                    yes 
-## kvert_mean	  kvert_ln        dden_sqr, fc_mean, 
-##                              ksat_ln 
-## lw_ratio	    lwrat_sqr		     
-## prcp_mean	 	prcp_sq         vpd_ann, vpd_07	
+## ksat_mean  	ksat_ln 		    dden_sqrm fc_mean,  
+##                              kvert_ln                    yes   
+## kvert_mean	  kvert_ln        dden_sqr, fc_mean,   
+##                              ksat_ln  
+## lw_ratio	    lwrat_sqr		      
+## prcp_mean	 	prcp_sq         vpd_ann, vpd_07	 
 ## perc_cov	    pcov_ln		      slop_ln, t07_ln            
 ##                              TWI_sq, vpd07_sq 
-##                              vpdan_sq                    
-## slop_med	    slop_ln         pcov_ln, TWI_sq 
-## t07_mean	    t07_sq          pcov_ln, vpdann_sq, 
-##                              vpd07_sq 
+##                              vpdan_sq                     
+## slop_med	    slop_ln         pcov_ln, TWI_sq  
+## t07_mean	    t07_sq          pcov_ln, vpdann_sq,  
+##                              vpd07_sq  
 ## TWI_mean	    TWI_sq 				  pcov_ln, slop_ln 
 ## vpd_ann	    vpdan_sq			  pcov_ln, prcp_sq, 
 ##                              t07_mean, vpd07_sq 
 ## vpd_07	      vpd07_sq			  pcov_ln, prcp_sq,  
 ##                              t07_mean, vpdan_sq          yes   
-
- 
-```   
+  
+  
+```    
 
 ```{r add-response-var_spatial-data} 
  
 # join the environmental vars to the daily flow values 
 gaged <- full_join(gage_dv, env_vars, 
-                   by = c("sta" = "sta_id", "ecoreg")) %>% 
-  select(sta, Date, q1_depth, .fittedPC1:.fittedPC2, ecoreg:vpdan_sq) 
-
-# prepare for glm-model by calculating log-q1 depths 
-gaged <- gaged %>% 
-  mutate(log_q1_depth = log10(q1_depth)) %>% 
-  select(sta, q1_depth, log_q1_depth, everything()) %>% 
-  mutate(Date = ymd(Date)) %>% 
-  mutate(mon = month(Date)) %>% 
-  mutate(yr = year(Date)) 
+                   by = c("sta" = "sta_id", "ecoreg")) %>%   
+  select(sta, Date, q1_depth, .fittedPC1:.fittedPC2, ecoreg:vpdan_sq)  
   
-
-# clean up global environment 
-rm(env_vars)    
-
-```
+# prepare for glm-model by calculating log-q1 depths   
+gaged <- gaged %>%   
+  mutate(log_q1_depth = log10(q1_depth)) %>%  
+  select(sta, q1_depth, log_q1_depth, everything()) %>%  
+  mutate(Date = ymd(Date)) %>%  
+  mutate(mon = month(Date)) %>%  
+  mutate(yr = year(Date)) %>% 
+  mutate(mon_spring = round( 
+    sin(2/12* pi * mon),           # spring & fall 
+    digits = 2) 
+    ) %>% 
+  mutate(mon_cos = round(        # summer & winter 
+    cos(2/12* pi * mon), 
+    digits = 2) 
+    ) %>% 
+  mutate(mon_summer = -mon_cos) %>%  
+  select(-mon_cos)    
+   
+```  
 
 ```{r build-glm-models-dv} 
- 
+  
+# clean up global environment   
+rm(env_vars)    
+    
 # set up random seed & parallel processing for glmnet & caret ----------------  
 seed <- 42  
-cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)  
-registerDoMC(cores)   
- 
-# set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2] 
-# note these values are used below for individual model fits 
-set.seed(seed) 
-reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
-                          search = "grid", allowParallel = TRUE) 
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)   
+registerDoMC(cores)    
   
-lambda <- 10^seq(-2, 2, length = 100) 
+# set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2]  
+# note these values are used below for individual model fits  
+set.seed(seed)   
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5,   
+                          search = "grid", allowParallel = TRUE)   
+  
+lambda <- 10^seq(-2, 2, length = 100)  
   
 # Split the data into training and test set ----------------------------------  
-# create a data partition balanced by flow depths 
-set.seed(seed) 
+# create a data partition balanced by flow depths   
+set.seed(seed)     
 train_index <- createDataPartition(gaged$log_q1_depth, p=0.8)[[1]]  
 #train_index <- createDataPartition(as.factor(gaged$ecoreg), p=0.8)[[1]]  
   
-train_dv <- gaged[train_index,] %>%
-  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2))   
- 
-test_dv <- gaged[-train_index,] %>% 
-    select(-c(sta, q1_depth, .fittedPC1, .fittedPC2))    
- 
-# ridge -- alpha = 0 ---------------------------------------------------------  
-set.seed(seed)             # need to set a seed each time you call a rand num 
-ridge_dv <- train_dv %>% 
-  select(-Date) %>%        # drop the data just prior to running the model 
-  train(  
-  log_q1_depth ~.,         # x = 'medv', y = the rest of the columns, from   
-  data = .,                #   the dataset 'train.data' 
-  method = "glmnet",       #   using method "glmnet"  
-  preProcess = c("center", "scale"), 
-  trControl = reg.ctrl,   
-  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values  
-  )  
- 
-# lasso -- alpha = 1 ---------------------------------------------------------  
-set.seed(seed)              # need to set a seed each time you call a rand num 
-lasso_dv <- train_dv %>% 
-  select(-Date) %>%         # drop the data just prior to running the model 
-  train( 
-  log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from   
-  data = .,                 #   the dataset 'train.data'   
-  method = "glmnet",        #   using method "glmnet" 
-  preProcess = c("center", "scale"),  
-  trControl = reg.ctrl,  
-  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values 
-  ) 
+train_dv <- gaged[train_index,] %>%  
+  select(-c(sta, mon, q1_depth, .fittedPC1, .fittedPC2))   
   
-# elastic net -- alpha vals [0, 1] by caret ---------------------------------- 
-set.seed(seed) 
-elastic_dv <- train_dv %>% 
-  select(-Date) %>%         # drop the data just prior to running the model 
-  train( 
+test_dv <- gaged[-train_index,] %>%  
+    select(-c(sta, mon, q1_depth, .fittedPC1, .fittedPC2))     
+   
+# ridge -- alpha = 0 ---------------------------------------------------------  
+set.seed(seed)             # need to set a seed each time you call a rand num   
+ridge_dv <- train_dv %>%   
+  select(-Date) %>%        # drop the data just prior to running the model  
+  train(    
+  log_q1_depth ~.,         # x = 'medv', y = the rest of the columns, from     
+  data = .,                #   the dataset 'train.data'   
+  method = "glmnet",       #   using method "glmnet"    
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,     
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values   
+  )    
+  
+# lasso -- alpha = 1 ---------------------------------------------------------   
+set.seed(seed)              # need to set a seed each time you call a rand num   
+lasso_dv <- train_dv %>%   
+  select(-Date) %>%         # drop the data just prior to running the model   
+  train(   
+  log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from    
+  data = .,                 #   the dataset 'train.data'    
+  method = "glmnet",        #   using method "glmnet"   
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,    
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values  
+  )   
+  
+# elastic net -- alpha vals [0, 1] by caret ----------------------------------  
+set.seed(seed)   
+elastic_dv <- train_dv %>%  
+  select(-Date) %>%         # drop the data just prior to running the model   
+  train(   
   log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from   
-  data = .,                 #   the dataset 'train.data'   
-  method = "glmnet",       #   using method "glmnet" 
-  preProcess = c("center", "scale"), 
-  trControl = reg.ctrl, 
-  tuneLength = 10          # tune length  
-  )  
- 
-# make a list of the models -------------------------------------------------- 
-models_dv <- list( 
-  ridge = ridge_dv, 
-  lasso = lasso_dv,  
-  elastic = elastic_dv)   
+  data = .,                 #   the dataset 'train.data'     
+  method = "glmnet",       #   using method "glmnet"   
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,   
+  tuneLength = 10          # tune length    
+  )    
+  
+# make a list of the models --------------------------------------------------   
+models_dv <- list(   
+  ridge = ridge_dv,  
+  lasso = lasso_dv,   
+  elastic = elastic_dv)    
   
 rm(cores, train_index)   
   
-```   
+```     
 
 ```{r get-glm-coefs_dv}
  
-# get & tidy model coefficients for each of the GLMs   
-# get number of parameters for each of the GLMs 
-  
-# ridge coeffs --------------------------------------------------------------- 
+# get & tidy model coefficients for each of the GLMs     
+# get number of parameters for each of the GLMs   
+   
+# ridge coeffs ---------------------------------------------------------------  
 coef_ridge_dv <- coef(  
-  ridge_dv$finalModel, 
-  ridge_dv$bestTune$lambda) %>% 
-  as.matrix() %>%    
-  as_tibble(., rownames = "coeff") %>% 
-  mutate(type = "ridge") 
+  ridge_dv$finalModel,  
+  ridge_dv$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "ridge")  
   
 # lasso coeffs  --------------------------------------------------------------   
-coef_lasso_dv <- coef( 
-  lasso_dv$finalModel, 
-  lasso_dv$bestTune$lambda) %>% 
-  as.matrix() %>%    
-  as_tibble(., rownames = "coeff") %>% 
-  mutate(type = "lasso") 
+coef_lasso_dv <- coef(  
+  lasso_dv$finalModel,  
+  lasso_dv$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "lasso")  
   
 # elastic coeffs  ------------------------------------------------------------  
-coef_elastic_dv <- coef( 
-  elastic_dv$finalModel, 
-  elastic_dv$bestTune$lambda) %>% 
-  as.matrix() %>%    
-  as_tibble(., rownames = "coeff") %>% 
-  mutate(type = "elastic") 
+coef_elastic_dv <- coef(  
+  elastic_dv$finalModel,  
+  elastic_dv$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "elastic")  
   
-# join model coeff ----------------------------------------------------------- 
-coefs_dv <- bind_rows(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv) 
- 
-coefs_dv <- coefs_dv %>% 
-  rename(value = 2) %>% 
-  mutate(value = round( 
-    value, digits = 3) 
-    ) %>% 
-  spread(type, value) 
- 
-# prepare for export table --------------------------------------------------- 
-# arrange by absolute value of the lasso model 
+# join model coeff -----------------------------------------------------------  
+coefs_dv <- bind_rows(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv)   
+  
 coefs_dv <- coefs_dv %>%  
+  rename(value = 2) %>%  
+  mutate(value = round(  
+    value, digits = 3)  
+    ) %>%  
+  spread(type, value)  
+  
+# prepare for export table --------------------------------------------------- 
+# arrange by absolute value of the lasso model  
+coefs_dv <- coefs_dv %>%   
   mutate(arrange_ridge = abs(ridge)) %>%   # temp terms to arrange coeffs  
   mutate(arrange_lasso = abs(lasso)) %>%   # temp terms to arrange coeffs  
-  arrange(desc(arrange_ridge)) %>%   
-  arrange(desc(arrange_lasso)) %>% 
-  select(coeff, lasso, ridge, elastic) 
+  arrange(desc(arrange_ridge)) %>%    
+  arrange(desc(arrange_lasso)) %>%  
+  select(coeff, lasso, ridge, elastic)  
   
-# rename coefficients to fit the hydrologic coefficient table 
-coefs_dv <- coefs_dv %>%  
-  mutate(coeff = case_when(  
+# rename coefficients to fit the hydrologic coefficient table  
+coefs_dv <- coefs_dv %>%   
+  mutate(coeff = case_when(   
     coeff == "(Intercept)"                  ~ "Intercept",  
     coeff == "pcov_ln"                      ~ "perc_cov",                   
     coeff == "kvert_ln"                     ~ "kvert_mean",                  
     coeff == "vpdan_sq"                     ~ "vpd_ann",               
     coeff ==  "cout_sqr"                    ~ "cat_out",                
     coeff ==  "ecoregSand Hills"            ~ "Ecoreg::Sand Hills",           
-    coeff == "ecoregKeya Paha Tablelands"   ~ "Ecoreg::Keya Paha Tablelands", 
+    coeff == "ecoregKeya Paha Tablelands"   ~ "Ecoreg::Keya Paha Tablelands",  
     coeff == "lwrat_sqr"                    ~ "lw_ratio",           
     coeff == "area_linv"                    ~ "cat_area", 
-    coeff == "dden_sqr"                     ~ "drain_dens", 
-    coeff == "ecoregPierre Shale Plains"    ~ "Ecoreg::Pierre Shale Plains",  
-    coeff ==  "ecoregPine Ridge Escarpment" ~ "Ecoreg::Pine Ridge Escarpment", 
-    coeff == "crel_sqr"                     ~ "cat_rel",  
-    coeff ==  "TWI_sq"                      ~ "TWI_mean", 
-    coeff == "slop_ln"                      ~ "slop_med", 
-    coeff == "ecoregWhite River Badlands"   ~ "Ecoreg::White River Badlands", 
-    coeff == "t07_sq"                       ~ "t07_mean",  
-    coeff ==  "prcp_sq"                     ~ "prcp_mean",  
-    TRUE ~ coeff))  
+    coeff == "dden_sqr"                     ~ "drain_dens",  
+    coeff == "ecoregPierre Shale Plains"    ~ "Ecoreg::Pierre Shale Plains",   
+    coeff ==  "ecoregPine Ridge Escarpment" ~ "Ecoreg::Pine Ridge Escarpment",  
+    coeff == "crel_sqr"                     ~ "cat_rel",   
+    coeff ==  "TWI_sq"                      ~ "TWI_mean",  
+    coeff == "slop_ln"                      ~ "slop_med",  
+    coeff == "ecoregWhite River Badlands"   ~ "Ecoreg::White River Badlands",  
+    coeff == "t07_sq"                       ~ "t07_mean",    
+    coeff ==  "prcp_sq"                     ~ "prcp_mean",    
+    TRUE ~ coeff))    
   
-# get number of parameters for each regression method ------------------------ 
+# get number of parameters for each regression method ------------------------  
 num_param <- coefs_dv %>%  
   map_dfc(~sum(. != 0)) %>%  
   select(-coeff) %>%                   # transpose df  
   gather(model, num_param)  
   
 rm(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv,  
-   ridge_dv, lasso_dv, elastic_dv)    
+   ridge_dv, lasso_dv, elastic_dv)     
   
-```  
+```   
 
 ```{r export-table_glm-coeffs_dv} 
-# set the numeric columns  
-col_key_num <- coefs_dv %>% 
-  select(-coeff) %>%  
-  names() 
-  
-# convert tibble to a flextable   
+# set the numeric columns   
+col_key_num <- coefs_dv %>%  
+  select(-coeff) %>%   
+  names()  
+   
+# convert tibble to a flextable    
 coef_table <- coefs_dv %>%   
   flextable() %>% 
-  colformat_num(col_keys = col_key_num, 
+  colformat_num(col_keys = col_key_num,   
                 big.mark=",",  
                 digits = 2, na_str = "N/A") %>%  
   set_header_labels(  
@@ -1503,89 +1515,90 @@ coef_table <- coefs_dv %>%
   elastic = "Elastic net",    
   ridge = "Ridge") %>%      
   autofit() %>%  
-  theme_booktabs()  
-   
-# export a docx of flextables    
-coef_table <- read_docx() %>% 
+  theme_booktabs()   
+
+
+# export a docx of flextables     
+coef_table <- read_docx() %>%  
   body_add_flextable(value = coef_table) 
-print(coef_table, target = "output/table_coef.docx")  
+print(coef_table, target = "output/table_coef.docx")   
   
 rm(coef_table, col_key_num, coefs_dv)     
- 
- 
-# checking if these can be removed without harm - I think so... 
+  
+# checking if these can be removed without harm - I think so...  
 rm(eco_join, ecoreg)  
+  
 ```  
 
 ```{r select-glm-models_dv}
-
-# evaluate performance of models -- ridge, lasso and elastic net --    
-#   best model is the one that minimizes the prediction error.  
- 
-# pick out the mse from the output lists  
-error_call_dv <- resamples(models_dv) %>%   
-  summary(metric = c("RMSE", "MAE"))    
   
-# change list to tibble  
-error_vals_dv <- error_call_dv %>%  
-  pluck(., 'statistics') %>% 
-    as.data.frame() %>% 
+# evaluate performance of models -- ridge, lasso and elastic net --      
+#   best model is the one that minimizes the prediction error.    
+  
+# pick out the mse from the output lists   
+error_call_dv <- resamples(models_dv) %>%    
+  summary(metric = c("RMSE", "MAE"))     
+  
+# change list to tibble   
+error_vals_dv <- error_call_dv %>%    
+  pluck(., 'statistics') %>%   
+    as.data.frame() %>%   
   as_tibble(., rownames = "model") %>% 
   gather(key, val, -c(model))  %>%  
-  mutate(key = str_replace(key, "[.]", "_")) %>%  
+  mutate(key = str_replace(key, "[.]", "_")) %>%   
   separate(key, c("statistic", "position"), extra = "drop") %>%  
-  filter(position != "NA") %>%  
-  spread(position, val) 
- 
-# add number of params to error vals & clean up 
-error_vals_dv <- full_join(error_vals_dv, num_param, 
-                           by = "model") 
- 
-rm(error_call_dv, num_param) 
- 
-# prepare for plotting 
-error_vals_dv <- error_vals_dv %>% 
-  mutate(num_param = as.character(num_param)) %>% 
-  mutate(temp = ", p = ") %>% 
-  mutate(model_text = str_c(model, temp, num_param))  %>% 
-  mutate(num_param = as.integer(num_param))
-
-n_train <- train_dv %>% 
-  mutate(n_count = n()) %>% 
+  filter(position != "NA") %>%   
+  spread(position, val)   
+  
+# add number of params to error vals & clean up   
+error_vals_dv <- full_join(error_vals_dv, num_param,   
+                           by = "model")    
+  
+rm(error_call_dv, num_param)   
+  
+# prepare for plotting   
+error_vals_dv <- error_vals_dv %>%   
+  mutate(num_param = as.character(num_param)) %>%   
+  mutate(temp = ", p = ") %>%   
+  mutate(model_text = str_c(model, temp, num_param))  %>%   
+  mutate(num_param = as.integer(num_param))  
+  
+n_train <- train_dv %>%  
+  mutate(n_count = n()) %>%  
   distinct(n_count)   
- 
+  
 ```   
 
 ```{r plot-glm-models_dv} 
  
-# make a boxplot of the three models 
-ggplot(error_vals_dv) + 
-  facet_grid(cols = vars(statistic)) + 
+# make a boxplot of the three models   
+ggplot(error_vals_dv) +   
+  facet_grid(cols = vars(statistic)) +   
   geom_boxplot(aes(x = factor(model_text),  
                    group = model,  
-      lower = `1st`, 
-      upper = `3rd`, 
-      middle = `Median`, 
-      ymin = `Min`, 
-      ymax = `Max`), 
-    stat = "identity") + 
-  geom_text(data = n_train, 
-            x = 3, y = 0.2,  
-           aes(label= paste("n =", n_count, sep = " ")), 
-           size = 3, 
-           color = "gray20"
+      lower = `1st`,  
+      upper = `3rd`,  
+      middle = `Median`,  
+      ymin = `Min`,  
+      ymax = `Max`),  
+    stat = "identity") +   
+  geom_text(data = n_train,  
+            x = 3, y = 0.2,    
+           aes(label= paste("n =", n_count, sep = " ")),   
+           size = 3,   
+           color = "gray20"  
            ) + 
   ylim(0, 0.75) +  
-  labs(x = "", 
-       y = bquote('Model error in log ('~m^3 / km^2 ~ 'day)')) +   
-  theme_bw() 
-
-# save ggplot above & clean up 
-ggsave("figure/model_fit_dv.png", width = 7, height = 3.5, units = "in")  
-
-rm(n_train, error_vals_dv) 
-
-```
+  labs(x = "",   
+       y = bquote('Model error in log ('~m^3 / km^2 ~ 'day)')) +     
+  theme_bw()   
+  
+# save ggplot above & clean up   
+ggsave("figure/model_fit_dv.png", width = 7, height = 3.5, units = "in")   
+  
+rm(n_train, error_vals_dv)    
+  
+```  
 
 ```{r get_glm_observations_and_predictions_dv}  
   
@@ -1661,7 +1674,7 @@ obs_pred_plot <- fit_model_test %>%
 # change the order of facets -- NOT WORKING !! 
   mutate(MAE = factor(MAE, levels = c('0.54', '0.43'))) %>% 
   mutate(model = factor(model, levels = c('null_mod', 'lasso'))) %>% 
-ggplot(., aes(observed, fitted)) +  
+ggplot(., aes(observed, fitted)) +   
 # add text of the MSE vals 
   geom_text(data = mae_dv, 
             x = 3, y = -0.5,  
@@ -1695,7 +1708,7 @@ ggplot(., aes(observed, fitted)) +
   theme_bw() + 
   theme(legend.position = "none") 
  
-obs_pred_plot 
+#obs_pred_plot 
  
 # residuals plot ------------------------------------------------------------  
 resid_plot <- fit_model_test %>% 
@@ -1739,7 +1752,7 @@ resid_plot <- fit_model_test %>%
   theme_bw() + 
   theme(legend.position = "none") 
  
-resid_plot 
+#resid_plot 
  
 # plot obs_pred_plot & resid_plot -------------------------------------------   
 cowplot::plot_grid(   
@@ -1749,188 +1762,169 @@ cowplot::plot_grid(
 cowplot::ggsave2("figure/dv_obs_pred_resid_plot.png",   
         units = "in",    
         width = 7, 
-        height = 4.5)  
+        height = 6)  
   
 # clean up  
 rm(mae_dv, n_test, obs_pred_plot, resid_plot) 
   
 ```  
 
-```{r plot_glm_fdc_dv_dont-run}
-
-# flow duration curve 
-fit_model_test %>% 
-  ggplot(aes(x = freq, y = fitted)) +  
-  facet_grid(. ~ model) + 
-  geom_point(shape = ".",  
-             color = "gray80") + 
-  geom_density2d(
-             color = "gray50")  + 
-  geom_line(aes(x = freq, y = observed)) + 
-  scale_x_continuous(name = 'Percentage of time flow exceeded',
-                     trans = 'probit', 
-                     limits = c(0.01, 0.99), 
-          breaks = c(0.99,  0.9,   0.75,  0.5,   0.25,  0.1,   0.01),
-          labels = c('99%', '90%', '75%', '50%', '25%', '10%', '1%')) + 
-  theme_bw() 
-
-```  
-
 ```{r clean-up_dv_model}
 # clean up model data from above  
 rm(test_dv, coefs_dv) 
 rm(fit_model_dv, fit_model_test, models_dv)  
-```
+
+``` 
 
 ```{r build-glm-models-ecoreg}  
 # prepare for modeling at the ecosystem scale --------------------------------  
-# drop unimportant predictors - from lasso above 
-
+# drop unimportant predictors - from lasso above   
+  
 gaged_ecoreg <- gaged %>%  
   select(-c(sta, q1_depth, .fittedPC1, .fittedPC2,  
-            prcp_sq, crel_sqr, vpdan_sq, t07_sq, TWI_sq)) %>%  
-  mutate(ecoreg2 = case_when(  
+            prcp_sq, crel_sqr, vpdan_sq, t07_sq, TWI_sq)) %>%   
+  mutate(ecoreg2 = case_when(   
     ecoreg == "Black Hills Plateau"   ~ "bhplat",  
-    ecoreg == "Keya Paha Tablelands"  ~ "kptabl",  
-    ecoreg == "Pierre Shale Plains"   ~ "pshale",  
-    ecoreg == "Pine Ridge Escarpment" ~ "escarp",     
-    ecoreg == "Sand Hills"            ~ "sndhil",  
-    ecoreg == "White River Badlands"  ~ "wrbadl" 
-    )) %>% 
-  select(-ecoreg) 
+    ecoreg == "Keya Paha Tablelands"  ~ "kptabl",   
+    ecoreg == "Pierre Shale Plains"   ~ "pshale",   
+    ecoreg == "Pine Ridge Escarpment" ~ "escarp",      
+    ecoreg == "Sand Hills"            ~ "sndhil",    
+    ecoreg == "White River Badlands"  ~ "wrbadl"   
+    )) %>%   
+  select(-ecoreg, mon)  
   
-# Split the data into training and test sets by ecoreg ----------------------- 
-ecoreg_list <- gaged_ecoreg %>% 
+# Split the data into training and test sets by ecoreg -----------------------  
+ecoreg_list <- gaged_ecoreg %>%  
   split(., .$ecoreg2) 
-  
-# create an index of values  
-ecoreg_index <- lapply(ecoreg_list, function(x) {  
-  return(createDataPartition(x$log_q1_depth, p = .8, list = FALSE))  
-  })  
- 
-# get separate training and test df from the index (used in a code-chunk below) 
+    
+# create an index of values    
+ecoreg_index <- lapply(ecoreg_list, function(x) {   
+  return(createDataPartition(x$log_q1_depth, p = .8, list = FALSE))    
+  })    
+   
+# get separate training & test df from the index (used in a code-chunk below) 
 train_bhplat <- (ecoreg_list[[1]])[ecoreg_index[[1]],]  
 train_kptabl <- (ecoreg_list[[2]])[ecoreg_index[[2]],]  
 train_pshale <- (ecoreg_list[[3]])[ecoreg_index[[3]],]  
 train_escarp <- (ecoreg_list[[4]])[ecoreg_index[[4]],]  
 train_sndhil <- (ecoreg_list[[5]])[ecoreg_index[[5]],]  
 train_wrbadl <- (ecoreg_list[[6]])[ecoreg_index[[6]],]  
+   
+test_bhplat <- (ecoreg_list[[1]])[-ecoreg_index[[1]],]  
+test_kptabl <- (ecoreg_list[[2]])[-ecoreg_index[[2]],]  
+test_pshale <- (ecoreg_list[[3]])[-ecoreg_index[[3]],]  
+test_escarp <- (ecoreg_list[[4]])[-ecoreg_index[[4]],]  
+test_sndhil <- (ecoreg_list[[5]])[-ecoreg_index[[5]],]  
+test_wrbadl <- (ecoreg_list[[6]])[-ecoreg_index[[6]],]  
   
-test_bhplat <- (ecoreg_list[[1]])[-ecoreg_index[[1]],] 
-test_kptabl <- (ecoreg_list[[2]])[-ecoreg_index[[2]],] 
-test_pshale <- (ecoreg_list[[3]])[-ecoreg_index[[3]],] 
-test_escarp <- (ecoreg_list[[4]])[-ecoreg_index[[4]],] 
-test_sndhil <- (ecoreg_list[[5]])[-ecoreg_index[[5]],] 
-test_wrbadl <- (ecoreg_list[[6]])[-ecoreg_index[[6]],] 
- 
-# drop ecoreg and date from the list 
-ecoreg_list <- lapply(ecoreg_list, 
-                      function(x) select(x, -c(ecoreg2, Date)) 
+# drop ecoreg and date from the list  
+ecoreg_list <- lapply(ecoreg_list,  
+                      function(x) select(x, -c(ecoreg2, Date, mon))  
                       )   
   
-set.seed(seed) 
-model_list <- purrr::map2(ecoreg_list, ecoreg_index, 
-                          function(df, train_index)  {  
-                            train(log_q1_depth ~ ., df[train_index,], 
-                                  method = 'glmnet', 
-                                  trControl = reg.ctrl, 
-                                  preProcess = c('nzv', 'center', 'scale'), 
-                                  tuneGrid = expand.grid( 
-                                    alpha = 1, lambda = lambda) 
-                                  ) 
-                            }) 
- 
-rm(cores, lambda, seed, reg.ctrl, ecoreg_index, ecoreg_list)  
-
-``` 
+set.seed(seed)  
+model_list <- purrr::map2(ecoreg_list, ecoreg_index,  
+                          function(df, train_index)  {   
+                            train(log_q1_depth ~ ., df[train_index,],  
+                                  method = 'glmnet',  
+                                  trControl = reg.ctrl,  
+                                  preProcess = c('nzv', 'center', 'scale'),  
+                                  tuneGrid = expand.grid(  
+                                    alpha = 1, lambda = lambda)  
+                                  )  
+                            })  
+  
+rm(lambda, seed, reg.ctrl, ecoreg_index, ecoreg_list)   
+  
+```  
 
 ```{r get-glm-coefs_ecoreg}  
 
-# pluck individual models from the model list ------------------------------  
-pshale <- model_list %>%   
+# pluck individual models from the model list ------------------------------   
+pshale <- model_list %>%    
   pluck("pshale")  
   
 bhplat <- model_list %>%   
   pluck("bhplat")   
   
-escarp <- model_list %>%  
-  pluck("escarp") 
+escarp <- model_list %>%   
+  pluck("escarp")  
   
 kptabl <- model_list %>%  
-  pluck("kptabl") 
-  
+  pluck("kptabl")  
+   
 wrbadl <- model_list %>%  
-  pluck("wrbadl") 
+  pluck("wrbadl")  
   
 sndhil <- model_list %>%  
-  pluck("sndhil") 
-
+  pluck("sndhil")  
+  
 # get coeffs  -------------------------------------------------------------  
-coef_pshale <- coef(  
+coef_pshale <- coef(   
   pshale$finalModel, 
   pshale$bestTune$lambda) %>% 
   as.matrix() %>%    
   as_tibble(., rownames = "coeff") %>% 
-  rename(pshale = 2) 
- 
+  rename(pshale = 2)  
+  
 coef_escarp <- coef(  
   escarp$finalModel,  
-  escarp$bestTune$lambda) %>% 
-  as.matrix() %>%    
-  as_tibble(., rownames = "coeff") %>% 
-  rename(escarp = 2) 
- 
-coef_wrbadl <- coef(  
-  wrbadl$finalModel,  
-  wrbadl$bestTune$lambda) %>% 
-  as.matrix() %>%    
-  as_tibble(., rownames = "coeff") %>% 
-  rename(wrbadl = 2) 
- 
-coef_bhplat <- coef( 
-  bhplat$finalModel, 
-  bhplat$bestTune$lambda) %>% 
+  escarp$bestTune$lambda) %>%   
+  as.matrix() %>%      
+  as_tibble(., rownames = "coeff") %>%  
+  rename(escarp = 2)  
+   
+coef_wrbadl <- coef(   
+  wrbadl$finalModel,   
+  wrbadl$bestTune$lambda) %>%  
   as.matrix() %>%    
   as_tibble(., rownames = "coeff") %>%  
-  rename(bhplat = 2) 
- 
-coef_kptabl <- coef( 
-  kptabl$finalModel, 
-  kptabl$bestTune$lambda) %>% 
+  rename(wrbadl = 2)  
+  
+coef_bhplat <- coef(  
+  bhplat$finalModel,  
+  bhplat$bestTune$lambda) %>%  
   as.matrix() %>%    
-  as_tibble(., rownames = "coeff") %>% 
+  as_tibble(., rownames = "coeff") %>%   
+  rename(bhplat = 2)  
+   
+coef_kptabl <- coef(  
+  kptabl$finalModel,  
+  kptabl$bestTune$lambda) %>%  
+  as.matrix() %>%    
+  as_tibble(., rownames = "coeff") %>%  
   rename(kptabl = 2)  
- 
-coef_sndhil <- coef( 
-  sndhil$finalModel, 
-  sndhil$bestTune$lambda) %>% 
+  
+coef_sndhil <- coef(  
+  sndhil$finalModel,  
+  sndhil$bestTune$lambda) %>%  
   as.matrix() %>%    
   as_tibble(., rownames = "coeff") %>%  
-  rename(sndhil = 2) 
-
+  rename(sndhil = 2)  
+  
 # join model coefs -----------------------------------------------------------  
-coefs_ecoreg <- bind_cols( coef_pshale, coef_escarp, coef_wrbadl, 
-                           coef_bhplat, coef_kptabl, coef_sndhil) %>% 
-# remove dupicate columns 
-  select(coeff, pshale, escarp, wrbadl, bhplat, kptabl, sndhil) %>% 
-  gather(key = ecoreg, value = val, -coeff) %>% 
-  mutate(val = round(
-    val, digits = 3)
-    ) %>% 
+coefs_ecoreg <- bind_cols( coef_pshale, coef_escarp, coef_wrbadl,  
+                           coef_bhplat, coef_kptabl, coef_sndhil) %>%  
+# remove dupicate columns  
+  select(coeff, pshale, escarp, wrbadl, bhplat, kptabl, sndhil) %>%  
+  gather(key = ecoreg, value = val, -coeff) %>%  
+  mutate(val = round(  
+    val, digits = 3)  
+    ) %>%  
   spread(ecoreg, val) %>%  
-# fix column order 
+# fix column order  
   select(coeff, pshale, escarp, wrbadl, bhplat, kptabl, sndhil) %>%   
-# fix row order 
-  arrange(desc(sndhil)) %>% 
-  arrange(desc(kptabl)) %>% 
-  arrange(desc(bhplat)) %>% 
+# fix row order  
+  arrange(desc(sndhil)) %>%  
+  arrange(desc(kptabl)) %>%  
+  arrange(desc(bhplat)) %>%  
   arrange(desc(wrbadl)) %>%  
   arrange(desc(escarp)) %>%  
   arrange(desc(pshale))   
- 
-rm(coef_bhplat, coef_escarp, coef_kptabl, 
+  
+rm(coef_bhplat, coef_escarp, coef_kptabl,  
    coef_pshale, coef_sndhil, coef_wrbadl)  
- 
+  
 # rename coefficients to fit the hydrologic coefficient table  
 coefs_ecoreg <- coefs_ecoreg %>%   
   mutate(coeff = case_when(  
@@ -1938,13 +1932,13 @@ coefs_ecoreg <- coefs_ecoreg %>%
     coeff == "pcov_ln"                      ~ "perc_cov",                   
     coeff == "kvert_ln"                     ~ "kvert_mean",      
     coeff == "lwrat_sqr"                    ~ "lw_ratio",     
-    coeff == "area_linv"                    ~ "cat_area", 
+    coeff == "area_linv"                    ~ "cat_area",  
     coeff == "dden_sqr"                     ~ "drain_dens",  
     coeff ==  "cout_sqr"                    ~ "cat_out",                 
-    coeff == "slop_ln"                      ~ "slop_med", 
-    TRUE ~ coeff))    
-
-rm(pshale, escarp, wrbadl, bhplat, kptabl, sndhil)  
+    coeff == "slop_ln"                      ~ "slop_med",  
+    TRUE ~ coeff))     
+  
+rm(pshale, escarp, wrbadl, bhplat, kptabl, sndhil)   
   
 ```   
 
@@ -1958,14 +1952,14 @@ col_key_num <- coefs_ecoreg %>%
 # convert tibble to a flextable  
 coef_table <- coefs_ecoreg %>%   
   flextable() %>% 
-  colformat_num(col_keys = col_key_num,  
+  colformat_num(col_keys = col_key_num,   
                 big.mark=",",  
                 digits = 2, na_str = "N/A") %>%    
   set_header_labels(  
   coeff  = "Explanatory variable",  
   pshale = "Pierre Shale Plains",   
-  escarp = "Pine Ridge Escarpment", 
-  wrbadl = "White River Badlands", 
+  escarp = "Pine Ridge Escarpment",  
+  wrbadl = "White River Badlands",  
   bhplat = "Black Hills Plateau",  
   kptabl = "Keya Paha Tablelands",  
   sndhil = "Sand Hills"    
@@ -1975,126 +1969,131 @@ coef_table <- coefs_ecoreg %>%
   
 # export a docx of flextables     
 coef_table <- read_docx() %>%  
-  body_add_flextable(value = coef_table)  
+  body_add_flextable(value = coef_table)   
 print(coef_table, target = "output/table_coef_ecoreg.docx")   
   
-rm(coef_table, col_key_num, coefs_ecoreg)     
- 
+rm(coef_table, col_key_num, coefs_ecoreg)      
+  
 ```  
 
 ```{r get_glm_observations_and_predictions_ecoreg} 
 
-# join the train and test sets ----------------------------------------------
-train_ecoreg <- bind_rows(train_bhplat, train_kptabl, train_pshale, 
-                          train_escarp, train_sndhil, train_wrbadl) 
-
+# join the train and test sets ---------------------------------------------- 
+train_ecoreg <- bind_rows(train_bhplat, train_kptabl, train_pshale,  
+                          train_escarp, train_sndhil, train_wrbadl)  
+  
 test_ecoreg <- bind_rows(test_bhplat, test_kptabl, test_pshale, 
                           test_escarp, test_sndhil, test_wrbadl) 
-
+  
 rm(train_bhplat, train_kptabl, train_pshale, train_escarp, 
-   train_sndhil, train_wrbadl, test_bhplat, test_kptabl, 
-   test_pshale, test_escarp, test_sndhil, test_wrbadl) 
+   train_sndhil, train_wrbadl, test_bhplat, test_kptabl,  
+   test_pshale, test_escarp, test_sndhil, test_wrbadl)  
 
-# get training observations & predictions -----------------------------------  
-obs_train_ecoreg   <- tibble(observed = train_ecoreg$log_q1_depth, 
-                             Date = train_ecoreg$Date, 
-                             ecoreg = train_ecoreg$ecoreg2) 
-
-preds_train_ecoreg <- map_dfr(model_list, 
-                               predict, 
-                              newdata = train_ecoreg)   
-
+# get training observations & predictions -----------------------------------   
+obs_train_ecoreg   <- tibble(observed = train_ecoreg$log_q1_depth,  
+                             Date = train_ecoreg$Date,  
+                             ecoreg = train_ecoreg$ecoreg2)  
+    
+preds_train_ecoreg <- map_dfr(model_list,  
+                               predict,  
+                              newdata = train_ecoreg)    
+  
 fit_train_ecoreg <- bind_cols(obs_train_ecoreg, preds_train_ecoreg) %>% 
-  mutate(split = "train") %>% 
+  mutate(split = "train") %>%   
   as_tibble() 
-
+  
 # combine test observations & predictions -----------------------------------  
-obs_test_ecoreg   <- tibble(observed = test_ecoreg$log_q1_depth, 
-                             Date = test_ecoreg$Date, 
-                             ecoreg = test_ecoreg$ecoreg2) 
-
-preds_test_ecoreg <- map_dfr(model_list, 
-                               predict, 
+obs_test_ecoreg   <- tibble(observed = test_ecoreg$log_q1_depth,  
+                             Date = test_ecoreg$Date,  
+                             ecoreg = test_ecoreg$ecoreg2)  
+  
+preds_test_ecoreg <- map_dfr(model_list,  
+                               predict,  
                               newdata = test_ecoreg)  
-
-fit_test_ecoreg <- bind_cols(obs_test_ecoreg, preds_test_ecoreg) %>% 
-  mutate(split = "test") %>% 
-  as_tibble() 
-
-rm(train_ecoreg, test_ecoreg, obs_train_ecoreg, 
-   preds_train_ecoreg, obs_test_ecoreg, preds_test_ecoreg)  
-
-# fit the right models to the right ecoregions ------------------------------- 
-# the preds_train_ecoreg output fits models to all the model fits 
-
-fit_train_ecoreg <- fit_train_ecoreg %>% 
-  gather(ecoreg_mod, predicted, -c(observed, ecoreg, split, Date)) %>% 
-  filter(ecoreg == ecoreg_mod) %>% 
-  select(-ecoreg_mod) 
-
-fit_test_ecoreg <- fit_test_ecoreg %>% 
-  gather(ecoreg_mod, predicted, -c(observed, ecoreg, split, Date)) %>% 
-  filter(ecoreg == ecoreg_mod) %>% 
-  select(-ecoreg_mod) 
-
-fit_ecoreg <- bind_rows(fit_train_ecoreg, fit_test_ecoreg)
-
+  
+fit_test_ecoreg <- bind_cols(obs_test_ecoreg, preds_test_ecoreg) %>%  
+  mutate(split = "test") %>%  
+  as_tibble()  
+  
+rm(train_ecoreg, test_ecoreg, obs_train_ecoreg,  
+   preds_train_ecoreg, obs_test_ecoreg, preds_test_ecoreg)   
+   
+# fit the right models to the right ecoregions -------------------------------  
+# the preds_train_ecoreg output fits models to all the model fits  
+   
+fit_train_ecoreg <- fit_train_ecoreg %>%  
+  gather(ecoreg_mod, predicted, -c(observed, ecoreg, split, Date)) %>%  
+  filter(ecoreg == ecoreg_mod) %>%  
+  select(-ecoreg_mod)  
+  
+fit_test_ecoreg <- fit_test_ecoreg %>%  
+  gather(ecoreg_mod, predicted, -c(observed, ecoreg, split, Date)) %>%  
+  filter(ecoreg == ecoreg_mod) %>%  
+  select(-ecoreg_mod)  
+  
+fit_ecoreg <- bind_rows(fit_train_ecoreg, fit_test_ecoreg)  
+  
 rm(fit_train_ecoreg, fit_test_ecoreg)   
-
+  
 # drop the training data -- find model errors & fit a null model ------------  
-fit_ecomod_test <- fit_ecoreg %>% 
-  filter(split == "test") %>%           # only want to see test data 
-  select(-split) %>% 
+fit_ecomod_test <- fit_ecoreg %>%   
+  filter(split == "test") %>%           # only want to see test data  
+  select(-split) %>%   
   group_by(Date)  %>%                   # fit a null model to the data by Date  
-    mutate(null_mod = mean(observed)) %>% 
+    mutate(null_mod = mean(observed)) %>%  
   ungroup() %>%  
-  gather(model, fitted, -c(observed, Date, ecoreg)) %>% 
-  group_by(model, ecoreg) %>% 
-    mutate(MAE = round( 
-      MAE(observed, fitted),              # find the model errors 
-      digits = 3) 
-    ) %>% 
-  ungroup() %>% 
-  mutate(residual = observed - fitted) %>% 
-  mutate(freq = 1- percent_rank(observed)) %>% 
+  gather(model, fitted, -c(observed, Date, ecoreg)) %>%  
+  group_by(model, ecoreg) %>%  
+    mutate(MAE = round(  
+      MAE(observed, fitted),              # find the model errors  
+      digits = 3)  
+    ) %>%  
+  ungroup() %>%  
+  mutate(residual = observed - fitted) %>%  
+  mutate(freq = 1- percent_rank(observed)) %>%  
   mutate(freq = if_else(freq== 1, 0.9999, freq))  
- 
-#listviewer::jsonedit(ecoreg_index) 
-
+  
+#listviewer::jsonedit(ecoreg_index)  
+  
 ```   
 
 ```{r prepare_ecoreg_plots}
 
-# set the facet labels, find number of test observations, get mae  
-labels_models <- c(predicted = "Lasso model",  
-                   null_mod = "Mean of daily observations")   
-
-labels_ecoreg <- c(pshale = "Pierre Shale",  
-                   escarp = "PR. Escarp", 
-                   wrbadl = "Badlands", 
-                   bhplat = "BH. Plateau", 
-                   kptabl = "Tablelands", 
+# set the facet labels, find number of test observations, get mae   
+labels_models <- c(predicted = "Lasso model",   
+                   null_mod = "Mean of daily observations")    
+  
+labels_ecoreg <- c(pshale = "Pierre Shale",   
+                   escarp = "PR. Escarp",  
+                   wrbadl = "Badlands",  
+                   bhplat = "BH. Plateau",  
+                   kptabl = "Tablelands",  
                    sndhil = "Sandhills")   
 
-n_test <- fit_ecomod_test %>% 
-  group_by(ecoreg) %>%
+n_test <- fit_ecomod_test %>%  
+  group_by(ecoreg) %>%  
     mutate(n_count = n()) %>% 
     distinct(n_count) %>%  
-  ungroup() 
-
+  ungroup() %>% 
+  mutate(ecoreg = factor(ecoreg, 
+                         levels = c('pshale', 'escarp', 'wrbadl', 
+                                    'bhplat', 'kptabl', 'sndhil') 
+                         ))   
+  
 mae_ecoreg <- fit_ecomod_test %>%  
   select(ecoreg, model, MAE) %>% 
   distinct(MAE, .keep_all = TRUE) %>% 
   mutate(MAE = round(MAE, digits = 2)) %>% 
-  spread(model, MAE) %>% 
-  arrange(null_mod) %>% 
-  arrange(predicted) 
- 
-```
+  mutate(ecoreg = factor(ecoreg, 
+                         levels = c('pshale', 'escarp', 'wrbadl', 
+                                    'bhplat', 'kptabl', 'sndhil') 
+                         ))   
 
-```{r plot_flow-duration-curve_ecoreg} 
+``` 
 
-# flow duration curve plot -ecoreg 
+```{r plot_flow-duration-curve-density_ecoreg} 
+
+# flow duration curve plot -ecoreg  
 freq_plot_eco <- fit_ecomod_test %>% 
 # change the order of facets 
   mutate(ecoreg = factor(ecoreg, 
@@ -2105,49 +2104,63 @@ freq_plot_eco <- fit_ecomod_test %>%
   mutate(model = factor(model, 
                         levels = c('null_mod', 'predicted') 
                         ) 
-         ) %>% 
+         ) %>%  
   ggplot(aes(x = freq, y = fitted)) +  
-# create facets 
+# create facets   
   facet_grid(ecoreg ~ model, 
              labeller = labeller( 
                model  = labels_models, 
-               ecoreg = labels_ecoreg) 
+               ecoreg = labels_ecoreg)  
              ) + 
   geom_point(shape = ".",  
              color = "gray80") + 
-  geom_density2d(
-             color = "gray50")  + 
-  geom_line(aes(x = freq, y = observed)) + 
-# add text of the number of observations 
+  geom_density2d(  
+             color = "gray60")  + 
+  geom_smooth(method = "gam", 
+              linetype = 2, 
+              size = 0.5, 
+             color = "gray40") + 
+  geom_line(aes(x = freq, y = observed)) +   
+# add text of the number of observations   
   geom_text(data = n_test, 
-            x = 3, y = 1.5,  
+            x = 2.7, y = 3.7,  
            aes(label= paste("n =", n_count, sep = " ")), 
-           size = 3, 
+           size = 2.5, 
            color = "gray20" 
            ) + 
-# set axes and theme 
-  scale_y_continuous(
-    name = bquote(
-      'Observations and fitted values in log ('~m^3 / km^2 ~ 'day)')
-    ) + 
-  scale_x_continuous(name = 'Percentage of time flow exceeded',
-                     trans = 'probit', 
-                     limits = c(0.005, Inf), 
-          breaks = c(0.99,  0.9,   0.75,  0.5,   0.25,  0.1,   0.01),
-          labels = c('99%', '90%', '75%', '50%', '25%', '10%', '1%')) + 
-  theme_bw() 
-
-freq_plot_eco  
-
-#  exceed   flow   'pshale' 'escarp' 'wrbadl' 'bhplat' 'kptabl' 'sndhil' 
-#    low    high     75%      67%      none     10%       5%      none       
-#    high   low      75%      67%      none     10%       5%      none       
-
+# add text of the MAE 
+  geom_text(data = mae_ecoreg, 
+            x = 2.7, y = 2.95,  
+           aes(label= paste("MAE =", MAE, sep = " ")), 
+           size = 2.5, 
+           color = "gray20"  
+           ) +   
+# set axes and theme   
+  scale_y_continuous(  
+    name = bquote(  
+      'Observations and fitted values in log ('~m^3 / km^2 ~ 'day)')  
+    ) +   
+  scale_x_continuous(name = 'Percentage of time flow exceeded', 
+                     trans = 'probit',  
+                     limits = c(0.005, Inf),  
+          breaks = c(0.99,  0.9,   0.75,  0.5,   0.25,  0.1,   0.01), 
+          labels = c('99%', '90%', '75%', '50%', '25%', '10%', '1%')) +  
+  theme_bw()  
+  
+freq_plot_eco   
+  
 ggsave("figure/freq_plot_eco.png", width = 7, height = 7, units = "in")  
-```
+  
+``` 
 
-```{r plot_flow-duration-curve_resid_ecoreg} 
+```{r plot_flow-duration-curve_data_ecoreg} 
 
+# spread ecoregion data 
+mae_eco_sp <- mae_ecoreg %>% 
+  spread(model, MAE) %>% 
+  arrange(null_mod) %>% 
+  arrange(predicted)  
+  
 # spread the null and fitted observations -- need to remove residual & MAE 
 fit_ecomod_spread <- fit_ecomod_test %>% 
     select(-c(residual, MAE)) 
@@ -2188,7 +2201,7 @@ mae_ecoreg <- mae_ecoreg %>%
                          ))   
 
 
-# flow duration curve plot - differences between models --------------------- 
+# plot flow duration curve -- differences between models --------------------- 
 freq_plot_eco_diff <- fit_ecomod_spread %>% 
 # change the order of facets 
   mutate(ecoreg = factor(ecoreg, 
@@ -2223,65 +2236,186 @@ freq_plot_eco_diff <- fit_ecomod_spread %>%
       'Observations and fitted values in log ('~m^3 / km^2 ~ 'day)')
     ) + 
 # add text of the null model MAE 
-  geom_text(data = mae_ecoreg, 
+  geom_text(data = mae_eco_sp, 
             x = 2, y = 3.5,  
-           aes(label= paste("MAE null model =", null_mod, sep = " ")), 
+           aes(label= paste("Null model MAE =", null_mod, sep = " ")), 
            size = 2.5, 
            color = "gray70" 
            ) +   
 # add text of the predicted model MAE 
-  geom_text(data = mae_ecoreg, 
-            x = 2, y = 3.0,  
-           aes(label= paste("MAE lasso =", predicted, sep = " ")), 
+  geom_text(data = mae_eco_sp, 
+            x = 2, y = 2.8,  
+           aes(label= paste("Lasso model MAE =", predicted, sep = " ")), 
            size = 2.5, 
            color = "gray30" 
            ) + 
+# set axes and themes   
   scale_x_continuous(name = 'Percentage of time flow exceeded',
                      trans = 'probit', 
                      limits = c(0.005, Inf), 
           breaks = c(0.99,  0.9,   0.75,  0.5,   0.25,  0.1,   0.01),
           labels = c('99%', '90%', '75%', '50%', '25%', '10%', '1%')) + 
-#          breaks = c(0.01,  0.1,   0.25,  0.5,   0.75,  0.9,   0.99),
-#          labels = c('1%', '10%', '25%', '50%', '75%', '90%', '99%')) + 
   theme_bw() 
 
-freq_plot_eco_diff  
+freq_plot_eco_diff 
 
-#  exceed   flow   'pshale' 'escarp' 'wrbadl' 'bhplat' 'kptabl' 'sndhil' 
-#    low    s     70%      60%      70%      10%       10%       0%       
-#    high   low     100%      90%      90%      60%       60%      60%       
-
-ggsave("figure/freq_plot_eco_diff.png", width = 7, height = 7, units = "in")  
+ggsave("figure/freq_plot_eco_diff.png", width = 7, height = 4, units = "in")  
 ``` 
 
 ```{r export-table_ecoreg_mae} 
-
+  
 # set the numeric columns  
 col_key_num <- mae_ecoreg %>% 
   select(-c(model, ecoreg)) %>%  
   names() 
   
 # convert tibble to a flextable   
-coef_table <- mae_ecoreg %>%   
-  flextable() %>% 
-  colformat_num(col_keys = col_key_num, 
-                big.mark=",",  
-                digits = 2, na_str = "N/A") %>%  
-  set_header_labels(  
-    ecoreg  = "Ecoregion",  
-    model  = "Model",  
+coef_table <- mae_ecoreg %>%    
+  flextable() %>%  
+  colformat_num(col_keys = col_key_num,  
+                big.mark=",",   
+                digits = 2, na_str = "N/A") %>%   
+  set_header_labels(   
+    ecoreg  = "Ecoregion",   
+    model  = "Model",   
     MAE = "MAE") %>%    
-  autofit() %>%  
+  autofit() %>%   
   theme_booktabs()  
-   
+  
 # export a docx of flextables    
-coef_table <- read_docx() %>% 
+coef_table <- read_docx() %>%  
   body_add_flextable(value = coef_table) 
 print(coef_table, target = "output/table_mae_ecoreg.docx")  
   
 rm(coef_table, col_key_num)     
+  
+```  
 
-``` 
+```{r prepare_mixed_model}
+
+# calculate mixed models 
+fit_ecomod_spread <- fit_ecomod_spread %>% 
+  mutate(pred_mixed = case_when( 
+    ecoreg == "pshale" ~ case_when( 
+      between(freq, 0.65, 0.9) ~ predicted,  
+      freq > 0.65 ~ predicted, 
+      TRUE ~ null_mod), 
+    ecoreg == "escarp" ~ case_when( 
+       between(freq, 0.55, 0.9) ~ predicted,   
+      TRUE ~ null_mod),   
+    ecoreg == "wrbadl" ~ case_when(  
+      between(freq, 0.6, 0.9) ~ predicted,  # dropped from 1.0
+      TRUE ~ null_mod),   
+    ecoreg == "bhplat" ~ case_when( 
+      between(freq, 0.1, 0.6)  ~ predicted, 
+      TRUE ~ null_mod),  
+    ecoreg == "kptabl" ~ case_when( 
+      between(freq, 0.1, 0.6)  ~ predicted, 
+      TRUE ~ null_mod),  
+    ecoreg == "sndhil" ~ case_when( 
+      freq < 0.6  ~ predicted, 
+      TRUE ~ null_mod) 
+    ))  
+ 
+# calculate model fits 
+mae_ecoreg <- fit_ecomod_spread %>% 
+  group_by(ecoreg) %>% 
+  mutate(MAE_null  = MAE(observed, null_mod)) %>%  
+  mutate(MAE_lasso = MAE(observed, predicted)) %>% 
+  mutate(MAE_mixed = MAE(observed, pred_mixed)) %>%  
+  summarise(MAE_null = round(mean(MAE_null), digits = 3), 
+            MAE_lasso = round(mean(MAE_lasso), digits = 3), 
+            MAE_mixed = round(mean(MAE_mixed), digits =3) 
+    ) %>% 
+  ungroup()  
+
+print(mae_ecoreg)
+# final model   
+#ecoreg null_mod predict mixed    frequency  (bottom - first time just down)
+#pshale	  0.657	 0.554	 0.425	 65% to  90%    
+#escarp	  0.441  0.445	 0.368   60% to  90%  
+#wrbadl	  0.462	 0.565	 0.435   60% to  90% 
+#bhplat	  0.454	 0.342	 0.299	 10% to  60%  
+#kptabl	  0.365	 0.234	 0.207	 10% to  65% 
+#sndhil	  0.594	 0.182	 0.168	  0% to  60%    
+  
+```   
+
+```{r plot-mixed-model}
+
+# set facet order 
+mae_ecoreg <- mae_ecoreg %>% 
+  mutate(ecoreg = factor(ecoreg, 
+                         levels = c('pshale', 'escarp', 'wrbadl', 
+                                    'bhplat', 'kptabl', 'sndhil') 
+                         ))   
+
+# set facet order 
+mae_ecoreg <- mae_ecoreg %>% 
+  mutate(ecoreg = factor(ecoreg, 
+                         levels = c('pshale', 'escarp', 'wrbadl', 
+                                    'bhplat', 'kptabl', 'sndhil') 
+                         ))   
+  
+# plot flow duration curve -- differences between models ---------------------  
+
+freq_plot_eco_mix <- fit_ecomod_spread %>% 
+# change the order of facets 
+  mutate(ecoreg = factor(ecoreg, 
+                         levels = c('pshale', 'escarp', 'wrbadl', 
+                                    'bhplat', 'kptabl', 'sndhil') 
+                         ) 
+         ) %>% 
+  ggplot(aes(x = freq, y = pred_mixed)) +  
+# create facets 
+  facet_wrap(vars(ecoreg), 
+             ncol = 2, 
+             labeller = labeller( 
+               ecoreg = labels_ecoreg) 
+             ) + 
+  geom_point(shape = ".",  
+             color = "gray80") + 
+  geom_density2d(  
+             color = "gray60")  +   
+  geom_smooth(method = "gam", 
+              linetype = 2, 
+              size = 0.5, 
+             color = "gray40") + 
+  geom_line(aes(x = freq, y = observed)) + 
+# add text of the null model MAE 
+  geom_text(data = mae_ecoreg, 
+            x = 2, y = 3.5,  
+           aes(label= paste("Mixed model MAE =", 
+                            round(MAE_mixed, digits = 2), 
+                                  sep = " ")), 
+           size = 2.5, 
+           color = "gray20" 
+           ) +   
+# set axes and themes   
+  scale_x_continuous(name = 'Percentage of time flow exceeded',
+                     trans = 'probit', 
+                     limits = c(0.005, Inf), 
+          breaks = c(0.99,  0.9,   0.75,  0.5,   0.25,  0.1,   0.01),
+          labels = c('99%', '90%', '75%', '50%', '25%', '10%', '1%')) + 
+  scale_y_continuous(
+    name = bquote(
+      'Observations and final values in log ('~m^3 / km^2 ~ 'day)')
+    ) + 
+  theme_bw() 
+
+freq_plot_eco_mix 
+
+ggsave("figure/freq_plot_eco_mix.png", width = 7, height = 4, units = "in")  
+```
+
+
+
+
+
+
+
+
+
 
 ```{r delete-this}
 
@@ -2435,6 +2569,26 @@ geom_smooth(method = "loess")
 ggsave("figure/dv1-fit.png", width = 7, height = 7, units = "in")   
   
 ``` 
+
+```{r plot_glm_fdc_dv_dont-run}
+
+# flow duration curve 
+fit_model_test %>% 
+  ggplot(aes(x = freq, y = fitted)) +  
+  facet_grid(. ~ model) + 
+  geom_point(shape = ".",  
+             color = "gray80") + 
+  geom_density2d(
+             color = "gray50")  + 
+  geom_line(aes(x = freq, y = observed)) + 
+  scale_x_continuous(name = 'Percentage of time flow exceeded',
+                     trans = 'probit', 
+                     limits = c(0.01, 0.99), 
+          breaks = c(0.99,  0.9,   0.75,  0.5,   0.25,  0.1,   0.01),
+          labels = c('99%', '90%', '75%', '50%', '25%', '10%', '1%')) + 
+  theme_bw() 
+
+```  
 # building models based on PC1 & PC2 - delete after making sure log dv works 
 
 ```{r get_glm_observations_predictions}
