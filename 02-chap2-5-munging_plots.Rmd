@@ -2262,35 +2262,6 @@ freq_plot_eco_diff
 ggsave("figure/freq_plot_eco_diff.png", width = 7, height = 4, units = "in")  
 ``` 
 
-```{r export-table_ecoreg_mae} 
-  
-# set the numeric columns  
-col_key_num <- mae_ecoreg %>% 
-  select(-c(model, ecoreg)) %>%  
-  names() 
-  
-# convert tibble to a flextable   
-coef_table <- mae_ecoreg %>%    
-  flextable() %>%  
-  colformat_num(col_keys = col_key_num,  
-                big.mark=",",   
-                digits = 2, na_str = "N/A") %>%   
-  set_header_labels(   
-    ecoreg  = "Ecoregion",   
-    model  = "Model",   
-    MAE = "MAE") %>%    
-  autofit() %>%   
-  theme_booktabs()  
-  
-# export a docx of flextables    
-coef_table <- read_docx() %>%  
-  body_add_flextable(value = coef_table) 
-print(coef_table, target = "output/table_mae_ecoreg.docx")  
-  
-rm(coef_table, col_key_num)     
-  
-```  
-
 ```{r prepare_mixed_model}
 
 # calculate mixed models 
@@ -2329,7 +2300,29 @@ mae_ecoreg <- fit_ecomod_spread %>%
     ) %>% 
   ungroup()  
 
-print(mae_ecoreg)
+print(mae_ecoreg) 
+
+# add final model fits 
+ecoreg_freq <- tibble( 
+  ecoreg     = mae_ecoreg$ecoreg, 
+  hi_exceed  = c(0.10, 0.55, 0.10, 0.65, 0.0, 0.60), 
+  low_exceed = c(0.60, 0.90, 0.60, 0.90, 0.6, 0.90)
+  )    
+  
+ecoreg_freq <- full_join(mae_ecoreg, ecoreg_freq, 
+                  by = "ecoreg") %>% 
+  mutate(ecoreg = as.character(ecoreg)) %>% 
+  mutate(ecoreg2 = case_when( 
+    ecoreg == "pshale" ~ "Pierre Shale Plains",   
+    ecoreg == "escarp" ~ "Pine Ridge Escarpment",  
+    ecoreg == "wrbadl" ~ "White River Badlands",  
+    ecoreg == "bhplat" ~ "Black Hills Plateau",  
+    ecoreg == "kptabl" ~ "Keya Paha Tablelands",  
+    ecoreg == "sndhil" ~ "Sand Hills" 
+    )) %>% 
+  select(ecoreg2, everything())
+
+
 # final model   
 #ecoreg null_mod predict mixed    frequency  (bottom - first time just down)
 #pshale	  0.657	 0.554	 0.425	 65% to  90%    
@@ -2340,6 +2333,59 @@ print(mae_ecoreg)
 #sndhil	  0.594	 0.182	 0.168	  0% to  60%    
   
 ```   
+
+```{r export-mixed-model-table}
+  
+# set the numeric columns  
+col_key_num <- ecoreg_freq %>% 
+  select(-c(ecoreg)) %>%  
+  names() 
+
+top_row <- c("", "", "", "", 
+             "Exceedance Probablity", "Exceedance Probability")    
+  
+hydro_table <- hydro_table %>%   
+  flextable() %>%   
+  theme_booktabs() %>%   
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 1, na_str = "N/A") %>%   
+  set_header_labels(values = header_labels) %>%  
+  add_header_row(values = top_row,   
+  top = TRUE) %>%   
+  merge_at(i = 1, j = 7:9, part = "header") %>%   
+  merge_at(i = 1, j = 10:12, part = "header") %>%   
+  autofit()   
+
+# convert tibble to a flextable   
+coef_table <- ecoreg_freq %>% 
+  select(-ecoreg) %>% 
+  flextable() %>%  
+  colformat_num(col_keys = col_key_num,  
+                big.mark=",",   
+                digits = 2, na_str = "N/A") %>%   
+  set_header_labels(   
+    ecoreg2  = "Ecoregion", 
+    MAE_null = "Null model MAE", 
+    MAE_lasso = "Lasso model MAE", 
+    MAE_mixed = "Mixed model MAE", 
+    hi_exceed = "High value", 
+    low_exceed = "Low value") %>% 
+  add_header_row(values = top_row,   
+  top = TRUE) %>%  
+#  merge_at(i = 1, j = 5:6, part = "header") %>%     
+  autofit() %>%   
+  theme_booktabs()  
+  
+# export a docx of flextables    
+coef_table <- read_docx() %>%  
+  body_add_flextable(value = coef_table) 
+print(coef_table, target = "output/table_ecoreg_freq.docx")  
+  
+rm(coef_table, col_key_num)     
+  
+```  
+
 
 ```{r plot-mixed-model}
 
@@ -2410,13 +2456,34 @@ ggsave("figure/freq_plot_eco_mix.png", width = 7, height = 4, units = "in")
 
 
 
-
-
-
-
-
-
-
+```{r export-table_ecoreg_mae} 
+  
+# set the numeric columns  
+col_key_num <- mae_ecoreg %>% 
+  select(-c(model, ecoreg)) %>%  
+  names() 
+  
+# convert tibble to a flextable   
+coef_table <- mae_ecoreg %>%    
+  flextable() %>%  
+  colformat_num(col_keys = col_key_num,  
+                big.mark=",",   
+                digits = 2, na_str = "N/A") %>%   
+  set_header_labels(   
+    ecoreg  = "Ecoregion",   
+    model  = "Model",   
+    MAE = "MAE") %>%    
+  autofit() %>%   
+  theme_booktabs()  
+  
+# export a docx of flextables    
+coef_table <- read_docx() %>%  
+  body_add_flextable(value = coef_table) 
+print(coef_table, target = "output/table_mae_ecoreg.docx")  
+  
+rm(coef_table, col_key_num)     
+  
+```  
 ```{r delete-this}
 
 # model plot test - ecoreg --- remove later   
