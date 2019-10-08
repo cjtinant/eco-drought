@@ -14,7 +14,42 @@ Predominant datasets used are:
 3) Summary data from a QGIS analysis of ungaged watersheds of interest.  
 
 ## Analysis Steps:
+
+
+1. Create points for maps.  
+# The output files have been created. 
+
+<!--
+## Original Stations and reason for removal, if removed
+GHCND:US1SDCS0027 HERMOSA 10.3 ESE, SD US - removed for short record  
+GHCND:USC00253615 HARRISON, NE US - removed for outside region  
+GHCND:USC00396212 OELRICHS, SD US    
+GHCND:US1SDFR0001 HOT SPRINGS 0.5 SSW, SD US - too close to Oelrichs  
+GHCND:USC00396304 ORAL, SD US    
+GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US    
+GHCND:USC00394184 INTERIOR 3 NE, SD US    
+GHCND:USC00391972 COTTONWOOD 2 E, SD US   
+GHCND:USC00394983 LONG VALLEY, SD US                  
+GHCND:US1SDJK0006 KADOKA 0.3 N, SD US - removed short period record   
+GHCND:USC00395891 MURDO, SD US - removed for outside region   
+GHCND:USC00395638 MISSION 14 S, SD US    
+GHCND:USC00250050 AINSWORTH, NE US 
+
+
+# 'station' 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# get station id with the mapping tool at 
+# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation 
+# iterate across a list of station ids by purrr::map 
+# to get NOAA station meta data using rnoaa::ncdc_stationsn
+# the output is a list of 7 x 2 x 9.n
+# flatten into a dataframe by purrr::flatten 
+# reorder and rename columns by dplyr 
+# save the station df by rion
 1.1. Data read in from NOAA website  
+
+
+
 1.2. Data munging to check, join and remove NAs 
 1.3. Updated unit vals - originally in tenths of mm; now in mm 
 1.4. Changed daily data into monthly and annual data 
@@ -41,6 +76,13 @@ _trans       final df - after cleaning
 
 gage         USGS streamgage station
 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+# 'station' is a variable for NOAA weather station locations  
+# 'gage' is a variable for USGS stream gages 
+# 'site' is a variable for OST monitoring stations 
+
+
 ## Results: 
 The results from the precipitation analysis indicate: 1) an annual trend of increasing aridity across the project area that trends from northwest to southeast that may be a result of the Black Hills rainshadow, 2) the 1900s were the wettest time in regions recorded history.  ??? what about the seasonal trend?
 
@@ -57,15 +99,17 @@ gage_meta_poss      metadata for possible gaging stations
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-# Get API key (aka, token) for downloading precip data at http://www.ncdc.noaa.gov/cdo-web/token
-# token for NOAA API tied to jtinant@olc.edu
-options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")
-# see 'rnoaa' for details
+
 #knitr::opts_chunk$set(echo = FALSE)      
 options(tibble.print_max = 70) # sets tibble output for printing     
 ```
 
-```{r library, message=FALSE}
+```{r library, message=FALSE} 
+
+# Get API key (aka, token) for downloading precip data at http://www.ncdc.noaa.gov/cdo-web/token
+# token for NOAA API tied to jtinant@olc.edu -- see 'rnoaa' for details 
+options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD") 
+
 # Sets up the library of packages  
 library("here")              # identifies where to save work
 library("rnoaa")             #  R wrapper for NOAA data inc. NCDC
@@ -115,42 +159,61 @@ library("corrplot")          # correlation plots
 
 ``` 
 
-<!--
-## Original Stations and reason for removal, if removed
-GHCND:US1SDCS0027 HERMOSA 10.3 ESE, SD US - removed for short record  
-GHCND:USC00253615 HARRISON, NE US - removed for outside region  
-GHCND:USC00396212 OELRICHS, SD US    
-GHCND:US1SDFR0001 HOT SPRINGS 0.5 SSW, SD US - too close to Oelrichs  
-GHCND:USC00396304 ORAL, SD US    
-GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US    
-GHCND:USC00394184 INTERIOR 3 NE, SD US    
-GHCND:USC00391972 COTTONWOOD 2 E, SD US   
-GHCND:USC00394983 LONG VALLEY, SD US                  
-GHCND:US1SDJK0006 KADOKA 0.3 N, SD US - removed short period record   
-GHCND:USC00395891 MURDO, SD US - removed for outside region   
-GHCND:USC00395638 MISSION 14 S, SD US    
-GHCND:USC00250050 AINSWORTH, NE US 
--->
 
 ```{r import_prcp, eval=FALSE}
-# Creates points for maps. No need to evaluate.  
-# The output files have been created. 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# 'station' is a variable for NOAA weather station locations  
-# 'gage' is a variable for USGS stream gages 
-# 'site' is a variable for OST monitoring stations 
 
-# 'station' 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# get station id with the mapping tool at 
-# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation 
-# iterate across a list of station ids by purrr::map 
-# to get NOAA station meta data using rnoaa::ncdc_stationsn
-# the output is a list of 7 x 2 x 9.n
-# flatten into a dataframe by purrr::flatten 
-# reorder and rename columns by dplyr 
-# save the station df by rion
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~n
+# Get possible stations -----------------------------------------------------  
+# The geographical extent given as SElat, SElon, NElat, NElon
+
+stations_poss <- ncdc_stations(extent = c(42, -104, 44.2, -100.5), 
+                               limit = 1000) %>%      # n = 401
+# get possible stations into a dataframe 
+  pluck("data")  %>% 
+# turn min & max date into lubridates 
+  mutate(mindate = ymd(mindate)) %>% 
+  mutate(maxdate = ymd(maxdate)) %>%                 
+# remove 'young' stations 
+  filter(mindate < "1989-01-01") %>%                 # n = 180       
+# remove 'dead' stations 
+  filter(maxdate > "2018-01-01") %>%                 # n = 31
+# remove poor data coverage stations   
+  filter(datacoverage == 1.0) %>%                    # n = 25 
+# keep only the GHCND stations  
+  filter(str_detect(id, "^G")) %>%                   # n = 23 
+# remove mountain stations 
+  filter(elevation < 1500) #%>%                      # n = 20  
+
+stations_poss %>%  
+#  mutate(longitude = -longitude) %>% 
+ggplot(aes(longitude, latitude)) + 
+  geom_point() + 
+  geom_text(aes(label = paste(name)), 
+            size = 2, 
+#            check_overlap = TRUE, 
+            vjust = 0.5)   
+
+
+test <- (stationid = sta_input$id, ncdc_stations) %>% 
+    pluck("data") 
+
+test <- ncdc_stations(stationid = "GHCND:USW00024090") #%>% 
+    pluck("data") 
+
+
+station <- map(sta_input$id, ncdc_stations) 
+station <- flatten_dfr(station)
+
+station <- station %>%
+  rename(lat = latitude) %>%
+  rename(lon = longitude) %>%
+  select(id, name, lat, lon, everything())
+
+# export(station, "data/sta_meta_orig.csv")
+```
+
+
+```{r import_prcp, eval=FALSE}
+
 sta_input <- data.frame(name = c('RAPID CITY RGNL AP', 
                                  'HOT SPRINGS', 
                                 'OELRICHS', 
@@ -187,6 +250,10 @@ station <- station %>%
 
 # export(station, "data/sta_meta_orig.csv")
 ```
+
+
+
+
 
 ```{r import_site-data, eval=FALSE}
 # site
