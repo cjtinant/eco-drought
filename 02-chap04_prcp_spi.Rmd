@@ -159,13 +159,12 @@ library("corrplot")          # correlation plots
 
 ``` 
 
-
 ```{r import_prcp, eval=FALSE}
 
 # Get possible stations -----------------------------------------------------  
-# The geographical extent given as SElat, SElon, NElat, NElon
+# The geographical extent given as SElat, SElon, NWlat, NWlon
 
-stations_poss <- ncdc_stations(extent = c(42, -104, 44.2, -100.5), 
+sta_meta_orig <- ncdc_stations(extent = c(42.7, -103.8, 44.7, -99.5), 
                                limit = 1000) %>%      # n = 401
 # get possible stations into a dataframe 
   pluck("data")  %>% 
@@ -183,41 +182,215 @@ stations_poss <- ncdc_stations(extent = c(42, -104, 44.2, -100.5),
 # remove mountain stations 
   filter(elevation < 1500) #%>%                      # n = 20  
 
-stations_poss %>%  
+#sta_meta_orig %>%  
 #  mutate(longitude = -longitude) %>% 
-ggplot(aes(longitude, latitude)) + 
-  geom_point() + 
-  geom_text(aes(label = paste(name)), 
-            size = 2, 
+#ggplot(aes(longitude, latitude)) + 
+#  geom_point() + 
+#  geom_text(aes(label = paste(name)), 
+#            size = 2, 
 #            check_overlap = TRUE, 
-            vjust = 0.5)   
+#            vjust = 0.5)   
 
 
-test <- (stationid = sta_input$id, ncdc_stations) %>% 
-    pluck("data") 
-
-test <- ncdc_stations(stationid = "GHCND:USW00024090") #%>% 
-    pluck("data") 
-
-
-station <- map(sta_input$id, ncdc_stations) 
-station <- flatten_dfr(station)
-
-station <- station %>%
-  rename(lat = latitude) %>%
-  rename(lon = longitude) %>%
-  select(id, name, lat, lon, everything())
 
 # export(station, "data/sta_meta_orig.csv")
 ```
 
 
-```{r import_prcp, eval=FALSE}
+```{r voroni-diagram-initial, message=FALSE}
+# import location data 
+#sta_meta <- import("data/sta_meta_orig.csv") 
 
-sta_input <- data.frame(name = c('RAPID CITY RGNL AP', 
-                                 'HOT SPRINGS', 
-                                'OELRICHS', 
-                                'INTERIOR 3 NE', 
+#sta_meta <- sta_meta %>%
+#  filter(id != "GHCND:US1SDCS0027") # filters out hermosa (short rec.)
+
+#subregion == "crook" |
+#         subregion == "laramie" | 
+#         subregion == "harding" |  # start sd
+#         subregion == "perkins" | 
+#         subregion == "corson" | 
+#    subregion == "dewey" | 
+#    subregion == "ziebach"  | 
+#    subregion == "butte" | 
+#   subregion == "weston" | 
+#    subregion == "niobrara" |   
+#    subregion == "goshen" |  
+
+
+
+# create voroni line segments
+voronoi <- deldir(sta_meta_orig$lon, sta_meta_orig$lat) 
+
+# get gages 
+gage_meta_fin <- read_csv("data/gage_meta_fin.csv") %>% 
+  filter(!is.na(sta))
+
+
+
+# Define the study area using data from the 'maps' package ------------------
+# import polygon data - US counties 
+counties <- map_data("county")  
+
+# Filter wyoming & sd counties
+counties_wysd <- subset(counties, region %in% 
+   c("south dakota")) %>% 
+  filter( 
+    subregion == "meade" | 
+    subregion == "lawrence" | 
+    subregion == "pennington" |
+    subregion == "custer" | 
+    subregion == "fall river" | 
+    subregion == "shannon" | 
+    subregion == "jackson" |
+    subregion == "bennett" |
+    subregion == "haakon" | 
+    subregion == "todd" |
+    subregion == "mellette" | 
+    subregion == "jones" | 
+    subregion == "stanley" | 
+    subregion == "lyman" | 
+    subregion == "tripp" | 
+    subregion == "hughes"  
+    )  
+
+# filter wyoming counties -- duplicated names above
+counties_ne <- subset(counties, region %in% 
+   c("nebraska")) %>% 
+  filter(subregion == "sioux" |
+         subregion == "dawes" | 
+         subregion == "sheridan" | 
+         subregion == "box butte" |
+         subregion == "cherry" | 
+         subregion == "brown" | 
+         subregion == "keya paha" | 
+         subregion == "rock" 
+         )  
+
+counties <- bind_rows(counties_wysd, counties_ne) 
+
+rm(counties_wysd, counties_ne) 
+
+#Plot the points, voronoi lines, and annotate
+# grabbed this code off of a website by googling 'Voroni diag. R'
+
+ggplot(data = sta_meta_orig, aes(x = longitude, y = latitude)) + 
+# add stations  
+  geom_point(
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    pch = 21,
+    size = 4,
+    color = "#333333")  + 
+# add Theissen polygons 
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2), 
+    size = 2, 
+    data = voronoi$dirsgs, 
+    linetype = 1, 
+    color = "#FFB958")  + 
+# add county polygons   
+  geom_polygon(data = counties, 
+               aes(x = long, y = lat, group = group),  
+              color = "black", 
+              #linetype = "dashed", 
+              fill = "NA") + 
+# add gages 
+  geom_point(data = gage_meta_fin, aes(dec_long_va, dec_lat_va),  
+             shape = 24, 
+    fill = rgb(70, 130, 180, 255, 
+               maxColorValue = 255),
+    pch = 21,
+    size = 4,
+    color = "#333333" 
+    )  + 
+ 
+  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
+              color = "black", linetype = "dashed", fill = "NA") + 
+
+  theme_bw() +
+#  geom_text(data = sta_meta_orig, aes(label = name), size = 2.5) +
+  ggtitle("Original Theissen Polygon Map") 
+
+# Results: 
+# We can drop Ainsworth, Harrison that are outside of study area &
+# Oral would be better than Hot Springs for elev, location & coverage
+
+#ggplot2::ggsave(filename = "figure/theissen_init.png", 
+#                width = 6, height = 6, units = "in")
+```
+
+
+```{r select_stations}
+
+sta_meta_orig <- sta_meta_orig %>% 
+  mutate(north_group = case_when( 
+    latitude > 43.5 ~ "N", 
+    TRUE ~ "S") 
+    ) %>% 
+  mutate(east_group = case_when( 
+    longitude > -100.67 ~ "E", 
+    longitude > -102.33 ~ "C",  
+    TRUE ~ "W") 
+    )  %>% 
+  mutate(group = str_c(north_group, east_group, sep = "")) 
+
+sta_meta <- sta_meta_orig %>% 
+  filter(str_detect(name, "^GORDON") | 
+           str_detect(name, "^KENNEBEC") | 
+           str_detect(name, "^RAPID CITY 4") | 
+           str_detect(name, "^COTTONWOOD") | 
+           str_detect(name, "^MISSION") | 
+           str_detect(name, "^ORAL") 
+  ) 
+
+voronoi <- deldir(sta_meta$lon, sta_meta$lat) 
+
+
+sta_meta %>%  
+ggplot(aes(x = longitude, y = latitude)) + 
+# add stations  
+  geom_point(
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    pch = 21,
+    size = 4,
+    color = "#333333")  + 
+# add Theissen polygons 
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2), 
+    size = 2, 
+    data = voronoi$dirsgs, 
+    linetype = 1, 
+    color = "#FFB958")  + 
+# add county polygons   
+  geom_polygon(data = counties, 
+               aes(x = long, y = lat, group = group),  
+              color = "black", 
+              #linetype = "dashed", 
+              fill = "NA") + 
+# add gages 
+  geom_point(data = gage_meta_fin, aes(dec_long_va, dec_lat_va),  
+             shape = 24, 
+    fill = rgb(130, 130, 180, 255, 
+               maxColorValue = 255),
+    pch = 21,
+    size = 2,
+    color = "#333333" 
+    )  + 
+ 
+  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
+              color = "red", linetype = "dashed", fill = "NA") + 
+
+  theme_bw() +
+#  geom_text(data = sta_meta_orig, aes(label = name), size = 2.5) +
+  ggtitle("Original Theissen Polygon Map") 
+```
+
+
+```{r import_prcp, eval=FALSE}
+  
+sta_input <- data.frame(name = c('RAPID CITY RGNL AP',  
+                                 'HOT SPRINGS',  
+                                'OELRICHS',  
+                                'INTERIOR 3 NE',  
                                 'COTTONWOOD 2 E', 
                                 'LONG VALLEY',
                                 'HARRISON',
@@ -250,10 +423,6 @@ station <- station %>%
 
 # export(station, "data/sta_meta_orig.csv")
 ```
-
-
-
-
 
 ```{r import_site-data, eval=FALSE}
 # site
@@ -367,51 +536,7 @@ rm(site_id, eco)
 # export(site, "data/site_meta.csv")
 ```
 
-```{r voroni-diagram-initial, message=FALSE}
-# import location data 
-sta_meta <- import("data/sta_meta_orig.csv") 
-sta_meta <- sta_meta %>%
-  filter(id != "GHCND:US1SDCS0027") # filters out hermosa (short rec.)
 
-# define the study area using data from the 'maps' package
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# import polygon data - counties
-counties <- map_data("county") 
-counties <- subset(counties, region %in% 
-   c("south dakota", "nebraska"))
-prr <- subset(counties, subregion %in% 
-   c("shannon", "jackson", "bennett"))
-
-# create voroni line segments
-voronoi <- deldir(sta_meta$lon, sta_meta$lat)
-
-#Plot the points, voronoi lines, and annotate
-# grabbed this code off of a website by googling 'Voroni diag. R'
-ggplot(data = sta_meta, aes(x = lon, y = lat)) +
-  geom_point(
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
-    pch = 21,
-    size = 4,
-    color = "#333333") +   
-  geom_segment(
-    aes(x = x1, y = y1, xend = x2, yend = y2), 
-    size = 2, 
-    data = voronoi$dirsgs, 
-    linetype = 1, 
-    color = "#FFB958") + 
-  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
-              color = "black", linetype = "dashed", fill = "NA") +
-  theme_bw() +
-  geom_text(data = sta_meta, aes(label = name), size = 2.5) +
-  ggtitle("Original Theissen Polygon Map")
-
-# Results: 
-# We can drop Ainsworth, Harrison that are outside of study area &
-# Oral would be better than Hot Springs for elev, location & coverage
-
-ggplot2::ggsave(filename = "figure/theissen_init.png", 
-                width = 6, height = 6, units = "in")
-```
 
 ```{r download-precip, eval=FALSE}
 # DL Global Historical Climatology Network (GHCN) Daily Data   
