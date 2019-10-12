@@ -11,44 +11,15 @@ Data:
 Predominant datasets used are:  
 1) NOAA data
 2) USGS daily streamflow and station metadata,  
-3) Summary data from a QGIS analysis of ungaged watersheds of interest.  
+####3) Summary data from a QGIS analysis of ungaged watersheds of interest.  
 
 ## Analysis Steps:
 
 
 1. Create points for maps.  
-# The output files have been created. 
+
 
 <!--
-## Original Stations and reason for removal, if removed
-GHCND:US1SDCS0027 HERMOSA 10.3 ESE, SD US - removed for short record  
-GHCND:USC00253615 HARRISON, NE US - removed for outside region  
-GHCND:USC00396212 OELRICHS, SD US    
-GHCND:US1SDFR0001 HOT SPRINGS 0.5 SSW, SD US - too close to Oelrichs  
-GHCND:USC00396304 ORAL, SD US    
-GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US    
-GHCND:USC00394184 INTERIOR 3 NE, SD US    
-GHCND:USC00391972 COTTONWOOD 2 E, SD US   
-GHCND:USC00394983 LONG VALLEY, SD US                  
-GHCND:US1SDJK0006 KADOKA 0.3 N, SD US - removed short period record   
-GHCND:USC00395891 MURDO, SD US - removed for outside region   
-GHCND:USC00395638 MISSION 14 S, SD US    
-GHCND:USC00250050 AINSWORTH, NE US 
-
-
-# 'station' 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# get station id with the mapping tool at 
-# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation 
-# iterate across a list of station ids by purrr::map 
-# to get NOAA station meta data using rnoaa::ncdc_stationsn
-# the output is a list of 7 x 2 x 9.n
-# flatten into a dataframe by purrr::flatten 
-# reorder and rename columns by dplyr 
-# save the station df by rion
-1.1. Data read in from NOAA website  
-
-
 
 1.2. Data munging to check, join and remove NAs 
 1.3. Updated unit vals - originally in tenths of mm; now in mm 
@@ -98,10 +69,8 @@ gage_meta_poss      metadata for possible gaging stations
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
-
-#knitr::opts_chunk$set(echo = FALSE)      
-options(tibble.print_max = 70) # sets tibble output for printing     
+knitr::opts_chunk$set(echo = FALSE)  
+options(tibble.print_max = 70) # sets tibble output for printing       
 ```
 
 ```{r library, message=FALSE} 
@@ -161,6 +130,18 @@ library("corrplot")          # correlation plots
 
 ```{r import_prcp, eval=FALSE}
 
+
+# Also possible to check station id with the mapping tool at:
+# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation 
+# iterate across a list of station ids by purrr::map 
+# to get NOAA station meta data using rnoaa::ncdc_stationsn
+# the output is a list of 7 x 2 x 9.n
+# flatten into a dataframe by purrr::flatten 
+# reorder and rename columns by dplyr 
+# save the station df by rion
+
+
+
 # Get possible stations -----------------------------------------------------  
 # The geographical extent given as SElat, SElon, NWlat, NWlon
 
@@ -172,60 +153,36 @@ sta_meta_orig <- ncdc_stations(extent = c(42.7, -103.8, 44.7, -99.5),
   mutate(mindate = ymd(mindate)) %>% 
   mutate(maxdate = ymd(maxdate)) %>%                 
 # remove 'young' stations 
-  filter(mindate < "1989-01-01") %>%                 # n = 180       
+  filter(mindate < "1989-01-01") %>%                 # n = 180 check      
 # remove 'dead' stations 
-  filter(maxdate > "2018-01-01") %>%                 # n = 31
+  filter(maxdate > "2018-01-01") %>%                 # n = 31 check
 # remove poor data coverage stations   
-  filter(datacoverage == 1.0) %>%                    # n = 25 
+  filter(datacoverage == 1.0) %>%                    # n = 25 check
 # keep only the GHCND stations  
-  filter(str_detect(id, "^G")) %>%                   # n = 23 
-# remove mountain stations 
-  filter(elevation < 1500) #%>%                      # n = 20  
+  filter(str_detect(id, "^G")) %>%                   # n = 23 check
 
-#sta_meta_orig %>%  
-#  mutate(longitude = -longitude) %>% 
-#ggplot(aes(longitude, latitude)) + 
-#  geom_point() + 
-#  geom_text(aes(label = paste(name)), 
-#            size = 2, 
-#            check_overlap = TRUE, 
-#            vjust = 0.5)   
+## Old Stations and reason for removal, if removed
+# GHCND:US1SDCS0027 HERMOSA 10.3 ESE, SD US - removed for short record  
+# GHCND:USC00253615 HARRISON, NE US - removed for outside region  
+#GHCND:USC00396212 OELRICHS, SD US    
+#GHCND:US1SDFR0001 HOT SPRINGS 0.5 SSW, SD US - too close to Oelrichs  
+#GHCND:USC00396304 ORAL, SD US    
+#GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US    
+##GHCND:USC00394184 INTERIOR 3 NE, SD US    
+#GHCND:USC00391972 COTTONWOOD 2 E, SD US   
+#GHCND:USC00394983 LONG VALLEY, SD US                  
+#GHCND:US1SDJK0006 KADOKA 0.3 N, SD US - removed short period record   
+#GHCND:USC00395891 MURDO, SD US - removed for outside region   
+#GHCND:USC00395638 MISSION 14 S, SD US    
+#GHCND:USC00250050 AINSWORTH, NE US 
 
-
-
-# export(station, "data/sta_meta_orig.csv")
+export(sta_meta_orig, "data/sta_meta_orig.csv")
 ```
 
 
+
+
 ```{r voroni-diagram-initial, message=FALSE}
-# import location data 
-#sta_meta <- import("data/sta_meta_orig.csv") 
-
-#sta_meta <- sta_meta %>%
-#  filter(id != "GHCND:US1SDCS0027") # filters out hermosa (short rec.)
-
-#subregion == "crook" |
-#         subregion == "laramie" | 
-#         subregion == "harding" |  # start sd
-#         subregion == "perkins" | 
-#         subregion == "corson" | 
-#    subregion == "dewey" | 
-#    subregion == "ziebach"  | 
-#    subregion == "butte" | 
-#   subregion == "weston" | 
-#    subregion == "niobrara" |   
-#    subregion == "goshen" |  
-
-
-
-# create voroni line segments
-voronoi <- deldir(sta_meta_orig$lon, sta_meta_orig$lat) 
-
-# get gages 
-gage_meta_fin <- read_csv("data/gage_meta_fin.csv") %>% 
-  filter(!is.na(sta))
-
-
 
 # Define the study area using data from the 'maps' package ------------------
 # import polygon data - US counties 
@@ -270,11 +227,20 @@ counties <- bind_rows(counties_wysd, counties_ne)
 
 rm(counties_wysd, counties_ne) 
 
+# create Theissen line segments
+voronoi <- deldir(sta_meta_orig$lon, sta_meta_orig$lat) 
+
+# add streamflow gages 
+gage_meta_fin <- read_csv("data/gage_meta_fin.csv") %>% 
+  filter(!is.na(sta))
+
 #Plot the points, voronoi lines, and annotate
 # grabbed this code off of a website by googling 'Voroni diag. R'
-
-ggplot(data = sta_meta_orig, aes(x = longitude, y = latitude)) + 
-# add stations  
+sta_meta_orig %>% 
+  # remove mountain stations 
+  filter(elevation < 1500) %>%                      # n = 29  
+ggplot(aes(x = longitude, y = latitude)) + 
+# plot weather stations  
   geom_point(
     fill = rgb(70, 130, 180, 255, maxColorValue = 255),
     pch = 21,
@@ -292,8 +258,8 @@ ggplot(data = sta_meta_orig, aes(x = longitude, y = latitude)) +
                aes(x = long, y = lat, group = group),  
               color = "black", 
               #linetype = "dashed", 
-              fill = "NA") + 
-# add gages 
+              fill = "NA") #+ 
+# add stream flow gages 
   geom_point(data = gage_meta_fin, aes(dec_long_va, dec_lat_va),  
              shape = 24, 
     fill = rgb(70, 130, 180, 255, 
@@ -303,8 +269,8 @@ ggplot(data = sta_meta_orig, aes(x = longitude, y = latitude)) +
     color = "#333333" 
     )  + 
  
-  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
-              color = "black", linetype = "dashed", fill = "NA") + 
+#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
+#              color = "black", linetype = "dashed", fill = "NA") + 
 
   theme_bw() +
 #  geom_text(data = sta_meta_orig, aes(label = name), size = 2.5) +
@@ -319,8 +285,9 @@ ggplot(data = sta_meta_orig, aes(x = longitude, y = latitude)) +
 ```
 
 
-```{r select_stations}
+```{r select_final_stations}
 
+# create groups of stations by region 
 sta_meta_orig <- sta_meta_orig %>% 
   mutate(north_group = case_when( 
     latitude > 43.5 ~ "N", 
@@ -333,6 +300,7 @@ sta_meta_orig <- sta_meta_orig %>%
     )  %>% 
   mutate(group = str_c(north_group, east_group, sep = "")) 
 
+# select final stations 
 sta_meta <- sta_meta_orig %>% 
   filter(str_detect(name, "^GORDON") | 
            str_detect(name, "^KENNEBEC") | 
@@ -342,9 +310,10 @@ sta_meta <- sta_meta_orig %>%
            str_detect(name, "^ORAL") 
   ) 
 
+# update Theissen line segments  
 voronoi <- deldir(sta_meta$lon, sta_meta$lat) 
 
-
+# plot stations 
 sta_meta %>%  
 ggplot(aes(x = longitude, y = latitude)) + 
 # add stations  
@@ -376,53 +345,14 @@ ggplot(aes(x = longitude, y = latitude)) +
     color = "#333333" 
     )  + 
  
-  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
-              color = "red", linetype = "dashed", fill = "NA") + 
-
+#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
+#              color = "red", linetype = "dashed", fill = "NA") + 
   theme_bw() +
 #  geom_text(data = sta_meta_orig, aes(label = name), size = 2.5) +
-  ggtitle("Original Theissen Polygon Map") 
+  ggtitle("Final Theissen Polygon Map") 
 ```
 
 
-```{r import_prcp, eval=FALSE}
-  
-sta_input <- data.frame(name = c('RAPID CITY RGNL AP',  
-                                 'HOT SPRINGS',  
-                                'OELRICHS',  
-                                'INTERIOR 3 NE',  
-                                'COTTONWOOD 2 E', 
-                                'LONG VALLEY',
-                                'HARRISON',
-                                'AINSWORTH, NE',
-                                'MURDO, SD US',
-                                'MISSION 14 S, SD US',
-                                'ORAL, SD US',
-                                'KADOKA 0.3 N, SD US'),
-                        id = c("GHCND:USW00024090", 
-                               "GHCND:US1SDFR0001",
-                               "GHCND:USC00396212",
-                               "GHCND:USC00394184",
-                               "GHCND:USC00391972",
-                               "GHCND:USC00394983",
-                               "GHCND:USC00253615",
-                               "GHCND:USC00250050",
-                               "GHCND:USC00395891",
-                               "GHCND:USC00395638",
-                               "GHCND:USC00396304",
-                               "GHCND:US1SDJK0006"),
-                        stringsAsFactors = FALSE)
-
-station <- map(sta_input$id, ncdc_stations)
-station <- flatten_dfr(station)
-
-station <- station %>%
-  rename(lat = latitude) %>%
-  rename(lon = longitude) %>%
-  select(id, name, lat, lon, everything())
-
-# export(station, "data/sta_meta_orig.csv")
-```
 
 ```{r import_site-data, eval=FALSE}
 # site
@@ -2168,4 +2098,45 @@ corrplot.mixed(corr_ann, order = "hclust",
 # sta_M <- cor(sta_72)
 # corrplot.mixed(sta_M,  order = "hclust", addrect = 2, upper =  "ellipse", 
 # lower = "number", title = "Precipitation station correlation")  
+```
+
+
+# OLD CODE to delete 
+```{r import_prcp, eval=FALSE}
+  
+sta_input <- data.frame(name = c('RAPID CITY RGNL AP',  
+                                 'HOT SPRINGS',  
+                                'OELRICHS',  
+                                'INTERIOR 3 NE',  
+                                'COTTONWOOD 2 E', 
+                                'LONG VALLEY',
+                                'HARRISON',
+                                'AINSWORTH, NE',
+                                'MURDO, SD US',
+                                'MISSION 14 S, SD US',
+                                'ORAL, SD US',
+                                'KADOKA 0.3 N, SD US'),
+                        id = c("GHCND:USW00024090", 
+                               "GHCND:US1SDFR0001",
+                               "GHCND:USC00396212",
+                               "GHCND:USC00394184",
+                               "GHCND:USC00391972",
+                               "GHCND:USC00394983",
+                               "GHCND:USC00253615",
+                               "GHCND:USC00250050",
+                               "GHCND:USC00395891",
+                               "GHCND:USC00395638",
+                               "GHCND:USC00396304",
+                               "GHCND:US1SDJK0006"),
+                        stringsAsFactors = FALSE)
+
+station <- map(sta_input$id, ncdc_stations)
+station <- flatten_dfr(station)
+
+station <- station %>%
+  rename(lat = latitude) %>%
+  rename(lon = longitude) %>%
+  select(id, name, lat, lon, everything())
+
+# export(station, "data/sta_meta_orig.csv")
 ```
