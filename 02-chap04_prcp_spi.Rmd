@@ -596,7 +596,7 @@ sta_check <- sta_dv %>%
     count = n()) 
 
 # join dv-lenth to metadata  
-sta_meta2 <- right_join(sta_meta, sta_dv_len,  
+sta_meta <- right_join(sta_meta, sta_dv_len,  
                    by = c("sta_id", "name"))  
 
 rm(sta_dv_len, sta_meta_orig, sta_meta_plus, sta_check, sta_dv_plus, 
@@ -606,7 +606,6 @@ rm(sta_dv_len, sta_meta_orig, sta_meta_plus, sta_check, sta_dv_plus,
 # export daily data   
 export(sta_dv, file = "data/sta_dv.csv")  
 export(sta_meta, file = "data/sta_meta.csv")
-
 
 ``` 
 
@@ -701,39 +700,63 @@ sta_check <- sta_dv %>%
 sta_dv <- sta_dv %>%  
   select(-sflag_prcp)  
 
+rm(sta_check) 
+```
+
+
+```{r prcp_daily2monthly}
+
+# add short names to metadata & update the stored file ----------------------  
+sta_meta <- sta_meta %>%  
+  mutate(sta = case_when(  
+    str_detect(name, "^RAPID CITY R") ~ "RAP",  
+    str_detect(name, "^COTTONWOOD")   ~ "COT",  
+    str_detect(name, "^ONIDA")        ~ "ONI",  
+    str_detect(name, "^ORAL")         ~ "ORA",  
+    str_detect(name, "^GORDON")       ~ "GOR",      
+    str_detect(name, "^MISSION")      ~ "MIS",  
+    TRUE ~ "ERROR"  
+         )   
+  ) %>%   
+  select(sta, name, longitude, latitude, elevation,  
+         perc_complete, group, everything())  
+
+export(sta_meta, file = "data/sta_meta.csv")  
+
+# add short names and create monthly data -----------------------------------  
+scratch <- sta_meta %>%  
+  select(sta, sta_id)  
+
+sta_mon <- full_join(scratch, sta_dv,   
+                     by = "sta_id") %>%  
+  select(-c(name, sta_id)) %>%  
+  group_by(year, month, sta) %>%   
+  summarize(prcp_tenths = sum(prcp)) %>%  
+  mutate(prcp_mm = prcp_tenths/10) %>%  
+  select(-prcp_tenths) %>%  
+  ungroup()  
+
+rm(scratch)  
+
+# spread results & create date with day at midpoint of month ----------------  
+sta_mon_long <- sta_mon %>%  
+  spread(sta, prcp_mm) %>%  
+  mutate(day = 15) %>%  
+  mutate(date = make_date(year = year, month = month, day = day)) %>%   
+  select(date, year, month, everything()) %>%  
+  select(-day) %>%  
+  ungroup()  
+
+sta_mon <- sta_mon_long %>%  
+  gather(key = sta, val = depth_mm,  
+         -c(date, year, month))  
+  
+rm(sta_mon_long, sta_dv)  
+
+export(sta_mon, file = "data/stations_monthly.csv")  
 ```
 
 START HERE
-```{r daily2monthly-precip}
-
-# gather daily values 
-sta_gath <- gather(sta_day, key = "station", value = "prcp", -date, 
-                   -year, -month, factor_key = TRUE)
-
-# create groups 
-sta_group <- sta_gath %>% 
-  group_by(year, month, station) 
-
-# sum daily precip over a month 
-sta_gath_mon <- sta_group %>% 
-  summarize(prcp_tenths = sum(prcp)) %>% 
-  mutate(prcp_mm = prcp_tenths/10) %>% 
-  select(-prcp_tenths) 
-
-# spread result - now in months  
-#   ...and take a bow, because this is MAGIC!  Thnx Tidyverse. 
-sta_mon <- sta_gath_mon %>% 
-  spread(station, prcp_mm) %>% 
-  mutate(day = 1) %>% 
-  mutate(date = make_date(year = year, month = month, day = day)) %>% 
-  select(date, year, month, everything()) %>% 
-  select(-day) %>% 
-  ungroup()
-
-rm(sta_day, sta_gath, sta_gath_mon, sta_group) 
-# export(sta_mon, file = "data/stations_monthly.csv") 
-```
-
 ```{r eval-precip-data-ora}
 # General Purpose: check a short-term record: Oral 
 
@@ -999,7 +1022,11 @@ corrplot.mixed(corr_ann, order = "hclust",
 # OLD CODE to delete 
 ```{r import_prcp, eval=FALSE}
 
-
+# gather daily values  
+#sta_gath <- sta_dv %>%  
+#  gather(key = "sta", value = "prcp",  
+#         -c(date, year, month, name, sta_id)  
+#         )  
 # make a table for manual import  
 # sta <- as.tibble(select(station_meta, 1:2))  
 
