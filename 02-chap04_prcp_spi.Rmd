@@ -7,19 +7,17 @@ editor_options:
 <!--
 This R markdown file refactors prior code for spi analysis
 
+1) download and clean daily precip
+2)  convert daily precip to monthly precip  
+3)  prepare data for drought index 
+
 Data:
 Predominant datasets used are:  
 1) NOAA data
 2) USGS daily streamflow and station metadata,  
 ####3) Summary data from a QGIS analysis of ungaged watersheds of interest.  
 
-## Analysis Steps:
 
-
-1. Create points for maps.  
-
-
-<!--
 
 1.2. Data munging to check, join and remove NAs 
 1.3. Updated unit vals - originally in tenths of mm; now in mm 
@@ -138,11 +136,7 @@ library("corrplot")          # correlation plots
 sta_meta_orig <- ncdc_stations(extent = c(42.5, -104.5, 45, -99.5), 
                                limit = 1000) %>%      # n = 777 
 # get possible stations into a dataframe 
-  pluck("data") #%>% 
-  
-
-
-sta_meta_orig <- sta_meta_orig %>% 
+  pluck("data") %>% 
 # turn min & max date into lubridates 
   mutate(mindate = ymd(mindate)) %>% 
   mutate(maxdate = ymd(maxdate)) %>%                 
@@ -184,7 +178,7 @@ export(sta_meta_orig, "data/sta_meta_orig.csv")
 
 ```
 
-```{r voroni-diagram-initial, message=FALSE}
+```{r plot-theissen-initial, message=FALSE}
 
 # Define the study area using data from the 'maps' package ------------------
 # import polygon data - US counties 
@@ -238,7 +232,6 @@ gage_meta_fin <- read_csv("data/gage_meta_fin.csv") %>%
 
 # plot stations -------------------------------------------------------------  
 # grabbed this code off of a website by googling 'Voroni diag. R'
-
 sta_meta_orig %>% 
 #  # remove mountain stations 
 #  filter(elevation < 1500) %>%                      # n = 29  
@@ -279,11 +272,12 @@ ggplot2::ggsave(filename = "figure/theissen_init.png",
                 width = 6, height = 6, units = "in")  
 ```
 
-```{r select-plot_final_stations}
+```{r plot-theissen-final_stations}
 
-# select final stations -- based on central location 
+# select final stations -- based on central location + nearest neighbors 
 sta_meta_plus <- sta_meta_orig %>% 
-  filter(str_detect(name, "^RAPID CITY R") |     # NW         
+  filter(str_detect(name, "^RAPID CITY R") |     # NW      
+         str_detect(name, "^RAPID CITY 4") |     # NW-alt      
          str_detect(name, "^COTTONWOOD")   |     # NC 
          str_detect(name, "^INTERIOR")     |     # NC-alt 
          str_detect(name, "^ONIDA")        |     # NE
@@ -292,10 +286,11 @@ sta_meta_plus <- sta_meta_orig %>%
          str_detect(name, "^OELRICHS")     |     # SW-alt   
          str_detect(name, "^GORDON")       |     # SC         
          str_detect(name, "^VALENTINE")    |     # SC-alt     
-         str_detect(name, "^MISSION")            # SE  
+         str_detect(name, "^MISSION")      |     # SE  
+         str_detect(name, "^WOOD")               # SE-alt   
          )     
 
-
+# select final stations 
 sta_meta <- sta_meta_orig %>% 
   filter(str_detect(name, "^RAPID CITY R") |     # NW         
          str_detect(name, "^COTTONWOOD")   |     # NC 
@@ -304,7 +299,6 @@ sta_meta <- sta_meta_orig %>%
          str_detect(name, "^GORDON")       |     # SC         
          str_detect(name, "^MISSION")            # SE
          )     
-
 
 # update Theissen line segments  
 voronoi <- deldir(sta_meta$lon, sta_meta$lat) 
@@ -355,7 +349,6 @@ ggplot2::ggsave(filename = "figure/theissen_fin.png",
 
 rm(voronoi, counties)
 
-
 ```  
 
 ```{r download_daily-precip}
@@ -377,12 +370,6 @@ sta_dv_plus <- sta_meta_plus %>%
 
 rm(dateMin, dateMax)  
 
-# join daily data-plus to metadata  
-sta_dv_plus <- right_join(sta_meta_plus, sta_dv_plus,  
-                   by = c("sta_id" = "id"))  %>% 
-  select(-c(type, datacoverage, elevationUnit)) %>% 
-  select(date, everything())  
-
 # fix date & add year and month
 sta_dv_plus <- sta_dv_plus %>%
   mutate(date = ymd(date)) %>%
@@ -391,447 +378,333 @@ sta_dv_plus <- sta_dv_plus %>%
   mutate(month = month(date)) %>%
   select(date, year, month, everything()) 
 
+``` 
+
+```{r fill_missing_precip_data}
+
+# join bits of daily data-plus to metadata   
+sta_dv_plus <- right_join(sta_meta_plus, sta_dv_plus,  
+                   by = c("sta_id" = "id"))   %>%  
+  select(name, sta_id, date, year, month, mflag_prcp,  
+         prcp, qflag_prcp, sflag_prcp)  %>% 
+  select(date, everything())   
+
 # check for missing years  
-sta_check_yr <- sta_dv_plus %>%  
-  group_by(name, year, group) %>%  
+sta_check <- sta_dv_plus %>%  
+  group_by(name, sta_id, year) %>%  
   summarise(num_day = n())  %>% 
   filter(num_day < 365) %>% 
   ungroup() 
 
-# get north-west 
+# separate north-west data --------------------------------------------------  
 sta_nw <-  sta_dv_plus %>% 
-   filter(str_detect(name, "^RAPID CITY R"))       # NC 
+  filter(str_detect(name, "^RAPID CITY R")) %>% 
+  filter(!is.na(prcp)) 
+  
+sta_nw_nm <- sta_nw %>% 
+  slice(1) %>% 
+  select(name, sta_id) 
 
 sta_nw_len <- sta_nw %>% 
   group_by(name, sta_id) %>% 
-  summarise(count = n()) 
+  summarise(count = n())  %>% 
+  ungroup()  
 
-# get and fill north-central 
+sta_nw_alt <-  sta_dv_plus %>% 
+  filter(str_detect(name, "^INTERIOR")) %>% 
+  mutate(name = sta_nw_nm$name) %>% 
+  mutate(sta_id = sta_nw_nm$sta_id) 
+
+# get alternate site data & prepare fill 
+sta_nw_fill <- anti_join(sta_nw_alt, sta_nw, by = "date") 
+
+sta_nw <- bind_rows(sta_nw, sta_nw_fill)  %>% 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE)
+
+rm(sta_nw_alt, sta_nw_nm, sta_nw_fill)  
+
+# separate and fill north-central  ------------------------------------------  
 sta_nc <-  sta_dv_plus %>% 
-   filter(str_detect(name, "^COTTONWOOD"))       # NC 
+   filter(str_detect(name, "^COTTONWOOD")) %>% 
+  filter(!is.na(prcp)) 
+
+sta_nc_nm <- sta_nc %>% 
+  slice(1) %>% 
+  select(name, sta_id) 
 
 sta_nc_len <- sta_nc %>% 
   group_by(name, sta_id) %>% 
-  summarise(count = n()) 
+  summarise(count = n())  %>% 
+  ungroup()  
 
 sta_nc_alt <-  sta_dv_plus %>% 
-   filter(str_detect(name, "^INTERIOR"))          # NC-alt 
+  filter(str_detect(name, "^INTERIOR")) %>% 
+  mutate(name = sta_nc_nm$name) %>% 
+  mutate(sta_id = sta_nc_nm$sta_id) 
 
-sta_nc_fill <- anti_join(sta_nc,sta_nc_alt, by = "date") 
+# get alternate site data & prepare fill 
+sta_nc_fill <- anti_join(sta_nc_alt, sta_nc, by = "date") 
 
 sta_nc <- bind_rows(sta_nc, sta_nc_fill)  %>% 
   arrange(name) %>% 
   distinct(date, .keep_all = TRUE)
 
+rm(sta_nc_alt, sta_nc_nm, sta_nc_fill)  
 
-   |     # NW         
-         str_detect(name, "^COTTONWOOD")   |     # NC 
-         str_detect(name, "^INTERIOR")     |     # NC-alt 
-         str_detect(name, "^ONIDA")        |     # NE
-         str_detect(name, "^KENNEBEC")     |     # NE-alt  
-         str_detect(name, "^ORAL")         |     # SW    
-         str_detect(name, "^OELRICHS")     |     # SW-alt   
-         str_detect(name, "^GORDON")       |     # SC         
-         str_detect(name, "^VALENTINE")    |     # SC-alt     
-         str_detect(name, "^MISSION")            # SE  
-         )     
+# separate and fill north-east ----------------------------------------------    
+sta_ne <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^ONIDA")) %>% 
+  filter(!is.na(prcp)) 
 
+# prepare to change name 
+sta_ne_nm <- sta_ne %>% 
+  slice(1) %>% 
+  select(name, sta_id) 
 
+sta_ne_len <- sta_ne %>% 
+  group_by(name, sta_id) %>% 
+  summarise(count = n())  %>% 
+  ungroup()  
 
-# split the data into dv and fill data 
-sta_dv <- sta_dv_plus %>% 
-    filter(str_detect(name, "^RAPID CITY R") |   # NW         
-         str_detect(name, "^COTTONWOOD")   |     # NC 
-         str_detect(name, "^ONIDA")        |     # NE
-         str_detect(name, "^ORAL")         |     # SW    
-         str_detect(name, "^GORDON")       |     # SC         
-         str_detect(name, "^MISSION")            # SE
-         )     
+# get alternate site data & prepare fill 
+sta_ne_alt <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^KENNEBEC")) %>% 
+  mutate(name = sta_ne_nm$name) %>% 
+  mutate(sta_id = sta_ne_nm$sta_id)           
 
+sta_ne_fill <- anti_join(sta_ne_alt, sta_ne, by = "date") 
 
+sta_ne <- bind_rows(sta_ne, sta_ne_fill)  %>% 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE)
 
+rm(sta_ne_alt, sta_ne_nm, sta_ne_fill)  
 
+# separate and fill southwest ------------------------------------------------    
+sta_sw <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^ORAL")) %>% 
+  filter(!is.na(prcp))      
 
+# prepare to change name 
+sta_sw_nm <- sta_sw %>% 
+  slice(1) %>% 
+  select(name, sta_id) 
 
-sta_check_mon <- sta_dv %>% 
-  filter(year == 1996 | 
-         year == 2012 |
-         year == 1995 |
-         year == 2005 
-         ) %>% 
-  group_by(name, year, month) %>%  
-  summarise(num_day = n())  
+# get length 
+sta_sw_len <- sta_sw %>% 
+  group_by(name, sta_id) %>% 
+  summarise(count = n()) %>% 
+  ungroup()  
 
+# get alternate site data & prepare fill 
+sta_sw_alt <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^OELRICHS")) %>% 
+  mutate(name = sta_sw_nm$name) %>% 
+  mutate(sta_id = sta_sw_nm$sta_id) 
 
+sta_sw_fill <- anti_join(sta_sw_alt, sta_sw, by = "date") 
 
-sta_dv_alt <- anti_join(sta_dv_plus, sta_dv, 
-                        by = c("sta_id")  
-                        )  
+sta_sw <- bind_rows(sta_sw, sta_sw_fill)  %>% 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE)
 
+rm(sta_sw_alt, sta_sw_nm, sta_sw_fill)  
 
+# separate and fill southwest ------------------------------------------------    
+sta_sc <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^GORDON")) %>% 
+  filter(!is.na(prcp))     
 
+# prepare to change name 
+sta_sc_nm <- sta_sc %>% 
+  slice(1) %>% 
+  select(name, sta_id) 
 
+sta_sc_len <- sta_sc %>% 
+  group_by(name, sta_id) %>% 
+  summarise(count = n())  %>% 
+  ungroup()  
 
+# get alternate site data & prepare fill 
+sta_sc_alt <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^VALENTINE")) %>% 
+  mutate(name = sta_sc_nm$name) %>% 
+  mutate(sta_id = sta_sc_nm$sta_id)        
 
+sta_sc_fill <- anti_join(sta_sc_alt, sta_sc, by = "date") 
 
+sta_sc <- bind_rows(sta_sc, sta_sc_fill)  %>% 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE)
 
+rm(sta_sc_alt, sta_sc_nm, sta_sc_fill)  
 
+# separate south-west data --------------------------------------------------  
+sta_se <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^MISSION")) %>% 
+  filter(!is.na(prcp)) 
 
-# export daily data  
+# prepare to change name 
+sta_se_nm <- sta_se %>% 
+  slice(1) %>% 
+  select(name, sta_id) 
+
+sta_se_len <- sta_se %>% 
+  group_by(name, sta_id) %>% 
+  summarise(count = n()) 
+
+# get alternate site data & prepare fill 
+sta_se_alt <-  sta_dv_plus %>% 
+   filter(str_detect(name, "^WOOD")) %>% 
+  mutate(name = sta_se_nm$name) %>% 
+  mutate(sta_id = sta_se_nm$sta_id)        
+
+sta_se_fill <- anti_join(sta_se_alt, sta_se, by = "date") 
+
+sta_se <- bind_rows(sta_se, sta_se_fill)  %>% 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE)
+
+rm(sta_se_alt, sta_se_nm, sta_se_fill)  
+
+# rejoin daily data and lengths ---------------------------------------------  
+sta_dv <- bind_rows(sta_nw, 
+                    sta_nc, 
+                    sta_ne, 
+                    sta_sw, 
+                    sta_sc, 
+                    sta_se) 
+
+sta_dv_len <- bind_rows(sta_nw_len, 
+                        sta_nc_len, 
+                        sta_ne_len, 
+                        sta_sw_len, 
+                        sta_sc_len, 
+                        sta_se_len) %>% 
+  mutate(max_count = max(count)) %>% 
+  mutate(perc_complete =  
+    round(count/max_count,  
+    digits = 3) 
+    ) %>% 
+  select(-c(count, max_count))  
+
+# check data & clean up -----------------------------------------------------   
+sta_check <- sta_dv %>% 
+  group_by(name) %>% 
+  summarise( 
+    count = n()) 
+
+# join dv-lenth to metadata  
+sta_meta2 <- right_join(sta_meta, sta_dv_len,  
+                   by = c("sta_id", "name"))  
+
+rm(sta_dv_len, sta_meta_orig, sta_meta_plus, sta_check, sta_dv_plus, 
+   sta_nw, sta_nc, sta_ne, sta_sw, sta_sc, sta_se, 
+  sta_nw_len, sta_nc_len, sta_ne_len, sta_sw_len, sta_sc_len, sta_se_len)  
+
+# export daily data   
 export(sta_dv, file = "data/sta_dv.csv")  
+export(sta_meta, file = "data/sta_meta.csv")
 
-# make a table for manual import  
-# sta <- as.tibble(select(station_meta, 1:2))  
+
+``` 
+
+```{r check_prcp_data_quality}  
+
+# Table of Measurement Flag/Attributes -- mflag  
+# Blank = no measurement information applicable           
+# A     = precip depth is a multi-day total, accumulated since last meas         
+# B     = precipitation total formed from two twelve-hour totals
+# D     = precipitation total formed from four six-hour totals           
+# H     = represents TMAX or TMIN or average of hourly values (TAVG)           
+# K     = converted from knots            
+# L     = temperature appears lagged with respect to reported hr of observation        # O     = converted from oktas  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
+# W    = converted from 16-point WBAN code (for wind direction)  
+
+sta_check <- sta_dv %>%  
+  group_by(name, mflag_prcp) %>%  
+  summarise(mflag = n())  
+
+# flags are T & A flags  
+sta_dv <- sta_dv %>%  
+  select(-mflag_prcp)  
+
+# Table of Quality Flag/Attributes  
+# Blank = did not fail any quality assurance check  
+# D     = failed duplicate check           
+# G     = failed gap check           
+# I     = failed internal consistency check           
+# K     = failed streak/frequent-value check           
+# L     = failed check on length of multiday period  
+# M     = failed mega-consistency check            
+# N     = failed naught check            
+# O     = failed climatological outlier check            
+# R     = failed lagged range check           
+# S     = failed spatial consistency check           
+# T     = failed temporal consistency check            
+# W     = temperature too warm for snow           
+# X     = failed bounds check           
+# Z     = flagged as a result of an official Datzilla investigation  
+
+sta_check <- sta_dv %>%  
+  group_by(name, qflag_prcp) %>%  
+  summarise(qflag = n())  
+
+# flags are L flags  
+sta_dv <- sta_dv %>%  
+  select(-qflag_prcp)  
+
+
+# Table Source Flag/Attributes 
+# Blank = No source (i.e., data value missing)
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200) 
+# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)
+# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder
+# A  = U.S. Automated Surface Observing System (ASOS) real-time data 
+# a  = Australian data from the Australian Bureau of Meteorology           
+# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
+# b  = Belarus update           
+# C  = Environment Canada            
+# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)           
+# F  = U.S. Fort data            
+# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data  
+# H  = High Plains Regional Climate Center real-time data           
+# I  = International collection (non U.S. data received thru pers. contacts   
+# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
+# M  = Monthly METAR Extract (additional ASOS data)           
+# N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
+# Q  = Data from African countries w/ later permission granted 
+# R  = NCDC Reference Network Database 
+# r  = All-Russian Research Inst. Hydromet Information-World Data Center    
+# S  = Global Summary of the Day (NCDC DSI-9618)
+#        NOTE: "S" values are derived from hourly synoptic reports 
+#         exchanged on the Global Telecommunications System (GTS).
+#         Daily values derived in this fashion may differ significantly from 
+#        "true" daily data, particularly for precip (i.e., use with caution).  
+# s  = China Met Admin/Nat Met Info/Climate Data Center (http://cdc.cma.gov.cn)  
+# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center  
+# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr 
+# u  = Ukraine update           
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD) 
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
+# Z  = Datzilla official additions or replacements           
+# z  = Uzbekistan update
+
+sta_check <- sta_dv %>%  
+  group_by(name, sflag_prcp) %>%  
+  summarise(sflag = n())  
+
+# flags are 0, 7, K, W, X, Z 
+sta_dv <- sta_dv %>%  
+  select(-sflag_prcp)  
 
 ```
 
-```{r check_precip_data}
-
-sta_dv <- import(file = "data/sta_dv.csv") 
-sta_meta_orig <- import(file = "data/sta_meta_orig.csv") 
-
-# fix missing data -----------------------------------------------------------  
-
-
-
-
-
-
-# appended station data to fix missing years 
-# Region   Station       Add-Station   Year 
-#  NW    RC Regional         NA         NA
-#  NC    Cottonwood      Interior 3    1996   
-#  NE      Onida          Kennebec     1995 
-#  SW      Oral           Oelrichs     2005 
-#  SC     Gordon         Valentine     2012 
-#  SE     Mission           NA          NA  
-
-
-# calculate percentages  
-length <- sta_dv %>%    
-  group_by(name) %>%  
-  summarize(length = n())  
-
-  
-sta_check_sum <- sta_check %>% 
-  group_by(name, mindate, maxdate) %>%  
-  summarize(count = n())  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Clean Oral & part of Oelrichs 1971-05-01 to present
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Using nearest year as split-point
-#   1. Split the raw data into two parts at 1971-05-01
-  sta_ge72      <- sta_raw %>% filter(year >= 1972) #
-  sta_71m05     <- sta_raw %>% filter(year == 1971 & month >= 5)
-sta_ge71m05     <- bind_rows(sta_ge72, sta_71m05) # this is active
-  rm(sta_ge72, sta_71m05)
-
-  sta_le71      <- sta_raw %>% filter(year < 1971)
-  sta_71m01_m05 <- sta_raw %>% filter(year == 1971 & month < 5)
-sta_lt71m05     <- bind_rows(sta_le71, sta_71m01_m05) # this is not
-  rm(sta_le71, sta_71m01_m05)
-
-#   2. filter NA vals from Oral
-#     Before = 368 NA <- filling with Oelrichs
-#     After: 10 concurrent NA values 
-
-sta_clean <- sta_ge71m05 %>%
-  filter(!is.na(ora)) # this is not active
-
-sta_dirty <- sta_ge71m05 %>%
-  filter(is.na(ora)) %>%
-  mutate(ora = oel) # fix oral with oelrichs
-
-sta_ge71m05 <- bind_rows(sta_clean, sta_dirty)
-  rm(sta_clean, sta_dirty)
-
-sta_NA <- sta_ge71m05 %>%
-  filter(is.na(ora)) # check is :-] NA is 1 obs
-
-#   3. filter NA vals from Oelrichs (oel)
-#     Before = 368 NA <- filling with Oral
-#     After: 10 concurrent NA values 
-
-sta_clean <- sta_ge71m05 %>%
-  filter(!is.na(oel)) # this is not active
-
-sta_dirty <- sta_ge71m05 %>%
-  filter(is.na(oel)) %>%
-  mutate(oel = ora) # fix oelrichs with oral
-
-sta_ge71m05 <- bind_rows(sta_clean, sta_dirty)
-  rm(sta_clean, sta_dirty)
-  
-sta_NA <- sta_ge71m05 %>%
-   filter(is.na(ora)) # check is :-] down to 1 NA
-rm(sta_NA)
-
-#   4. fix Oelrichs & Oral NA with Harrision
-#     Before: 1 concurrent NA values 
-
-sta_ge71m05 <- left_join(sta_ge71m05, sta_har, by = "date")
-  rm(sta_har)
-
-sta_clean <- sta_ge71m05 %>%
-  filter(!is.na(oel)) # this is not active
-
-sta_dirty <- sta_ge71m05 %>%
-  filter(is.na(oel)) %>%
-  mutate(oel = prcp) %>%
-  mutate(ora = prcp)
-
-sta_ge71m05 <- bind_rows(sta_clean, sta_dirty)
-  rm(sta_clean, sta_dirty)
-
-sta_NA <- sta_ge71m05 %>%
-   filter(is.na(ora)) # check is :-] zero NA vals
-rm(sta_NA) 
-  
-#   4. Put the pieces back together
-sta_ge71m05 <- sta_ge71m05 %>%
-  select(-prcp, -id) 
-sta_trans <- bind_rows(sta_ge71m05, sta_lt71m05)
-rm(sta_ge71m05,sta_lt71m05)
-
-# Check work
-intro_raw
-
-#A tibble: 1 x 4
-#   rows columns total_missing_values total_observations
-#  <int>   <int>                <int>              <int>
-# 45684      10               111229             456840
-
-intro_trans <- as.tibble(introduce(sta_trans)) %>%
-  select(-(3:5)) %>%
-  select(-5)
-intro_trans
-
-# A tibble: 1 x 4
-#   rows columns total_missing_values total_observations
-#  <int>   <int>                <int>              <int>
-# 45684      10               110496             456840
-
-# export the work to a file
-# export(sta_trans, file = "data/stations_trans1.csv")  
-```  
-
-```{r modeling-results-1}
-# continued from above 
-lm_both <- lm(data = sta_mon, sqrt(lon) ~ sqrt(mis) + sqrt(int)) 
-lm_both_tidy <- tidy(lm_both)
-lm_both_glance <- glance(lm_both)
-
-lm_int <- lm(data = sta_mon, sqrt(lon) ~ sqrt(int))
-lm_int_tidy <- tidy(lm_int)
-lm_int_glance <- glance(lm_int)
-
-lm_mis <- lm(data = sta_mon, sqrt(lon) ~ sqrt(mis))
-lm_mis_tidy <- tidy(lm_mis)
-lm_mis_glance <- glance(lm_mis)
-
-# combine models
-lm_glance <- bind_rows(lm_both_glance, lm_int_glance)
-lm_glance <- bind_rows(lm_glance, lm_mis_glance)
-
-lm_glance <- as.tibble(lm_glance) %>%
-  mutate(name = c("both", "int", "mis")) %>%
-  select(name, everything())
-lm_glance
-```
-
-```{r modeling-results-2}
-# continued from above 
-# result: drop the long valley data and use Interior for southeast 
-# remove not-needed stations from metadata 
-sta_meta <- sta_meta %>% 
-  filter(name != "LONG VALLEY, SD US") 
-
-# export(sta_meta, file = "data/sta_meta_fin3.csv")
-```
-
-
-
-```{r voroni-diagram-inter}
-# import site location data and filter out:
-#   hermosa, ainsworth, harrison, hot springs
-
-sta_meta <- import("data/sta_meta_orig.csv")
-sta_meta <- sta_meta %>%
-  filter(id != "GHCND:US1SDCS0027") %>% # very short length - HER
-  filter(id != "GHCND:USC00250050") %>% # outside region - AIN
-  filter(id != "GHCND:USC00253615") %>% # outside region - HAR
-  filter(id != "GHCND:US1SDFR0001") %>% # close to oral - HOT
-  filter(id != "GHCND:USC00395891") %>% # outside range - MUR
-  filter(id != "GHCND:USC00394983") %>% # love - but stopped 2012 - LON
-  filter(id != "GHCND:US1SDJK0006") 
-
-# import gage location data
-gage_meta <- import("data/gage_meta.csv")
-  
-# define the study area using data from the 'maps' package
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# import polygon data - counties
-counties <- map_data("county") 
-counties <- subset(counties, region %in% 
-   c("south dakota", "nebraska"))
-prr <- subset(counties, subregion %in% 
-   c("shannon", "jackson", "bennett"))
-
-# create voroni line segments
-voronoi <- deldir(sta_meta$lon, sta_meta$lat)
-
-#Plot the points, voronoi lines, and annotate
-p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
-  geom_point(
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
-    pch = 21,
-    size = 4,
-    color = "#333333") +   
-  geom_segment(
-    aes(x = x1, y = y1, xend = x2, yend = y2),
-    size = 2,
-    data = voronoi$dirsgs,
-    linetype = 1,
-    color = "#FFB958") +
-  geom_polygon(data = prr, aes(x = long, y = lat, group = group), 
-              color = "black", linetype = "dashed", fill = "NA") +
-  theme_bw() +
-  geom_text(data = sta_meta, aes(label = name), size = 2.5) +
-  ggtitle("Intermediate Theissen Polygon Map")
-  
-p_site +
-  geom_point(data = gage_meta, aes(x = dec_long_va, 
-                                   y = dec_lat_va),
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
-  
-
-#sta_meta <- as.tibble(sta_meta)
-# final list of stations
-# id                name                              
-#  <chr>             <chr>                             
-# 1 GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US
-# 2 GHCND:USC00396212 OELRICHS, SD US                   
-# 3 GHCND:USC00394184 INTERIOR 3 NE, SD US              
-# 4 GHCND:USC00391972 COTTONWOOD 2 E, SD US             
-# 5 GHCND:USC00395638 MISSION 14 S, SD US               
-# 6 GHCND:USC00396304 ORAL, SD US   
-
-ggplot2::ggsave(path = "figure/", filename = "theissen_inter.png", 
-                width = 6, height = 6, units = "in")
-# export(sta_meta, file = "index/data/sta_meta_fin.csv")
-
-### Note: Mission is kept on the map to extend the INT - COT line 
-```
-
-```{r voroni-diagram-final, eval=FALSE}
-# import site location data and filter out:
-#   hermosa, ainsworth, harrison, hot springs
-sta_meta <- import("data/sta_meta_fin3.csv")
-
-# import gage location data
-gage_meta <- import("data/gage_meta.csv")
-  
-# define the study area using data from the 'maps' package
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# import polygon data - counties
-counties <- map_data("county") 
-counties <- subset(counties, region %in% 
-   c("south dakota", "nebraska"))
-prr <- subset(counties, subregion %in% 
-   c("shannon", "jackson", "bennett"))
-
-# create voroni line segments
-voronoi <- deldir(sta_meta$lon, sta_meta$lat)
-
-#Plot the points, voronoi lines, and annotate
-p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
-  geom_point(
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
-    pch = 21,
-    size = 4,
-    color = "#333333") +   
-  geom_segment(
-    aes(x = x1, y = y1, xend = x2, yend = y2),
-    size = 2,
-    data = voronoi$dirsgs,
-    linetype = 1,
-    color = "#FFB958") +
-  geom_polygon(data = prr, aes(x = long, y = lat, group = group), 
-              color = "black", linetype = "dashed", fill = "NA") +
-  theme_bw() +
-  geom_text(data = sta_meta, aes(label = name), size = 2.5) +
-  ggtitle("Final Theissen Polygon Map")
-
-# this adds all of the weather stations as points
-#p_site +
-#  geom_point(data = gage_meta, aes(x = dec_long_va, 
-#                                   y = dec_lat_va),
-#    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
-#    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
-  
-
-#sta_meta <- as.tibble(sta_meta)
-# final list of stations
-# id                name                              
-#  <chr>             <chr>                             
-# 1 GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US
-# 2 GHCND:USC00396212 OELRICHS, SD US                   
-# 3 GHCND:USC00394184 INTERIOR 3 NE, SD US              
-# 4 GHCND:USC00391972 COTTONWOOD 2 E, SD US             
-# 5 GHCND:USC00395638 MISSION 14 S, SD US               
-# 6 GHCND:USC00396304 ORAL, SD US   
-
-ggplot2::ggsave(path = "figure/", filename = "theissen_fin.png", 
-               width = 6, height = 6, units = "in")
-# export(sta_meta, file = "index/data/sta_meta_fin.csv")
-```
- 
+START HERE
 ```{r daily2monthly-precip}
-# continued from above 
-# General Purpose: prepare data for drought index 
-# Specific purpose: convert daily precip to monthly precip  
-
-# load metadata & data 
-sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_day   <- as.tibble(import("data/stations_final2.csv")) 
-
-# remove Murdo, Mission, Long Valley - see above 
-#sta_day   <- sta_day %>% 
-#  select(-c(lon, mur, mis)) 
-#export(sta_day, file = "data/stations_final2.csv")  
-
-# fix date & add year and month 
-sta_day <- sta_day %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date)) %>% 
-  mutate(year = year(date)) %>% 
-  mutate(month = month(date)) %>% 
-  select(date, year, month, everything()) 
 
 # gather daily values 
 sta_gath <- gather(sta_day, key = "station", value = "prcp", -date, 
@@ -1125,6 +998,11 @@ corrplot.mixed(corr_ann, order = "hclust",
 
 # OLD CODE to delete 
 ```{r import_prcp, eval=FALSE}
+
+
+# make a table for manual import  
+# sta <- as.tibble(select(station_meta, 1:2))  
+
 
 <!--
 ## Fixing NA values  
@@ -2478,3 +2356,335 @@ ggplot(sta_gath2, aes(prcp, lon)) +
   ggtitle("Long Valley similarity to nearest stations")
 ```  
 
+```{r check_precip_data2}
+
+sta_dv <- import(file = "data/sta_dv.csv") 
+sta_meta_orig <- import(file = "data/sta_meta_orig.csv") 
+
+# fix missing data -----------------------------------------------------------  
+
+# appended station data to fix missing years 
+# Region   Station       Add-Station   Year 
+#  NW    RC Regional         NA         NA
+#  NC    Cottonwood      Interior 3    1996   
+#  NE      Onida          Kennebec     1995 
+#  SW      Oral           Oelrichs     2005 
+#  SC     Gordon         Valentine     2012 
+#  SE     Mission           NA          NA  
+
+
+# calculate percentages  
+length <- sta_dv %>%    
+  group_by(name) %>%  
+  summarize(length = n()) 
+  
+sta_check_sum <- sta_check %>% 
+  group_by(name, mindate, maxdate) %>%  
+  summarize(count = n())  
+
+
+# Clean Oral & part of Oelrichs 1971-05-01 to present
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Using nearest year as split-point
+#   1. Split the raw data into two parts at 1971-05-01
+  sta_ge72      <- sta_raw %>% filter(year >= 1972) #
+  sta_71m05     <- sta_raw %>% filter(year == 1971 & month >= 5)
+sta_ge71m05     <- bind_rows(sta_ge72, sta_71m05) # this is active
+  rm(sta_ge72, sta_71m05)
+
+  sta_le71      <- sta_raw %>% filter(year < 1971)
+  sta_71m01_m05 <- sta_raw %>% filter(year == 1971 & month < 5)
+sta_lt71m05     <- bind_rows(sta_le71, sta_71m01_m05) # this is not
+  rm(sta_le71, sta_71m01_m05)
+
+#   2. filter NA vals from Oral
+#     Before = 368 NA <- filling with Oelrichs
+#     After: 10 concurrent NA values 
+
+sta_clean <- sta_ge71m05 %>%
+  filter(!is.na(ora)) # this is not active
+
+sta_dirty <- sta_ge71m05 %>%
+  filter(is.na(ora)) %>%
+  mutate(ora = oel) # fix oral with oelrichs
+
+sta_ge71m05 <- bind_rows(sta_clean, sta_dirty)
+  rm(sta_clean, sta_dirty)
+
+sta_NA <- sta_ge71m05 %>%
+  filter(is.na(ora)) # check is :-] NA is 1 obs
+
+#   3. filter NA vals from Oelrichs (oel)
+#     Before = 368 NA <- filling with Oral
+#     After: 10 concurrent NA values 
+
+sta_clean <- sta_ge71m05 %>%
+  filter(!is.na(oel)) # this is not active
+
+sta_dirty <- sta_ge71m05 %>%
+  filter(is.na(oel)) %>%
+  mutate(oel = ora) # fix oelrichs with oral
+
+sta_ge71m05 <- bind_rows(sta_clean, sta_dirty)
+  rm(sta_clean, sta_dirty)
+  
+sta_NA <- sta_ge71m05 %>%
+   filter(is.na(ora)) # check is :-] down to 1 NA
+rm(sta_NA)
+
+#   4. fix Oelrichs & Oral NA with Harrision
+#     Before: 1 concurrent NA values 
+
+sta_ge71m05 <- left_join(sta_ge71m05, sta_har, by = "date")
+  rm(sta_har)
+
+sta_clean <- sta_ge71m05 %>%
+  filter(!is.na(oel)) # this is not active
+
+sta_dirty <- sta_ge71m05 %>%
+  filter(is.na(oel)) %>%
+  mutate(oel = prcp) %>%
+  mutate(ora = prcp)
+
+sta_ge71m05 <- bind_rows(sta_clean, sta_dirty)
+  rm(sta_clean, sta_dirty)
+
+sta_NA <- sta_ge71m05 %>%
+   filter(is.na(ora)) # check is :-] zero NA vals
+rm(sta_NA) 
+  
+#   4. Put the pieces back together
+sta_ge71m05 <- sta_ge71m05 %>%
+  select(-prcp, -id) 
+sta_trans <- bind_rows(sta_ge71m05, sta_lt71m05)
+rm(sta_ge71m05,sta_lt71m05)
+
+# Check work
+intro_raw
+
+#A tibble: 1 x 4
+#   rows columns total_missing_values total_observations
+#  <int>   <int>                <int>              <int>
+# 45684      10               111229             456840
+
+intro_trans <- as.tibble(introduce(sta_trans)) %>%
+  select(-(3:5)) %>%
+  select(-5)
+intro_trans
+
+# A tibble: 1 x 4
+#   rows columns total_missing_values total_observations
+#  <int>   <int>                <int>              <int>
+# 45684      10               110496             456840
+
+# export the work to a file
+# export(sta_trans, file = "data/stations_trans1.csv")  
+```  
+
+```{r modeling-results-1}
+# continued from above 
+lm_both <- lm(data = sta_mon, sqrt(lon) ~ sqrt(mis) + sqrt(int)) 
+lm_both_tidy <- tidy(lm_both)
+lm_both_glance <- glance(lm_both)
+
+lm_int <- lm(data = sta_mon, sqrt(lon) ~ sqrt(int))
+lm_int_tidy <- tidy(lm_int)
+lm_int_glance <- glance(lm_int)
+
+lm_mis <- lm(data = sta_mon, sqrt(lon) ~ sqrt(mis))
+lm_mis_tidy <- tidy(lm_mis)
+lm_mis_glance <- glance(lm_mis)
+
+# combine models
+lm_glance <- bind_rows(lm_both_glance, lm_int_glance)
+lm_glance <- bind_rows(lm_glance, lm_mis_glance)
+
+lm_glance <- as.tibble(lm_glance) %>%
+  mutate(name = c("both", "int", "mis")) %>%
+  select(name, everything())
+lm_glance
+```
+
+```{r modeling-results-2}
+# continued from above 
+# result: drop the long valley data and use Interior for southeast 
+# remove not-needed stations from metadata 
+sta_meta <- sta_meta %>% 
+  filter(name != "LONG VALLEY, SD US") 
+
+# export(sta_meta, file = "data/sta_meta_fin3.csv")
+```  
+
+```{r voroni-diagram-inter}
+# import site location data and filter out:
+#   hermosa, ainsworth, harrison, hot springs
+
+sta_meta <- import("data/sta_meta_orig.csv")
+sta_meta <- sta_meta %>%
+  filter(id != "GHCND:US1SDCS0027") %>% # very short length - HER
+  filter(id != "GHCND:USC00250050") %>% # outside region - AIN
+  filter(id != "GHCND:USC00253615") %>% # outside region - HAR
+  filter(id != "GHCND:US1SDFR0001") %>% # close to oral - HOT
+  filter(id != "GHCND:USC00395891") %>% # outside range - MUR
+  filter(id != "GHCND:USC00394983") %>% # love - but stopped 2012 - LON
+  filter(id != "GHCND:US1SDJK0006") 
+
+# import gage location data
+gage_meta <- import("data/gage_meta.csv")
+  
+# define the study area using data from the 'maps' package
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# import polygon data - counties
+counties <- map_data("county") 
+counties <- subset(counties, region %in% 
+   c("south dakota", "nebraska"))
+prr <- subset(counties, subregion %in% 
+   c("shannon", "jackson", "bennett"))
+
+# create voroni line segments
+voronoi <- deldir(sta_meta$lon, sta_meta$lat)
+
+#Plot the points, voronoi lines, and annotate
+p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
+  geom_point(
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    pch = 21,
+    size = 4,
+    color = "#333333") +   
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2),
+    size = 2,
+    data = voronoi$dirsgs,
+    linetype = 1,
+    color = "#FFB958") +
+  geom_polygon(data = prr, aes(x = long, y = lat, group = group), 
+              color = "black", linetype = "dashed", fill = "NA") +
+  theme_bw() +
+  geom_text(data = sta_meta, aes(label = name), size = 2.5) +
+  ggtitle("Intermediate Theissen Polygon Map")
+  
+p_site +
+  geom_point(data = gage_meta, aes(x = dec_long_va, 
+                                   y = dec_lat_va),
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
+  
+
+#sta_meta <- as.tibble(sta_meta)
+# final list of stations
+# id                name                              
+#  <chr>             <chr>                             
+# 1 GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US
+# 2 GHCND:USC00396212 OELRICHS, SD US                   
+# 3 GHCND:USC00394184 INTERIOR 3 NE, SD US              
+# 4 GHCND:USC00391972 COTTONWOOD 2 E, SD US             
+# 5 GHCND:USC00395638 MISSION 14 S, SD US               
+# 6 GHCND:USC00396304 ORAL, SD US   
+
+ggplot2::ggsave(path = "figure/", filename = "theissen_inter.png", 
+                width = 6, height = 6, units = "in")
+# export(sta_meta, file = "index/data/sta_meta_fin.csv")
+
+### Note: Mission is kept on the map to extend the INT - COT line 
+```
+
+```{r voroni-diagram-final, eval=FALSE}
+# import site location data and filter out:
+#   hermosa, ainsworth, harrison, hot springs
+sta_meta <- import("data/sta_meta_fin3.csv")
+
+# import gage location data
+gage_meta <- import("data/gage_meta.csv")
+  
+# define the study area using data from the 'maps' package
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# import polygon data - counties
+counties <- map_data("county") 
+counties <- subset(counties, region %in% 
+   c("south dakota", "nebraska"))
+prr <- subset(counties, subregion %in% 
+   c("shannon", "jackson", "bennett"))
+
+# create voroni line segments
+voronoi <- deldir(sta_meta$lon, sta_meta$lat)
+
+#Plot the points, voronoi lines, and annotate
+p_site <- ggplot(data = sta_meta, aes(x = lon, y = lat)) +
+  geom_point(
+    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+    pch = 21,
+    size = 4,
+    color = "#333333") +   
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2),
+    size = 2,
+    data = voronoi$dirsgs,
+    linetype = 1,
+    color = "#FFB958") +
+  geom_polygon(data = prr, aes(x = long, y = lat, group = group), 
+              color = "black", linetype = "dashed", fill = "NA") +
+  theme_bw() +
+  geom_text(data = sta_meta, aes(label = name), size = 2.5) +
+  ggtitle("Final Theissen Polygon Map")
+
+# this adds all of the weather stations as points
+#p_site +
+#  geom_point(data = gage_meta, aes(x = dec_long_va, 
+#                                   y = dec_lat_va),
+#    fill = rgb(70, 130, 180, 255, maxColorValue = 255),
+#    fill = rgb(70, 130, 180, 255, maxColorValue = 255)) 
+  
+
+#sta_meta <- as.tibble(sta_meta)
+# final list of stations
+# id                name                              
+#  <chr>             <chr>                             
+# 1 GHCND:USW00024090 RAPID CITY REGIONAL AIRPORT, SD US
+# 2 GHCND:USC00396212 OELRICHS, SD US                   
+# 3 GHCND:USC00394184 INTERIOR 3 NE, SD US              
+# 4 GHCND:USC00391972 COTTONWOOD 2 E, SD US             
+# 5 GHCND:USC00395638 MISSION 14 S, SD US               
+# 6 GHCND:USC00396304 ORAL, SD US   
+
+ggplot2::ggsave(path = "figure/", filename = "theissen_fin.png", 
+               width = 6, height = 6, units = "in")
+# export(sta_meta, file = "index/data/sta_meta_fin.csv")
+```  
+
+```{r daily2monthly-precip}
+
+# fix date & add year and month 
+sta_day <- sta_day %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date)) %>% 
+  mutate(year = year(date)) %>% 
+  mutate(month = month(date)) %>% 
+  select(date, year, month, everything()) 
+
+# gather daily values 
+sta_gath <- gather(sta_day, key = "station", value = "prcp", -date, 
+                   -year, -month, factor_key = TRUE)
+
+# create groups 
+sta_group <- sta_gath %>% 
+  group_by(year, month, station) 
+
+# sum daily precip over a month 
+sta_gath_mon <- sta_group %>% 
+  summarize(prcp_tenths = sum(prcp)) %>% 
+  mutate(prcp_mm = prcp_tenths/10) %>% 
+  select(-prcp_tenths) 
+
+# spread result - now in months  
+#   ...and take a bow, because this is MAGIC!  Thnx Tidyverse. 
+sta_mon <- sta_gath_mon %>% 
+  spread(station, prcp_mm) %>% 
+  mutate(day = 1) %>% 
+  mutate(date = make_date(year = year, month = month, day = day)) %>% 
+  select(date, year, month, everything()) %>% 
+  select(-day) %>% 
+  ungroup()
+
+rm(sta_day, sta_gath, sta_gath_mon, sta_group) 
+# export(sta_mon, file = "data/stations_monthly.csv") 
+```  
