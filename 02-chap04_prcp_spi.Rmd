@@ -388,6 +388,7 @@ sta_dv_plus   <- import(file = "data/sta_dv_plus.csv") %>%
   mutate(date = ymd(date))  
 
 sta_meta_plus <- import(file = "data/sta_meta_plus.csv")
+sta_meta      <- import(file = "data/sta_meta.csv")
 
 # join bits of daily data-plus to metadata   
 sta_dv_plus <- right_join(sta_meta_plus, sta_dv_plus,  
@@ -529,7 +530,9 @@ sta_sw_alt <- meteo_tidy_ghcnd(stationid = "USC00394007",
                          keep_flags = TRUE,   
                          var = "PRCP",   
                          date_min = dateMin,   
-                         date_max = dateMax)  
+                         date_max = dateMax) %>% 
+  mutate(name = sta_sw_nm$name) %>% 
+  mutate(sta_id = sta_sw_nm$sta_id) 
 
 # fill missing values 
 sta_sw_fill <- anti_join(sta_sw_alt, sta_sw, by = "date") 
@@ -585,7 +588,9 @@ sta_sc_alt <- meteo_tidy_ghcnd(stationid = "USC00253015",
                          keep_flags = TRUE,   
                          var = "PRCP",   
                          date_min = dateMin,   
-                         date_max = dateMax)  
+                         date_max = dateMax) %>% 
+  mutate(name = sta_sc_nm$name) %>% 
+  mutate(sta_id = sta_sc_nm$sta_id)       
 
 # fill missing values 
 sta_sc_fill <- anti_join(sta_sc_alt, sta_sc, by = "date") 
@@ -664,11 +669,12 @@ rm(sta_dv_len, sta_meta_orig, sta_meta_plus, sta_check, sta_dv_plus,
 
 # export daily data   
 export(sta_dv, file = "data/sta_dv.csv")  
-export(sta_meta, file = "data/sta_meta.csv")
+export(sta_meta, file = "data/sta_meta.csv")  
 
 ``` 
 
 ```{r check_prcp_data_quality}  
+
 # Table of Measurement Flag/Attributes -- mflag  
 # Blank = no measurement information applicable           
 # A     = precip depth is a multi-day total, accumulated since last meas         
@@ -700,9 +706,9 @@ sta_dv <- sta_dv %>%
 # N     = failed naught check            
 # O     = failed climatological outlier check            
 # R     = failed lagged range check           
-# S     = failed spatial consistency check           
+# S     = failed spatial consistency check            
 # T     = failed temporal consistency check            
-# W     = temperature too warm for snow           
+# W     = temperature too warm for snow            
 # X     = failed bounds check           
 # Z     = flagged as a result of an official Datzilla investigation  
 
@@ -714,57 +720,61 @@ sta_check <- sta_dv %>%
 sta_dv <- sta_dv %>%  
   select(-qflag_prcp)  
 
-
-# Table Source Flag/Attributes 
-# Blank = No source (i.e., data value missing)
-# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200) 
-# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)
+# Table Source Flag/Attributes   
+# Blank = No source (i.e., data value missing)  
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
+# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)  
 # 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder
 # A  = U.S. Automated Surface Observing System (ASOS) real-time data 
 # a  = Australian data from the Australian Bureau of Meteorology           
 # B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
 # b  = Belarus update           
 # C  = Environment Canada            
-# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)           
-# F  = U.S. Fort data            
-# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data  
-# H  = High Plains Regional Climate Center real-time data           
+# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)            
+# F  = U.S. Fort data             
+# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data   
+# H  = High Plains Regional Climate Center real-time data            
 # I  = International collection (non U.S. data received thru pers. contacts   
 # K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
 # M  = Monthly METAR Extract (additional ASOS data)           
 # N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
 # Q  = Data from African countries w/ later permission granted 
-# R  = NCDC Reference Network Database 
+# R  = NCDC Reference Network Database  
 # r  = All-Russian Research Inst. Hydromet Information-World Data Center    
-# S  = Global Summary of the Day (NCDC DSI-9618)
-#        NOTE: "S" values are derived from hourly synoptic reports 
-#         exchanged on the Global Telecommunications System (GTS).
+# S  = Global Summary of the Day (NCDC DSI-9618)  
+#        NOTE: "S" values are derived from hourly synoptic reports   
+#         exchanged on the Global Telecommunications System (GTS).  
 #         Daily values derived in this fashion may differ significantly from 
 #        "true" daily data, particularly for precip (i.e., use with caution).  
-# s  = China Met Admin/Nat Met Info/Climate Data Center (http://cdc.cma.gov.cn)  
-# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center  
-# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr 
+# s  = China Met Admin/Nat Met Info/Climate Data Center (http://cdc.cma.gov.cn)   
+# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center   
+# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr  
 # u  = Ukraine update           
-# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD) 
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
 # X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
 # Z  = Datzilla official additions or replacements           
-# z  = Uzbekistan update
+# z  = Uzbekistan update  
 
 sta_check <- sta_dv %>%  
   group_by(name, sflag_prcp) %>%  
   summarise(sflag = n())  
 
-# flags are 0, 7, K, W, X, Z 
+# flags are 0, 7, K, W, X, Z  
 sta_dv <- sta_dv %>%  
   select(-sflag_prcp)  
 
-rm(sta_check) 
+rm(sta_check)  
+
+# export daily data   
+export(sta_dv, file = "data/sta_dv.csv")  
+export(sta_meta, file = "data/sta_meta.csv")
 ```
 
 
 ```{r prcp_daily2monthly}
 
-sta_dv   <- import(file = "data/sta_dv.csv")  
+sta_dv   <- import(file = "data/sta_dv.csv")  %>% 
+  mutate(date = ymd(date))
 sta_meta <- import(file = "data/sta_meta.csv")  
 
 
@@ -783,7 +793,7 @@ sta_meta <- sta_meta %>%
   select(sta, name, longitude, latitude, elevation,  
          perc_complete, group, everything())  
 
-#export(sta_meta, file = "data/sta_meta.csv")  
+export(sta_meta, file = "data/sta_meta.csv")  
 
 # add short names and create monthly data -----------------------------------  
 scratch <- sta_meta %>%  
@@ -800,14 +810,6 @@ sta_mon <- full_join(scratch, sta_dv,
 
 rm(scratch)  
 
-sta_dv_check <- sta_dv %>% 
-  filter(is.na(prcp)) 
-
-sta_mon_check <- sta_mon %>%  
-  filter(is.na(prcp_mm))  
-
-
-
 # spread results & create date with day at midpoint of month ----------------  
 sta_mon_long <- sta_mon %>%  
   spread(sta, prcp_mm) %>%  
@@ -815,22 +817,25 @@ sta_mon_long <- sta_mon %>%
   mutate(date = make_date(year = year, month = month, day = day)) %>%   
   select(date, year, month, everything()) %>%  
   select(-day) %>%  
-  ungroup()  
+  ungroup() %>% 
+  filter(!is.na(date))
 
 sta_mon <- sta_mon_long %>%  
   gather(key = sta, val = depth_mm,  
          -c(date, year, month))  
-  
+
+rm(sta_dv_check)  
 rm(sta_mon_long, sta_dv)  
+
+sta_check <- sta_mon %>% 
+  filter(is.na(sta))     
 
 export(sta_mon, file = "data/stations_monthly.csv")  
 ```
 
-START HERE
+
 
 ```{r summaries}
-
-
 
 sta_summary_mon <- sta_mon %>% 
   group_by(sta, month) %>%
@@ -842,119 +847,58 @@ sta_summary_mon <- sta_mon %>%
   arrange(month) %>%
   arrange(sta)
 
-#sta_summary_mon 
-# export(sta_summary_mon, file = "data/sta_summary_mon.csv") 
+sta_summary_yr <- sta_mon %>% 
+  group_by(sta, year) %>%
+  summarise(mean = mean(depth_mm),      #, na.rm = TRUE
+            med = median(depth_mm),
+            IQR = IQR(depth_mm), 
+            min = min(depth_mm), 
+            max = max(depth_mm)) %>%
+  arrange(year) %>%
+  arrange(sta)
+
+export(sta_summary_mon, file = "data/sta_summary_mon.csv") 
+export(sta_summary_yr, file = "data/sta_summary_yr.csv")  
 ```
 
-```{r yearly_summaries}
-# General Purpose: prepare data for drought index  
-# Specific purpose: create summaries of data 
-sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_yr   <- as.tibble(import("data/stations_yearly.csv")) 
 
-# gather and summarize yearly values 
-# Next step - do by water year???
-sta_gath_yr <- gather(sta_yr, key = "station", value = "prcp", 
-                   -year, factor_key = TRUE)
-
-sta_summary_yr <- as.tibble(sta_gath_yr) %>%
-  group_by(station) %>%
-  summarise(mean = mean(prcp, na.rm = TRUE), 
-            med = median(prcp, na.rm = TRUE),
-            IQR = IQR(prcp, na.rm = TRUE), 
-            min = min(prcp, na.rm = TRUE), 
-            max = max(prcp, na.rm = TRUE)) %>%
-  arrange(desc(med))
-
-#sta_summary_yr
-# export(sta_summary_yr, file = "data/sta_summary_yr.csv") 
-```
-
+START HERE 
 ```{r ggplot_monthly} 
-# General Purpose: prepare data for drought index 
-# Specific purpose: graphical EDA 
- 
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
-sta_mon     <- as.tibble(import("data/stations_monthly.csv"))
+sta_mon <- import(file = "data/stations_monthly.csv") %>% 
+  mutate(date = ymd(date))
 
-# fix date & add year and month 
-sta_mon <- sta_mon %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date))  
+sta_mon %>% 
+  group_by(sta) %>% 
+  summarize(count = n())
 
-# gather monthly values & order them
-sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
-                       -date, -year, -month, factor_key = TRUE) 
+sta_mon$sta <- factor(sta_mon$sta, 
+                      levels = c("RAP", "ORA", "GOR", "COT", "ONI", "MIS"))
 
-# x$name <- factor(x$name, levels = x$name[order(x$val)])
-
-# plot
-ggplot(sta_gath_mon, aes(date, prcp)) +
-  geom_line() +
-  facet_grid(station ~ .) +
-  theme_classic() + 
+# plot monthly precips
+sta_mon %>% 
+ggplot(aes(month, depth_mm, group = month)) + 
+  facet_grid(rows =vars(sta)) +
+  geom_boxplot() +
+  theme_bw() + 
   labs(title = "Monthly precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1909-2018") +
+       subtitle = "1990-2017") + 
        xlab("") +
        ylab("mm")
 
-ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
-                width = 6, height = 6, units = "in")
-```
 
-```{r ggplot_yearly}
-# General Purpose: prepare data for drought index 
-# Specific purpose: graphical EDA - yearly 
-
-# NEED TO FIX - screwed up variables 
-
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_yr     <- as.tibble(import("data/stations_yearly.csv"))
-
-# gather monthly values 
-sta_gath <- gather(sta_yr, key = "station", value = "prcp",  
-                   -year, factor_key = TRUE) 
-
-# plot
-ggplot(sta_gath, aes(year, prcp)) +
-  geom_line() +
-  facet_grid(station ~ .) +
-  theme_classic() + 
-  labs(title = "Annual precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
-       xlab("Date") +
-       ylab("Depth, mm")
-
-ggplot2::ggsave(path = "figure/", filename = "precip_yr.png", 
-                width = 6, height = 6, units = "in") 
-```
-
-```{r ggplot_monthly_boxplots}
-# General Purpose: prepare data for drought index  
-# Specific purpose: graphical EDA  
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
-sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
-
-# fix date & add year and month  
-sta_mon <- sta_mon %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date))  
-
-# gather monthly values 
-sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
-                       -date, -year, -month, factor_key = TRUE) 
-
-ggplot(sta_gath_mon, aes(month, prcp, group = month)) +
+# plot annual precips
+sta_mon %>% 
+ggplot(aes(year, depth_mm, group = year)) + 
+  facet_grid(rows =vars(sta)) +
   geom_boxplot() +
-  facet_wrap(~station) +
-  theme_classic() + 
-  labs(title = "Monthly precipitation depths",
-       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
-       xlab("Date") +
-       ylab("Depth, mm")
+  theme_bw() + 
+  labs(title = "Annual precipitation depths",
+       subtitle = "1990-2017") + 
+       xlab("") +
+       ylab("mm")
 
-ggplot2::ggsave(path = "figure/", filename = "precip_boxpl_mon.png",
-                width = 6, height = 6, units = "in")
+#ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
+#                width = 6, height = 6, units = "in")
 ```
 
 ```{r correlation}
@@ -2805,9 +2749,84 @@ sta_summary_mon <- as.tibble(sta_gath_mon) %>%
 # export(sta_summary_mon, file = "data/sta_summary_mon.csv") 
 ```  
 
+```{r yearly_summaries}
+# General Purpose: prepare data for drought index  
+# Specific purpose: create summaries of data 
+sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
+sta_yr   <- as.tibble(import("data/stations_yearly.csv")) 
 
+# gather and summarize yearly values 
+# Next step - do by water year???
+sta_gath_yr <- gather(sta_yr, key = "station", value = "prcp", 
+                   -year, factor_key = TRUE)
 
+sta_summary_yr <- as.tibble(sta_gath_yr) %>%
+  group_by(station) %>%
+  summarise(mean = mean(prcp, na.rm = TRUE), 
+            med = median(prcp, na.rm = TRUE),
+            IQR = IQR(prcp, na.rm = TRUE), 
+            min = min(prcp, na.rm = TRUE), 
+            max = max(prcp, na.rm = TRUE)) %>%
+  arrange(desc(med))
 
+#sta_summary_yr
+# export(sta_summary_yr, file = "data/sta_summary_yr.csv") 
+```  
+
+```{r ggplot_yearly}
+# General Purpose: prepare data for drought index 
+# Specific purpose: graphical EDA - yearly 
+
+# NEED TO FIX - screwed up variables 
+
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) 
+sta_yr     <- as.tibble(import("data/stations_yearly.csv"))
+
+# gather monthly values 
+sta_gath <- gather(sta_yr, key = "station", value = "prcp",  
+                   -year, factor_key = TRUE) 
+
+# plot
+ggplot(sta_gath, aes(year, prcp)) +
+  geom_line() +
+  facet_grid(station ~ .) +
+  theme_classic() + 
+  labs(title = "Annual precipitation depths",
+       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
+       xlab("Date") +
+       ylab("Depth, mm")
+
+ggplot2::ggsave(path = "figure/", filename = "precip_yr.png", 
+                width = 6, height = 6, units = "in") 
+```
+
+```{r ggplot_monthly_boxplots}
+# General Purpose: prepare data for drought index  
+# Specific purpose: graphical EDA  
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
+
+# fix date & add year and month  
+sta_mon <- sta_mon %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date))  
+
+# gather monthly values 
+sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
+                       -date, -year, -month, factor_key = TRUE) 
+
+ggplot(sta_gath_mon, aes(month, prcp, group = month)) +
+  geom_boxplot() +
+  facet_wrap(~station) +
+  theme_classic() + 
+  labs(title = "Monthly precipitation depths",
+       subtitle = "Pine Ridge Reservation, SD for 1910-2017") +
+       xlab("Date") +
+       ylab("Depth, mm")
+
+ggplot2::ggsave(path = "figure/", filename = "precip_boxpl_mon.png",
+                width = 6, height = 6, units = "in")
+```  
 
 
 
