@@ -4,12 +4,26 @@ editor_options:
   chunk_output_type: console
 ---
 
+
 <!--
 This R markdown file refactors prior code for spi analysis
 
-1) download and clean daily precip
-2)  convert daily precip to monthly precip  
+1.0)  download and clean daily precip -- identified & filled NA
+2.0)  convert daily precip to monthly precip  
+2.1)  Updated unit vals - originally in tenths of mm; now in mm 
+3.0)  Created plots 
+
 3)  prepare data for drought index 
+
+
+1. Recreated analysis from the lmomco text ch 12 (author?) in Tidyverse
+2. Imported cleaned precipitation data (see 04_prcp-data_munging)   
+3. Applied sqrt & log10 transform to explore effects on skew 
+4. Explored the data with box plots, violin plot.
+5. Applied Weibull plotting position and graphed the data on sqrt plot
+6. Calculated L-moments and L-moment ratios 
+7. Calculated SPI for 'cot', 'oel', 'rap', 'int', and 'ora' datasets using Pearson III. 
+
 
 Data:
 Predominant datasets used are:  
@@ -17,53 +31,78 @@ Predominant datasets used are:
 2) USGS daily streamflow and station metadata,  
 ####3) Summary data from a QGIS analysis of ungaged watersheds of interest.  
 
-
-
-1.2. Data munging to check, join and remove NAs 
-1.3. Updated unit vals - originally in tenths of mm; now in mm 
-1.4. Changed daily data into monthly and annual data 
-1.5. Cross-validated monthly data 
-1.6. Created plots 
-2.1  Data read in from USGS website by dataRetrieval (cfs)
-2.2  Data saved as array (.JSON), and flat format (.csv) 
-
-# Next STEPS
-1. Update variable names
-2. Check on next steps from Chapter 2 list 
-3. Describe the precipitation seasonality
-
 ## Variable naming convention:   
-sta          precipitation station  
-_meta        metadata  
-_raw         the "mostly" raw dataset  
-_geXX        data greater than or equal to year XX  
-_geXXmYY     data greater than or equal to year XX and month YY   
-_ltXXmYY     data less than year XX and month YY   
-_clean       intermediate df - clean part of NA split ;-}  
-_dirty       intermediate df - NA part of NA split ;-}  
-_trans       final df - after cleaning  
+sta          NOAA weather station locations  
+  _meta        metadata  
+  _mon         monthly precipitation depths  
+    _rap        Rapid City Regional Airport station (NW)
+    _ora        Oral station (SW)
+    _cot        Cottonwood station (NC)  
+    _gor        Gordon staion (SC)  
+    _oni        Onida station (NE)
+    _mis        Mission station (SE)
 
 gage         USGS streamgage station
 
+lmom_sta     L-moments for stations
+lmom_reg     Weighted mean of L-moments for stations
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-# 'station' is a variable for NOAA weather station locations  
-# 'gage' is a variable for USGS stream gages 
-# 'site' is a variable for OST monitoring stations 
+min          minimum non-zero value
+L1           first L-moment, similiar to mean
+L_CV         first L-moment ratio, similiar to coefficient of var
+L_skew       second L-moment ratio, similiar to skewness 
+L_kurtosis   third L-moment ratio, similiar to kurtosis
+n            number of months in a given record
+int#         intermediate variable used to bind rows; # = 1, 2, ...
+intc#        intermediate variable used to bind cols; # = 1, 2, ...
+intr#        intermediate variable used to bind rows; # = 1, 2, ...
+
+# Used in the L-moment diagram
+aep4         4-Parameter Asymmetric Exponential Power Distribution 
+gev          Generalized Extreme Value Distribution
+glo          Generalized Logistic Distribution
+gpa          Generalized Pareto Distribution
+gno          Generalized Logistic Distribution 
+gov          Govindarajulu Distribution
+pe3          Pearson Type III Distribution
+
+# SPI Outputs
+spi          Standardized Precipitation Index vals for a station 
+ _gath       Dataframe is long rather than wide
+
+'site' is a variable for OST monitoring stations 
 
 
-## Results: 
+
+## Results: Fits a PE3 distribution
 The results from the precipitation analysis indicate: 1) an annual trend of increasing aridity across the project area that trends from northwest to southeast that may be a result of the Black Hills rainshadow, 2) the 1900s were the wettest time in regions recorded history.  ??? what about the seasonal trend?
 
-Variable naming convention:   
-# ~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_poss           possible USGS gaging stations in the study area 
-gage_meta_poss      metadata for possible gaging stations
--- _int1            scratch df for pulling gages with integer fields 
--- _int2            scratch df for pulling gages with integer fields 
--- _char            scratch df for pulling gages with character fields 
 
---> 
+Exploratory Data Analysis Checklist by Roger Peng 
+https://leanpub.com/exdata  
+
+1.0  Formulate your question  
+2.0   Read in your data  
+3.0  Check the dataset 
+3.1  Check the number of rows and columns.
+3.2  Check the types of data
+3.3  Look at the top and the bottom of your data 
+3.4  Check your “n”s & NAs 
+3.5  Validate with at least one external data source  
+4.0  Try the easy solution first to answer question
+5.0  Challenge your solution 
+6.0  Follow up questions 
+
+## Broad questions:
+What is the drought history of the Pine Ridge Reservation?  
+Does the drought extent differ across the study area?
+
+## Narrower question:
+What is the underlying distribution of precipitation data?  
+
+# Next STEPS  
+3. Describe the precipitation seasonality
+-->  
 
 
 ```{r setup, include=FALSE}
@@ -955,93 +994,6 @@ corrplot.mixed(corr_ann, order = "hclust",
 
 START HERE 
 
-<!--
-Exploratory Data Analysis Checklist by Roger Peng 
-https://leanpub.com/exdata  
-
-1.0  Formulate your question  
-2.0   Read in your data  
-3.0  Check the dataset 
-3.1  Check the number of rows and columns.
-3.2  Check the types of data
-3.3  Look at the top and the bottom of your data 
-3.4  Check your “n”s & NAs 
-3.5  Validate with at least one external data source  
-4.0  Try the easy solution first to answer question
-5.0  Challenge your solution 
-6.0  Follow up questions 
-
-## Broad questions:
-What is the drought history of the Pine Ridge Reservation?  
-Does the drought extent differ across the study area?
-
-## Narrower question:
-What is the underlying distribution of precipitation data?  
-
-## Analysis Steps & progress
-1. Recreated analysis from the lmomco text ch 12 (author?) in Tidyverse
-2. Imported cleaned precipitation data (see 04_prcp-data_munging)   
-3. Applied sqrt & log10 transform to explore effects on skew 
-4. Explored the data with box plots, violin plot.
-5. Applied Weibull plotting position and graphed the data on sqrt plot
-6. Calculated L-moments and L-moment ratios 
-7. Calculated SPI for 'cot', 'oel', 'rap', 'int', and 'ora' datasets using Pearson III.
-
-## Issues: there is a duplicate variable - int for 'intermediate' and for 'Interior' 
-## Next Steps: 
-1.  Combine data frames for coefficients
-
-Someday - Maybe
-1. Map the variable as a function - might put off, but ugly and long code below!
-2. figure out how to reference stuff 
-
-## Variable naming convention:   
-sta          precipitation station  
-_meta        metadata  
-_mon         monthly precipitation depths  
-_grp         wide data changed to long data #might change to _gath
-_notzero     non-zero precip values
-_zero        precip values equal to zero
-_log         log10 of monthly precipitation depths
-_count       number of months in a given record
-
-lmom_sta     L-moments for stations
-lmom_reg     Weighted mean of L-moments for stations
-
-min          minimum non-zero value
-L1           first L-moment, similiar to mean
-L_CV         first L-moment ratio, similiar to coefficient of var
-L_skew       second L-moment ratio, similiar to skewness 
-L_kurtosis   third L-moment ratio, similiar to kurtosis
-n            number of months in a given record
-int#         intermediate variable used to bind rows; # = 1, 2, ...
-intc#        intermediate variable used to bind cols; # = 1, 2, ...
-intr#        intermediate variable used to bind rows; # = 1, 2, ...
-
-# Used in the L-moment diagram
-aep4         4-Parameter Asymmetric Exponential Power Distribution 
-gev          Generalized Extreme Value Distribution
-glo          Generalized Logistic Distribution
-gpa          Generalized Pareto Distribution
-gno          Generalized Logistic Distribution 
-gov          Govindarajulu Distribution
-pe3          Pearson Type III Distribution
-
-# SPI Outputs
-spi          Standardized Precipitation Index vals for a station 
- _gath       Dataframe is long rather than wide
- _cot        Cottonwood station
- _oel        Oelrichs station 
- _rap        Rapid City station 
- _int        Interior station 
- -ora        Oral station
-
-## Thoughts - the orig depth vs plotting vals look j-shaped.  
-## Sqrt trans vs plotting vals look slightly sinusoidal; nice boxplots
-## Log-tranformation looks like the mirror of orig depth vs plotting
-
-## Results: Fits a PE3 distribution
--->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -1324,4 +1276,6 @@ ggplot() +
 
 #ggplot2::ggsave(filename = "lmom_plot.png", 
 #                width = 6, height = 6, units = "in")
-```
+``` 
+
+
