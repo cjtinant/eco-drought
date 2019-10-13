@@ -79,7 +79,7 @@ options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")
 
 # Sets up the library of packages  
 library("here")              # identifies where to save work
-library("rnoaa")             #  R wrapper for NOAA data inc. NCDC
+library("rnoaa")             #  R wrapper for NOAA data inc. NCDC 
 library("rio")               # more robust I/O - to import and clean data 
 library("lubridate")         # easier dates
 library("tidyverse") 
@@ -233,8 +233,6 @@ gage_meta_fin <- read_csv("data/gage_meta_fin.csv") %>%
 # plot stations -------------------------------------------------------------  
 # grabbed this code off of a website by googling 'Voroni diag. R'
 sta_meta_orig %>% 
-#  # remove mountain stations 
-#  filter(elevation < 1500) %>%                      # n = 29  
 ggplot(aes(x = longitude, y = latitude)) +   
 # plot weather stations   
   geom_point(  
@@ -378,9 +376,18 @@ sta_dv_plus <- sta_dv_plus %>%
   mutate(month = month(date)) %>%
   select(date, year, month, everything()) 
 
+export(sta_dv_plus, file = "data/sta_dv_plus.csv")  
+export(sta_meta_plus, file = "data/sta_meta_plus.csv")  
+
 ``` 
 
-```{r fill_missing_precip_data}
+```{r fill_missing_precip_data}  
+
+# import data from file 
+sta_dv_plus   <- import(file = "data/sta_dv_plus.csv") %>% 
+  mutate(date = ymd(date))  
+
+sta_meta_plus <- import(file = "data/sta_meta_plus.csv")
 
 # join bits of daily data-plus to metadata   
 sta_dv_plus <- right_join(sta_meta_plus, sta_dv_plus,  
@@ -509,7 +516,33 @@ sta_sw <- bind_rows(sta_sw, sta_sw_fill)  %>%
   arrange(name) %>% 
   distinct(date, .keep_all = TRUE)
 
-rm(sta_sw_alt, sta_sw_nm, sta_sw_fill)  
+sta_check <- sta_sw %>% 
+  filter(is.na(prcp)) 
+
+sta_sw <-  sta_sw %>% 
+  filter(!is.na(prcp))      
+
+# download daily precip data for missing values--HotSprings     
+dateMin = "2005-12-01"      
+dateMax = "2011-05-31"  
+sta_sw_alt <- meteo_tidy_ghcnd(stationid = "USC00394007",
+                         keep_flags = TRUE,   
+                         var = "PRCP",   
+                         date_min = dateMin,   
+                         date_max = dateMax)  
+
+# fill missing values 
+sta_sw_fill <- anti_join(sta_sw_alt, sta_sw, by = "date") 
+
+sta_sw <- bind_rows(sta_sw, sta_sw_fill)  %>% 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>%  
+  select(-id)  
+
+sta_check <- sta_sw %>% 
+  filter(is.na(prcp)) 
+
+rm(dateMin, dateMax, sta_sw_alt, sta_sw_nm, sta_sw_fill)  
 
 # separate and fill southwest ------------------------------------------------    
 sta_sc <-  sta_dv_plus %>% 
@@ -534,11 +567,38 @@ sta_sc_alt <-  sta_dv_plus %>%
 
 sta_sc_fill <- anti_join(sta_sc_alt, sta_sc, by = "date") 
 
+sta_sc <- bind_rows(sta_sc, sta_sc_fill)  %>%  
+  arrange(name) %>%  
+  distinct(date, .keep_all = TRUE)  
+
+sta_check <- sta_sc %>%  
+  filter(is.na(prcp))  
+
+sta_sc <-  sta_sc %>%  
+  filter(!is.na(prcp))   
+
+# download daily precip data for missing values--FT Robinson 
+# note: Hay Springs did not have all data 
+dateMin = "2006-08-01"      
+dateMax = "2012-03-31"  
+sta_sc_alt <- meteo_tidy_ghcnd(stationid = "USC00253015",
+                         keep_flags = TRUE,   
+                         var = "PRCP",   
+                         date_min = dateMin,   
+                         date_max = dateMax)  
+
+# fill missing values 
+sta_sc_fill <- anti_join(sta_sc_alt, sta_sc, by = "date") 
+
 sta_sc <- bind_rows(sta_sc, sta_sc_fill)  %>% 
   arrange(name) %>% 
-  distinct(date, .keep_all = TRUE)
+  distinct(date, .keep_all = TRUE) %>%  
+  select(-id)  
 
-rm(sta_sc_alt, sta_sc_nm, sta_sc_fill)  
+sta_check <- sta_sc %>% 
+  filter(is.na(prcp)) 
+
+rm(dateMin, dateMax, sta_sc_alt, sta_sc_nm, sta_sc_fill)  
 
 # separate south-west data --------------------------------------------------  
 sta_se <-  sta_dv_plus %>% 
@@ -591,9 +651,8 @@ sta_dv_len <- bind_rows(sta_nw_len,
 
 # check data & clean up -----------------------------------------------------   
 sta_check <- sta_dv %>% 
-  group_by(name) %>% 
-  summarise( 
-    count = n()) 
+  filter(is.na(prcp)) 
+
 
 # join dv-lenth to metadata  
 sta_meta <- right_join(sta_meta, sta_dv_len,  
@@ -610,7 +669,6 @@ export(sta_meta, file = "data/sta_meta.csv")
 ``` 
 
 ```{r check_prcp_data_quality}  
-
 # Table of Measurement Flag/Attributes -- mflag  
 # Blank = no measurement information applicable           
 # A     = precip depth is a multi-day total, accumulated since last meas         
@@ -706,6 +764,10 @@ rm(sta_check)
 
 ```{r prcp_daily2monthly}
 
+sta_dv   <- import(file = "data/sta_dv.csv")  
+sta_meta <- import(file = "data/sta_meta.csv")  
+
+
 # add short names to metadata & update the stored file ----------------------  
 sta_meta <- sta_meta %>%  
   mutate(sta = case_when(  
@@ -721,7 +783,7 @@ sta_meta <- sta_meta %>%
   select(sta, name, longitude, latitude, elevation,  
          perc_complete, group, everything())  
 
-export(sta_meta, file = "data/sta_meta.csv")  
+#export(sta_meta, file = "data/sta_meta.csv")  
 
 # add short names and create monthly data -----------------------------------  
 scratch <- sta_meta %>%  
@@ -737,6 +799,14 @@ sta_mon <- full_join(scratch, sta_dv,
   ungroup()  
 
 rm(scratch)  
+
+sta_dv_check <- sta_dv %>% 
+  filter(is.na(prcp)) 
+
+sta_mon_check <- sta_mon %>%  
+  filter(is.na(prcp_mm))  
+
+
 
 # spread results & create date with day at midpoint of month ----------------  
 sta_mon_long <- sta_mon %>%  
@@ -757,102 +827,20 @@ export(sta_mon, file = "data/stations_monthly.csv")
 ```
 
 START HERE
-```{r eval-precip-data-ora}
-# General Purpose: check a short-term record: Oral 
 
-# Variable naming convention - see munge-precip-data-oral code chunk  
+```{r summaries}
 
-# load metadata & data
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))
-sta_mon     <- as.tibble(import("data/stations_monthly.csv"))
 
-# Split data to the end of Oral - the purpose here is 
-#   to look at a double mass plot with Oelrichs
 
-sta_test <- sta_mon %>%
-  filter(year > 1971) 
-
-# check a linear model
-lm <- lm(data = sta_mon, sqrt(ora) ~ sqrt(oel))
-lm.tidy <- tidy(lm)
-lm.glance <- glance(lm)
-
-# plot the graphs of Oral & Oelrichs
-
-ggplot(sta_test, aes(ora, oel)) +
-  geom_point() +
-  geom_smooth(method = "lm", aes(color = "red")) +
-   scale_x_sqrt() +
-  scale_y_sqrt() +
-  geom_smooth() + 
-  theme_bw() +
-  ggtitle("Double mass plots")
-# it's ok, keep Oral...
-```
-
-```{r monthly2yearly-precip}
-# General Purpose: prepare data for drought index   
-# Specific purpose: convert monthly precip to yearly prcp  
- 
-# load metadata & data 
-sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
-
-# fix date & add year and month 
-sta_mon <- sta_mon %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date)) %>% 
-  select(date, year, month, everything())  
-
-# gather monthly values  
-sta_gath <- gather(sta_mon, key = "station", value = "prcp", -date, 
-                   -year, -month, factor_key = TRUE) 
-
-# create groups 
-sta_group <- sta_gath %>% 
-  group_by(year,  station) 
-
-# sum monthly precip over a year 
-sta_gath_yr <- sta_group %>% 
-  summarize(prcp = sum(prcp))  
-
-# spread result - now in years 
-sta_yr <- sta_gath_yr %>% 
-  spread(station, prcp) %>% 
-  filter(year != 1909) %>% 
-  filter(year != 2018) %>% 
-  ungroup()
-
-rm(sta_mon, sta_gath, sta_gath_yr, sta_group)
-# export(sta_yr, file = "data/stations_yearly.csv") 
-```
-
-```{r  monthly_summaries}
-
-# General Purpose: prepare data for drought index  
-# Specific purpose: create summaries of data 
-sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
-sta_mon   <- as.tibble(import("data/stations_monthly.csv")) 
-
-# fix dates
-sta_mon <- sta_mon %>% 
-  mutate(date = ymd(date)) %>% 
-  arrange(desc(date)) %>% 
-  select(date, year, month, everything()) 
-
-# gather and summarize monthly values 
-sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
-                       -date, -year, -month, factor_key = TRUE)
-
-sta_summary_mon <- as.tibble(sta_gath_mon) %>%
-  group_by(station, month) %>%
-  summarise(mean = mean(prcp, na.rm = TRUE), 
-            med = median(prcp, na.rm = TRUE),
-            IQR = IQR(prcp, na.rm = TRUE), 
-            min = min(prcp, na.rm = TRUE), 
-            max = max(prcp, na.rm = TRUE)) %>%
+sta_summary_mon <- sta_mon %>% 
+  group_by(sta, month) %>%
+  summarise(mean = mean(depth_mm),      #, na.rm = TRUE
+            med = median(depth_mm),
+            IQR = IQR(depth_mm), 
+            min = min(depth_mm), 
+            max = max(depth_mm)) %>%
   arrange(month) %>%
-  arrange(station)
+  arrange(sta)
 
 #sta_summary_mon 
 # export(sta_summary_mon, file = "data/sta_summary_mon.csv") 
@@ -2715,3 +2703,111 @@ sta_mon <- sta_gath_mon %>%
 rm(sta_day, sta_gath, sta_gath_mon, sta_group) 
 # export(sta_mon, file = "data/stations_monthly.csv") 
 ```  
+
+```{r eval-precip-data-ora}
+# General Purpose: check a short-term record: Oral 
+
+# Variable naming convention - see munge-precip-data-oral code chunk  
+
+# load metadata & data
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))
+sta_mon     <- as.tibble(import("data/stations_monthly.csv"))
+
+# Split data to the end of Oral - the purpose here is 
+#   to look at a double mass plot with Oelrichs
+
+sta_test <- sta_mon %>%
+  filter(year > 1971) 
+
+# check a linear model
+lm <- lm(data = sta_mon, sqrt(ora) ~ sqrt(oel))
+lm.tidy <- tidy(lm)
+lm.glance <- glance(lm)
+
+# plot the graphs of Oral & Oelrichs
+
+ggplot(sta_test, aes(ora, oel)) +
+  geom_point() +
+  geom_smooth(method = "lm", aes(color = "red")) +
+   scale_x_sqrt() +
+  scale_y_sqrt() +
+  geom_smooth() + 
+  theme_bw() +
+  ggtitle("Double mass plots")
+# it's ok, keep Oral...
+```  
+
+```{r monthly2yearly-precip}
+# General Purpose: prepare data for drought index   
+# Specific purpose: convert monthly precip to yearly prcp  
+ 
+# load metadata & data 
+sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv")) 
+sta_mon     <- as.tibble(import("data/stations_monthly.csv")) 
+
+# fix date & add year and month 
+sta_mon <- sta_mon %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date)) %>% 
+  select(date, year, month, everything())  
+
+# gather monthly values  
+sta_gath <- gather(sta_mon, key = "station", value = "prcp", -date, 
+                   -year, -month, factor_key = TRUE) 
+
+# create groups 
+sta_group <- sta_gath %>% 
+  group_by(year,  station) 
+
+# sum monthly precip over a year 
+sta_gath_yr <- sta_group %>% 
+  summarize(prcp = sum(prcp))  
+
+# spread result - now in years 
+sta_yr <- sta_gath_yr %>% 
+  spread(station, prcp) %>% 
+  filter(year != 1909) %>% 
+  filter(year != 2018) %>% 
+  ungroup()
+
+rm(sta_mon, sta_gath, sta_gath_yr, sta_group)
+# export(sta_yr, file = "data/stations_yearly.csv") 
+```  
+
+```{r summaries}
+
+# General Purpose: prepare data for drought index  
+# Specific purpose: create summaries of data 
+sta_meta  <- as.tibble(import("data/sta_meta_fin3.csv")) 
+sta_mon   <- as.tibble(import("data/stations_monthly.csv")) 
+
+# fix dates
+sta_mon <- sta_mon %>% 
+  mutate(date = ymd(date)) %>% 
+  arrange(desc(date)) %>% 
+  select(date, year, month, everything()) 
+
+# gather and summarize monthly values 
+sta_gath_mon <- gather(sta_mon, key = "station", value = "prcp", 
+                       -date, -year, -month, factor_key = TRUE)
+
+sta_summary_mon <- as.tibble(sta_gath_mon) %>%
+  group_by(station, month) %>%
+  summarise(mean = mean(prcp, na.rm = TRUE), 
+            med = median(prcp, na.rm = TRUE),
+            IQR = IQR(prcp, na.rm = TRUE), 
+            min = min(prcp, na.rm = TRUE), 
+            max = max(prcp, na.rm = TRUE)) %>%
+  arrange(month) %>%
+  arrange(station)
+
+#sta_summary_mon 
+# export(sta_summary_mon, file = "data/sta_summary_mon.csv") 
+```  
+
+
+
+
+
+
+
