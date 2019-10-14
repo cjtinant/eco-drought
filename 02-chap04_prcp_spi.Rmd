@@ -118,26 +118,28 @@ options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")
 
 # Sets up the library of packages  
 library("here")              # identifies where to save work
-library("rnoaa")             #  R wrapper for NOAA data inc. NCDC 
+library("rnoaa")             # R wrapper for NOAA data inc. NCDC 
 library("rio")               # more robust I/O - to import and clean data 
-library("lubridate")         # easier dates
-library("tidyverse") 
-library("janitor")           # tools for examining and cleaning dirty data 
+library("lubridate")         # easier dates  
+library("lmomco")            # lmoments to find distribution 
+library("SPEI")              # Calculates SPI-index
 library('deldir')            # for Vorononi tesselation - Theissen polygons 
 library("broom")             # tidies linear models 
-library("corrplot")          # correlation plots
+library("tidyverse") 
 
-# Other packages     
-#library("EGRET")            # Exploration and Graphics for RivEr Trends 
+# Other packages       
+#  library("corrplot")          # correlation plots
+#  library("janitor")           # tools for examining and cleaning dirty data 
+#library("EGRET")            # Exploration and Graphics for RivEr Trends  
 #library("dataRetrieval")    # USGS data import  
 #library("measurements")     # eases measurement system manipulation 
 #library("flextable")        # construct complex table with 'kable'  
-#library("officer")          # facilitates '.docx' access for table export  
+#library("officer")          # facilitates '.docx' access for table export   
 #library("forecast")         # for BoxCox.lambda 
 #library("ggfortify")        # data vis tools for statistical analysis 
 #library("stringi")          # character string processing facilities 
-#library("sf")               # simple features--spatial geometries for R 
-#library("anomalize")        # detect anomalies using the tidyverse  
+#library("sf")               # simple features--spatial geometries for R  
+#library("anomalize")        # detect anomalies using the tidyverse   
 #library("caret")            # classification and regression training 
 #library("doMC")             # parallelization for caret 
 #library("glmnet")           # fit a GLM with lasso or elasticnet regularization 
@@ -148,22 +150,29 @@ library("corrplot")          # correlation plots
  
 #library('jsonlite') # tools for working with lists 
 #library("magrittr") # provides aliases for easier reading
-#library("maps") # outlines of continents, countries, states & counties
+#library("maps") # outlines of continents, countries, states & counties  
 #library("mapdata") # higher-resolution outlines
 #library('ggmap')
 # library("RColorBrewer") - there is a better one?
 # library("workflowr") # creates a research website
-# library("colorspace")
-# library("bookdown") # 
-# library(unpivotr) # fix nasty Excel files
-# library("friendlyeval")
+# library("colorspace")  
+# library("bookdown") #  
+# library(unpivotr) # fix nasty Excel files  
+# library("friendlyeval")  
 # library("mathpix")                # support for 'Mathpix' image to 'LaTeX'   
-# library("cowplot") 
+# library("cowplot")  
 
 # a useful description of commits:
 # http://r-pkgs.had.co.nz/git.html
 
-``` 
+
+#lmomco <- citation("lmomco")
+#toBibtex(lmomco)
+
+# Session Info
+#a_session <- devtools::session_info()
+
+```  
 
 ```{r import_prcp_metadata, eval=FALSE}
 
@@ -905,19 +914,20 @@ sta_mon %>%
   group_by(sta) %>% 
   summarize(count = n())
 
-sta_mon$sta <- factor(sta_mon$sta, 
-                      levels = c("RAP", "ORA", "GOR", "COT", "ONI", "MIS"))
+sta_mon$sta <- factor(sta_mon$sta,  
+                      levels = c("RAP", "ORA", "GOR", "COT", "ONI", "MIS"))  
 
-# plot monthly precips
-sta_mon %>% 
-ggplot(aes(month, depth_mm, group = month)) + 
-  facet_grid(rows =vars(sta)) +
-  geom_boxplot() +
-  theme_bw() + 
-  labs(title = "Monthly precipitation depths",
-       subtitle = "1990-2017") + 
-       xlab("") +
-       ylab("mm")
+# plot monthly precips  
+sta_mon %>%   
+ggplot(aes(month, depth_mm, group = month)) +  
+  facet_grid(rows = vars(sta)) +   
+  geom_violin() +  
+ geom_boxplot(alpha = 0.5) +  
+  theme_bw() +  
+  labs(title = "Monthly precipitation depths",  
+       subtitle = "1990-2017") +   
+       xlab("") +  
+       ylab("mm")  
 
 
 # plot annual precips
@@ -992,36 +1002,240 @@ corrplot.mixed(corr_ann, order = "hclust",
 # lower = "number", title = "Precipitation station correlation")  
 ```
 
+
+
+```{r eda, include=FALSE, eval=FALSE}  
+
+# find the plotting position: using Weibull; a = 0  
+sta_mon <- sta_mon %>% 
+  group_by(sta) %>% 
+  arrange(depth_mm) %>%  
+  mutate(position = pp(depth_mm)) %>% 
+  ungroup() 
+
+# plot the depths as a function of plotting position
+ggplot(sta_mon, aes(position, depth_mm)) + 
+  facet_grid(rows = vars(sta)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  theme_bw() +
+ggtitle("Weather stations near Pine Ridge Reservation, SD", 
+          subtitle = "1980-2017") + 
+  xlab("Frequency of occurrance") +
+  ylab("Monthly depth in mm") +
+  scale_y_sqrt() +
+  ylab("Depth in mm")
+
+sta_big <- sta_mon %>%
+  filter(depth_mm > 100)
+
+summary(sta_big)
+ggplot(sta_big, aes(month)) +
+  geom_histogram(binwidth = 1) 
+
+
+rm(sta_big)  
+
+
+# the anomolously wet month series is dominated by May & June events.
+# what drives precip during this time? 
+#   In May & June the area recieves low-level moisture from the Gulf 
+#   of Mexico, strong cold fronts, and active upper-level pattern 
+#   leading to greater chance for convection.
+```
+
+
+
 START HERE 
+```{r lmoments, include=FALSE, eval=FALSE}
 
+# Calculate L-moment ratios 
+lmom_sta <- sta_mon %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$depth_mm)) %>%    
+  transpose() %>%  
+  as_tibble() %>%  
+  select(lambdas, ratios) %>%  
+    mutate(lambdas = map(lambdas,   
+                         ~as_tibble(t(.x)  
+                                    )  
+                         )    
+           ) %>%  
+    mutate(lambdas = map(lambdas,  
+                         ~set_names(.x, 
+                                    c("L1", "L2", "L3", "L4", "L5")  
+                                    )  
+                         )    
+           ) %>%  
+    mutate(ratios = map(ratios, 
+                        ~as_tibble(t(.x)  
+                                   )  
+                        )  
+           ) %>%
+    mutate(ratios = map(ratios, 
+                         ~set_names(.x,
+                                    c("T1", "T2", "T3", "T4", "T5")  
+                                    )  
+                        )  
+           ) %>% 
+  unnest(lambdas) %>%
+  unnest(ratios)  %>% 
+  select(-T1) %>%
+  rename(L_CV = T2) %>% 
+  rename(L_skew = T3) %>%
+  rename(L_kurtosis = T4) %>%
+  select(L1, L_CV, L_skew, L_kurtosis) %>% 
+  mutate(L1 = round(L1, 
+                    digits = 1)  
+         )  
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+# Get the station data based on L1 -- prepare for a join 
+# pulled out the L1 data when it was a list 
+# STA    L1 
+# RAP  35.26 
+# COT  36.29 
+# ORA  37.24 
+# GOR  42.42 
+# ONI  43.94 
+# MIS  45.74 
+
+sta_l1 <- lmom_sta %>%  
+  select(L1) %>%  
+  mutate(L1 = round(L1,  
+                    digits = 3)  
+         ) %>% 
+  arrange(L1) %>% 
+  mutate(sta = c("RAP", "COT", "ORA", "GOR", "ONI", "MIS"))
+
+lmom_sta <- full_join(sta_l1, lmom_sta, 
+                  by = "L1") %>% 
+  select(sta, everything()) %>% 
+  gather(key = type, value = val, -sta) %>% 
+  mutate(val = round(val, 
+                     digits = 2) 
+         ) %>% 
+  spread(type, val)  
+# Note that we might consider Weiss 1964 bias value of 1.018 for L1
+
+# get the lenths of the datasets
+sta_count <- sta_mon %>%
+  count(sta)  
+
+# join the number of years to the station
+lmom_sta <- left_join(lmom_sta, sta_count, by = "sta")
+
+# calculate weighted means for regional L-moments -- 
+# not really useful in this case 
+L1  <- weighted.mean(lmom_sta$L1, lmom_sta$n)
+L_CV  <- weighted.mean(lmom_sta$L_CV, lmom_sta$n)
+L_skew  <- weighted.mean(lmom_sta$L_skew, lmom_sta$n)
+L_kurtosis  <- weighted.mean(lmom_sta$L_kurtosis, lmom_sta$n)
+n       <- sum(lmom_sta$n)
+
+# combine the output into a single weighted mean
+lmom_reg <- cbind(L1, L_CV, L_skew, L_kurtosis, n) %>% 
+  as_tibble() %>% 
+  mutate(sta = "WtMean") %>% 
+  select(sta, everything()) 
+
+rm(sta_l1, sta_count, L1, L_CV, L_skew, L_kurtosis, n)
 ```
 
-```{r library, include=FALSE, message=FALSE} 
-# Sets up the library of packages 
-library("lmomco") # lmoments to find distribution 
-library("tidyverse")
-library("magrittr") # contains easier ways to say things about lists
-library("here") # identifies where to save work 
-library("rio") # more robust I/O - to import and clean data
-library("lubridate") # fixes dates 
-library("SPEI") # Calculates SPI-index
-library("jsonlite") # Convert between JSON data and R objects
-library("curl") # Drop-in replacement for base url
-library("listviewer") # htmlwidget for interactive views of R lists
-library("janitor") # tools to clean dirty data 
+```{r Lmoment_diagram_ratios, include=FALSE, eval=FALSE}
+# extract elements from the lmrdia list to plot in ggplot2  
+#   the x-value is the L-skewness and y-value is L-kurtosis  
 
-#lmomco <- citation("lmomco")
-#toBibtex(lmomco)
+# get vals from the lmrdia list 
+# note that as gamma distribution is a 2-parameter dist, it is not shown 
+lmrdia <- lmrdia() 
 
-# Session Info
-a_session <- devtools::session_info()
+# extract L-skew & L-kurtosis values for several distributions
+#aep4 <- lmrdia %>%
+#  extract2(2) %>%
+#  as.tibble() 
 
+gev <- lmrdia[[5]] %>% as.tibble()  
+
+glo <- lmrdia[[6]] %>% as.tibble()  
+
+gpa <- lmrdia[[7]] %>% as.tibble()  
+
+gno <- lmrdia[[9]] %>% as.tibble()  
+
+gov <- lmrdia[[10]] %>% as.tibble()   
+
+pe3 <- lmrdia[[12]] %>% as.tibble()   
+
+# combine and rename columns as distribution types
+int1      <- full_join(gev, glo, by = "V1")  
+int1      <- int1 %>% 
+               rename(GEV = V2.x) %>% 
+               rename(GLO = V2.y) 
+
+int2      <- full_join(int1, gpa, by = "V1") 
+int2      <- int2 %>% rename(GPA = V2) 
+
+int3      <- full_join(int2, gno, by = "V1") 
+int3      <- int3 %>% rename(GNO = V2) 
+
+int4      <- full_join(int3, gov, by = "V1") 
+int4      <- int4 %>% rename(GOV = V2) 
+
+lmom_theo <- full_join(int4, pe3, by = "V1")
+lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>% 
+  rename(L_skew = V1) %>% 
+  arrange(L_skew)
+
+# prepare theoretical distributions for plotting
+lmom_theo <- lmom_theo %>%
+  gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
+  drop_na(L_kurtosis) %>%
+  select(distribution, everything())  
+  
+rm(gev, int1, glo, int2, gpa,int3, gno, int4, gov, pe3, lmrdia)
 ```
 
+```{r plot-lmoment-diagram, include=FALSE, eval=FALSE}
+# plots the theo distributions, the sample vals, and regional mean 
+ggplot() + 
+  geom_line(data = lmom_theo, aes(L_skew, L_kurtosis,   
+                                  group = distribution,   
+                                  linetype = distribution)) +  
+  geom_point(data = lmom_sta, 
+             aes(L_skew, L_kurtosis)) +  
+  geom_point(data = lmom_reg, 
+             size = 4, 
+             show.legend = FALSE, 
+             aes(L_skew, L_kurtosis)) +  
+  xlim(-0.25, 0.5) + 
+  ylim(-0.25, 0.5) + 
+  theme_bw() + 
+  labs(x = "L-skew", 
+       y = "L-kurtosis") + 
+  ggtitle("L-moment diagram for monthly precipitation depths",  
+          subtitle = "1990-2018")  
+
+ggplot2::ggsave(filename = "lmom_plot.png",  
+                width = 6, height = 6, units = "in")  
+
+rm(lmom_reg, lmom_sta, lmom_theo)  
+
+``` 
+
+
+
+# OLD CODE 
 ```{r import-data} 
+
+# combine and rename columns as distribution types
+#int1      <- full_join(aep4, gev, by = "V1")  
+#int1      <- int1 %>% 
+#               rename(AEP4 = V2.x) %>% 
+#               rename(GEV = V2.y) 
+
+#int2      <- full_join(int1, glo, by = "V1") 
+#int2      <- int2 %>% rename(GLO = V2) 
+
 # General Purpose: prepare data for drought index   
 # Specific purpose: graphical EDA  
 sta_meta    <- as.tibble(import("data/sta_meta_fin3.csv"))  
@@ -1040,18 +1254,18 @@ sta_mon <- sta_mon %>%
 #  spread(station, depth)
 
 # make the wide data long, remove NA vals, sqrt transform
-sta_grp <- sta_mon %>%
+sta_mon <- sta_mon %>%
   gather(key = "station", value = "depth", -date, -year, -month) %>%
   drop_na(depth)  # %>% 
 #  mutate(sqrt_depth = sqrt(depth)) 
 
 # Check on log transformation
-#sta_notzero <- sta_grp %>%
+#sta_notzero <- sta_mon %>%
 #  filter(depth != 0)
 
 #min <- min(sta_notzero$depth)
 
-#sta_zero <- sta_grp %>%
+#sta_zero <- sta_mon %>%
 #  filter(depth == 0) %>%
 #  mutate(depth = depth + min/2)
 
@@ -1277,5 +1491,8 @@ ggplot() +
 #ggplot2::ggsave(filename = "lmom_plot.png", 
 #                width = 6, height = 6, units = "in")
 ``` 
+
+
+
 
 
