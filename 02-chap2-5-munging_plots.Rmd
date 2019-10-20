@@ -1060,6 +1060,150 @@ export(pca_vars, "data/pca_vars.csv")
 
 ```
 
+# bootstrapping s
+```{r bootstrap, eval=FALSE}
+
+# Construct bootstrap confidence intervals of PC axes to identify a difference 
+#   in means 
+#
+# Notes on dabest
+# dabest for monthly scale (14,027 obs; 40,000 reps) takes ~2 hours.  
+# even with increasing memory, I ran into a memory allocation 
+#  limit at 50,000 reps
+
+# increase memory allocation for dabest() 
+usethis::edit_r_environ("project") 
+
+# remove 'leftover' attributes introduced by stl 
+gage_mon <- gage_mon %>% 
+  as_tibble() 
+
+# shorten names of ecoregion to fix overplotting 
+
+# calculate 95% CI for PC1 - 'control' is Pierre Shale Plains 
+ci_input_pc1 <- gage_mon %>%      
+  dabest(ecoreg, observed_PC1,  
+         idx = c("Pierre Shale Plains",     # groups to test - first is control
+                 "Pine Ridge Escarpment", 
+                 "White River Badlands", 
+                 "Black Hills Plateau", 
+                 "Keya Paha Tablelands", 
+                 "Sand Hills"), 
+         paired = FALSE, 
+         reps = 40000                     # number of bootstraps 
+         ) 
+
+# calculate 95% CI for PC2 - 'control' is Sand Hills
+ci_input_pc2 <- gage_mon %>%  
+  dabest(ecoreg, observed_PC2,  
+         idx = c("Pierre Shale Plains",     
+                 "Pine Ridge Escarpment", 
+                 "White River Badlands", 
+                 "Black Hills Plateau", 
+                 "Keya Paha Tablelands", 
+                 "Sand Hills"
+                 ), 
+         paired = FALSE, 
+         reps = 40000 
+         ) 
+
+# export results as Rdata files 
+# how???
+
+# this is the output of the runs 
+ci_input_pc1 
+co_input_pc2
+```
+
+```{r bootstrap-swarmplots} 
+#ci_input_pc1 <- load("data/dabest_pc1.rdata") 
+
+ci_plot_pc1 <- plot(ci_input_pc1, 
+                    rawplot.type = "swarmplot", 
+                    rawplot.ylabel = "PC1 Axis", 
+                    tick.fontsize = 7, 
+                    axes.title.fontsize = 11, 
+                    palette = "Greys"  
+                    )    
+
+ci_plot_pc2 <- plot(ci_input_pc2, 
+                    rawplot.type = "swarmplot", 
+                    rawplot.ylabel = "PC2 Axis", 
+                    tick.fontsize = 7, 
+                    axes.title.fontsize = 11, 
+                    palette = "Greys"  
+                    )    
+
+cowplot::plot_grid( 
+  ci_plot_pc1,
+  ci_plot_pc2,  
+  ncol = 1, 
+  align = "v" 
+) 
+# save the plot 
+
+cowplot::ggsave2("figure/ci_plot.png", 
+        units = "in",  
+        width = 7, 
+        height = 9) 
+
+rm(ci_plot_pc1, ci_plot_pc2)
+```
+
+```{r ci_result_table, eval=FALSE}  
+
+# pluck results for summary tables & bind
+ci_results_pc1 <- ci_input_pc1 %>% 
+  pluck("result") %>% 
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
+  
+ci_results_pc2 <- ci_input_pc2 %>% 
+  pluck("result") %>% 
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
+
+ci_table <- rbind(ci_results_pc1, ci_results_pc2) 
+
+# prepare results for presentation 
+ci_table <- ci_table %>% 
+  mutate(variable =  case_when( 
+    variable == "observed_PC1" ~ "PC1", 
+    variable == "observed_PC2" ~ "PC2"    
+    )
+    ) %>% 
+  mutate(ci = as.integer(ci)) %>% 
+  select(variable, everything())
+
+# convert tibble to a flextable after fixing vars for presentation 
+ci_table <- ci_table %>% 
+  flextable() %>% 
+#  colformat_num(col_keys = col_key_num, 
+#                big.mark=",", 
+#                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(control_group = "Control Group", 
+                    test_group = "Test Groups", 
+                    control_size = "Control Size",
+                    test_size = "Test Size", 
+                    func = "Test Statistic", 
+                    variable = "Variable",
+                    difference = "Mean Difference", 
+                    ci = "CI", 
+                    bca_ci_low = "Lower Limit", 
+                    bca_ci_high = "Upper Limit") %>% 
+  autofit() %>% 
+  align(., part = "all", align = "center") %>% 
+  theme_booktabs() 
+
+  
+ci_table2 <- read_docx() %>% 
+  body_add_flextable(value = ci_table)  
+
+print(ci_table2, target = "output/ci_table.docx") 
+
+rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table) 
+
+```
+
+# check seasonality 
 ```{r deconvolute_pca}
 
 # 1. prep to deconvolute PC eigens into trend, seasonal, & random comps. ---- 
@@ -1326,6 +1470,73 @@ cowplot::ggsave2("figure/pc1-deconv.png",
 rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder, anom_PC1) 
 ```  
 
+```{r pca_decomp_table} 
+
+# summarize observations of the time series into observations for a summary table 
+mon_sum_gath <- gage_mon %>% 
+  group_by(ecoreg, axis) %>% 
+  summarize(value = round(mean(observed), digits = 2), 
+            obs_eco    = mean(abs(observed)), 
+            seas_eco   = mean(abs(season)), 
+            trend_eco  = mean(abs(trend)), 
+            remain_eco = mean(abs(remainder)) 
+            ) %>%  
+  ungroup() %>% 
+  mutate(seas_perc   = seas_eco / obs_eco) %>% 
+  mutate(trend_perc  = trend_eco / obs_eco) %>% 
+  mutate(remain_perc = remain_eco / obs_eco) %>% 
+  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
+  # readjust to 100% 
+  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>% 
+  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>% 
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
+  mutate(axis = str_remove_all(axis, "_mon")) %>% 
+  arrange(axis, value) %>% 
+  select(-c(obs_eco:sum)) 
+
+# split & mutate column names by PC  
+mon_sum_pc1 <- mon_sum_gath %>% 
+  filter(axis == "PC1") %>% 
+  select(-axis) %>% 
+  rename_all(function(x) paste0("PC1_", x)) 
+ 
+mon_sum_pc2 <- mon_sum_gath %>% 
+  filter(axis == "PC2") %>% 
+  select(-axis) %>% 
+  rename_all(function(x) paste0("PC2_", x)) 
+
+# find averages across all the stations 
+mon_sum_pc1_all <- gage_mon %>% 
+  filter(axis == "PC1_mon") %>% 
+  summarize(value = round(mean(observed), digits = 2), 
+            obs_eco    = mean(abs(observed)), 
+            seas_eco   = mean(abs(season)), 
+            trend_eco  = mean(abs(trend)), 
+            remain_eco = mean(abs(remainder)) 
+            ) %>%  
+  mutate(seas_perc   = seas_eco / obs_eco) %>% 
+  mutate(trend_perc  = trend_eco / obs_eco) %>% 
+  mutate(remain_perc = remain_eco / obs_eco) %>% 
+  mutate(sum = seas_perc + trend_perc + remain_perc)  %>% 
+  # readjust to 100% 
+  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>% 
+  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>% 
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
+#  mutate(axis = str_remove_all(axis, "_mon")) #%>% 
+#  arrange(axis, value) %>% 
+  select(-c(obs_eco:sum)) %>% 
+  mutate(ecoreg = "All Stations") %>% 
+  rename_all(function(x) paste0("PC1_", x)) 
+  
+  
+mon_sum <- bind_rows(mon_sum_pc1_all, mon_sum_pc1) %>% 
+  select(ecoreg = PC1_ecoreg, everything()) 
+
+rm(mon_sum_gath) 
+
+``` 
+
+# glm models 
 ```{r add-ecoregions-start-here-for-analysis}
  
 # Data and analysis starts with this code chunk 
