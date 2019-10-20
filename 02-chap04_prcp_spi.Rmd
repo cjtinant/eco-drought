@@ -135,9 +135,12 @@ What is the underlying distribution of precipitation data?
 -->  
 
 ```{r setup_&_library, message=FALSE}
-knitr::opts_chunk$set(echo = FALSE)  
+knitr::opts_chunk$set(echo = FALSE)   
 options(tibble.print_max = 70) # sets tibble output for printing       
-  
+
+# increase memory allocation for dabest() 
+# usethis::edit_r_environ("project") 
+
 # Get API key (aka, token) for downloading precip data at   http://www.ncdc.noaa.gov/cdo-web/token  
 # token for NOAA API tied to jtinant@olc.edu -- see 'rnoaa' for details  
 options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")  
@@ -2784,6 +2787,148 @@ rm(spi_cot, spi_gor, spi_mis, spi_oel, spi_oni, spi_rap)
 
 ```  
 
+# use bootstrapping to check precip differences 
+```{r bootstrap_precip, eval=FALSE}
+
+# Construct bootstrap confidence intervals of precip to 
+#   identify difference in means 
+#
+# Notes on dabest
+# dabest for monthly scale (14,027 obs; 40,000 reps) takes ~2 hours.  
+# even with increasing memory, I ran into a memory allocation 
+#  limit at 50,000 reps  
+
+# TEST using 4,680 obs; 20,000 reps for precip 
+
+# remove 'leftover' attributes introduced by stl 
+gage_mon <- gage_mon %>% 
+  as_tibble() 
+
+# shorten names of ecoregion to fix overplotting 
+
+# calculate 95% CI for PC1 - 'control' is Pierre Shale Plains 
+ci_input_pc1 <- gage_mon %>%      
+  dabest(ecoreg, observed_PC1,  
+         idx = c("Pierre Shale Plains",     # groups to test - first is control
+                 "Pine Ridge Escarpment", 
+                 "White River Badlands", 
+                 "Black Hills Plateau", 
+                 "Keya Paha Tablelands", 
+                 "Sand Hills"), 
+         paired = FALSE, 
+         reps = 40000                     # number of bootstraps 
+         ) 
+
+# calculate 95% CI for PC2 - 'control' is Sand Hills
+ci_input_pc2 <- gage_mon %>%  
+  dabest(ecoreg, observed_PC2,  
+         idx = c("Pierre Shale Plains",     
+                 "Pine Ridge Escarpment", 
+                 "White River Badlands", 
+                 "Black Hills Plateau", 
+                 "Keya Paha Tablelands", 
+                 "Sand Hills"
+                 ), 
+         paired = FALSE, 
+         reps = 40000 
+         ) 
+
+# export results as Rdata files 
+# how???
+
+# this is the output of the runs 
+ci_input_pc1 
+co_input_pc2
+```
+
+```{r bootstrap-swarmplots} 
+#ci_input_pc1 <- load("data/dabest_pc1.rdata") 
+
+ci_plot_pc1 <- plot(ci_input_pc1, 
+                    rawplot.type = "swarmplot", 
+                    rawplot.ylabel = "PC1 Axis", 
+                    tick.fontsize = 7, 
+                    axes.title.fontsize = 11, 
+                    palette = "Greys"  
+                    )    
+
+ci_plot_pc2 <- plot(ci_input_pc2, 
+                    rawplot.type = "swarmplot", 
+                    rawplot.ylabel = "PC2 Axis", 
+                    tick.fontsize = 7, 
+                    axes.title.fontsize = 11, 
+                    palette = "Greys"  
+                    )    
+
+cowplot::plot_grid( 
+  ci_plot_pc1,
+  ci_plot_pc2,  
+  ncol = 1, 
+  align = "v" 
+) 
+# save the plot 
+
+cowplot::ggsave2("figure/ci_plot.png", 
+        units = "in",  
+        width = 7, 
+        height = 9) 
+
+rm(ci_plot_pc1, ci_plot_pc2)
+```
+
+```{r ci_result_table, eval=FALSE}  
+
+# pluck results for summary tables & bind
+ci_results_pc1 <- ci_input_pc1 %>% 
+  pluck("result") %>% 
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
+  
+ci_results_pc2 <- ci_input_pc2 %>% 
+  pluck("result") %>% 
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
+
+ci_table <- rbind(ci_results_pc1, ci_results_pc2) 
+
+# prepare results for presentation 
+ci_table <- ci_table %>% 
+  mutate(variable =  case_when( 
+    variable == "observed_PC1" ~ "PC1", 
+    variable == "observed_PC2" ~ "PC2"    
+    )
+    ) %>% 
+  mutate(ci = as.integer(ci)) %>% 
+  select(variable, everything())
+
+# convert tibble to a flextable after fixing vars for presentation 
+ci_table <- ci_table %>% 
+  flextable() %>% 
+#  colformat_num(col_keys = col_key_num, 
+#                big.mark=",", 
+#                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(control_group = "Control Group", 
+                    test_group = "Test Groups", 
+                    control_size = "Control Size",
+                    test_size = "Test Size", 
+                    func = "Test Statistic", 
+                    variable = "Variable",
+                    difference = "Mean Difference", 
+                    ci = "CI", 
+                    bca_ci_low = "Lower Limit", 
+                    bca_ci_high = "Upper Limit") %>% 
+  autofit() %>% 
+  align(., part = "all", align = "center") %>% 
+  theme_booktabs() 
+
+  
+ci_table2 <- read_docx() %>% 
+  body_add_flextable(value = ci_table)  
+
+print(ci_table2, target = "output/ci_table.docx") 
+
+rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table) 
+
+```
+
 # Identify seasonality & trend of precipitation data 
 ```{r deconvolute_spi_1mo}  
 
@@ -2795,14 +2940,6 @@ spi_fin <- import("data/spi_fin.csv") %>%
   as_tibble()  
 
 sta_meta_fin <- import("data/sta_meta_fin.csv")
-
-#spi_gath <- spi_fin %>% 
-#  unite(
-#    "sta.date", 
-#    sep = ".", 
-#    c("sta", "date")
-#    ) 
-#  gather(key = duration, val = value, -c(sta, date, prcp))
 
 # 1.  prep to deconvolute prcp into trend, seasonal & random comps----  
 # 1.1 identify frequency of seasonality -- should be 12 months====   
@@ -2837,8 +2974,6 @@ spi01_trend <- spi_fin  %>%
 decomp_input <- bind_cols(spi01_freq, spi01_trend)  
 rm(spi01_freq, spi01_trend)  
 
-
-
 # 2. make function to decompose into seasonal, trend, & remainder----  
 decomp_fun <- function(df) { 
   arrange(df, .data$date) %>% 
@@ -2862,14 +2997,28 @@ decomp_fun <- function(df) {
 # notes: map_dfr can cause issues with indexing; use split and combine  
 #   input needs to be a tibble 
 
-TARGET <- "spi_1mo"  
-spi01  <- decomp_fun(spi_fin) %>% 
-  rename(season_01mo = season) %>% 
-  rename(trend_01mo  = trend) %>% 
-  rename(remain_01mo = remainder) %>% 
-  rename(hival_01mo  = remainder_l1) %>% 
-  rename(loval_01mo  = remainder_l2)
 
+# 3. decompose SPI into seasonal, trend, & remainder----  
+# spi_01mo====  
+TARGET <- "spi_1mo"  
+spi01  <- spi_fin %>% 
+  select(sta, date, spi_1mo) %>% 
+  decomp_fun() %>% 
+  rename(season_01mo    = season) %>% 
+  rename(trend_01mo     = trend) %>% 
+  rename(remain_01mo    = remainder) %>% 
+  rename(hival_01mo     = remainder_l1) %>% 
+  rename(loval_01mo     = remainder_l2) %>% 
+  rename(anom_01mo      = anomaly) %>% 
+  group_by(date) %>% 
+  mutate(spi01_mean     = mean(spi_1mo)) %>%  
+  mutate(seas01_mean    = mean(season_01mo)) %>%  
+  mutate(trend01_mean   = mean(trend_01mo)) %>%  
+  mutate(remain01_mean   = mean(remain_01mo)) %>%  
+  ungroup() %>% 
+# order stations for plotting 
+  mutate(sta = fct_relevel(sta, "RAP", "COT", "ONI", "OEL", "GOR", "MIS"))  
+  
 
 ```  
 
@@ -2942,93 +3091,107 @@ gage_mon <- gage_mon %>%
 ```{r plot_precip_time-series}
 
 # check for anomonies   
-spi_anom <- test %>% 
+spi01_anom <- test %>% 
   filter(anomaly == "Yes")
 
-# SPI-1mo plot 
-#spi01_obs <- 
-test %>% 
-  ggplot(aes(date, observed)) + 
-  facet_wrap(~ sta) +   
-  geom_line(size = 0.5, 
-            colour = "grey"
-            ) #+ 
+# prepare for plotting 
+sta_size   <- 0.2  
+sta_color  <- "black" 
+mean_size  <- 0.4  
+mean_color <- "gray"  
+ 
+# SPI-1mo observations plot====
+spi01_obs <- spi01 %>% 
+  ggplot(aes(date, spi_1mo)) + 
+  facet_wrap(vars(sta)) +   
+# plot mean vals 
   geom_line(aes(date, spi01_mean), 
-            size = 0.3, 
-            colour = "black"
-            ) #+ 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+            size            = mean_size, 
+            colour          = mean_color 
+            ) + 
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+            ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
   theme_bw() + 
   xlab("") + 
-  ylab("PC1 axis values")
-  
-# PC1-seasons plot 
-pc1_seas  <- gage_mon %>% 
-  ggplot(aes(Date, season_PC1)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size = 0.5, 
-            colour = "grey"
+  ylab("SPI one-month values")
+
+# SPI-1mo seasons plot==== 
+spi01_seas  <- spi01 %>% 
+  ggplot(aes(date, season_01mo)) + 
+  facet_wrap(~ sta) + 
+# plot mean vals 
+  geom_line(aes(date, seas01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
             ) + 
-  geom_line(aes(Date, ecoreg_seas_PC1), 
-            size = 0.3, 
-            colour = "black"
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
             ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
   theme_bw() + 
   xlab("") + 
-  ylab("Season (12-months)")
+  ylab("Seasonality")  
 
-# PC1-trend plot 
-pc1_trend  <- gage_mon %>% 
-  ggplot(aes(Date, trend_PC1)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size = 0.5, 
-            colour = "grey"
+# SPI-1mo trend plot====  
+spi01_trend  <- 
+  spi01 %>% 
+  ggplot(aes(date, trend_01mo)) + 
+  facet_wrap(~ sta) + 
+# plot mean vals 
+  geom_line(aes(date, trend01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
             ) + 
-  geom_line(aes(Date, ecoreg_trend_PC1), 
-            size = 0.3, 
-            colour = "black"
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
             ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
   theme_bw() + 
   xlab("") + 
-  ylab("Trend (60-months)")
+  ylab("Trend")
 
-# PC1 - remainder plot 
-pc1_remainder <- gage_mon %>%   
-  ggplot(aes(Date, remainder_PC1)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size =  0.5, 
-            colour = "grey"
+# SPI-1mo remainder plot==== 
+spi01_remainder <- spi01 %>%   
+  ggplot(aes(date, remain_01mo)) + 
+  facet_wrap(~ sta) + 
+# plot mean vals
+  geom_line(aes(date, remain01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
             ) + 
-  geom_line(aes(Date, ecoreg_remain_PC1), 
-            size = 0.3, 
-            colour = "black"
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
             ) + 
-  geom_jitter(aes(Date, ecoreg_remain_PC1), 
-              data = anom_PC1, 
-              shape = 4, 
-              size = 0.7) + 
-  scale_y_continuous(limits = c(-4.0, 5.8)) + 
+
+#  geom_jitter(aes(Date, ecoreg_remain_PC1), 
+#              data         = anom_PC1, 
+#              shape        = 4, 
+#              size         = 0.7) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
   theme_bw() + 
   xlab("") + 
-  ylab("Remainder")
+  ylab("SPI remainder values")
 
-
-# plot the plots above as a grid & save 
+# plot the plots above as a grid & save==== 
 cowplot::plot_grid(
-  pc1_obs, pc1_seas, pc1_trend, pc1_remainder, 
+  spi01_obs, spi01_seas, spi01_trend, spi01_remainder, 
   ncol = 1, 
   align = "v"
 )
 
-cowplot::ggsave2("figure/pc1-deconv.png", 
+cowplot::ggsave2("figure/spi01_deconv.png", 
         units = "in", 
         width = 7, 
         height = 9)
 
 
-rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder, anom_PC1) 
+rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
 ```  
 
 ```{r things}  
