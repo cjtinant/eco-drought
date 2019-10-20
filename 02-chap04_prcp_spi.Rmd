@@ -2838,7 +2838,7 @@ decomp_input <- bind_cols(spi01_freq, spi01_trend)
 rm(spi01_freq, spi01_trend)  
 
 
-TARGET <- "spi_1mo"
+
 # 2. make function to decompose into seasonal, trend, & remainder----  
 decomp_fun <- function(df) { 
   arrange(df, .data$date) %>% 
@@ -2855,44 +2855,25 @@ decomp_fun <- function(df) {
   ungroup() %>% 
   anomalize(remainder, 
             method = "gesd", 
-            alpha = 0.003) 
+            alpha = 0.003) %>% 
+    select(-observed) 
 }
 
 # notes: map_dfr can cause issues with indexing; use split and combine  
 #   input needs to be a tibble 
 
-test <- decomp_fun(spi_fin) 
-
-test %>%
-    plot_anomalies(ncol = 3, alpha_dots = 0.25)
-
-# test 
-test <- spi_fin %>% 
-  select(sta, date, spi_1mo) %>% 
-  arrange(date) %>% 
-  filter(sta == "RAP") %>%  
-  select(-sta) %>% 
-  as_tibble()  
-is.data.frame(test)  
-is.tibble(test)
-
-test2 <- time_decompose(test,  
-                        frequency = "12 months", 
-                        trend = "60 months", 
-                        target  = spi_1mo,    
-                        method       = "stl", 
-                        merge        = TRUE, 
-                        message      = TRUE 
-) 
-
-
-test <- decomp_fun(spi_fin) 
-gage_mon2 <- decomp_fun(gage_mon2)  
+TARGET <- "spi_1mo"  
+spi01  <- decomp_fun(spi_fin) %>% 
+  rename(season_01mo = season) %>% 
+  rename(trend_01mo  = trend) %>% 
+  rename(remain_01mo = remainder) %>% 
+  rename(hival_01mo  = remainder_l1) %>% 
+  rename(loval_01mo  = remainder_l2)
 
 
 ```  
 
-```{r arrange-df}
+```{r arrange-spi}
 # prepare to rejoin the dataframes 
 gage_mon0 <- gage_mon1 %>% 
   select(sta:ecoreg) 
@@ -2960,32 +2941,22 @@ gage_mon <- gage_mon %>%
 # SPI plotting  
 ```{r plot_precip_time-series}
 
-# prepare to order time series plot 
-#pca_plot <- pca_plot %>% 
-#    arrange(PC1_ecoreg) 
-  
-# split out the PC1 axis 
-#mon_plot_pc1 <- gage_mon %>% 
-#    filter(axis == "PC1_mon") %>% 
-#  mutate(ecoreg = fct_reorder(      # sets up the ordering by pc-axis 
-#    as.factor(ecoreg), pca_plot$PC1_ecoreg)  
-#    ) 
+# check for anomonies   
+spi_anom <- test %>% 
+  filter(anomaly == "Yes")
 
-# filter anomonies to plot below   
-anom_PC1 <- gage_mon %>% 
-  filter(anomaly_PC1 == "Yes")
-
-# PC1-observation plot 
-pc1_obs <- gage_mon %>% 
-  ggplot(aes(Date, observed_PC1)) + 
-  facet_wrap(~ ecoreg) +   
+# SPI-1mo plot 
+#spi01_obs <- 
+test %>% 
+  ggplot(aes(date, observed)) + 
+  facet_wrap(~ sta) +   
   geom_line(size = 0.5, 
             colour = "grey"
-            ) + 
-  geom_line(aes(Date, ecoreg_mean_PC1), 
+            ) #+ 
+  geom_line(aes(date, spi01_mean), 
             size = 0.3, 
             colour = "black"
-            ) + 
+            ) #+ 
   scale_y_continuous(limits = c(-4.6, 5.1)) + 
   theme_bw() + 
   xlab("") + 
