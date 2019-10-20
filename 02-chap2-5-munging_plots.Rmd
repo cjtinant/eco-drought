@@ -69,9 +69,9 @@ Approach:
 
 9) construct bootstrap confidence intervals of PC axes to identify a difference 
      in means. We obtained a 95% confidence interval (95% CI) around the our  
-     estimate of the mean difference. The 95% indicates that any such confidence 
+     estimate of the mean difference. The 95% indicates that a confidence 
      interval will capture the population mean difference 95% of the time. 
-     That is to say, we can be 95% confident the interval contains the true mean  
+     So, we can be 95% confident the interval contains the true mean
      of the population.  We can calculated the 95% CI of the mean difference by 
      performing bootstrap resampling (Bradley Efron).
 
@@ -291,6 +291,7 @@ library("assertthat")
 
 ``` 
 
+# data cleaning 
 ```{r import_daily_flow_metadata, eval=FALSE}  
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),    
                        parameterCd = "00060",  
@@ -595,6 +596,7 @@ rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv)
   
 ```  
 
+# export tables 
 ```{r prepare-table_gage_metadata, eval=FALSE} 
    
 # prepare df for gaging station metadata  
@@ -856,6 +858,7 @@ rm(gage_table, soils_table, ung_table, tables_ch2)
   
 ```  
 
+# data cleaning 
 ```{r clean_daily_flow, eval=FALSE} 
   
 # this is a small amount of code duplication to reduce API calls     
@@ -1056,6 +1059,170 @@ export(pca_eigen, "data/pca_eigen.csv")
 export(pca_vars, "data/pca_vars.csv")  
 
 ```
+
+```{r deconvolute_pca}
+
+# 1. prep to deconvolute PC eigens into trend, seasonal, & random comps. ---- 
+
+# 1.1. dv plots too busy -- scaling daily flow values into monthly mean depths  
+gage_mon <- gage_dv %>%  
+  mutate(yr = year(Date)) %>% 
+  mutate(mon = month(Date)) %>%  
+  mutate(q30_q1_diff = q30_depth - q1_depth) %>%  
+  group_by(sta, mon, yr) %>% 
+  summarize(waterYear = first(waterYear),   
+            q1_mon     = mean(q1_depth), 
+            q7_mon     = mean(q7_depth), 
+            q30_mon    = mean(q30_depth),           
+            PC1_mon    = mean(.fittedPC1), 
+            PC2_mon    = mean(.fittedPC2), 
+            q30_q1_mon = mean(abs(q30_q1_diff)),  
+            ecoreg      = first(ecoreg) 
+            ) %>% 
+  mutate(day = 15) %>%   
+  ungroup() %>% 
+  unite("Date", c("yr", "mon", "day")) %>% 
+  mutate(Date = ymd(Date)) %>% 
+  gather(key = axis, value = PCval, 
+         -c(sta, Date, waterYear, ecoreg, q1_mon, 
+            q7_mon, q30_mon, q30_q1_mon) 
+         )  %>% 
+  as_tibble() 
+
+# 2. calculate parameters to remove season & trend from observed vals ----
+# 2.1. find the average monthly frequency & enframe 
+mon_freq <- gage_mon  %>% 
+      select(-c(waterYear,ecoreg)) %>%  
+  arrange(Date) %>% 
+  unite(sta_axis, c(sta, axis), sep = ".") %>% 
+    ungroup() %>%                       # not sure what this is for.... 
+    split(.$sta_axis) %>% 
+  map_dfc(~ time_frequency( 
+    period = "auto", data = .) 
+  ) %>% 
+  gather(key = sta.axis, value = freq) %>%  
+  summarise(freq = mean(freq), 
+            max = max(freq),
+            min = min(freq), 
+            sd = sd(freq)
+            ) 
+
+# 2.2. find the average monthly trend by sta 
+mon_trend_sta <- gage_mon  %>% 
+      select(-c(waterYear,ecoreg)) %>%  
+  arrange(Date) %>% 
+  unite(sta_axis, c(sta, axis), sep = ".") %>% 
+    ungroup() %>%                       # not sure what this is for.... 
+    split(.$sta_axis) %>% 
+  map_dfc(~ time_trend( 
+    period = "auto", data = .) 
+  ) %>% 
+  gather(key = sta.axis, value = trend) %>%  
+  separate(sta.axis, into = c("sta", "sta2", "axis"), extra = "merge") %>% 
+  unite(sta, c(sta, sta2)) %>%           
+  spread(axis, trend) 
+
+# 2.3 find average monthly trend 
+mon_trend <- mon_trend_sta %>% 
+  summarise(trend = median(PC1_mon)) # no differnce in trend between PC1 & PC2 
+
+# 2.4 join and tidy 
+decomp_input <- bind_cols(mon_freq, mon_trend) 
+
+rm(mon_freq, mon_trend, eco_join)
+
+# 3. make function to decompose into seasonal, trend, & remainder -------------  
+decomp_fun <- function(df) { 
+  arrange(df, .data$Date) %>% 
+  group_by(.data$sta) %>% 
+  time_decompose( 
+    target  = PCval, 
+    data         = ., 
+    method       = "stl", 
+    frequency    = decomp_input$freq, 
+    trend        = decomp_input$trend, 
+    merge        = TRUE, 
+    message      = TRUE 
+    ) %>% 
+  ungroup() %>% 
+  anomalize(remainder, 
+            method = "gesd", 
+            alpha = 0.003) 
+}
+
+# 3.1 map_dfr causes issues with indexing; using a manual split and combine  
+gage_mon1 <- gage_mon %>% 
+  filter(axis == "PC1_mon") 
+
+gage_mon2 <- gage_mon %>% 
+  filter(axis == "PC2_mon") 
+
+gage_mon1 <- decomp_fun(gage_mon1) 
+gage_mon2 <- decomp_fun(gage_mon2)  
+
+# prepare to rejoin the dataframes 
+gage_mon0 <- gage_mon1 %>% 
+  select(sta:ecoreg) 
+  
+gage_mon1 <- gage_mon1 %>% 
+  select(sta, Date, PCval:anomaly) %>% 
+  rename(mon = PCval) %>% 
+  rename_all(paste0, "_PC1") %>% 
+  rename(sta = sta_PC1) %>% 
+  rename(Date = Date_PC1)
+  
+gage_mon2 <- gage_mon2 %>% 
+  select(sta, Date, PCval:anomaly) %>% 
+  rename(mon = PCval) %>% 
+  rename_all(paste0, "_PC2") %>% 
+  rename(sta = sta_PC2) %>% 
+  rename(Date = Date_PC2)
+
+# join the datatables   
+gage_mon1 <- full_join(gage_mon0, gage_mon1, 
+                  by = c("sta", "Date")
+                  ) 
+
+gage_mon <- full_join(gage_mon1, gage_mon2, 
+                  by = c("sta", "Date")
+                  ) 
+
+rm(gage_mon0, gage_mon1, gage_mon2, decomp_input, mon_trend_sta, decomp_fun)  
+
+
+# create station and ecoregion summaries 
+gage_mon <- gage_mon %>% 
+  group_by(sta) %>%  
+  mutate(sta_q1 = mean(q1_mon)) %>% 
+  mutate(sta_q7 = mean(q7_mon)) %>%   
+  mutate(sta_q30 = mean(q30_mon)) %>% 
+  mutate(sta_q30_q1 = mean(q30_q1_mon)) %>% 
+  mutate(sta_PC1 = mean(mon_PC1)) %>% 
+  mutate(sta_PC2 = mean(mon_PC2)) %>% 
+  ungroup() %>% 
+  group_by(ecoreg) %>%  
+  mutate(ecoreg_q1 = mean(q1_mon)) %>% 
+  mutate(ecoreg_q7 = mean(q7_mon)) %>%   
+  mutate(ecoreg_q30 = mean(q30_mon)) %>% 
+  mutate(ecoreg_q30_q1 = mean(q30_q1_mon)) %>% 
+  mutate(ecoreg_PC1 = mean(mon_PC1)) %>% 
+  mutate(ecoreg_PC2 = mean(mon_PC2)) %>% 
+  ungroup() %>%  
+  group_by(Date, ecoreg) %>% 
+  mutate(ecoreg_mean_PC1 = mean(mon_PC1)) %>% 
+  mutate(ecoreg_seas_PC1 = mean(season_PC1)) %>% 
+  mutate(ecoreg_trend_PC1 = mean(trend_PC1)) %>%   
+  mutate(ecoreg_remain_PC1 = mean(remainder_PC1)) %>%   
+  ungroup() %>% 
+  arrange(ecoreg_PC1) %>% 
+  mutate(ecoreg = fct_reorder( 
+    as.factor(ecoreg), ecoreg_PC1)  # sets up the ordering by pc-axis 
+    ) %>% 
+  arrange(sta_PC1) %>%   
+  mutate(sta = fct_reorder( 
+    as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
+    ) 
+```  
 
 ```{r add-ecoregions-start-here-for-analysis}
  
