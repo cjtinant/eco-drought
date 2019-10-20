@@ -96,8 +96,9 @@ precipitation and spi variables====
     _gor        Gordon staion (SC)   
     _mis        Mission station (SE)  
     01          one-month SPI etc.
-    _freq       frequency -- used in seasonality calculations 
-
+    _freq       frequency of periodicity -- used in seasonality calculations  
+    _trend      trend of periodicity -- used in seasonality calculations  
+    
 L-moment variables====
   lmom          L-moments  
   _sta          L-moments for stations
@@ -2783,21 +2784,30 @@ rm(spi_cot, spi_gor, spi_mis, spi_oel, spi_oni, spi_rap)
 
 ```  
 
-# Identify seasonality  
+# Identify seasonality & trend of precipitation data 
 ```{r deconvolute_spi_1mo}  
 
-# import working data   
+# import working data----     
 spi_fin <- import("data/spi_fin.csv") %>%  
   mutate(date = ymd(date))  %>%  
-  mutate(prcp = as.numeric(prcp))  
+  mutate(prcp = as.numeric(prcp)) %>%  
+  arrange(date) %>% 
+  as_tibble()  
 
 sta_meta_fin <- import("data/sta_meta_fin.csv")
 
-# 1.  prep to deconvolute prcp into trend, seasonal, & random comps----  
+#spi_gath <- spi_fin %>% 
+#  unite(
+#    "sta.date", 
+#    sep = ".", 
+#    c("sta", "date")
+#    ) 
+#  gather(key = duration, val = value, -c(sta, date, prcp))
+
+# 1.  prep to deconvolute prcp into trend, seasonal & random comps----  
 # 1.1 identify frequency of seasonality -- should be 12 months====   
 spi01_freq <- spi_fin  %>% 
   select(sta, date, spi_1mo) %>%  
-  arrange(date) %>% 
   split(.$sta) %>% 
   map_dfc(~ anomalize::time_frequency( 
     period       = "auto", data = .) 
@@ -2808,43 +2818,37 @@ spi01_freq <- spi_fin  %>%
             min  = min(freq), 
             sd   = sd(freq)
   ) 
-# 2. calculate parameters to remove season & trend from observed vals----
 
-
-# 2.2. find the average monthly trend by sta 
-spi01_sta <- gage_mon  %>% 
-#      select(-c(waterYear,ecoreg)) %>%  
-#  arrange(Date) %>% 
-#  unite(sta_axis, c(sta, axis), sep = ".") %>% 
-#    ungroup() %>%                       # not sure what this is for.... 
-    split(.$sta_axis) %>% 
-  map_dfc(~ time_trend( 
-    period = "auto", data = .) 
+# 1.2 identify trend of periodicity -- should be 60 months====
+spi01_trend <- spi_fin  %>% 
+  select(sta, date, spi_1mo) %>%  
+  split(.$sta) %>% 
+  map_dfc(~ anomalize::time_trend( 
+    period       = "auto", data = .) 
   ) %>% 
-  gather(key = sta.axis, value = trend) %>%  
-  separate(sta.axis, into = c("sta", "sta2", "axis"), extra = "merge") %>% 
-  unite(sta, c(sta, sta2)) %>%           
-  spread(axis, trend) 
+  gather(key     = sta, value = freq) %>%  
+  summarise(freq = mean(freq), 
+            max  = max(freq),
+            min  = min(freq), 
+            sd   = sd(freq)
+  ) 
 
-# 2.3 find average monthly trend 
-mon_trend <- mon_trend_sta %>% 
-  summarise(trend = median(PC1_mon)) # no differnce in trend between PC1 & PC2 
+# 1.3 create inputs====  
+decomp_input <- bind_cols(spi01_freq, spi01_trend)  
+rm(spi01_freq, spi01_trend)  
 
-# 2.4 join and tidy 
-decomp_input <- bind_cols(mon_freq, mon_trend) 
 
-rm(mon_freq, mon_trend, eco_join)
-
-# 3. make function to decompose into seasonal, trend, & remainder -------------  
+TARGET <- "spi_1mo"
+# 2. make function to decompose into seasonal, trend, & remainder----  
 decomp_fun <- function(df) { 
-  arrange(df, .data$Date) %>% 
+  arrange(df, .data$date) %>% 
   group_by(.data$sta) %>% 
   time_decompose( 
-    target  = PCval, 
+    target  = , TARGET,    
     data         = ., 
     method       = "stl", 
-    frequency    = decomp_input$freq, 
-    trend        = decomp_input$trend, 
+    frequency    = "12 months", 
+    trend        = "60 months", 
     merge        = TRUE, 
     message      = TRUE 
     ) %>% 
@@ -2854,16 +2858,41 @@ decomp_fun <- function(df) {
             alpha = 0.003) 
 }
 
-# 3.1 map_dfr causes issues with indexing; using a manual split and combine  
-gage_mon1 <- gage_mon %>% 
-  filter(axis == "PC1_mon") 
+# notes: map_dfr can cause issues with indexing; use split and combine  
+#   input needs to be a tibble 
 
-gage_mon2 <- gage_mon %>% 
-  filter(axis == "PC2_mon") 
+test <- decomp_fun(spi_fin) 
 
-gage_mon1 <- decomp_fun(gage_mon1) 
+test %>%
+    plot_anomalies(ncol = 3, alpha_dots = 0.25)
+
+# test 
+test <- spi_fin %>% 
+  select(sta, date, spi_1mo) %>% 
+  arrange(date) %>% 
+  filter(sta == "RAP") %>%  
+  select(-sta) %>% 
+  as_tibble()  
+is.data.frame(test)  
+is.tibble(test)
+
+test2 <- time_decompose(test,  
+                        frequency = "12 months", 
+                        trend = "60 months", 
+                        target  = spi_1mo,    
+                        method       = "stl", 
+                        merge        = TRUE, 
+                        message      = TRUE 
+) 
+
+
+test <- decomp_fun(spi_fin) 
 gage_mon2 <- decomp_fun(gage_mon2)  
 
+
+```  
+
+```{r arrange-df}
 # prepare to rejoin the dataframes 
 gage_mon0 <- gage_mon1 %>% 
   select(sta:ecoreg) 
@@ -2926,17 +2955,112 @@ gage_mon <- gage_mon %>%
   mutate(sta = fct_reorder( 
     as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
     ) 
-```  
-
-
-
-
-
-
-
+```
 
 # SPI plotting  
-```{r}  
+```{r plot_precip_time-series}
+
+# prepare to order time series plot 
+#pca_plot <- pca_plot %>% 
+#    arrange(PC1_ecoreg) 
+  
+# split out the PC1 axis 
+#mon_plot_pc1 <- gage_mon %>% 
+#    filter(axis == "PC1_mon") %>% 
+#  mutate(ecoreg = fct_reorder(      # sets up the ordering by pc-axis 
+#    as.factor(ecoreg), pca_plot$PC1_ecoreg)  
+#    ) 
+
+# filter anomonies to plot below   
+anom_PC1 <- gage_mon %>% 
+  filter(anomaly_PC1 == "Yes")
+
+# PC1-observation plot 
+pc1_obs <- gage_mon %>% 
+  ggplot(aes(Date, observed_PC1)) + 
+  facet_wrap(~ ecoreg) +   
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_mean_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("PC1 axis values")
+  
+# PC1-seasons plot 
+pc1_seas  <- gage_mon %>% 
+  ggplot(aes(Date, season_PC1)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_seas_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Season (12-months)")
+
+# PC1-trend plot 
+pc1_trend  <- gage_mon %>% 
+  ggplot(aes(Date, trend_PC1)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size = 0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_trend_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  scale_y_continuous(limits = c(-4.6, 5.1)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Trend (60-months)")
+
+# PC1 - remainder plot 
+pc1_remainder <- gage_mon %>%   
+  ggplot(aes(Date, remainder_PC1)) + 
+  facet_wrap(~ ecoreg) + 
+  geom_line(size =  0.5, 
+            colour = "grey"
+            ) + 
+  geom_line(aes(Date, ecoreg_remain_PC1), 
+            size = 0.3, 
+            colour = "black"
+            ) + 
+  geom_jitter(aes(Date, ecoreg_remain_PC1), 
+              data = anom_PC1, 
+              shape = 4, 
+              size = 0.7) + 
+  scale_y_continuous(limits = c(-4.0, 5.8)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Remainder")
+
+
+# plot the plots above as a grid & save 
+cowplot::plot_grid(
+  pc1_obs, pc1_seas, pc1_trend, pc1_remainder, 
+  ncol = 1, 
+  align = "v"
+)
+
+cowplot::ggsave2("figure/pc1-deconv.png", 
+        units = "in", 
+        width = 7, 
+        height = 9)
+
+
+rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder, anom_PC1) 
+```  
+
+```{r things}  
 
 spi_all2 %>% 
 ggplot(aes(date, spi_1mo)) + 
