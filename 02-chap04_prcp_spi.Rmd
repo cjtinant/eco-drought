@@ -160,10 +160,10 @@ library("scales")            # graphical scales map data to aesthetics,
                              #   & methods for determining breaks and labels 
                              #   for axes and legends  
 library("anomalize")         # detect anomalies using the tidyverse   
+library("dabestr")           # data analysis using bootstrap estimation   
+library("cowplot")  
 #library("flextable")        # construct complex table with 'kable'  
 #library("officer")          # facilitates '.docx' access for table export   
-# library("cowplot")  
-#library("dabestr")          # data analysis using bootstrap estimation   
 library("tidyverse") 
 
 # other packages I have thought about ---------------------------------------  
@@ -2752,7 +2752,7 @@ rm(sta_mis, mis)
 ```{r simplify_workspace}     
 
 # prepare final spi values   
-spi_all <- bind_rows(spi_cot,   
+spi_fin <- bind_rows(spi_cot,    
                      spi_gor,  
                      spi_mis,  
                      spi_oel,  
@@ -2765,9 +2765,9 @@ spi_all <- bind_rows(spi_cot,
 # truncate spi vals to [-3, 3]   
   gather(key = type, val = value, -c(sta, date, prcp)) %>%  
   mutate(value = case_when(   
-    value < -3.0 ~ -3.0, 
+    value < -3.0 ~ -3.0,  
     value >  3.0 ~  3.0,  
-    TRUE ~ value)) %>%
+    TRUE ~ value)) %>%  
   spread(type, value) %>%    
 # move the longer spi-values to the end of the df  
   select(-spi_12mo, spi_12mo) %>%  
@@ -2777,7 +2777,7 @@ spi_all <- bind_rows(spi_cot,
 sta_meta_fin <- semi_join(sta_meta_orig, spi_all,  
                           by = "sta")  
 
-export(spi_all, "data/spi_fin.csv")  
+export(spi_fin, "data/spi_fin.csv")  
 export(sta_meta_fin, "data/sta_meta_fin.csv")  
 
 # clean up workspace   
@@ -2786,6 +2786,70 @@ rm(dateMax, distrib, first_mon, p_zero, p_zero_cm, scale, sci.limit, sta,
 rm(spi_cot, spi_gor, spi_mis, spi_oel, spi_oni, spi_rap)  
 
 ```  
+
+
+```{r}
+
+spi_fin <- import("data/spi_fin.csv") %>% 
+  mutate(date = ymd(date))  
+
+# data is from 1954 to 2018 = 65 years 
+# split into two chuncks & test before after 
+spi_fin <- spi_fin %>%   
+  mutate(yr = year(date)) %>%   
+  mutate(period = case_when(   
+    yr < 1986 ~ "before",  
+    TRUE ~ "after")  
+  ) %>% 
+  unite("group", 
+        c("sta", "period"),  
+        sep = "_", 
+        remove = FALSE)  
+
+# print a summary of the data 
+spi_fin %>%  
+  group_by(group) %>%  
+  summarise(count = n()) %>%   
+  ungroup() %>%  
+  mutate(num_yr = count/(12))
+
+# A tibble: 12 x 3
+#   group      count num_yr
+#   <chr>      <int>  <dbl>
+#  1 COT_after    396     33
+#  2 COT_before   384     32
+#  3 GOR_after    396     33
+#  4 GOR_before   384     32
+#  5 MIS_after    396     33
+#  6 MIS_before   384     32
+#  7 OEL_after    396     33
+#  8 OEL_before   384     32
+#  9 ONI_after    396     33
+# 10 ONI_before   384     32
+# 11 RAP_after    396     33
+# 12 RAP_before   384     32
+
+# bootstrap confidence interval of prcp  
+prcp_dabest <- spi_fin %>%  
+  dabest(x = group,             # grouping variable 
+         y = prcp,              # measurement variable  
+         idx = list(c("COT_before", "GOR_before", "OEL_before",  
+                      "MIS_before", "ONI_before", "RAP_before"), 
+                    c("COT_after", "GOR_after", "OEL_after", 
+                      "MIS_after", "ONI_after", "RAP_after")), 
+         paired = TRUE, 
+         id.column = group  
+  )  
+
+plot.dabest(prcp_dabest, color.column = period)
+
+ggplot2::ggsave(filename = "figure/prcp_dif.png",   
+                width = 6.5, height = 9, units = "in")  
+
+
+```
+
+
 
 # use bootstrapping to check precip differences 
 ```{r bootstrap_precip, eval=FALSE}
@@ -2930,51 +2994,10 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 ```
 
 # Identify seasonality & trend of precipitation data 
-```{r deconvolute_spi_1mo}  
 
-# import working data----     
-spi_fin <- import("data/spi_fin.csv") %>%  
-  mutate(date = ymd(date))  %>%  
-  mutate(prcp = as.numeric(prcp)) %>%  
-  arrange(date) %>% 
-  as_tibble()  
+```{r make stl decomp function}  
 
-sta_meta_fin <- import("data/sta_meta_fin.csv")
-
-# 1.  prep to deconvolute prcp into trend, seasonal & random comps----  
-# 1.1 identify frequency of seasonality -- should be 12 months====   
-spi01_freq <- spi_fin  %>% 
-  select(sta, date, spi_1mo) %>%  
-  split(.$sta) %>% 
-  map_dfc(~ anomalize::time_frequency( 
-    period       = "auto", data = .) 
-  ) %>% 
-  gather(key     = sta, value = freq) %>%  
-  summarise(freq = mean(freq), 
-            max  = max(freq),
-            min  = min(freq), 
-            sd   = sd(freq)
-  ) 
-
-# 1.2 identify trend of periodicity -- should be 60 months====
-spi01_trend <- spi_fin  %>% 
-  select(sta, date, spi_1mo) %>%  
-  split(.$sta) %>% 
-  map_dfc(~ anomalize::time_trend( 
-    period       = "auto", data = .) 
-  ) %>% 
-  gather(key     = sta, value = freq) %>%  
-  summarise(freq = mean(freq), 
-            max  = max(freq),
-            min  = min(freq), 
-            sd   = sd(freq)
-  ) 
-
-# 1.3 create inputs====  
-decomp_input <- bind_cols(spi01_freq, spi01_trend)  
-rm(spi01_freq, spi01_trend)  
-
-# 2. make function to decompose into seasonal, trend, & remainder----  
+# make function to decompose into seasonal, trend, & remainder----  
 decomp_fun <- function(df) { 
   arrange(df, .data$date) %>% 
   group_by(.data$sta) %>% 
@@ -2996,9 +3019,53 @@ decomp_fun <- function(df) {
 
 # notes: map_dfr can cause issues with indexing; use split and combine  
 #   input needs to be a tibble 
+```
 
+```{r deconvolute_spi_1mo}  
 
-# 3. decompose SPI into seasonal, trend, & remainder----  
+# import working data----     
+spi_fin <- import("data/spi_fin.csv") %>%  
+  mutate(date = ymd(date))  %>%  
+  mutate(prcp = as.numeric(prcp)) %>%  
+  arrange(date) %>% 
+  as_tibble()  
+
+sta_meta_fin <- import("data/sta_meta_fin.csv")
+
+# prepare to deconvolute prcp into trend, seasonal & random comps----  
+#   identify frequency of seasonality -- should be 12 months====   
+spi_freq <- spi_fin  %>% 
+  select(sta, date, spi_1mo) %>%  
+  split(.$sta) %>% 
+  map_dfc(~ anomalize::time_frequency( 
+    period       = "auto", data = .) 
+  ) %>% 
+  gather(key     = sta, value = freq) %>%  
+  summarise(freq = mean(freq), 
+            max  = max(freq),
+            min  = min(freq), 
+            sd   = sd(freq)
+  ) 
+
+#   identify trend of periodicity -- should be 60 months====
+spi_trend <- spi_fin  %>% 
+  select(sta, date, spi_1mo) %>%  
+  split(.$sta) %>% 
+  map_dfc(~ anomalize::time_trend( 
+    period       = "auto", data = .) 
+  ) %>% 
+  gather(key     = sta, value = freq) %>%  
+  summarise(freq = mean(freq), 
+            max  = max(freq),
+            min  = min(freq), 
+            sd   = sd(freq)
+  ) 
+
+# 1.3 create inputs====  
+decomp_input <- bind_cols(spi_freq, spi_trend)  
+rm(spi_freq, spi_trend)  
+
+# decompose SPI into seasonal, trend, & remainder----  
 # spi_01mo====  
 TARGET <- "spi_1mo"  
 spi01  <- spi_fin %>% 
@@ -3019,10 +3086,108 @@ spi01  <- spi_fin %>%
 # order stations for plotting 
   mutate(sta = fct_relevel(sta, "RAP", "COT", "ONI", "OEL", "GOR", "MIS"))  
   
+# spi_02mo====  
+TARGET <- "spi_2mo"  
+
+spi02  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(spi = spi_2mo) %>% 
+  mutate(duration = 2)  
+
+# spi_03mo====  
+TARGET <- "spi_3mo"  
+
+spi03  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(season_03mo    = season) %>% 
+  rename(trend_03mo     = trend) %>% 
+  rename(remain_03mo    = remainder) %>% 
+  rename(hival_03mo     = remainder_l1) %>% 
+  rename(loval_03mo     = remainder_l2) %>% 
+  rename(anom_03mo      = anomaly)  
+
+# spi_04mo====  
+TARGET <- "spi_4mo"  
+
+spi04  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(season_04mo    = season) %>% 
+  rename(trend_04mo     = trend) %>% 
+  rename(remain_04mo    = remainder) %>% 
+  rename(hival_04mo     = remainder_l1) %>% 
+  rename(loval_04mo     = remainder_l2) %>% 
+  rename(anom_04mo      = anomaly)  
+
+# spi_06mo====  
+TARGET <- "spi_6mo"  
+
+spi06  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(season_06mo    = season) %>% 
+  rename(trend_06mo     = trend) %>% 
+  rename(remain_06mo    = remainder) %>% 
+  rename(hival_06mo     = remainder_l1) %>% 
+  rename(loval_06mo     = remainder_l2) %>% 
+  rename(anom_06mo      = anomaly)  
+
+# spi_09mo====  
+TARGET <- "spi_9mo"  
+
+spi09  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(season_09mo    = season) %>% 
+  rename(trend_09mo     = trend) %>% 
+  rename(remain_09mo    = remainder) %>% 
+  rename(hival_09mo     = remainder_l1) %>% 
+  rename(loval_09mo     = remainder_l2) %>% 
+  rename(anom_09mo      = anomaly)  
+
+# spi12mo====  
+TARGET <- "spi_12mo"  
+
+spi12  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(season_12mo    = season) %>% 
+  rename(trend_12mo     = trend) %>% 
+  rename(remain_12mo    = remainder) %>% 
+  rename(hival_12mo     = remainder_l1) %>% 
+  rename(loval_12mo     = remainder_l2) %>% 
+  rename(anom_12mo      = anomaly)  
+
+# spi_24mo====  
+TARGET <- "spi_24mo"  
+
+spi24  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(season_24mo    = season) %>% 
+  rename(trend_24mo     = trend) %>% 
+  rename(remain_24mo    = remainder) %>% 
+  rename(hival_24mo     = remainder_l1) %>% 
+  rename(loval_24mo     = remainder_l2) %>% 
+  rename(anom_24mo      = anomaly)  
 
 ```  
 
 ```{r arrange-spi}
+
+spi02 <- spi_02 %>% 
+  
+
+
+
+
+
+
+
+
+
 # prepare to rejoin the dataframes 
 gage_mon0 <- gage_mon1 %>% 
   select(sta:ecoreg) 
@@ -3088,7 +3253,113 @@ gage_mon <- gage_mon %>%
 ```
 
 # SPI plotting  
-```{r plot_precip_time-series}
+```{r plot_precip_seasonality}
+
+# check for anomonies   
+spi01_anom <- test %>% 
+  filter(anomaly == "Yes")
+
+# prepare for plotting 
+sta_size   <- 0.2  
+sta_color  <- "black" 
+mean_size  <- 0.4  
+mean_color <- "gray"  
+ 
+# SPI-1mo observations plot====
+spi01_obs <- spi01 %>% 
+  ggplot(aes(date, spi_1mo)) + 
+  facet_wrap(vars(sta)) +   
+# plot mean vals 
+  geom_line(aes(date, spi01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+            ) + 
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+            ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("SPI one-month values")
+
+# SPI-1mo seasons plot==== 
+spi01_seas  <- spi01 %>% 
+  ggplot(aes(date, season_01mo)) + 
+  facet_wrap(~ sta) + 
+# plot mean vals 
+  geom_line(aes(date, seas01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+            ) + 
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+            ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Seasonality")  
+
+# SPI-1mo trend plot====  
+spi01_trend  <- 
+  spi01 %>% 
+  ggplot(aes(date, trend_01mo)) + 
+  facet_wrap(~ sta) + 
+# plot mean vals 
+  geom_line(aes(date, trend01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+            ) + 
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+            ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Trend")
+
+# SPI-1mo remainder plot==== 
+spi01_remainder <- spi01 %>%   
+  ggplot(aes(date, remain_01mo)) + 
+  facet_wrap(~ sta) + 
+# plot mean vals
+  geom_line(aes(date, remain01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+            ) + 
+# plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+            ) + 
+
+#  geom_jitter(aes(Date, ecoreg_remain_PC1), 
+#              data         = anom_PC1, 
+#              shape        = 4, 
+#              size         = 0.7) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("SPI remainder values")
+
+# plot the plots above as a grid & save==== 
+cowplot::plot_grid(
+  spi01_obs, spi01_seas, spi01_trend, spi01_remainder, 
+  ncol = 1, 
+  align = "v"
+)
+
+cowplot::ggsave2("figure/spi01_deconv.png", 
+        units = "in", 
+        width = 7, 
+        height = 9)
+
+
+rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
+```  
+
+```{r plot_precip_seasonality}
 
 # check for anomonies   
 spi01_anom <- test %>% 
