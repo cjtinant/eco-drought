@@ -222,13 +222,13 @@ why_to_write()
 
 ```  
 
-```{r import_prcp_metadata, eval=FALSE} 
+```{r download_prcp_metadata, eval=FALSE} 
 
 # Get possible stations -----------------------------------------------------  
-# It's also possible to check station id with the mapping tool at:   
-# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation  
-
-# The geographical extent given as SElat, SElon, NWlat, NWlon 
+# It's also possible to check station id with the mapping tool at:    
+# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
+  
+# The geographical extent given as SElat, SElon, NWlat, NWlon  
 sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),  
                                limit = 1000) %>%      # n = 777  
 # get possible stations into a dataframe  
@@ -244,7 +244,7 @@ sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),
   filter(str_detect(id, "^GHCND"))  %>%                 # n =  60      
   filter(!str_detect(name, "^MAGPIE")) %>%              # n =  59  
   filter(elevation < 1200)                              # n =  46    
-
+  
 # create groups of stations by region   
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(north_group = case_when(  
@@ -266,7 +266,7 @@ sta_meta_orig <- sta_meta_orig %>%
              into = c("type", "sta_id")   
              ) %>% 
   arrange(name)  
-
+  
 # add short names to metadata & update the stored file ----------------------  
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(sta = case_when(  
@@ -321,7 +321,7 @@ sta_meta_orig <- sta_meta_orig %>%
          )   
   ) %>%   
   select(sta, name, longitude, latitude, elevation, group, everything())  
-
+  
 export(sta_meta_orig, "data/sta_meta_orig.csv")   
   
 ```  
@@ -2787,26 +2787,37 @@ rm(spi_cot, spi_gor, spi_mis, spi_oel, spi_oni, spi_rap)
 
 ```  
 
+# use bootstrapping to check precip differences 
+```{r bootstrap_precip}
 
-```{r}
+# Construct bootstrap confidence intervals of precipitation----  
+#   to identify differences in means  
+# Monthly precipitation data is from 1954 to 2018 = 65 years  
+#   Split data into two groups of 30 years & test for differences  
 
-spi_fin <- import("data/spi_fin.csv") %>% 
-  mutate(date = ymd(date))  
+# Notes on dabest and memory -- see setup for how to increase memory  
+# dabest for 14,027 obs; 40,000 reps takes ~2 hours.    
+#   Still had memory allocation issues @ 50,000 reps after increasing memory.   
+  
+# import final monthly precip data & prepare for bootstrapping====  
+spi_fin <- import("data/spi_fin.csv") %>%  
+  mutate(date = ymd(date)) %>%  
+  mutate(yr = year(date)) %>%    
+# filter to a 60-yr time period   
+  filter(yr > 1958) %>%  
+# create an id variable  
+  mutate(Period = case_when(   
+    yr < 1989 ~ "<1989",  
+    TRUE ~ ">1989")  
+  ) %>%  
+# create a grouping variable  
+  unite("group",   
+        c("sta", "Period"),  
+        sep = "",  
+        remove = FALSE) %>%  
+  arrange(date)  
 
-# data is from 1954 to 2018 = 65 years 
-# split into two chuncks & test before after 
-spi_fin <- spi_fin %>%   
-  mutate(yr = year(date)) %>%   
-  mutate(period = case_when(   
-    yr < 1986 ~ "before",  
-    TRUE ~ "after")  
-  ) %>% 
-  unite("group", 
-        c("sta", "period"),  
-        sep = "_", 
-        remove = FALSE)  
-
-# print a summary of the data 
+# print a summary of the data==== 
 spi_fin %>%  
   group_by(group) %>%  
   summarise(count = n()) %>%   
@@ -2814,156 +2825,80 @@ spi_fin %>%
   mutate(num_yr = count/(12))
 
 # A tibble: 12 x 3
-#   group      count num_yr
-#   <chr>      <int>  <dbl>
-#  1 COT_after    396     33
-#  2 COT_before   384     32
-#  3 GOR_after    396     33
-#  4 GOR_before   384     32
-#  5 MIS_after    396     33
-#  6 MIS_before   384     32
-#  7 OEL_after    396     33
-#  8 OEL_before   384     32
-#  9 ONI_after    396     33
-# 10 ONI_before   384     32
-# 11 RAP_after    396     33
-# 12 RAP_before   384     32
+#    group      count num_yr
+#    <chr>      <int>  <dbl>
+# A tibble: 12 x 3
+#    group    count num_yr
+#    <chr>    <int>  <dbl>
+#  1 COT<1989   360     30
+#  2 COT>1989   360     30
+#  3 GOR<1989   360     30
+#  4 GOR>1989   360     30
+#  5 MIS<1989   360     30
+#  6 MIS>1989   360     30
+#  7 OEL<1989   360     30
+#  8 OEL>1989   360     30
+#  9 ONI<1989   360     30
+# 10 ONI>1989   360     30
+# 11 RAP<1989   360     30
+# 12 RAP>1989   360     30
 
-# bootstrap confidence interval of prcp  
+# construct bootstrap confidence interval of prcp====  
 prcp_dabest <- spi_fin %>%  
   dabest(x = group,             # grouping variable 
          y = prcp,              # measurement variable  
-         idx = list(c("COT_before", "GOR_before", "OEL_before",  
-                      "MIS_before", "ONI_before", "RAP_before"), 
-                    c("COT_after", "GOR_after", "OEL_after", 
-                      "MIS_after", "ONI_after", "RAP_after")), 
+         # list order shows control as first group on the list  
+         idx = list(c("RAP<1989",  
+                      "OEL<1989",  
+                      "COT<1989",  
+                      "GOR<1989",  
+                      "ONI<1989",  
+                      "MIS<1989"),  
+                    c("RAP>1989",  
+                      "OEL>1989",  
+                      "COT>1989",  
+                      "GOR>1989",  
+                      "ONI>1989",  
+                      "MIS>1989")  
+         ),  
          paired = TRUE, 
+         reps = 20000,  
          id.column = group  
   )  
 
-plot.dabest(prcp_dabest, color.column = period)
-
+# plot the dabest bootstrap====  
+plot(prcp_dabest,  
+            color.column = Period,  
+            tick.fontsize = 5,  
+            axes.title.fontsize = 11,  
+            rawplot.ylabel = "Monthly precip. (mm)",  
+            rawplot.groupwidth = 0.3,  
+            palette = "Greys")  
+  
+# save results====  
 ggplot2::ggsave(filename = "figure/prcp_dif.png",   
-                width = 6.5, height = 9, units = "in")  
-
-
+                width = 6.5, height = 4.5, units = "in")  
+  
 ```
 
-
-
-# use bootstrapping to check precip differences 
-```{r bootstrap_precip, eval=FALSE}
-
-# Construct bootstrap confidence intervals of precip to 
-#   identify difference in means 
-#
-# Notes on dabest
-# dabest for monthly scale (14,027 obs; 40,000 reps) takes ~2 hours.  
-# even with increasing memory, I ran into a memory allocation 
-#  limit at 50,000 reps  
-
-# TEST using 4,680 obs; 20,000 reps for precip 
-
-# remove 'leftover' attributes introduced by stl 
-gage_mon <- gage_mon %>% 
-  as_tibble() 
-
-# shorten names of ecoregion to fix overplotting 
-
-# calculate 95% CI for PC1 - 'control' is Pierre Shale Plains 
-ci_input_pc1 <- gage_mon %>%      
-  dabest(ecoreg, observed_PC1,  
-         idx = c("Pierre Shale Plains",     # groups to test - first is control
-                 "Pine Ridge Escarpment", 
-                 "White River Badlands", 
-                 "Black Hills Plateau", 
-                 "Keya Paha Tablelands", 
-                 "Sand Hills"), 
-         paired = FALSE, 
-         reps = 40000                     # number of bootstraps 
-         ) 
-
-# calculate 95% CI for PC2 - 'control' is Sand Hills
-ci_input_pc2 <- gage_mon %>%  
-  dabest(ecoreg, observed_PC2,  
-         idx = c("Pierre Shale Plains",     
-                 "Pine Ridge Escarpment", 
-                 "White River Badlands", 
-                 "Black Hills Plateau", 
-                 "Keya Paha Tablelands", 
-                 "Sand Hills"
-                 ), 
-         paired = FALSE, 
-         reps = 40000 
-         ) 
-
-# export results as Rdata files 
-# how???
-
-# this is the output of the runs 
-ci_input_pc1 
-co_input_pc2
-```
-
-```{r bootstrap-swarmplots} 
-#ci_input_pc1 <- load("data/dabest_pc1.rdata") 
-
-ci_plot_pc1 <- plot(ci_input_pc1, 
-                    rawplot.type = "swarmplot", 
-                    rawplot.ylabel = "PC1 Axis", 
-                    tick.fontsize = 7, 
-                    axes.title.fontsize = 11, 
-                    palette = "Greys"  
-                    )    
-
-ci_plot_pc2 <- plot(ci_input_pc2, 
-                    rawplot.type = "swarmplot", 
-                    rawplot.ylabel = "PC2 Axis", 
-                    tick.fontsize = 7, 
-                    axes.title.fontsize = 11, 
-                    palette = "Greys"  
-                    )    
-
-cowplot::plot_grid( 
-  ci_plot_pc1,
-  ci_plot_pc2,  
-  ncol = 1, 
-  align = "v" 
-) 
-# save the plot 
-
-cowplot::ggsave2("figure/ci_plot.png", 
-        units = "in",  
-        width = 7, 
-        height = 9) 
-
-rm(ci_plot_pc1, ci_plot_pc2)
-```
-
+# start here
 ```{r ci_result_table, eval=FALSE}  
 
-# pluck results for summary tables & bind
-ci_results_pc1 <- ci_input_pc1 %>% 
-  pluck("result") %>% 
+# pluck results for summary tables & bind====
+prcp_ci_results <- prcp_dabest %>% 
+  pluck("result") #%>% 
   select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
   
-ci_results_pc2 <- ci_input_pc2 %>% 
-  pluck("result") %>% 
-  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
-
-ci_table <- rbind(ci_results_pc1, ci_results_pc2) 
-
-# prepare results for presentation 
+# prepare results for presentation==== 
 ci_table <- ci_table %>% 
   mutate(variable =  case_when( 
-    variable == "observed_PC1" ~ "PC1", 
-    variable == "observed_PC2" ~ "PC2"    
+    variable == "observed_PC1" ~ "PC1"   
     )
     ) %>% 
   mutate(ci = as.integer(ci)) %>% 
   select(variable, everything())
 
-# convert tibble to a flextable after fixing vars for presentation 
+# convert tibble to a flextable after fixing vars for presentation==== 
 ci_table <- ci_table %>% 
   flextable() %>% 
 #  colformat_num(col_keys = col_key_num, 
@@ -2993,6 +2928,243 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 
 ```
 
+```{r}
+# example 
+if (require("maps")) {
+states <- map_data("state")
+arrests <- USArrests
+names(arrests) <- tolower(names(arrests))
+arrests$region <- tolower(rownames(USArrests))
+
+choro <- merge(states, arrests, sort = FALSE, by = "region")
+choro <- choro[order(choro$order), ]
+ggplot(choro, aes(long, lat)) +
+  geom_polygon(aes(group = group, fill = assault)) +
+  coord_map("albers",  at0 = 45.5, lat1 = 29.5)
+}
+
+if (require("maps")) {
+ggplot(choro, aes(long, lat)) +
+  geom_polygon(aes(group = group, fill = assault / murder)) +
+  coord_map("albers",  at0 = 45.5, lat1 = 29.5)
+}  
+
+#ggplot(states, aes(long, lat)) #+
+#  geom_polygon(aes(group = group, fill = assault / murder)) +
+#  coord_map("albers",  at0 = 45.5, lat1 = 29.5)
+```
+
+
+```{r plot-theissen-final_stations}
+
+sta_meta_fin <- import("data/sta_meta_fin.csv")  
+
+# plot a map of the study area----  
+# create Theissen line segments====    
+voronoi <- deldir(sta_meta_fin$lon, sta_meta_fin$lat) 
+
+# import polygon data for maps==== 
+usa         <- map_data("usa") 
+states      <- map_data("state")  
+counties    <- map_data("county")  
+# filter counties for AOI====  
+#   need to filter counties for SD & NE separately because of duplicate vals  
+#   subset SD counties####   
+counties_sd <- subset(counties, region %in%  
+   c("south dakota")) %>%  
+  filter(   
+    subregion == "butte" |  
+    subregion == "meade" |  
+    subregion == "lawrence" |  
+    subregion == "pennington" |  
+    subregion == "custer" |  
+    subregion == "fall river" |   
+    subregion == "shannon" |  
+    subregion == "jackson" |  
+    subregion == "bennett" |  
+    subregion == "haakon" |   
+    subregion == "todd" |  
+    subregion == "mellette" |   
+    subregion == "jones" |   
+    subregion == "stanley" |   
+    subregion == "lyman" |   
+    subregion == "tripp" |   
+    subregion == "hughes" |  
+    subregion == "ziebach" |      
+    subregion == "dewey" |  
+    subregion == "hughes" |      
+    subregion == "sully"   | 
+    subregion == "potter"     
+    ) 
+  
+#   subset NE counties####
+counties_ne <- subset(counties, region %in%  
+   c("nebraska")) %>%  
+  filter(subregion == "sioux" |  
+         subregion == "dawes" |  
+         subregion == "sheridan" |  
+         subregion == "box butte" | 
+         subregion == "cherry" |  
+         subregion == "brown" |  
+         subregion == "keya paha" |  
+         subregion == "rock"  
+         )  
+
+#   join SD & NE counties####   
+counties <- bind_rows(counties_sd, counties_ne)  
+rm(counties_sd, counties_ne)  
+# create a bounding box -- order is SW, NW, NE, SE====  
+bbox <- tibble(lat = c(42.0, 45.0, 45.0, 42.0), 
+               long = c(-104.5, -104.5, -99.5, -99.5), 
+               group = c(1, 1, 1, 1)
+               )
+# create SD-NE & SD-WY lines for AOI 
+ne_bound <- subset(counties,   
+                   subregion %in% c("fall river",   
+                                 "shannon",  
+                                 "bennett",   
+                                 "todd",   
+                                 "tripp")  
+                   ) %>%  
+  filter(lat < 43.1) 
+
+wy_bound <- subset(counties,   
+                   subregion %in% c("butte", 
+                                    "lawrence"  , 
+                                    "pennington" , 
+                                     "custer", 
+                                    "fall river", 
+                                    "sioux"
+                                    )  
+                   ) %>%  
+  filter(long < -104) 
+
+# plot US map====
+usmap <- ggplot() + 
+  geom_polygon(data = usa, 
+               aes(x=long, y = lat, group = group),  
+               fill = "gray70", 
+               color = "gray70"
+               ) + 
+  coord_fixed(1.3) + 
+  geom_polygon(data = bbox, 
+               aes(x=long, y = lat, group = group), 
+               fill = "gray30", 
+               color = "gray30") +
+  theme_classic() + 
+  xlab("") +  
+  ylab("")  
+
+# plot county map====
+  ggplot() + 
+  theme_classic() + 
+  coord_fixed(1.3) + 
+  # add stations  
+  geom_point(data = sta_meta_fin, 
+               aes(x = longitude, y = latitude),   
+    size = 4,
+    color = "black")  + 
+# add counties 
+  geom_polygon(data = counties, 
+               aes(x = long, y = lat, group = group),  
+              color = "gray80", 
+              fill = "NA") + 
+# add stateline boundaries 
+  geom_line(data = ne_bound, 
+               aes(x=long, y = lat, group = group), 
+            color = "gray60"
+               ) + 
+  geom_line(data = wy_bound, 
+               aes(x=long, y = lat, group = group), 
+            color = "gray60"  
+               ) +  
+# add Theissen polygons 
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2), 
+    size = 2, 
+    data = voronoi$dirsgs, 
+    linetype = 1, 
+    color = "gray50")  #+   
+
+
+
+
+  xlab("") +  
+  ylab("")  
+
+
+
+
+
+# plot stations 
+sta_meta_fin %>%  
+ggplot(aes(x = longitude, y = latitude)) + 
+  theme_bw() +  
+# add county polygons   
+  geom_polygon(data = counties, 
+               aes(x = long, y = lat, group = group),  
+              color = "gray50", 
+              fill = "NA") + 
+# add sd-neb line   
+  geom_segment(aes(x    = -104.06630, 
+                  y    =   43.00621, 
+                  xend =  -99.23056,   
+                  yend = 42.99475  
+                  )  
+              ) +  
+# add sd-neb line   
+  geom_segment(aes(x    = -104.06630, 
+                  y    =   43.00621, 
+                  xend =  -99.23056,   
+                  yend = 42.99475  
+                  )  
+              ) +  
+  # add stations  
+  geom_point( 
+    size = 4,
+    color = "black")  #+ 
+
+
+# add Theissen polygons 
+  geom_segment(
+    aes(x = x1, y = y1, xend = x2, yend = y2), 
+    size = 2, 
+    data = voronoi$dirsgs, 
+    linetype = 1, 
+    color = "gray50")  #+ 
+
+# add gages 
+  geom_point(data = gage_meta_fin, aes(dec_long_va, dec_lat_va),  
+             shape = 24, 
+    fill = rgb(130, 130, 180, 255, 
+               maxColorValue = 255),
+    pch = 21,
+    size = 2,
+    color = "#333333" 
+    )  + 
+#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
+#              color = "red", linetype = "dashed", fill = "NA") + 
+
+#  geom_text(data = sta_meta_orig, aes(label = name), size = 2.5) +
+  ggtitle("Final Theissen Polygon Map")  
+
+#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
+#              color = "black", linetype = "dashed", fill = "NA") + 
+
+  geom_polygon(data = counties, 
+               aes(x=long, y = lat, group = group), 
+               fill = "gray30", 
+               color = "gray30") +      
+  
+# export map 
+ggplot2::ggsave(filename = "figure/theissen_fin.png",   
+                width = 6, height = 6, units = "in")  
+
+rm(voronoi, counties)
+
+``` 
+
+
 # Identify seasonality & trend of precipitation data 
 
 ```{r make stl decomp function}  
@@ -3000,22 +3172,22 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 # make function to decompose into seasonal, trend, & remainder----  
 decomp_fun <- function(df) { 
   arrange(df, .data$date) %>% 
-  group_by(.data$sta) %>% 
-  time_decompose( 
+  group_by(.data$sta) %>%  
+  time_decompose(  
     target  = , TARGET,    
-    data         = ., 
+    data         = .,  
     method       = "stl", 
     frequency    = "12 months", 
-    trend        = "60 months", 
-    merge        = TRUE, 
-    message      = TRUE 
-    ) %>% 
-  ungroup() %>% 
+    trend        = "60 months",  
+    merge        = TRUE,  
+    message      = TRUE  
+    ) %>%  
+  ungroup() %>%  
   anomalize(remainder, 
-            method = "gesd", 
-            alpha = 0.003) %>% 
-    select(-observed) 
-}
+            method = "gesd",  
+            alpha = 0.003) %>%  
+    select(-observed)  
+}  
 
 # notes: map_dfr can cause issues with indexing; use split and combine  
 #   input needs to be a tibble 
@@ -3023,14 +3195,14 @@ decomp_fun <- function(df) {
 
 ```{r deconvolute_spi_1mo}  
 
-# import working data----     
+# import working data----      
 spi_fin <- import("data/spi_fin.csv") %>%  
   mutate(date = ymd(date))  %>%  
   mutate(prcp = as.numeric(prcp)) %>%  
   arrange(date) %>% 
   as_tibble()  
 
-sta_meta_fin <- import("data/sta_meta_fin.csv")
+sta_meta_fin <- import("data/sta_meta_fin.csv")  
 
 # prepare to deconvolute prcp into trend, seasonal & random comps----  
 #   identify frequency of seasonality -- should be 12 months====   
@@ -3041,18 +3213,18 @@ spi_freq <- spi_fin  %>%
     period       = "auto", data = .) 
   ) %>% 
   gather(key     = sta, value = freq) %>%  
-  summarise(freq = mean(freq), 
-            max  = max(freq),
-            min  = min(freq), 
+  summarise(freq = mean(freq),  
+            max  = max(freq),  
+            min  = min(freq),  
             sd   = sd(freq)
-  ) 
+  )  
 
 #   identify trend of periodicity -- should be 60 months====
 spi_trend <- spi_fin  %>% 
   select(sta, date, spi_1mo) %>%  
   split(.$sta) %>% 
   map_dfc(~ anomalize::time_trend( 
-    period       = "auto", data = .) 
+    period       = "auto", data = .)  
   ) %>% 
   gather(key     = sta, value = freq) %>%  
   summarise(freq = mean(freq), 
@@ -3066,11 +3238,11 @@ decomp_input <- bind_cols(spi_freq, spi_trend)
 rm(spi_freq, spi_trend)  
 
 # decompose SPI into seasonal, trend, & remainder----  
-# spi_01mo====  
+# spi_01mo====   
 TARGET <- "spi_1mo"  
-spi01  <- spi_fin %>% 
-  select(sta, date, spi_1mo) %>% 
-  decomp_fun() %>% 
+spi01  <- spi_fin %>%  
+  select(sta, date, spi_1mo) %>%  
+  decomp_fun() %>%  
   rename(season_01mo    = season) %>% 
   rename(trend_01mo     = trend) %>% 
   rename(remain_01mo    = remainder) %>% 
@@ -3082,55 +3254,55 @@ spi01  <- spi_fin %>%
   mutate(seas01_mean    = mean(season_01mo)) %>%  
   mutate(trend01_mean   = mean(trend_01mo)) %>%  
   mutate(remain01_mean   = mean(remain_01mo)) %>%  
-  ungroup() %>% 
+  ungroup() %>%  
 # order stations for plotting 
   mutate(sta = fct_relevel(sta, "RAP", "COT", "ONI", "OEL", "GOR", "MIS"))  
   
 # spi_02mo====  
 TARGET <- "spi_2mo"  
 
-spi02  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>% 
-  decomp_fun() %>% 
-  rename(spi = spi_2mo) %>% 
+spi02  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(spi = spi_2mo) %>%  
   mutate(duration = 2)  
 
 # spi_03mo====  
 TARGET <- "spi_3mo"  
 
 spi03  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>% 
-  decomp_fun() %>% 
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
   rename(season_03mo    = season) %>% 
-  rename(trend_03mo     = trend) %>% 
-  rename(remain_03mo    = remainder) %>% 
-  rename(hival_03mo     = remainder_l1) %>% 
-  rename(loval_03mo     = remainder_l2) %>% 
+  rename(trend_03mo     = trend) %>%  
+  rename(remain_03mo    = remainder) %>%  
+  rename(hival_03mo     = remainder_l1) %>%  
+  rename(loval_03mo     = remainder_l2) %>%  
   rename(anom_03mo      = anomaly)  
 
 # spi_04mo====  
-TARGET <- "spi_4mo"  
+TARGET <- "spi_4mo"   
 
-spi04  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>% 
-  decomp_fun() %>% 
-  rename(season_04mo    = season) %>% 
-  rename(trend_04mo     = trend) %>% 
-  rename(remain_04mo    = remainder) %>% 
-  rename(hival_04mo     = remainder_l1) %>% 
-  rename(loval_04mo     = remainder_l2) %>% 
+spi04  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(season_04mo    = season) %>%  
+  rename(trend_04mo     = trend) %>%  
+  rename(remain_04mo    = remainder) %>%  
+  rename(hival_04mo     = remainder_l1) %>%  
+  rename(loval_04mo     = remainder_l2) %>%  
   rename(anom_04mo      = anomaly)  
 
 # spi_06mo====  
 TARGET <- "spi_6mo"  
 
-spi06  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>% 
-  decomp_fun() %>% 
-  rename(season_06mo    = season) %>% 
-  rename(trend_06mo     = trend) %>% 
-  rename(remain_06mo    = remainder) %>% 
-  rename(hival_06mo     = remainder_l1) %>% 
+spi06  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(season_06mo    = season) %>%  
+  rename(trend_06mo     = trend) %>%  
+  rename(remain_06mo    = remainder) %>%  
+  rename(hival_06mo     = remainder_l1) %>%  
   rename(loval_06mo     = remainder_l2) %>% 
   rename(anom_06mo      = anomaly)  
 
@@ -3141,36 +3313,36 @@ spi09  <- spi_fin %>%
   select(sta, date, paste0(TARGET)) %>% 
   decomp_fun() %>% 
   rename(season_09mo    = season) %>% 
-  rename(trend_09mo     = trend) %>% 
-  rename(remain_09mo    = remainder) %>% 
-  rename(hival_09mo     = remainder_l1) %>% 
-  rename(loval_09mo     = remainder_l2) %>% 
+  rename(trend_09mo     = trend) %>%  
+  rename(remain_09mo    = remainder) %>%  
+  rename(hival_09mo     = remainder_l1) %>%  
+  rename(loval_09mo     = remainder_l2) %>%  
   rename(anom_09mo      = anomaly)  
 
 # spi12mo====  
-TARGET <- "spi_12mo"  
+TARGET <- "spi_12mo"   
 
-spi12  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>% 
-  decomp_fun() %>% 
-  rename(season_12mo    = season) %>% 
-  rename(trend_12mo     = trend) %>% 
-  rename(remain_12mo    = remainder) %>% 
-  rename(hival_12mo     = remainder_l1) %>% 
-  rename(loval_12mo     = remainder_l2) %>% 
+spi12  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(season_12mo    = season) %>%  
+  rename(trend_12mo     = trend) %>%  
+  rename(remain_12mo    = remainder) %>%  
+  rename(hival_12mo     = remainder_l1) %>%  
+  rename(loval_12mo     = remainder_l2) %>%  
   rename(anom_12mo      = anomaly)  
 
-# spi_24mo====  
+# spi_24mo====   
 TARGET <- "spi_24mo"  
 
-spi24  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>% 
+spi24  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
   decomp_fun() %>% 
-  rename(season_24mo    = season) %>% 
-  rename(trend_24mo     = trend) %>% 
-  rename(remain_24mo    = remainder) %>% 
-  rename(hival_24mo     = remainder_l1) %>% 
-  rename(loval_24mo     = remainder_l2) %>% 
+  rename(season_24mo    = season) %>%  
+  rename(trend_24mo     = trend) %>%  
+  rename(remain_24mo    = remainder) %>%  
+  rename(hival_24mo     = remainder_l1) %>%  
+  rename(loval_24mo     = remainder_l2) %>%  
   rename(anom_24mo      = anomaly)  
 
 ```  
@@ -3508,124 +3680,7 @@ spi_1mot %>%
 
 ```
 
-```{r plot-theissen-final_stations}
 
-# import polygon data - US counties  
-counties <- map_data("county")  
-
-# Filter out wyoming & sd counties  
-counties_sd <- subset(counties, region %in%  
-   c("south dakota")) %>%  
-  filter(   
-    subregion == "butte" |  
-    subregion == "meade" |  
-    subregion == "lawrence" |  
-    subregion == "pennington" |  
-    subregion == "custer" |  
-    subregion == "fall river" |   
-    subregion == "shannon" |  
-    subregion == "jackson" |  
-    subregion == "bennett" |  
-    subregion == "haakon" |   
-    subregion == "todd" |  
-    subregion == "mellette" |   
-    subregion == "jones" |   
-    subregion == "stanley" |   
-    subregion == "lyman" |   
-    subregion == "tripp" |   
-    subregion == "hughes" |  
-    subregion == "ziebach" |      
-    subregion == "dewey" |  
-    subregion == "hughes" |      
-    subregion == "sully"   | 
-    subregion == "potter"     
-    ) #%>% 
-  
-# filter nebraska  counties -- some names are duplicated above  
-counties_ne <- subset(counties, region %in%  
-   c("nebraska")) %>%  
-  filter(subregion == "sioux" |  
-         subregion == "dawes" |  
-         subregion == "sheridan" |  
-         subregion == "box butte" | 
-         subregion == "cherry" |  
-         subregion == "brown" |  
-         subregion == "keya paha" |  
-         subregion == "rock"  
-         )  
-
-
-
-counties <- bind_rows(counties_sd, counties_ne)  
-
-rm(counties_sd, counties_ne)  
-
-
-# create Theissen line segments  
-voronoi <- deldir(sta_meta_fin$lon, sta_meta_fin$lat) 
-
-# plot stations 
-sta_meta_fin %>%  
-ggplot(aes(x = longitude, y = latitude)) + 
-  theme_bw() +  
-# add county polygons   
-  geom_polygon(data = counties, 
-               aes(x = long, y = lat, group = group),  
-              color = "gray50", 
-              fill = "NA") + 
-# add sd-neb line   
-  geom_segment(aes(x    = -104.06630, 
-                  y    =   43.00621, 
-                  xend =  -99.23056,   
-                  yend = 42.99475  
-                  )  
-              ) +  
-# add sd-neb line   
-  geom_segment(aes(x    = -104.06630, 
-                  y    =   43.00621, 
-                  xend =  -99.23056,   
-                  yend = 42.99475  
-                  )  
-              ) +  
-  # add stations  
-  geom_point( 
-    size = 4,
-    color = "black")  #+ 
-
-
-# add Theissen polygons 
-  geom_segment(
-    aes(x = x1, y = y1, xend = x2, yend = y2), 
-    size = 2, 
-    data = voronoi$dirsgs, 
-    linetype = 1, 
-    color = "gray50")  #+ 
-
-# add gages 
-  geom_point(data = gage_meta_fin, aes(dec_long_va, dec_lat_va),  
-             shape = 24, 
-    fill = rgb(130, 130, 180, 255, 
-               maxColorValue = 255),
-    pch = 21,
-    size = 2,
-    color = "#333333" 
-    )  + 
-#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
-#              color = "red", linetype = "dashed", fill = "NA") + 
-
-#  geom_text(data = sta_meta_orig, aes(label = name), size = 2.5) +
-  ggtitle("Final Theissen Polygon Map")  
-
-#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
-#              color = "black", linetype = "dashed", fill = "NA") + 
-
-# export map 
-ggplot2::ggsave(filename = "figure/theissen_fin.png",   
-                width = 6, height = 6, units = "in")  
-
-rm(voronoi, counties)
-
-```  
 
 ```{r summaries}
 
