@@ -224,10 +224,10 @@ why_to_write()
 
 ```{r download_prcp_metadata, eval=FALSE} 
 
-# Get possible stations -----------------------------------------------------  
+# Get possible station metadata----  
 # It's also possible to check station id with the mapping tool at:    
 # https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
-  
+
 # The geographical extent given as SElat, SElon, NWlat, NWlon  
 sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),  
                                limit = 1000) %>%      # n = 777  
@@ -237,7 +237,7 @@ sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),
   mutate(mindate = ymd(mindate)) %>%  
   mutate(maxdate = ymd(maxdate)) %>%                  
 # remove 'young' stations  
-  filter(mindate < "1989-01-01") %>%                    # n = 434  
+  filter(mindate < "1988-01-01") %>%                    # n = 434  
 # remove 'dead' stations  
   filter(maxdate > "2018-01-01") %>%                    # n =  66    
 # keep only the GHCND stations  
@@ -245,7 +245,7 @@ sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),
   filter(!str_detect(name, "^MAGPIE")) %>%              # n =  59  
   filter(elevation < 1200)                              # n =  46    
   
-# create groups of stations by region   
+# create groups of stations by region====      
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(north_group = case_when(  
     latitude > 43.5 ~ "N",  
@@ -258,8 +258,8 @@ sta_meta_orig <- sta_meta_orig %>%
     )  %>%  
   mutate(group = str_c(north_group, east_group, sep = "")) %>%  
   select(-c(north_group, east_group)) %>%  
-# "GHCND:" doesn't appear in calls to get Global Historical  
-# Climatology Network (GHCN) Daily Data   
+#  The string "GHCND:" doesn't appear in calls to get Global Historical  
+#   Climatology Network (GHCN) Daily Data  -- split the 'id' string  
     separate(  
              col = id,  
              sep = ":",   
@@ -267,7 +267,7 @@ sta_meta_orig <- sta_meta_orig %>%
              ) %>% 
   arrange(name)  
   
-# add short names to metadata & update the stored file ----------------------  
+# add short names to metadata====   
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(sta = case_when(  
     str_detect(name, "^AINSWORTH")        ~ "AIN",  
@@ -322,45 +322,45 @@ sta_meta_orig <- sta_meta_orig %>%
   ) %>%   
   select(sta, name, longitude, latitude, elevation, group, everything())  
   
-export(sta_meta_orig, "data/sta_meta_orig.csv")   
-  
-```  
+# select final stations for each group====   
+sta_meta_fin <- subset(sta_meta_orig,   
+                       sta %in% 
+                         c("RAP", 
+                           "COT",  
+                           "ONI",  
+                           "OEL", 
+                           "GOR", 
+                           "MIS"  
+                         )   
+                       )   
 
-```{r download_daily-precip, eval=FALSE}
-
+# download daily precip data from NOAA GHCN database-all_stations====      
 # date function calls start one-year early for long-term drought calcs  
-dateMin = "1989-01-01"      
+dateMin = "1987-01-01"      
 dateMax = "2018-12-31"    
 
-# download daily precip data from NOAA GHCN database-all_stations-----------     
 sta_dv_orig <- sta_meta_orig %>%   
   select(sta_id) %>%  
   split(.$sta_id) %>%  
   map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
-                         keep_flags = TRUE,   
-                         var = "PRCP",   
-                         date_min = dateMin,   
-                         date_max = dateMax)  
+                         keep_flags   = TRUE,   
+                         var          = "PRCP",   
+                         date_min     = dateMin,   
+                         date_max     = dateMax)  
           )     
-  
-rm(dateMin, dateMax)   
-```  
 
-```{r check_missingness_dv, eval=FALSE}
-
-# fix date & add year and month  
+# fix date & add year and month & add metadata====   
 sta_dv_orig <- sta_dv_orig %>%   
-  mutate(date = ymd(date)) %>%   
+  mutate(date  = ymd(date)) %>%   
   arrange(desc(date)) %>%  
-  mutate(year = year(date)) %>%  
+  mutate(year  = year(date)) %>%  
   mutate(month = month(date)) %>%  
   select(date, year, month, everything())   
 
 sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
                   by = c("id" = "sta_id"))  
 
-
-# check for missing years           
+# check for missing years====           
 sta_miss_yr <- sta_dv_orig     %>%    
   group_by(name, year) %>%   
   summarise(num_day = n())     %>%   
@@ -370,1171 +370,285 @@ sta_miss_yr <- sta_dv_orig     %>%
   summarise(num_year = n()) %>%  
   filter(num_year > 3)  
  
-# remove stations with 3 years of > 95% completeness  
+# remove stations with 3 years of > 95% completeness====    
 sta_dv_plus <- anti_join(sta_dv_orig, sta_miss_yr,  
                          by = "name") 
 
-sta_meta_plus <- semi_join(sta_meta_orig, sta_dv_plus,  
+sta_meta_plus <- semi_join(sta_meta_orig, sta_dv_plus,    
                            by = "name")  
 
-rm(sta_miss_yr)  
-
-```
-
-```{r plot-stations-initial, eval=FALSE}
-
-# Define the study area using data from the 'maps' package ------------------  
-# import polygon data - US counties  
-counties <- map_data("county")  
-
-# Filter out wyoming & sd counties  
-counties_wysd <- subset(counties, region %in%  
-   c("south dakota")) %>%  
-  filter(   
-    subregion == "meade" |  
-    subregion == "lawrence" |  
-    subregion == "pennington" |  
-    subregion == "custer" |  
-    subregion == "fall river" |   
-    subregion == "shannon" |  
-    subregion == "jackson" |  
-    subregion == "bennett" |  
-    subregion == "haakon" |   
-    subregion == "todd" |  
-    subregion == "mellette" |   
-    subregion == "jones" |   
-    subregion == "stanley" |   
-    subregion == "lyman" |   
-    subregion == "tripp" |   
-    subregion == "hughes"    
-    )   
-  
-# filter nebraska  counties -- some names are duplicated above  
-counties_ne <- subset(counties, region %in%  
-   c("nebraska")) %>%  
-  filter(subregion == "sioux" |  
-         subregion == "dawes" |  
-         subregion == "sheridan" |  
-         subregion == "box butte" | 
-         subregion == "cherry" |  
-         subregion == "brown" |  
-         subregion == "keya paha" |  
-         subregion == "rock"  
-         )  
-
-counties <- bind_rows(counties_wysd, counties_ne)  
-
-rm(counties_wysd, counties_ne)  
-
-# create Theissen polygons --------------------------------------------------  
-#voronoi <- deldir(sta_meta_orig$lon, sta_meta_orig$lat)  
-
-# get streamflow gages  
-gage_meta_fin <- read_csv("data/gage_meta_fin.csv") %>%  
-  filter(!is.na(sta))  
-
-# plot stations -------------------------------------------------------------  
-# grabbed this code off of a website by googling 'Voroni diag. R'  
-sta_meta_plus %>%  
-ggplot(aes(x = longitude, y = latitude)) +   
-# plot weather stations   
-  geom_point(  
-    fill = rgb(70, 130, 180, 255, maxColorValue = 255),  
-    pch = 21,  
-    size = 4,  
-    color = "#333333")  +  
-# add county polygons   
-  geom_polygon(data = counties,  
-               aes(x = long, y = lat, group = group),  
-              color = "black",  
-              #linetype = "dashed",  
-              fill = "NA") +  
-# add stream flow gages  
-  geom_point(data = gage_meta_fin, aes(dec_long_va, dec_lat_va),  
-             shape = 24,  
-    fill = rgb(130, 70, 180, 255,  
-               maxColorValue = 255),  
-    pch = 21,  
-    size = 2,  
-    color = "#333333"  
-    )  +  
-  theme_bw() +   
-  ggtitle("Original Theissen Polygon Map")  
-  
-# add Theissen polygons  
-#  geom_segment(  
-#    aes(x = x1, y = y1, xend = x2, yend = y2),  
-#    size = 2,  
-#    data = voronoi$dirsgs,  
-#    linetype = 1,  
-#    color = "#FFB958") +  
-
-# export map  
-ggplot2::ggsave(filename = "figure/theissen_init.png",   
-                width = 6, height = 6, units = "in")  
-  
-```  
-
-```{r fill_missing_precip_data-nw, eval=FALSE}  
-
-sta_meta_plus <- sta_meta_plus %>% 
-  filter(elevation < 1200)
-
-sta_dv_plus <- sta_dv_plus %>% 
-  filter(elevation < 1200)
-
-# fill north-west stations --------------------------------------------------  
-#   ELM SPRINGS 3 ESE, SD US
-#   FORT MEADE, SD US
-#   NEWELL, SD US
-#   RED OWL, SD US
-#   RAPID CITY REGIONAL AIRPORT, SD US
-
-# Note that fully filled is n = 10,957
-
-# ELM SPRINGS ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^ELM SPRINGS")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,868
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^RAPID CITY R")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nw <- sta_fil 
-
-
-# FORT MEADE ---- 
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^FORT MEADE")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,933  
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^ELM SPRINGS")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nw <- bind_rows(sta_filled_nw, sta_fil) 
-
-
-# NEWELL ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^NEWELL")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,787  
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^ELM SPRINGS")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nw <- bind_rows(sta_filled_nw, sta_fil) 
-
-# RED OWL ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^RED OWL")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,776   
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^RAPID CITY R")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nw <- bind_rows(sta_filled_nw, sta_fil) 
-
-# RAPID CITY REGIONAL----
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^RAPID CITY R")) %>%        # n = 10,957
-  filter(!is.na(prcp))                                 # n = 10,951
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^ELM SPRINGS")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-sta_filled_nw <- bind_rows(sta_fil, sta_filled_nw)     
-
-```  
-
-```{r fill_missing_precip_data-nc, eval=FALSE}  
-# fill north-central stations ------------------------------------------------  
-#   COTTONWOOD 2 E, SD US  
-#   DUPREE 15 SSE, SD US  
-#   MILESVILLE 5 NE, SD US  
-#   MURDO, SD US  
-#   PHILIP AIRPORT, SD US   
-#   PLAINVIEW 6 SSW, SD US
-#   INTERIOR 3 NE, SD US
-#  KIRLEY 6 N, SD US
-
-# Note that fully filled is n = 10,957  
-
-# COTTONWOOD ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^COTTONWOOD")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,857 
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^INTERIOR")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nc <- sta_fil 
-
-# DUPREE ---- 
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^DUPREE")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,725  
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^MILES")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nc <- bind_rows(sta_filled_nc, sta_fil) 
-
-# MILESVILLE ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^MILES")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,901 
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^COTTONWOOD")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nc <- bind_rows(sta_filled_nc, sta_fil) 
-
-# MURDO ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^MURDO")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,488   
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^COTTONWOOD")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_nc <- bind_rows(sta_filled_nc, sta_fil) 
-
-# PHILIP----
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^PHILIP")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,452
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^MILESVILLE")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-sta_filled_nc <- bind_rows(sta_fil, sta_filled_nc)   
-```  
-
-```{r fill_missing_precip_data-ne, eval=FALSE}  
-# fill north-eastern stations ----------------------------------------------  
-#   PIERRE REGIONAL AIRPORT, SD US
-#   ONIDA 4 NW, SD US
-#   KENNEBEC, SD US
-
-# Note that fully filled is n = 10,957
-  
-# PIERRE ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^PIERRE")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,954 
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^ONIDA")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_ne <- sta_fil 
-
-# ONIDA ---- 
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^ONIDA")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,887    
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^KENNEBEC")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_ne <- bind_rows(sta_filled_ne, sta_fil) 
-
-# KENNEBEC ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^KENNEBEC")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,895  
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^ONIDA")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_ne <- bind_rows(sta_filled_ne, sta_fil) 
- 
-```
-
-```{r fill_missing_precip_data-sw, eval=FALSE}  
-# separate and fill southwestern stations ----------------------------------- 
-#   REDBIRD, WY US  
-#   EDGEMONT, SD US  
-#   HOT SPRINGS, SD US  
-#   ORAL, SD US   
-#   OELRICHS, SD US
-
-# Note that fully filled is n = 10,957
-
-# REDBIRD, WY ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^REDBIRD")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,803
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^EDGEMONT")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_sw <- sta_fil 
-
-# EDGEMONT ---- 
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^EDGEMONT")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,802  
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^REDBIRD")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_sw <- bind_rows(sta_filled_sw, sta_fil) 
-
-# HOT SPRINGS ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^HOT SPRINGS")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,852  
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^FORT")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_sw <- bind_rows(sta_filled_sw, sta_fil) 
-
-# ORAL ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^ORAL")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,639    
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^OELRICHS")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = not check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) #%>% 
-#  select(date, name, mflag_prcp:sflag_prcp)  
-
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^HOT SPRINGS")) %>%        
-  filter(!is.na(prcp))            
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_sw <- bind_rows(sta_filled_sw, sta_fil) 
-
-# OELRICHS----
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^OELRICHS")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,417 
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^ORAL")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = not check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) #%>% 
-#  select(date, name, mflag_prcp:sflag_prcp)  
-
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^HOT SPRINGS")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-sta_filled_sw <- bind_rows(sta_fil, sta_filled_sw)     
-
-```  
-
-```{r fill_missing_precip_data-sc, eval=FALSE}  
-# separate and fill southcentral stations ----------------------------------- 
-#   GORDON 6 N, NE US 
-# Note that fully filled is n = 10,957
-
-# GORDON, NE ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^GORDON")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,842 
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^VALENTINE")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_sc <- sta_fil 
-
-```  
-
-```{r fill_missing_precip_data-se, eval=FALSE}  
-# separate and fill southwestern stations ----------------------------------- 
-#   MISSION 14 S, SD US
-#   VALENTINE MILLER FIELD, NE US
-#   WOOD, SD US
-#   AINSWORTH, NE US
-# Note that fully filled is n = 10,957
-
-# MISSION ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^MISSION")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,956
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^WOOD")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_se <- sta_fil 
-
-# WOOD ---- 
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^WOOD")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,836  
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^MISSION")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_se <- bind_rows(sta_filled_se, sta_fil) 
-
-# VALENTINE ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^VALENTINE")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,592   
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^AINSWORTH")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_se <- bind_rows(sta_filled_se, sta_fil) 
-
-# AINSWORTH ----  
-sta_fil <- sta_dv_plus %>% 
-  filter(str_detect(name, "^AINSWORTH")) %>%        
-  filter(!is.na(prcp))                                 # n = 10,926    
-
-# get alternate site data & prepare fill 
-sta_alt <- sta_dv_orig %>% 
-  filter(str_detect(name, "^VALENTINE")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_name <- sta_fil %>% 
-  slice(1) %>% 
-  select(name, id) 
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(name = sta_name$name) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = not check 
-  arrange(name) %>% 
-  distinct(date, .keep_all = TRUE) %>% 
-  select(date, name, mflag_prcp:sflag_prcp)  
-
-# Cumulatively add dvs 
-sta_filled_se <- bind_rows(sta_filled_se, sta_fil) 
-```  
-
-```{r join_filled_precip_data, eval=FALSE}
-
-sta_filled <- bind_rows(  
-  sta_filled_nw,  
-  sta_filled_nc,  
-  sta_filled_ne,  
-  sta_filled_sw,  
-  sta_filled_sc,  
-  sta_filled_se  
-  )  
-
-sta_filled <- full_join(sta_filled, sta_meta_plus, 
-                         by = "name")  
-
-rm(sta_filled_nw, sta_filled_nc,sta_filled_ne, sta_filled_sw, 
-     sta_filled_sc, sta_filled_se, sta_fil, sta_name)
-```
-
-```{r check_prcp_data_quality, eval=FALSE}  
-  
-# Table of Measurement Flag/Attributes -- mflag  
-# Blank = no measurement information applicable            
-# A     = precip depth is a multi-day total, accumulated since last meas         
-# B     = precipitation total formed from two twelve-hour totals  
-# D     = precipitation total formed from four six-hour totals           
-# H     = represents TMAX or TMIN or average of hourly values (TAVG)           
-# K     = converted from knots            
-# L     = temperature appears lagged w/ respect to reported hr of observation  
-# O     = converted from oktas  
-# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
-# T     = trace of precipitation, snowfall, or snow depth   
-# W    = converted from 16-point WBAN code (for wind direction)  
-  
-sta_check <- sta_filled %>%  
-  group_by(name, mflag_prcp) %>%  
-  summarise(mflag = n())  
-  
-# flags are T & P flags  
-sta_filled <- sta_filled %>%  
-  select(-mflag_prcp)  
-  
-# Table of Quality Flag/Attributes  
-# Blank = did not fail any quality assurance check  
-# D     = failed duplicate check           
-# G     = failed gap check           
-# I     = failed internal consistency check           
-# K     = failed streak/frequent-value check           
-# L     = failed check on length of multiday period  
-# M     = failed mega-consistency check            
-# N     = failed naught check            
-# O     = failed climatological outlier check            
-# R     = failed lagged range check           
-# S     = failed spatial consistency check            
-# T     = failed temporal consistency check            
-# W     = temperature too warm for snow            
-# X     = failed bounds check           
-# Z     = flagged as a result of an official Datzilla investigation  
-  
-sta_check <- sta_filled %>%  
-  group_by(name, qflag_prcp) %>%  
-  summarise(qflag = n())  
-  
-# flags are O, L, I flags  
-sta_filled <- sta_filled %>%  
-  select(-qflag_prcp)  
-  
-# Table Source Flag/Attributes   
-# Blank = No source (i.e., data value missing)  
-# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
-# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)   
-# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
-# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
-# a  = Australian data from the Australian Bureau of Meteorology           
-# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
-# b  = Belarus update           
-# C  = Environment Canada            
-# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)      
-# F  = U.S. Fort data             
-# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data   
-# H  = High Plains Regional Climate Center real-time data            
-# I  = International collection (non U.S. data received thru pers. contacts   
-# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
-# M  = Monthly METAR Extract (additional ASOS data)           
-# N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
-# Q  = Data from African countries w/ later permission granted  
-# R  = NCDC Reference Network Database  
-# r  = All-Russian Research Inst. Hydromet Information-World Data Center    
-# S  = Global Summary of the Day (NCDC DSI-9618)  
-#        NOTE: "S" values are derived from hourly synoptic reports   
-#         exchanged on the Global Telecommunications System (GTS).  
-#         Daily values derived in this fashion may differ significantly from  
-#        "true" daily data, particularly for precip (i.e., use with caution).  
-# s  = China Met Admn/Nat Met Info/Climate Data Centr (http://cdc.cma.gov.cn)   
-# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center   
-# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr  
-# u  = Ukraine update           
-# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
-# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
-# Z  = Datzilla official additions or replacements           
-# z  = Uzbekistan update   
-  
-sta_check <- sta_filled %>%   
-  group_by(name, sflag_prcp) %>%  
-  summarise(sflag = n())  
-  
-# flags are 0, 7, B, H, K, W, X, Z  
-sta_filled <- sta_filled %>%  
-  select(-sflag_prcp)  
-  
-rm(sta_check)   
-  
-# export daily data   
-export(sta_filled, file = "data/sta_filled.csv")  
-```  
-
-```{r prcp_daily2monthly, eval=FALSE} 
-
-# add short names and create monthly data -----------------------------------  
-scratch <- sta_meta_plus %>%  
-  select(sta, sta_id)   
-
-sta_mon_plus <- full_join(scratch, sta_filled,   
-                     by = "sta_id")  %>%   
-  select(-c(name, sta_id))           %>%  
-  mutate(year = year(date))          %>%  
-  mutate(month = month(date))        %>%  
-  group_by(year, month, sta)         %>%   
-  summarize(prcp_tenths = sum(prcp)) %>%  
-  mutate(prcp_mm = prcp_tenths/10)   %>%  
-  select(-prcp_tenths) %>%  
-  ungroup()  
-
-rm(scratch)  
-
-# spread results & create date with day at midpoint of month ----------------  
-sta_mon_long <- sta_mon_plus %>%  
-  spread(sta, prcp_mm) %>%  
-  mutate(day = 15) %>%  
-  mutate(date = make_date(year = year, month = month, day = day)) %>%   
-  select(date, year, month, everything()) %>%  
-  select(-day) %>%   
-  ungroup() %>%  
-  filter(!is.na(date))  
-
-sta_mon_plus <- sta_mon_long %>%  
-  gather(key = sta, val = depth_mm,  
-         -c(date, year, month))  
-
-rm(sta_mon_long, sta_filled, sta_dv_plus)   
-
-sta_mon_plus <- full_join(sta_mon_plus, sta_meta_plus,  
-                           by = "sta")  
-
-export(sta_mon_plus, file = "data/stations_mon_plus.csv")  
-  
-```  
-
-```{r lmoments, include=FALSE, eval=FALSE}
-
-# Note that we might consider Weiss 1964 bias value of 1.018 for L1   
-
-# Calculate L-moment ratios   
-lmom_sta <- sta_mon_plus %>%  
-  split(.$sta) %>%  
-  map(~ lmoms(.$depth_mm)) %>%    
-  transpose() %>%  
-  as_tibble() %>%  
-  select(lambdas, ratios) %>%  
-    mutate(lambdas = map(lambdas,   
-                         ~as_tibble(t(.x)  
-                                    )  
-                         )    
-           ) %>%  
-    mutate(lambdas = map(lambdas,   
-                         ~set_names(.x,  
-                                    c("L1", "L2", "L3", "L4", "L5")  
-                                    )  
-                         )    
-           ) %>%  
-    mutate(ratios = map(ratios,  
-                        ~as_tibble(t(.x)   
-                                   )   
-                        )   
-           ) %>%  
-    mutate(ratios = map(ratios,  
-                         ~set_names(.x,  
-                                    c("T1", "T2", "T3", "T4", "T5")   
-                                    )   
-                        )   
-           ) %>%  
-  unnest(lambdas) %>%  
-  unnest(ratios)  %>%   
-  select(-T1) %>%  
-  rename(L_CV = T2) %>%  
-  rename(L_skew = T3) %>%  
-  rename(L_kurtosis = T4) %>%  
-  select(L1, L_CV, L_skew, L_kurtosis) %>%  
-  mutate(L1 = round(L1,  
-                    digits = 2)  
-         )  
-
-# get station names from the list  
-lmom_sta_nm <- sta_mon_plus %>%  
-  split(.$sta) %>%  
-  
-  map(~ lmoms(.$depth_mm)) %>%  
-  transpose()  
-
-lmom_sta_nm <- lmom_sta_nm %>%  
-  pluck(1) %>%  
-  enframe()  
-
-lmom_sta_nm <- lmom_sta_nm %>%  
-  unnest(value)  
-
-lmom_sta_nm <- lmom_sta_nm %>%  
-  group_by(name) %>%  
-  summarize(L1 = first(value)) %>%  
-  ungroup() %>%  
-  mutate(L1 = round(L1,  
-                   digits = 2))  
-
-# join name to lmom vals & to the metadata  
-lmom_sta <- full_join(lmom_sta_nm, lmom_sta,  
-                      by = "L1") %>%  
-  rename(sta = name) %>%  
-  mutate(L_CV = round(L_CV,  
-                     digits = 2)  
-         ) %>%  
-  mutate(L_skew = round(L_skew,  
-                     digits = 2)  
-         ) %>%  
-  mutate(L_kurtosis = round(L_kurtosis,  
-                     digits = 2)  
-         )  
-
-# join the lmoments to the metadata  
-sta_meta_plus <- full_join(sta_meta_plus, lmom_sta,  
-                            by = "sta")  
-
-```
-
-```{r Lmoment_diagram_ratios, include=FALSE, eval=FALSE}
-# extract elements from the lmrdia list to plot in ggplot2    
-#   the x-value is the L-skewness and y-value is L-kurtosis  
-
-# get vals from the lmrdia list 
-# note that as gamma distribution is a 2-parameter dist, it is not shown 
-lmrdia <- lmrdia() 
-
-# extract L-skew & L-kurtosis values for several distributions  
-#aep4 <- lmrdia %>%
-#  extract2(2) %>%
-#  as.tibble()   
-
-gev <- lmrdia[[5]] %>% as.tibble()  
-
-glo <- lmrdia[[6]] %>% as.tibble()  
-
-gpa <- lmrdia[[7]] %>% as.tibble()  
-
-gno <- lmrdia[[9]] %>% as.tibble()  
-
-gov <- lmrdia[[10]] %>% as.tibble()   
-
-pe3 <- lmrdia[[12]] %>% as.tibble()   
-
-# combine and rename columns as distribution types
-int1      <- full_join(gev, glo, by = "V1")  
-int1      <- int1 %>% 
-               rename(GEV = V2.x) %>% 
-               rename(GLO = V2.y) 
-
-int2      <- full_join(int1, gpa, by = "V1") 
-int2      <- int2 %>% rename(GPA = V2) 
-
-int3      <- full_join(int2, gno, by = "V1") 
-int3      <- int3 %>% rename(GNO = V2) 
-
-int4      <- full_join(int3, gov, by = "V1") 
-int4      <- int4 %>% rename(GOV = V2) 
-
-lmom_theo <- full_join(int4, pe3, by = "V1")
-lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>% 
-  rename(L_skew = V1) %>% 
-  arrange(L_skew)  
-
-# prepare theoretical distributions for plotting
-lmom_theo <- lmom_theo %>%
-  gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
-  drop_na(L_kurtosis) %>%
-  select(distribution, everything())  
-  
-rm(gev, int1, glo, int2, gpa,int3, gno, int4, gov, pe3, lmrdia)
-```
-
-```{r plot-lmoment-diagram, include=FALSE, eval=FALSE}
-
-# control plotting order
-sta_meta_plus$group <- factor(sta_meta_plus $group, 
-                     levels = c("NW", "NC", "NE", "SW", "SC", "SE")
-                     )  
-
-# plot the theoretical distributions, and sample vals 
-ggplot(sta_meta_plus, (aes(L_skew, L_kurtosis))) + 
-  facet_wrap(vars(group)) + 
-  geom_point() +  
-  geom_line(data = lmom_theo, 
-            aes(L_skew, 
-                L_kurtosis, 
-                group = distribution, 
-                linetype = distribution)) +  
-  xlim(-0.25, 0.5) + 
-  ylim(-0.25, 0.5) + 
-  theme_bw() + 
-#  ggtitle("L-moment diagram for monthly precipitation depths",  
-#          subtitle = "1990-2018")  
-  labs(x = "L-skew", 
-       y = "L-kurtosis") 
-
-ggplot2::ggsave(filename = "figure/lmom_plot.png",  
-                width = 6, height = 4, units = "in")  
-
-rm(lmom_theo, lmom_sta, lmom_sta_nm)  
-
-```  
-
-```{r ggplot_monthly, eval=FALSE} 
-#sta_mon <- import(file = "data/stations_monthly.csv") %>% 
-#  mutate(date = ymd(date))
-
-#sta_mon %>% 
-#  group_by(sta) %>% 
-#  summarize(count = n())
-
-sta_mon_plus$group <- factor(sta_mon_plus$group,  
-                      levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
-
-# plot monthly precips  
-sta_mon_plus %>%   
-ggplot(aes(month, depth_mm, group = month)) +  
-  facet_grid(rows = vars(group)) +   
-  geom_quasirandom(size = 0.2, 
-                position = position_beeswarm()  
-                ) + 
-scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", 
-                            "7", "8", "9", "10", "11", "12"),   
-                   labels = c("J", "F", "M", "A", "M", "J", 
-                            "J", "A", "S", "O", "N", "D")  
-                 ) + 
-  theme_bw() +  
-#  labs(title = "Monthly precipitation depths",  
-#       subtitle = "Southwestern South Dakota for 1990-2017") +   
-       xlab("") +  
-       ylab("mm")  
-
-
-ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
-                width = 6, height = 6, units = "in")
-
-```
-
-```{r save_prior_work, eval=FALSE}  
-# save prior work  
-export(sta_dv_orig, "data/sta_dv_orig.csv")  
+# export files and clean up global environment  
 export(sta_meta_orig, "data/sta_meta_orig.csv")   
+export(sta_meta_plus, "data/sta_meta_orig.csv")   
+export(sta_meta_fin, "data/sta_meta_fin.csv")  
 
-export(sta_mon_plus, "data/sta_mon_plus.csv")  
-export(sta_meta_plus, "data/sta_meta_plus.csv")  
+export(sta_dv_orig, "data/sta_dv_orig.csv")   
+export(sta_dv_plus, "data/sta_dv_orig.csv")   
+  
+rm(sta_miss_yr,  
+   dateMin,  
+   dateMax  
+   )    
 
-sta_mon_plus <- import("data/sta_mon_plus.csv")
-sta_meta_plus <- import("data/sta_meta_plus.csv")
+```  
 
-sta_meta <- sta_meta_plus %>% 
-  filter(  
-    sta == "RAP" | 
-    sta == "COT" | 
-    sta == "ONI" | 
-    sta == "ORA" | 
-    sta == "GOR" | 
-    sta == "MIS"  
-      )  
+```{r plot-theissen-polygons}
+  
+#sta_meta_fin   <- import("data/sta_meta_fin.csv")   
+#sta_meta_orig  <- import("data/sta_meta_orig.csv")  
+  
+# prepare map elements----
+# create Theissen line segments====      
+voronoi        <- deldir(sta_meta_fin$lon, sta_meta_fin$lat)    
 
-sta_mon <- semi_join(sta_mon_plus, sta_meta, 
-                     by = "sta")  
+# order stations for plotting====  
+sta_meta_plus <- sta_meta_plus %>%  
+  mutate(group = fct_relevel(group,  
+                           "NW",  
+                           "NC",  
+                           "NE",  
+                           "SW",  
+                           "SC",  
+                           "SE"  
+                           )  
+         )   
 
-export(sta_mon, "data/sta_mon.csv")  
-export(sta_meta, "data/sta_meta.csv")  
+# Define the study area using data from the 'maps' package-----   
+# import polygon data for maps====   
+usa            <- map_data("usa")    
+states         <- map_data("state")   
+counties       <- map_data("county")   
+
+# filter counties for mapping====  
+#   need to filter counties for SD & NE separately because of duplicate vals  
+#   subset SD counties####   
+counties_sd <- subset(counties, 
+                      region %in% 
+                        c("south dakota"))  
+
+counties_sd <- subset(counties_sd, 
+                      subregion %in% 
+                        c("butte", 
+                          "meade", 
+                          "lawrence", 
+                          "pennington", 
+                          "custer", 
+                          "fall river", 
+                          "shannon", 
+                          "jackson", 
+                          "bennett", 
+                          "haakon", 
+                          "todd", 
+                          "mellette", 
+                          "jones", 
+                          "stanley", 
+                          "lyman",
+                          "tripp", 
+                          "hughes", 
+                          "ziebach", 
+                          "dewey", 
+                          "hughes", 
+                          "sully", 
+                          "potter"     
+                        )  
+                      )    
+   
+#   subset NE counties####  
+counties_ne <- subset(counties, 
+                      region %in% 
+                        c("nebraska"))  
+
+counties_ne <- subset(counties_ne,   
+                      subregion %in%  
+                        c("sioux",   
+                          "dawes",   
+                          "sheridan",   
+                          "box butte",   
+                          "cherry",  
+                          "brown",   
+                          "keya paha",   
+                          "rock"  
+                          )   
+                      )   
+
+#   join SD & NE counties####   
+counties <- bind_rows(counties_sd, counties_ne)  
+rm(counties_sd, counties_ne)
+
+# create SD-NE & SD-WY lines==== 
+ne_bound <- subset(counties,   
+                   subregion %in% 
+                     c("fall river",   
+                       "shannon",  
+                       "bennett",   
+                       "todd",   
+                       "tripp")) %>%  
+  filter(lat < 43.1) 
+
+wy_bound <- subset(counties,   
+                   subregion %in% 
+                     c("butte", 
+                       "lawrence"  , 
+                       "pennington" , 
+                       "custer", 
+                       "fall river", 
+                       "sioux"
+                     )) %>%  
+  filter(long < -104) 
+
+# plot US map as a grob----  
+# create a bounding box -- order is SW, NW, NE, SE====    
+bbox <- tibble(lat = c(42.0, 45.0, 45.0, 42.0),  
+               long = c(-104.5, -104.5, -99.5, -99.5),  
+               group = c(1, 1, 1, 1)  
+               )  
+
+# plot US map====
+usmap <- ggplot() +  
+  geom_polygon(data = usa,  
+               aes(x=long, y = lat, group = group),   
+               fill = "gray70",  
+               color = "gray70"  
+               ) +  
+  coord_fixed(1.3) +  
+  theme_nothing() +  
+  geom_polygon(data = bbox,  
+               aes(x=long, y = lat, group = group),  
+               fill = "gray30",  
+               color = "gray30") +   
+  xlab("") +   
+  ylab("")   
+
+# change the US map into a grob####  
+usmap <- as_grob(usmap, device = NULL)
+
+rm(usa)
+
+# plot weather station map====  
+# Legend.position can be a numeric vector c(x,y), where x and y are the  
+#   coordinates of the legend box between 0 and 1. 
+#     c(0,0) corresponds to the “bottom left” and 
+#     c(1,1) corresponds to the “top right” position.
+
+ggplot() +  
+  theme_classic() +  
+  coord_fixed(1.3) +  
+  xlab("") +
+  ylab("") + 
+  theme(legend.position = c(1.1, 0.4)
+        ) +    
+  theme(legend.title =   
+          element_text(size = 10)  
+        ) +  
+  theme(legend.text =   
+          element_text(size = 8)  
+        ) +  
+# add counties  
+  geom_polygon(data      = counties,  
+               aes(x     = long, 
+                   y     = lat, 
+                   group = group),  
+               color     = "gray80",  
+               fill      = "NA") +  
+  # add NE stateline boundary   
+  geom_line(data      = ne_bound,  
+            aes(x     = long, 
+                y     = lat, 
+                group = group),  
+            color     = "gray60"  
+  ) +  
+#   # add WY stateline boundary   
+  geom_line(data = wy_bound,  
+            aes(x     = long, 
+                y     = lat, 
+                group = group),  
+            color     = "gray60"    
+  ) +   
+  # add orig stations  
+  geom_point(data      = sta_meta_orig,  
+             aes(x     = longitude, 
+                 y     = latitude, 
+                 color = factor(sta_meta_orig$group)  
+                 ),   
+             size      = 1    
+             ) +      
+# add plus stations   
+  geom_point(data       = sta_meta_plus, 
+             aes(x      = longitude, 
+                 y      = latitude,  
+                 color  = factor(sta_meta_plus$group)  
+                 ),      
+             size       = 2 
+             ) + 
+  scale_colour_grey(start      = 0.2,   
+                    end        = 0.8,   
+                    na.value   = "red",  
+                    aesthetics = "colour", 
+                    name       = 'Station groups', 
+                    guide      = 'legend'  
+  ) +  
+# add final stations   
+  geom_point(data      = sta_meta_fin, 
+             aes(x     = longitude, 
+                 y     = latitude,  
+                 color = factor(sta_meta_fin$group)  
+             ),      
+             size      = 3 
+  ) + 
+# add Theissen polygons  
+  geom_segment(data = voronoi$dirsgs,
+               aes(x           = x1, 
+                   y           = y1, 
+                   xend        = x2,
+                   yend        = y2), 
+               size            = 1, 
+               linetype        = 1, 
+               color           = "gray20"
+               ) +  
+  geom_text(data          = sta_meta_fin, 
+            aes(x         = longitude, 
+                y         = latitude, 
+                label     = sta), 
+            vjust         = 1.6, 
+            check_overlap = TRUE
+            ) +  
+# add the US map as a grob  
+  annotation_custom(grob = usmap, 
+                    xmin = -99.5, 
+                    xmax = -97.8, 
+                    ymin = 44.5,
+                    ymax = 45.5)  
+
+# add stream gages 
+#  geom_point(data = gage_meta_fin, 
+#             aes(dec_long_va, dec_lat_va),  
+#             shape  = 24, 
+#             fill   = NA,  
+##             size   = 0.8,   
+#             stroke = 0.5, 
+#             color  = "gray50"  
+#  ) +     
+
+
+# export map & clean up  
+ggplot2::ggsave(filename = "figure/theissen_init.png",   
+                width    = 7.5,
+                height   = 4.5, 
+                units    = "in"
+                )    
+
+rm(bbox,  
+   counties,  
+   sta_meta_orig,  
+   states,  
+   usmap,  
+   voronoi,  
+   wy_bound  
+   )   
+
 ```
 
-# Get stations for SPI calculations  
+# Get station dvs & fill    
 ```{r prepare-for-spi}
 # import precipitation metadata---- 
 sta_meta_orig    <- import("data/sta_meta_orig.csv")  
@@ -1549,9 +663,9 @@ station <- "RAP"
 dateMin <- "1949-01-01"   
 
 # prepare to download data 
-sta_meta_input <- sta_meta_orig %>% 
-  filter(group == "NW" 
-  )  
+sta_meta_input <- sta_meta_orig %>%   
+  filter(group == "NW"   
+  )   
 
 # download daily precip data from NOAA GHCN database ------------------------   
 sta_input <- sta_meta_input %>%  
@@ -1559,7 +673,7 @@ sta_input <- sta_meta_input %>%
   split(.$sta_id) %>%  
   map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
                          keep_flags = TRUE,   
-                         var = "PRCP",   
+                         var = "PRCP",     
                          date_min = dateMin,   
                          date_max = dateMax)   
           )     
@@ -1570,7 +684,7 @@ sta_input<- sta_input %>%
   mutate(year = year(date)) %>%   
   mutate(month = month(date)) %>%  
   select(date, year, month, everything())    
-
+  
 sta_input <- left_join(sta_input, sta_meta_orig,  
                   by = c("id" = "sta_id"))  
 
@@ -1579,71 +693,71 @@ sta_fil <- sta_input   %>%
   filter(sta == station) %>%   
     filter(!is.na(prcp))                                     
 
-sta_miss_day <- sta_fil        %>%   
+sta_miss_day <- sta_fil        %>%     
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
-  filter(num_day < 365)   
-
+  filter(num_day < 365)     
+  
 sta_short_name <- sta_fil %>%   
   slice(1) %>%  
-  select(sta, id)  
+  select(sta, id)   
 
-# get alternate site data & check  
+# get alternate site data & check    
 sta_alt <- sta_input %>%   
   filter(str_detect(name, "^RAPID CITY 4")) %>%        
   filter(!is.na(prcp))                             
 
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
-  filter(num_day < 365)   
+  filter(num_day < 365)    
 
-# get alternate site data & check   
+# get alternate site data & check    
 sta_alt <- sta_input %>%   
   filter(str_detect(name, "^ELM")) %>%        
   filter(!is.na(prcp))                             
 
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(sta = sta_short_name$sta) 
-
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
 
-sta_miss_day <- sta_fil        %>%   
+sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
+  ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # make monthly prcp                   
-sta_rap <- sta_fil               %>%  
+sta_rap <- sta_fil               %>%   
   arrange(date)                  %>%  
-  mutate(mon      = month(date)) %>%  
+  mutate(mon      = month(date)) %>%   
   mutate(yr       = year(date))  %>%  
   group_by(sta, mon, yr)         %>%  
-  summarize(prcp  = sum(prcp))   %>%  
+  summarize(prcp  = sum(prcp))   %>%   
   ungroup()                      %>%  
   mutate(day      = 15)          %>%  
   mutate(date     = make_date(  
             year  = yr,  
             month = mon,  
-            day   = day)  
+            day   = day)   
          ) %>%           
   select(sta, date, prcp) %>%  
   arrange(date)   
 
 # prepare for input and clean up  
-rap <- as.double(sta_rap$prcp)  
-
-rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name,  
-   sta_input)  
-
+rap <- as.double(sta_rap$prcp)   
+  
+rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name,   
+   sta_input)   
+  
 ```
 
 ```{r prepare_for_spi_NC-cot}  
@@ -2212,123 +1326,128 @@ rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name,
 # SPI calculations  
 ```{r spi_params}
 
-# fitSCI identifies Standardized Climate Index (SCI) parameters   
+# fitSCI identifies Standardized Climate Index (SCI) parameters----      
+#   some notes about the SCI package:   
+#     the SCI package doesn't like snake_case variables,    
+#     need to change tibble to a vector as double:   
+#       cot <- as.double(sta_cot$depth_mm)   
   
-# Initial values for SCI calculations   
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
-time_scale <- 1     # sets the length of the averaging period  
+# Initial values for SCI calculations====     
+time_scale <- 1     # sets the length of the averaging period   
 distrib    <- "pe3" # sets the distribution type   
 p_zero     <- TRUE  # sets a function to reduce zero-precip bias  
-p_zero_cm  <- TRUE  # uses Weibull plotting position for p_zero   
+p_zero_cm  <- TRUE  # uses Weibull plotting position for p_zero    
 scale      <- "sd"  # scales input by subtract mean & divide by sd    
-warn_me    <- TRUE  # sets explicit warning  
+warn_me    <- TRUE  # sets explicit warning   
 first_mon  <- 1     # Set first month for each station  
 sci.limit  <- 3     # Sets a limit of [-3, 3] for limit  
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
-  
-# spi function ----                                       
+    
+# spi function====                                         
 spi.fun <- function(sta, time_scale) fitSCI( x = sta,   
                     start.fun.fix  = TRUE,  
-                    time.scale     = time_scale,  
+                    time.scale     = time_scale,   
                     first.mon      = first_mon,  
                     distr          = distrib,  
                     p0             = p_zero,    
-                    p0.center.mass = p_zero_cm,   
-                    scaling        = scale,   
+                    p0.center.mass = p_zero_cm,    
+                    scaling        = scale,    
                     sci.limit      = sci_limit,   
                     warn	         = warn_me    
-                    
                     )  
-
-# notes:  
-#   the SCI package doesn't like snake_case variables,   
-#   need to change tibble to a vector as double:  
-#     cot <- as.double(sta_cot$depth_mm)  
-
+  
 ```
 
 ```{r calculate_spi_NW}  
 
-# set up the station for spi
+# set up the station for spi  
 sta <- rap 
-  
+    
 # make spi list vars          
 spi_1mo  <- spi.fun(sta, 1)                             
 spi_2mo  <- spi.fun(sta, 2)                             
 spi_3mo  <- spi.fun(sta, 3)                             
-spi_4mo  <- spi.fun(sta, 4)   
-spi_6mo  <- spi.fun(sta, 6)   
-spi_9mo  <- spi.fun(sta, 9)   
-spi_12mo <- spi.fun(sta, 12)  
+spi_4mo  <- spi.fun(sta, 4)    
+spi_6mo  <- spi.fun(sta, 6)    
+spi_9mo  <- spi.fun(sta, 9)    
+spi_12mo <- spi.fun(sta, 12)   
 spi_24mo <- spi.fun(sta, 24)  
-
+  
 # transformSCI applies the transformation identified by fitSCI   
-spi_1mo  <- transformSCI(sta,  
+spi_1mo  <- transformSCI(sta,    
                         first.mon = first_mon,  
                         obj = spi_1mo) %>%  
-  enframe(name = NULL)  
+  enframe(name = NULL)   
 
 spi_2mo  <- transformSCI(sta,  
                         first.mon = first_mon,  
-                        obj = spi_2mo) %>%  
+                        obj = spi_2mo) %>%   
   enframe(name = NULL)  
 
 spi_3mo  <- transformSCI(sta,  
-                        first.mon = first_mon,  
+                        first.mon = first_mon,   
                         obj = spi_3mo) %>%  
   enframe(name = NULL)  
-
-spi_4mo  <- transformSCI(sta,  
-                        first.mon = first_mon,  
+  
+spi_4mo  <- transformSCI(sta,    
+                        first.mon = first_mon,   
                         obj = spi_4mo) %>%  
-  enframe(name = NULL)  
-
-spi_6mo  <- transformSCI(sta,  
+  enframe(name = NULL)    
+  
+spi_6mo  <- transformSCI(sta,   
                         first.mon = first_mon,  
                         obj = spi_6mo) %>%  
   enframe(name = NULL)  
 
 spi_9mo  <- transformSCI(sta,  
-                        first.mon = first_mon,  
+                        first.mon = first_mon,   
                         obj = spi_9mo) %>%  
   enframe(name = NULL)  
 
 spi_12mo <- transformSCI(sta,  
                         first.mon = first_mon,  
-                        obj = spi_12mo) %>%  
-  enframe(name = NULL)  
-
+                        obj = spi_12mo) %>%   
+  enframe(name = NULL)   
+ 
 spi_24mo <- transformSCI(sta,  
                         first.mon = first_mon,  
-                        obj = spi_24mo) %>%  
+                        obj = spi_24mo) %>%   
   enframe(name = NULL)  
 
-# bind and rename the spi vals  
+# bind and rename the spi vals   
 spi_rap <- bind_cols(sta_rap,     
-                     spi_1mo,  
+                     spi_1mo,   
                      spi_2mo,   
                      spi_3mo,  
-                     spi_4mo,  
+                     spi_4mo,   
                      spi_6mo,  
                      spi_9mo,   
                      spi_12mo,  
-                     spi_24mo    
+                     spi_24mo     
                      ) %>%      
   rename(spi_1mo = value)   %>%  
-  rename(spi_2mo = value1)  %>%  
+  rename(spi_2mo = value1)  %>%   
   rename(spi_3mo = value2)  %>%  
-  rename(spi_4mo = value3)  %>%  
-  rename(spi_6mo = value4)  %>%  
+  rename(spi_4mo = value3)  %>%   
+  rename(spi_6mo = value4)  %>%   
   rename(spi_9mo = value5)  %>%  
   rename(spi_12mo = value6) %>%  
   rename(spi_24mo = value7) %>%  
   drop_na() %>%  
 # drop the incomplete years     
-  filter(date != "1950-12-15")  
-
-# remove list calls 
-rm(spi_1mo, spi_2mo, spi_3mo, spi_4mo, spi_6mo, spi_9mo, spi_12mo, spi_24mo)  
-rm(sta_rap, rap)  
+  filter(date != "1950-12-15")   
+  
+# remove list calls   
+rm(spi_1mo,  
+   spi_2mo,  
+   spi_3mo,  
+   spi_4mo,   
+   spi_6mo,  
+   spi_9mo,  
+   spi_12mo,  
+   spi_24mo   
+   )    
+rm(sta_rap, rap)   
+  
 ```
 
 ```{r calculate_spi_NC}
@@ -2751,40 +1870,40 @@ rm(sta_mis, mis)
 
 ```{r simplify_workspace}     
 
-# prepare final spi values   
-spi_fin <- bind_rows(spi_cot,    
-                     spi_gor,  
-                     spi_mis,  
+# prepare final spi values    
+spi_fin <- bind_rows(spi_cot,     
+                     spi_gor,   
+                     spi_mis,   
                      spi_oel,  
-                     spi_oni,  
-                     spi_rap) %>%  
-# remove shorter record stations  
+                     spi_oni,   
+                     spi_rap) %>%   
+# remove shorter record stations   
   mutate(yr = year(date)) %>%   
-  filter(yr > 1953)       %>%  
-  select(-yr)             %>%    
-# truncate spi vals to [-3, 3]   
+  filter(yr > 1953)       %>%   
+  select(-yr)             %>%     
+# truncate spi vals to [-3, 3]    
   gather(key = type, val = value, -c(sta, date, prcp)) %>%  
-  mutate(value = case_when(   
-    value < -3.0 ~ -3.0,  
+  mutate(value = case_when(    
+    value < -3.0 ~ -3.0,   
     value >  3.0 ~  3.0,  
     TRUE ~ value)) %>%  
   spread(type, value) %>%    
-# move the longer spi-values to the end of the df  
+# move the longer spi-values to the end of the df   
   select(-spi_12mo, spi_12mo) %>%  
   select(-spi_24mo, spi_24mo)   
-
-# export data and metadata  
-sta_meta_fin <- semi_join(sta_meta_orig, spi_all,  
-                          by = "sta")  
+  
+# export spi data    
+sta_meta_fin <- semi_join(sta_meta_orig, spi_all,   
+                          by = "sta")    
 
 export(spi_fin, "data/spi_fin.csv")  
 export(sta_meta_fin, "data/sta_meta_fin.csv")  
-
-# clean up workspace   
-rm(dateMax, distrib, first_mon, p_zero, p_zero_cm, scale, sci.limit, sta,  
-   time_scale, warn_me, spi.fun, station)  
-rm(spi_cot, spi_gor, spi_mis, spi_oel, spi_oni, spi_rap)  
-
+  
+# clean up workspace    
+rm(dateMax, distrib, first_mon, p_zero, p_zero_cm, scale, sci.limit, sta,   
+   time_scale, warn_me, spi.fun, station)   
+rm(spi_cot, spi_gor, spi_mis, spi_oel, spi_oni, spi_rap)   
+  
 ```  
 
 # use bootstrapping to check precip differences 
@@ -2881,7 +2000,12 @@ ggplot2::ggsave(filename = "figure/prcp_dif.png",
   
 ```
 
-# start here
+
+
+# start here  
+
+
+
 ```{r ci_result_table, eval=FALSE}  
 
 # pluck results for summary tables & bind====
@@ -2928,336 +2052,117 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 
 ```
 
-```{r}
-# example 
-if (require("maps")) {
-states <- map_data("state")
-arrests <- USArrests
-names(arrests) <- tolower(names(arrests))
-arrests$region <- tolower(rownames(USArrests))
-
-choro <- merge(states, arrests, sort = FALSE, by = "region")
-choro <- choro[order(choro$order), ]
-ggplot(choro, aes(long, lat)) +
-  geom_polygon(aes(group = group, fill = assault)) +
-  coord_map("albers",  at0 = 45.5, lat1 = 29.5)
-}
-
-if (require("maps")) {
-ggplot(choro, aes(long, lat)) +
-  geom_polygon(aes(group = group, fill = assault / murder)) +
-  coord_map("albers",  at0 = 45.5, lat1 = 29.5)
-}  
-
-#ggplot(states, aes(long, lat)) #+
-#  geom_polygon(aes(group = group, fill = assault / murder)) +
-#  coord_map("albers",  at0 = 45.5, lat1 = 29.5)
-```
-
-
-```{r plot-theissen-final_stations}
-
-sta_meta_fin <- import("data/sta_meta_fin.csv")  
-
-# plot a map of the study area----  
-# create Theissen line segments====    
-voronoi <- deldir(sta_meta_fin$lon, sta_meta_fin$lat) 
-
-# import polygon data for maps==== 
-usa         <- map_data("usa") 
-states      <- map_data("state")  
-counties    <- map_data("county")  
-# filter counties for AOI====  
-#   need to filter counties for SD & NE separately because of duplicate vals  
-#   subset SD counties####   
-counties_sd <- subset(counties, region %in%  
-   c("south dakota")) %>%  
-  filter(   
-    subregion == "butte" |  
-    subregion == "meade" |  
-    subregion == "lawrence" |  
-    subregion == "pennington" |  
-    subregion == "custer" |  
-    subregion == "fall river" |   
-    subregion == "shannon" |  
-    subregion == "jackson" |  
-    subregion == "bennett" |  
-    subregion == "haakon" |   
-    subregion == "todd" |  
-    subregion == "mellette" |   
-    subregion == "jones" |   
-    subregion == "stanley" |   
-    subregion == "lyman" |   
-    subregion == "tripp" |   
-    subregion == "hughes" |  
-    subregion == "ziebach" |      
-    subregion == "dewey" |  
-    subregion == "hughes" |      
-    subregion == "sully"   | 
-    subregion == "potter"     
-    ) 
-  
-#   subset NE counties####
-counties_ne <- subset(counties, region %in%  
-   c("nebraska")) %>%  
-  filter(subregion == "sioux" |  
-         subregion == "dawes" |  
-         subregion == "sheridan" |  
-         subregion == "box butte" | 
-         subregion == "cherry" |  
-         subregion == "brown" |  
-         subregion == "keya paha" |  
-         subregion == "rock"  
-         )  
-
-#   join SD & NE counties####   
-counties <- bind_rows(counties_sd, counties_ne)  
-rm(counties_sd, counties_ne)  
-# create a bounding box -- order is SW, NW, NE, SE====  
-bbox <- tibble(lat = c(42.0, 45.0, 45.0, 42.0), 
-               long = c(-104.5, -104.5, -99.5, -99.5), 
-               group = c(1, 1, 1, 1)
-               )
-# create SD-NE & SD-WY lines for AOI 
-ne_bound <- subset(counties,   
-                   subregion %in% c("fall river",   
-                                 "shannon",  
-                                 "bennett",   
-                                 "todd",   
-                                 "tripp")  
-                   ) %>%  
-  filter(lat < 43.1) 
-
-wy_bound <- subset(counties,   
-                   subregion %in% c("butte", 
-                                    "lawrence"  , 
-                                    "pennington" , 
-                                     "custer", 
-                                    "fall river", 
-                                    "sioux"
-                                    )  
-                   ) %>%  
-  filter(long < -104) 
-
-# plot US map====
-usmap <- ggplot() + 
-  geom_polygon(data = usa, 
-               aes(x=long, y = lat, group = group),  
-               fill = "gray70", 
-               color = "gray70"
-               ) + 
-  coord_fixed(1.3) + 
-  geom_polygon(data = bbox, 
-               aes(x=long, y = lat, group = group), 
-               fill = "gray30", 
-               color = "gray30") +
-  theme_classic() + 
-  xlab("") +  
-  ylab("")  
-
-# plot county map====
-  ggplot() + 
-  theme_classic() + 
-  coord_fixed(1.3) + 
-  # add stations  
-  geom_point(data = sta_meta_fin, 
-               aes(x = longitude, y = latitude),   
-    size = 4,
-    color = "black")  + 
-# add counties 
-  geom_polygon(data = counties, 
-               aes(x = long, y = lat, group = group),  
-              color = "gray80", 
-              fill = "NA") + 
-# add stateline boundaries 
-  geom_line(data = ne_bound, 
-               aes(x=long, y = lat, group = group), 
-            color = "gray60"
-               ) + 
-  geom_line(data = wy_bound, 
-               aes(x=long, y = lat, group = group), 
-            color = "gray60"  
-               ) +  
-# add Theissen polygons 
-  geom_segment(
-    aes(x = x1, y = y1, xend = x2, yend = y2), 
-    size = 2, 
-    data = voronoi$dirsgs, 
-    linetype = 1, 
-    color = "gray50")  #+   
-
-
-
-
-  xlab("") +  
-  ylab("")  
-
-
-
-
-
-# plot stations 
-sta_meta_fin %>%  
-ggplot(aes(x = longitude, y = latitude)) + 
-  theme_bw() +  
-# add county polygons   
-  geom_polygon(data = counties, 
-               aes(x = long, y = lat, group = group),  
-              color = "gray50", 
-              fill = "NA") + 
-# add sd-neb line   
-  geom_segment(aes(x    = -104.06630, 
-                  y    =   43.00621, 
-                  xend =  -99.23056,   
-                  yend = 42.99475  
-                  )  
-              ) +  
-# add sd-neb line   
-  geom_segment(aes(x    = -104.06630, 
-                  y    =   43.00621, 
-                  xend =  -99.23056,   
-                  yend = 42.99475  
-                  )  
-              ) +  
-  # add stations  
-  geom_point( 
-    size = 4,
-    color = "black")  #+ 
-
-
-# add Theissen polygons 
-  geom_segment(
-    aes(x = x1, y = y1, xend = x2, yend = y2), 
-    size = 2, 
-    data = voronoi$dirsgs, 
-    linetype = 1, 
-    color = "gray50")  #+ 
-
-# add gages 
-  geom_point(data = gage_meta_fin, aes(dec_long_va, dec_lat_va),  
-             shape = 24, 
-    fill = rgb(130, 130, 180, 255, 
-               maxColorValue = 255),
-    pch = 21,
-    size = 2,
-    color = "#333333" 
-    )  + 
-#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
-#              color = "red", linetype = "dashed", fill = "NA") + 
-
-#  geom_text(data = sta_meta_orig, aes(label = name), size = 2.5) +
-  ggtitle("Final Theissen Polygon Map")  
-
-#  geom_polygon(data = prr, aes(x = long, y = lat, group = group),  
-#              color = "black", linetype = "dashed", fill = "NA") + 
-
-  geom_polygon(data = counties, 
-               aes(x=long, y = lat, group = group), 
-               fill = "gray30", 
-               color = "gray30") +      
-  
-# export map 
-ggplot2::ggsave(filename = "figure/theissen_fin.png",   
-                width = 6, height = 6, units = "in")  
-
-rm(voronoi, counties)
-
-``` 
-
-
 # Identify seasonality & trend of precipitation data 
-
 ```{r make stl decomp function}  
 
 # make function to decompose into seasonal, trend, & remainder----  
 decomp_fun <- function(df) { 
   arrange(df, .data$date) %>% 
-  group_by(.data$sta) %>%  
-  time_decompose(  
-    target  = , TARGET,    
-    data         = .,  
-    method       = "stl", 
-    frequency    = "12 months", 
-    trend        = "60 months",  
-    merge        = TRUE,  
-    message      = TRUE  
+    group_by(.data$sta) %>%  
+    time_decompose(  
+      target         = , TARGET,    
+      data           = .,  
+      method         = "stl", 
+      frequency      = , FREQ, 
+      trend          = , TREND,  
+      merge          = TRUE,  
+      message        = TRUE  
     ) %>%  
-  ungroup() %>%  
-  anomalize(remainder, 
-            method = "gesd",  
-            alpha = 0.003) %>%  
+    ungroup() %>%  
+    anomalize(remainder, 
+              method = "gesd",  
+              alpha  = 0.003) %>%  
     select(-observed)  
 }  
 
 # notes: map_dfr can cause issues with indexing; use split and combine  
-#   input needs to be a tibble 
+#   input needs to be a tibble  
 ```
 
-```{r deconvolute_spi_1mo}  
+```{r deconvolute_prcp}  
 
-# import working data----      
-spi_fin <- import("data/spi_fin.csv") %>%  
-  mutate(date = ymd(date))  %>%  
-  mutate(prcp = as.numeric(prcp)) %>%  
-  arrange(date) %>% 
-  as_tibble()  
+# deconvolute prcp into trend, seasonal & random comps----  
 
+# import working data####     
+#spi_fin <- import("data/spi_fin.csv") %>%   
+#  mutate(date = ymd(date))   
+  
 sta_meta_fin <- import("data/sta_meta_fin.csv")  
 
-# prepare to deconvolute prcp into trend, seasonal & random comps----  
-#   identify frequency of seasonality -- should be 12 months====   
-spi_freq <- spi_fin  %>% 
-  select(sta, date, spi_1mo) %>%  
-  split(.$sta) %>% 
+# prepare for deconvoluting the spi====  
+spi_fin <- spi_fin %>%   
+  mutate(prcp = as.numeric(prcp)) %>%   
+  arrange(date) %>%   
+  as_tibble()    
+
+#   identify frequency of seasonality -- should be 12 months====      
+spi_freq <- spi_fin  %>%    
+  select(sta, date, prcp) %>%   
+  split(.$sta) %>%  
   map_dfc(~ anomalize::time_frequency( 
-    period       = "auto", data = .) 
-  ) %>% 
-  gather(key     = sta, value = freq) %>%  
+    period       = "auto", data = .)   
+  ) %>%  
+  gather(key     = sta, value = freq) %>%   
+  summarise(freq = mean(freq),   
+            max  = max(freq),   
+            min  = min(freq),   
+            sd   = sd(freq)  
+  )   
+  
+#   identify trend of periodicity -- should be 60 months====  
+spi_trend <- spi_fin  %>% 
+  select(sta, date, prcp) %>%  
+  split(.$sta) %>% 
+  map_dfc(~ anomalize::time_trend( 
+    period       = "auto", data = .)   
+  ) %>%  
+  gather(key     = sta, value = freq) %>%   
   summarise(freq = mean(freq),  
-            max  = max(freq),  
+            max  = max(freq), 
             min  = min(freq),  
             sd   = sd(freq)
   )  
-
-#   identify trend of periodicity -- should be 60 months====
-spi_trend <- spi_fin  %>% 
-  select(sta, date, spi_1mo) %>%  
-  split(.$sta) %>% 
-  map_dfc(~ anomalize::time_trend( 
-    period       = "auto", data = .)  
-  ) %>% 
-  gather(key     = sta, value = freq) %>%  
-  summarise(freq = mean(freq), 
-            max  = max(freq),
-            min  = min(freq), 
-            sd   = sd(freq)
-  ) 
-
-# 1.3 create inputs====  
-decomp_input <- bind_cols(spi_freq, spi_trend)  
+  
+# 1.3 create inputs====   
+decomp_input <- bind_cols(spi_freq, spi_trend)   
 rm(spi_freq, spi_trend)  
+  
+# decompose SPI into seasonal, trend, & remainder----   
+# prcp====   
+FREQ   <- "12 months"  
+TREND  <- "60 months"   
+TARGET <- "prcp"  
 
-# decompose SPI into seasonal, trend, & remainder----  
-# spi_01mo====   
-TARGET <- "spi_1mo"  
-spi01  <- spi_fin %>%  
-  select(sta, date, spi_1mo) %>%  
-  decomp_fun() %>%  
-  rename(season_01mo    = season) %>% 
-  rename(trend_01mo     = trend) %>% 
-  rename(remain_01mo    = remainder) %>% 
+prcp <- spi_fin %>%   
+  select(sta, date, prcp) %>%   
+  filter()
+  decomp_fun() %>%   
   rename(hival_01mo     = remainder_l1) %>% 
   rename(loval_01mo     = remainder_l2) %>% 
-  rename(anom_01mo      = anomaly) %>% 
+# find mean values 
   group_by(date) %>% 
-  mutate(spi01_mean     = mean(spi_1mo)) %>%  
-  mutate(seas01_mean    = mean(season_01mo)) %>%  
-  mutate(trend01_mean   = mean(trend_01mo)) %>%  
-  mutate(remain01_mean   = mean(remain_01mo)) %>%  
+  mutate(prcp_mean     = mean(prcp)) %>%   
+  mutate(seas_mean    = mean(season)) %>%  
+  mutate(trend_mean   = mean(trend)) %>%  
+  mutate(remain_mean   = mean(remainder)) %>%  
   ungroup() %>%  
 # order stations for plotting 
-  mutate(sta = fct_relevel(sta, "RAP", "COT", "ONI", "OEL", "GOR", "MIS"))  
+  mutate(sta = fct_relevel(sta,  
+                           "RAP",  
+                           "COT",  
+                           "ONI",  
+                           "OEL",  
+                           "GOR",  
+                           "MIS"  
+                           )  
+         )   
+
+# clean up  
+rm(FREQ, TARGET, TREND, decomp_fun)  
   
+```  
+
+```{r delete-possibly}
 # spi_02mo====  
 TARGET <- "spi_2mo"  
 
@@ -3338,27 +2243,12 @@ TARGET <- "spi_24mo"
 spi24  <- spi_fin %>%  
   select(sta, date, paste0(TARGET)) %>%  
   decomp_fun() %>% 
-  rename(season_24mo    = season) %>%  
-  rename(trend_24mo     = trend) %>%  
-  rename(remain_24mo    = remainder) %>%  
-  rename(hival_24mo     = remainder_l1) %>%  
-  rename(loval_24mo     = remainder_l2) %>%  
-  rename(anom_24mo      = anomaly)  
-
-```  
-
-```{r arrange-spi}
-
-spi02 <- spi_02 %>% 
-  
-
-
-
-
-
-
-
-
+  rename(season_24mo    = season) %>%   
+  rename(trend_24mo     = trend) %>%   
+  rename(remain_24mo    = remainder) %>%   
+  rename(hival_24mo     = remainder_l1) %>%   
+  rename(loval_24mo     = remainder_l2) %>%   
+  rename(anom_24mo      = anomaly)   
 
 # prepare to rejoin the dataframes 
 gage_mon0 <- gage_mon1 %>% 
@@ -3428,55 +2318,54 @@ gage_mon <- gage_mon %>%
 ```{r plot_precip_seasonality}
 
 # check for anomonies   
-spi01_anom <- test %>% 
-  filter(anomaly == "Yes")
+prcp_anom <- prcp %>% 
+  filter(anomaly == "Yes")  
 
-# prepare for plotting 
+# prepare for plotting  
 sta_size   <- 0.2  
-sta_color  <- "black" 
+sta_color  <- "black"  
 mean_size  <- 0.4  
 mean_color <- "gray"  
- 
-# SPI-1mo observations plot====
-spi01_obs <- spi01 %>% 
-  ggplot(aes(date, spi_1mo)) + 
+   
+# prcp observations plot====  
+prcp_obs <- prcp %>% 
+  ggplot(aes(date, prcp_mm)) +  
   facet_wrap(vars(sta)) +   
-# plot mean vals 
-  geom_line(aes(date, spi01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-            ) + 
-# plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-            ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("SPI one-month values")
+# plot mean vals  
+  geom_line(aes(date, prcp_mean),  
+            size            = mean_size,  
+            colour          = mean_color  
+            ) #+  
+# plot station vals  
+  geom_line(size            = sta_size,  
+            colour          = sta_color  
+            ) +  
+#  scale_y_continuous(limits = c(-3, 3)) +  
+  theme_bw() +  
+  xlab("") +  
+  ylab("Precipitation (mm)")  
 
-# SPI-1mo seasons plot==== 
+# SPI-1mo seasons plot====  
 spi01_seas  <- spi01 %>% 
   ggplot(aes(date, season_01mo)) + 
-  facet_wrap(~ sta) + 
-# plot mean vals 
-  geom_line(aes(date, seas01_mean), 
-            size            = mean_size, 
+  facet_wrap(~ sta) +  
+# plot mean vals  
+  geom_line(aes(date, seas01_mean),  
+            size            = mean_size,  
             colour          = mean_color 
-            ) + 
+            ) +  
 # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-            ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
+  geom_line(size            = sta_size,  
+            colour          = sta_color  
+            ) +  
+  scale_y_continuous(limits = c(-3, 3)) +  
   theme_bw() + 
-  xlab("") + 
-  ylab("Seasonality")  
+  xlab("") +  
+  ylab("Seasonality")   
 
-# SPI-1mo trend plot====  
-spi01_trend  <- 
-  spi01 %>% 
-  ggplot(aes(date, trend_01mo)) + 
+# SPI-1mo trend plot====   
+spi01_trend  <- spi01 %>%   
+  ggplot(aes(date, trend_01mo)) +  
   facet_wrap(~ sta) + 
 # plot mean vals 
   geom_line(aes(date, trend01_mean), 
@@ -3484,51 +2373,50 @@ spi01_trend  <-
             colour          = mean_color 
             ) + 
 # plot station vals 
-  geom_line(size            = sta_size, 
+  geom_line(size            = sta_size,  
             colour          = sta_color
             ) + 
   scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Trend")
+  theme_bw() +  
+  xlab("") +  
+  ylab("Trend")  
 
-# SPI-1mo remainder plot==== 
-spi01_remainder <- spi01 %>%   
+# SPI-1mo remainder plot====   
+spi01_remainder <- spi01 %>%    
   ggplot(aes(date, remain_01mo)) + 
-  facet_wrap(~ sta) + 
-# plot mean vals
-  geom_line(aes(date, remain01_mean), 
-            size            = mean_size, 
+  facet_wrap(~ sta) +  
+# plot mean vals  
+  geom_line(aes(date, remain01_mean),  
+            size            = mean_size,  
             colour          = mean_color 
-            ) + 
-# plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-            ) + 
+            ) +  
+# plot station vals  
+  geom_line(size            = sta_size,  
+            colour          = sta_color  
+            ) +   
 
-#  geom_jitter(aes(Date, ecoreg_remain_PC1), 
+#  geom_jitter(aes(Date, ecoreg_remain_PC1),  
 #              data         = anom_PC1, 
 #              shape        = 4, 
 #              size         = 0.7) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
+  scale_y_continuous(limits = c(-3, 3)) +  
   theme_bw() + 
-  xlab("") + 
-  ylab("SPI remainder values")
+  xlab("") +  
+  ylab("SPI remainder values")  
 
-# plot the plots above as a grid & save==== 
-cowplot::plot_grid(
-  spi01_obs, spi01_seas, spi01_trend, spi01_remainder, 
-  ncol = 1, 
-  align = "v"
-)
+# plot the plots above as a grid & save====  
+cowplot::plot_grid(  
+  spi01_obs, spi01_seas, spi01_trend, spi01_remainder,  
+  ncol = 1,   
+  align = "v"  
+)  
 
-cowplot::ggsave2("figure/spi01_deconv.png", 
-        units = "in", 
-        width = 7, 
-        height = 9)
+cowplot::ggsave2("figure/spi01_deconv.png",  
+        units = "in",  
+        width = 7,  
+        height = 9)  
 
-
-rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
+rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom)  
 ```  
 
 ```{r plot_precip_seasonality}
@@ -3637,6 +2525,180 @@ cowplot::ggsave2("figure/spi01_deconv.png",
 rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
 ```  
 
+# L-moments 
+```{r lmoments, include=FALSE, eval=FALSE}
+
+# Note that we might consider Weiss 1964 bias value of 1.018 for L1   
+
+# Calculate L-moment ratios   
+lmom_sta <- sta_mon_plus %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$depth_mm)) %>%    
+  transpose() %>%  
+  as_tibble() %>%  
+  select(lambdas, ratios) %>%  
+    mutate(lambdas = map(lambdas,   
+                         ~as_tibble(t(.x)  
+                                    )  
+                         )    
+           ) %>%  
+    mutate(lambdas = map(lambdas,   
+                         ~set_names(.x,  
+                                    c("L1", "L2", "L3", "L4", "L5")  
+                                    )  
+                         )    
+           ) %>%  
+    mutate(ratios = map(ratios,  
+                        ~as_tibble(t(.x)   
+                                   )   
+                        )   
+           ) %>%  
+    mutate(ratios = map(ratios,  
+                         ~set_names(.x,  
+                                    c("T1", "T2", "T3", "T4", "T5")   
+                                    )   
+                        )   
+           ) %>%  
+  unnest(lambdas) %>%  
+  unnest(ratios)  %>%   
+  select(-T1) %>%  
+  rename(L_CV = T2) %>%  
+  rename(L_skew = T3) %>%  
+  rename(L_kurtosis = T4) %>%  
+  select(L1, L_CV, L_skew, L_kurtosis) %>%  
+  mutate(L1 = round(L1,  
+                    digits = 2)  
+         )  
+
+# get station names from the list  
+lmom_sta_nm <- sta_mon_plus %>%  
+  split(.$sta) %>%  
+  
+  map(~ lmoms(.$depth_mm)) %>%  
+  transpose()  
+
+lmom_sta_nm <- lmom_sta_nm %>%  
+  pluck(1) %>%  
+  enframe()  
+
+lmom_sta_nm <- lmom_sta_nm %>%  
+  unnest(value)  
+
+lmom_sta_nm <- lmom_sta_nm %>%  
+  group_by(name) %>%  
+  summarize(L1 = first(value)) %>%  
+  ungroup() %>%  
+  mutate(L1 = round(L1,  
+                   digits = 2))  
+
+# join name to lmom vals & to the metadata  
+lmom_sta <- full_join(lmom_sta_nm, lmom_sta,  
+                      by = "L1") %>%  
+  rename(sta = name) %>%  
+  mutate(L_CV = round(L_CV,  
+                     digits = 2)  
+         ) %>%  
+  mutate(L_skew = round(L_skew,  
+                     digits = 2)  
+         ) %>%  
+  mutate(L_kurtosis = round(L_kurtosis,  
+                     digits = 2)  
+         )  
+
+# join the lmoments to the metadata  
+sta_meta_plus <- full_join(sta_meta_plus, lmom_sta,  
+                            by = "sta")  
+
+```
+
+```{r Lmoment_diagram_ratios, include=FALSE, eval=FALSE}
+# extract elements from the lmrdia list to plot in ggplot2    
+#   the x-value is the L-skewness and y-value is L-kurtosis  
+
+# get vals from the lmrdia list 
+# note that as gamma distribution is a 2-parameter dist, it is not shown 
+lmrdia <- lmrdia() 
+
+# extract L-skew & L-kurtosis values for several distributions  
+#aep4 <- lmrdia %>%
+#  extract2(2) %>%
+#  as.tibble()   
+
+gev <- lmrdia[[5]] %>% as.tibble()  
+
+glo <- lmrdia[[6]] %>% as.tibble()  
+
+gpa <- lmrdia[[7]] %>% as.tibble()  
+
+gno <- lmrdia[[9]] %>% as.tibble()  
+
+gov <- lmrdia[[10]] %>% as.tibble()   
+
+pe3 <- lmrdia[[12]] %>% as.tibble()   
+
+# combine and rename columns as distribution types
+int1      <- full_join(gev, glo, by = "V1")  
+int1      <- int1 %>% 
+               rename(GEV = V2.x) %>% 
+               rename(GLO = V2.y) 
+
+int2      <- full_join(int1, gpa, by = "V1") 
+int2      <- int2 %>% rename(GPA = V2) 
+
+int3      <- full_join(int2, gno, by = "V1") 
+int3      <- int3 %>% rename(GNO = V2) 
+
+int4      <- full_join(int3, gov, by = "V1") 
+int4      <- int4 %>% rename(GOV = V2) 
+
+lmom_theo <- full_join(int4, pe3, by = "V1")
+lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>% 
+  rename(L_skew = V1) %>% 
+  arrange(L_skew)  
+
+# prepare theoretical distributions for plotting
+lmom_theo <- lmom_theo %>%
+  gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
+  drop_na(L_kurtosis) %>%
+  select(distribution, everything())  
+  
+rm(gev, int1, glo, int2, gpa,int3, gno, int4, gov, pe3, lmrdia)
+```
+
+```{r plot-lmoment-diagram, include=FALSE, eval=FALSE}
+
+# control plotting order
+sta_meta_plus$group <- factor(sta_meta_plus $group, 
+                     levels = c("NW", "NC", "NE", "SW", "SC", "SE")
+                     )  
+
+# plot the theoretical distributions, and sample vals 
+ggplot(sta_meta_plus, (aes(L_skew, L_kurtosis))) + 
+  facet_wrap(vars(group)) + 
+  geom_point() +  
+  geom_line(data = lmom_theo, 
+            aes(L_skew, 
+                L_kurtosis, 
+                group = distribution, 
+                linetype = distribution)) +  
+  xlim(-0.25, 0.5) + 
+  ylim(-0.25, 0.5) + 
+  theme_bw() + 
+#  ggtitle("L-moment diagram for monthly precipitation depths",  
+#          subtitle = "1990-2018")  
+  labs(x = "L-skew", 
+       y = "L-kurtosis") 
+
+ggplot2::ggsave(filename = "figure/lmom_plot.png",  
+                width = 6, height = 4, units = "in")  
+
+rm(lmom_theo, lmom_sta, lmom_sta_nm)  
+
+```  
+
+
+
+
 ```{r things}  
 
 spi_all2 %>% 
@@ -3679,8 +2741,6 @@ spi_1mot %>%
   autoplot(spi_1mo)
 
 ```
-
-
 
 ```{r summaries}
 
@@ -4386,16 +3446,6 @@ rm(spi_location, spi_shape, spi_scale)
 ```
 
 
-
-
-
-
-
-
-
-
-
-
 # OLD CODE 
 ```{r import-data} 
 
@@ -5027,4 +4077,1082 @@ sta_l1 <- lmom_sta %>%
 
 ```
 
+# TO DELETE  
+```{r plot-theissen-polygons-delete}
+  
+sta_meta_fin   <- import("data/sta_meta_fin.csv")   
+sta_meta_orig  <- import("data/sta_meta_orig.csv")  
+gage_meta_fin  <- import("data/gage_meta_fin.csv")   
+  
+# plot a map of the study area----   
+# create Theissen line segments====      
+voronoi        <- deldir(sta_meta_fin$lon, sta_meta_fin$lat)    
+    
+# import polygon data for maps====   
+usa            <- map_data("usa")    
+states         <- map_data("state")   
+counties       <- map_data("county")   
+  
+# filter counties for AOI====   
+#   need to filter counties for SD & NE separately because of duplicate vals  
+#   subset SD counties####   
+counties_sd <- subset(counties, 
+                      region %in% 
+                        c("south dakota"))  
 
+counties_sd <- subset(counties_sd,   
+                      subregion %in%   
+                        c("butte",   
+                          "meade",   
+                          "lawrence", 
+                          "pennington",   
+                          "custer",   
+                          "fall river",   
+                          "shannon",   
+                          "jackson",   
+                          "bennett",  
+                          "haakon",   
+                          "todd",   
+                          "mellette",   
+                          "jones", 
+                          "stanley",   
+                          "lyman",  
+                          "tripp",  
+                          "hughes",  
+                          "ziebach",  
+                          "dewey",  
+                          "hughes", 
+                          "sully",   
+                          "potter"     
+                        )    
+                      )      
+
+#   subset NE counties####
+counties_ne <- subset(counties, region %in%    
+   c("nebraska")) %>%    
+  filter(subregion == "sioux" |    
+         subregion == "dawes" |    
+         subregion == "sheridan" |    
+         subregion == "box butte" |   
+         subregion == "cherry" |    
+         subregion == "brown" |    
+         subregion == "keya paha" |  
+         subregion == "rock"  
+         )  
+
+#   join SD & NE counties####   
+counties <- bind_rows(counties_sd, counties_ne)  
+rm(counties_sd, counties_ne)  
+# create a bounding box -- order is SW, NW, NE, SE====  
+bbox <- tibble(lat = c(42.0, 45.0, 45.0, 42.0), 
+               long = c(-104.5, -104.5, -99.5, -99.5), 
+               group = c(1, 1, 1, 1)
+               )
+
+# create SD-NE & SD-WY lines for AOI==== 
+ne_bound <- subset(counties,   
+                   subregion %in% c("fall river",     
+                                 "shannon",   
+                                 "bennett",    
+                                 "todd",    
+                                 "tripp")   
+                   ) %>%  
+  filter(lat < 43.1)    
+  
+wy_bound <- subset(counties,     
+                   subregion %in% c("butte",   
+                                    "lawrence"  , 
+                                    "pennington" , 
+                                     "custer", 
+                                    "fall river", 
+                                    "sioux"
+                                    )  
+                   ) %>%  
+  filter(long < -104) 
+
+# plot US map====
+usmap <- ggplot() + 
+  geom_polygon(data = usa, 
+               aes(x=long, y = lat, group = group),  
+               fill = "gray70", 
+               color = "gray70"
+               ) + 
+  coord_fixed(1.3) + 
+  theme_nothing() + 
+  geom_polygon(data = bbox, 
+               aes(x=long, y = lat, group = group), 
+               fill = "gray30", 
+               color = "gray30") +
+
+  xlab("") +  
+  ylab("")  
+
+# change the US map into a grob####  
+usmap <- as_grob(usmap, device = NULL)
+
+# plot county map====  
+ggplot() +  
+  theme_nothing() +  
+  coord_fixed(1.3) +  
+  # add counties  
+  geom_polygon(data      = counties,  
+               aes(x     = long, 
+                   y     = lat, 
+                   group = group),  
+               color     = "gray80",  
+               fill      = "NA") +  
+  # add stateline boundaries  
+  geom_line(data      = ne_bound,  
+            aes(x     = long, 
+                y     = lat, 
+                group = group),  
+            color     = "gray60"  
+  ) +  
+  geom_line(data = wy_bound,  
+            aes(x     = long, 
+                y     = lat, 
+                group = group),  
+            color     = "gray60"    
+  ) +   
+  # add small stations  
+  geom_point(data  = sta_meta_orig,  
+             aes(x = longitude, 
+                 y = latitude),   
+             size  = 1,  
+             color = "gray40") +  
+# add stream gages 
+  geom_point(data = gage_meta_fin, 
+             aes(dec_long_va, dec_lat_va),  
+             shape  = 24, 
+             fill   = NA,  
+             size   = 0.8,   
+             stroke = 0.5, 
+             color  = "gray50"  
+  ) +     
+# add final stations   
+  geom_point(data  = sta_meta_fin, 
+             aes(x = longitude,   
+                 y = latitude),   
+             size  = 3,   
+             color = "black"
+             ) +     
+# add Theissen polygons  
+  geom_segment(data = voronoi$dirsgs,
+               aes(x           = x1, 
+                   y           = y1, 
+                   xend        = x2,
+                   yend        = y2), 
+               size            = 1, 
+               linetype        = 1, 
+               color           = "gray20"
+               ) +  
+  geom_text(data          = sta_meta_fin, 
+            aes(x         = longitude, 
+                y         = latitude, 
+                label     = sta), 
+            vjust         = 1.6, 
+            check_overlap = TRUE
+            ) +  
+# add the US map as a grob  
+  annotation_custom(grob = usmap2, 
+                    xmin = -99.5, 
+                    xmax = -97.8, 
+                    ymin = 44.5,  
+                    ymax = 45.5)  
+  
+# export map  
+ggplot2::ggsave(filename = "figure/theissen_fin.png",    
+                width = 7.5, height = 4.5, units = "in")  
+  
+rm(bbox,   
+   counties,   
+   counties_sd,   
+   ne_bound,  
+   sd_bound,  
+   sta_meta_orig,  
+   states,  
+   usa,  
+   usmap,  
+   voronoi,  
+   wy_bound  
+   )   
+
+``` 
+
+
+```{r fill_missing_precip_data, eval=FALSE}  
+
+# fill stations to exam
+# fill north-west stations --------------------------------------------------  
+#   ELM SPRINGS 3 ESE, SD US
+#   FORT MEADE, SD US
+#   NEWELL, SD US
+#   RED OWL, SD US
+#   RAPID CITY REGIONAL AIRPORT, SD US
+
+# Note that fully filled is n = 10,957
+
+# ELM SPRINGS ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^ELM SPRINGS")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,868
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^RAPID CITY R")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nw <- sta_fil 
+
+
+# FORT MEADE ---- 
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^FORT MEADE")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,933  
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^ELM SPRINGS")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nw <- bind_rows(sta_filled_nw, sta_fil) 
+
+
+# NEWELL ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^NEWELL")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,787  
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^ELM SPRINGS")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nw <- bind_rows(sta_filled_nw, sta_fil) 
+
+# RED OWL ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^RED OWL")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,776   
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^RAPID CITY R")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nw <- bind_rows(sta_filled_nw, sta_fil) 
+
+# RAPID CITY REGIONAL----
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^RAPID CITY R")) %>%        # n = 10,957
+  filter(!is.na(prcp))                                 # n = 10,951
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^ELM SPRINGS")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+sta_filled_nw <- bind_rows(sta_fil, sta_filled_nw)     
+
+```  
+
+```{r fill_missing_precip_data-nc, eval=FALSE}  
+# fill north-central stations ------------------------------------------------  
+#   COTTONWOOD 2 E, SD US  
+#   DUPREE 15 SSE, SD US  
+#   MILESVILLE 5 NE, SD US  
+#   MURDO, SD US  
+#   PHILIP AIRPORT, SD US   
+#   PLAINVIEW 6 SSW, SD US
+#   INTERIOR 3 NE, SD US
+#  KIRLEY 6 N, SD US
+
+# Note that fully filled is n = 10,957  
+
+# COTTONWOOD ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^COTTONWOOD")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,857 
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^INTERIOR")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nc <- sta_fil 
+
+# DUPREE ---- 
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^DUPREE")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,725  
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^MILES")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nc <- bind_rows(sta_filled_nc, sta_fil) 
+
+# MILESVILLE ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^MILES")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,901 
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^COTTONWOOD")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nc <- bind_rows(sta_filled_nc, sta_fil) 
+
+# MURDO ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^MURDO")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,488   
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^COTTONWOOD")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_nc <- bind_rows(sta_filled_nc, sta_fil) 
+
+# PHILIP----
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^PHILIP")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,452
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^MILESVILLE")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+sta_filled_nc <- bind_rows(sta_fil, sta_filled_nc)   
+```  
+
+```{r fill_missing_precip_data-ne, eval=FALSE}  
+# fill north-eastern stations ----------------------------------------------  
+#   PIERRE REGIONAL AIRPORT, SD US
+#   ONIDA 4 NW, SD US
+#   KENNEBEC, SD US
+
+# Note that fully filled is n = 10,957
+  
+# PIERRE ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^PIERRE")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,954 
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^ONIDA")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_ne <- sta_fil 
+
+# ONIDA ---- 
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^ONIDA")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,887    
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^KENNEBEC")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_ne <- bind_rows(sta_filled_ne, sta_fil) 
+
+# KENNEBEC ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^KENNEBEC")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,895  
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^ONIDA")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_ne <- bind_rows(sta_filled_ne, sta_fil) 
+ 
+```
+
+```{r fill_missing_precip_data-sw, eval=FALSE}  
+# separate and fill southwestern stations ----------------------------------- 
+#   REDBIRD, WY US  
+#   EDGEMONT, SD US  
+#   HOT SPRINGS, SD US  
+#   ORAL, SD US   
+#   OELRICHS, SD US
+
+# Note that fully filled is n = 10,957
+
+# REDBIRD, WY ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^REDBIRD")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,803
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^EDGEMONT")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_sw <- sta_fil 
+
+# EDGEMONT ---- 
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^EDGEMONT")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,802  
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^REDBIRD")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_sw <- bind_rows(sta_filled_sw, sta_fil) 
+
+# HOT SPRINGS ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^HOT SPRINGS")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,852  
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^FORT")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_sw <- bind_rows(sta_filled_sw, sta_fil) 
+
+# ORAL ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^ORAL")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,639    
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^OELRICHS")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = not check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) #%>% 
+#  select(date, name, mflag_prcp:sflag_prcp)  
+
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^HOT SPRINGS")) %>%        
+  filter(!is.na(prcp))            
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_sw <- bind_rows(sta_filled_sw, sta_fil) 
+
+# OELRICHS----
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^OELRICHS")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,417 
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^ORAL")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = not check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) #%>% 
+#  select(date, name, mflag_prcp:sflag_prcp)  
+
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^HOT SPRINGS")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+sta_filled_sw <- bind_rows(sta_fil, sta_filled_sw)     
+
+```  
+
+```{r fill_missing_precip_data-sc, eval=FALSE}  
+# separate and fill southcentral stations ----------------------------------- 
+#   GORDON 6 N, NE US 
+# Note that fully filled is n = 10,957
+
+# GORDON, NE ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^GORDON")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,842 
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^VALENTINE")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_sc <- sta_fil 
+
+```  
+
+```{r fill_missing_precip_data-se, eval=FALSE}  
+# separate and fill southwestern stations ----------------------------------- 
+#   MISSION 14 S, SD US
+#   VALENTINE MILLER FIELD, NE US
+#   WOOD, SD US
+#   AINSWORTH, NE US
+# Note that fully filled is n = 10,957
+
+# MISSION ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^MISSION")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,956
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^WOOD")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_se <- sta_fil 
+
+# WOOD ---- 
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^WOOD")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,836  
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^MISSION")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_se <- bind_rows(sta_filled_se, sta_fil) 
+
+# VALENTINE ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^VALENTINE")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,592   
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^AINSWORTH")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_se <- bind_rows(sta_filled_se, sta_fil) 
+
+# AINSWORTH ----  
+sta_fil <- sta_dv_plus %>% 
+  filter(str_detect(name, "^AINSWORTH")) %>%        
+  filter(!is.na(prcp))                                 # n = 10,926    
+
+# get alternate site data & prepare fill 
+sta_alt <- sta_dv_orig %>% 
+  filter(str_detect(name, "^VALENTINE")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_name <- sta_fil %>% 
+  slice(1) %>% 
+  select(name, id) 
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(name = sta_name$name) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  %>%            # n = not check 
+  arrange(name) %>% 
+  distinct(date, .keep_all = TRUE) %>% 
+  select(date, name, mflag_prcp:sflag_prcp)  
+
+# Cumulatively add dvs 
+sta_filled_se <- bind_rows(sta_filled_se, sta_fil) 
+```  
+
+```{r join_filled_precip_data, eval=FALSE}
+
+sta_filled <- bind_rows(  
+  sta_filled_nw,  
+  sta_filled_nc,  
+  sta_filled_ne,  
+  sta_filled_sw,  
+  sta_filled_sc,  
+  sta_filled_se  
+  )  
+
+sta_filled <- full_join(sta_filled, sta_meta_plus, 
+                         by = "name")  
+
+rm(sta_filled_nw, sta_filled_nc,sta_filled_ne, sta_filled_sw, 
+     sta_filled_sc, sta_filled_se, sta_fil, sta_name)
+```
+
+```{r check_prcp_data_quality, eval=FALSE}  
+  
+# Table of Measurement Flag/Attributes -- mflag  
+# Blank = no measurement information applicable            
+# A     = precip depth is a multi-day total, accumulated since last meas         
+# B     = precipitation total formed from two twelve-hour totals  
+# D     = precipitation total formed from four six-hour totals           
+# H     = represents TMAX or TMIN or average of hourly values (TAVG)           
+# K     = converted from knots            
+# L     = temperature appears lagged w/ respect to reported hr of observation  
+# O     = converted from oktas  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
+# W    = converted from 16-point WBAN code (for wind direction)  
+  
+sta_check <- sta_filled %>%  
+  group_by(name, mflag_prcp) %>%  
+  summarise(mflag = n())  
+  
+# flags are T & P flags  
+sta_filled <- sta_filled %>%  
+  select(-mflag_prcp)  
+  
+# Table of Quality Flag/Attributes  
+# Blank = did not fail any quality assurance check   
+# D     = failed duplicate check           
+# G     = failed gap check           
+# I     = failed internal consistency check           
+# K     = failed streak/frequent-value check           
+# L     = failed check on length of multiday period  
+# M     = failed mega-consistency check            
+# N     = failed naught check            
+# O     = failed climatological outlier check            
+# R     = failed lagged range check           
+# S     = failed spatial consistency check            
+# T     = failed temporal consistency check            
+# W     = temperature too warm for snow            
+# X     = failed bounds check           
+# Z     = flagged as a result of an official Datzilla investigation  
+  
+sta_check <- sta_filled %>%  
+  group_by(name, qflag_prcp) %>%  
+  summarise(qflag = n())  
+  
+# flags are O, L, I flags  
+sta_filled <- sta_filled %>%  
+  select(-qflag_prcp)  
+  
+# Table Source Flag/Attributes   
+# Blank = No source (i.e., data value missing)  
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
+# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)   
+# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
+# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
+# a  = Australian data from the Australian Bureau of Meteorology           
+# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
+# b  = Belarus update           
+# C  = Environment Canada            
+# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)      
+# F  = U.S. Fort data             
+# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data   
+# H  = High Plains Regional Climate Center real-time data            
+# I  = International collection (non U.S. data received thru pers. contacts   
+# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
+# M  = Monthly METAR Extract (additional ASOS data)           
+# N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
+# Q  = Data from African countries w/ later permission granted  
+# R  = NCDC Reference Network Database  
+# r  = All-Russian Research Inst. Hydromet Information-World Data Center    
+# S  = Global Summary of the Day (NCDC DSI-9618)  
+#        NOTE: "S" values are derived from hourly synoptic reports   
+#         exchanged on the Global Telecommunications System (GTS).  
+#         Daily values derived in this fashion may differ significantly from  
+#        "true" daily data, particularly for precip (i.e., use with caution).  
+# s  = China Met Admn/Nat Met Info/Climate Data Centr (http://cdc.cma.gov.cn)   
+# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center   
+# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr  
+# u  = Ukraine update           
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
+# Z  = Datzilla official additions or replacements           
+# z  = Uzbekistan update   
+  
+sta_check <- sta_filled %>%   
+  group_by(name, sflag_prcp) %>%  
+  summarise(sflag = n())  
+  
+# flags are 0, 7, B, H, K, W, X, Z  
+sta_filled <- sta_filled %>%  
+  select(-sflag_prcp)  
+  
+rm(sta_check)   
+  
+# export daily data   
+export(sta_filled, file = "data/sta_filled.csv")  
+```  
+
+
+```{r ggplot_monthly, eval=FALSE} 
+#sta_mon <- import(file = "data/stations_monthly.csv") %>% 
+#  mutate(date = ymd(date))
+
+#sta_mon %>% 
+#  group_by(sta) %>% 
+#  summarize(count = n())
+
+sta_mon_plus$group <- factor(sta_mon_plus$group,  
+                      levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
+
+# plot monthly precips  
+sta_mon_plus %>%   
+ggplot(aes(month, depth_mm, group = month)) +  
+  facet_grid(rows = vars(group)) +   
+  geom_quasirandom(size = 0.2, 
+                position = position_beeswarm()  
+                ) + 
+scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", 
+                            "7", "8", "9", "10", "11", "12"),   
+                   labels = c("J", "F", "M", "A", "M", "J", 
+                            "J", "A", "S", "O", "N", "D")  
+                 ) + 
+  theme_bw() +  
+#  labs(title = "Monthly precipitation depths",  
+#       subtitle = "Southwestern South Dakota for 1990-2017") +   
+       xlab("") +  
+       ylab("mm")  
+
+
+ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
+                width = 6, height = 6, units = "in")
+
+```
+
+
+```{r prcp_daily2monthly, eval=FALSE} 
+
+# add short names and create monthly data -----------------------------------  
+scratch <- sta_meta_plus %>%  
+  select(sta, sta_id)   
+
+sta_mon_plus <- full_join(scratch, sta_filled,   
+                     by = "sta_id")  %>%   
+  select(-c(name, sta_id))           %>%  
+  mutate(year = year(date))          %>%  
+  mutate(month = month(date))        %>%  
+  group_by(year, month, sta)         %>%   
+  summarize(prcp_tenths = sum(prcp)) %>%  
+  mutate(prcp_mm = prcp_tenths/10)   %>%  
+  select(-prcp_tenths) %>%  
+  ungroup()  
+
+rm(scratch)  
+
+# spread results & create date with day at midpoint of month ----------------  
+sta_mon_long <- sta_mon_plus %>%  
+  spread(sta, prcp_mm) %>%  
+  mutate(day = 15) %>%  
+  mutate(date = make_date(year = year, month = month, day = day)) %>%   
+  select(date, year, month, everything()) %>%  
+  select(-day) %>%   
+  ungroup() %>%  
+  filter(!is.na(date))  
+
+sta_mon_plus <- sta_mon_long %>%  
+  gather(key = sta, val = depth_mm,  
+         -c(date, year, month))  
+
+rm(sta_mon_long, sta_filled, sta_dv_plus)   
+
+sta_mon_plus <- full_join(sta_mon_plus, sta_meta_plus,  
+                           by = "sta")  
+
+export(sta_mon_plus, file = "data/stations_mon_plus.csv")  
+  
+```  
+
+```{r save_prior_work, eval=FALSE}  
+#export(sta_dv_orig, "data/sta_dv_orig.csv")  
+# export(sta_meta_orig, "data/sta_meta_orig.csv")   -- saved above 
+
+export(sta_mon_plus, "data/sta_mon_plus.csv")  
+
+
+sta_mon_plus <- import("data/sta_mon_plus.csv")
+sta_meta_plus <- import("data/sta_meta_plus.csv")
+
+
+
+sta_mon <- semi_join(sta_mon_plus, sta_meta, 
+                     by = "sta")  
+
+export(sta_mon, "data/sta_mon.csv")  
+export(sta_meta, "data/sta_meta.csv")  
+```
