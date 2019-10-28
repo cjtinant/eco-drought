@@ -60,11 +60,11 @@ Analysis steps
 2.4)    removes incomplete years (sta_plus)  
 2.5)    defines the final stations  (sta_fin)
 
-3.0)  plots study area map;  
-3.1)  prepares map elements: Theissen line segments, stream gages, location  
+3.0)  plot study area map;  
+3.1)    prepare map elements: Theissen line segments, stream gages, location  
         data: states, counties, USA map-grob
 
-
+4.0)  check data flags  
 
 
 
@@ -105,12 +105,16 @@ Variable naming convention----
 a_session    list variable of session information  
 
 precipitation and spi variables====  
+dateMin       minimum date for downloading data   
+dateMax       maximum date for downloading data  
 sta           NOAA weather station locations  
   _dv         daily values  
   _meta       metadata  
   _orig       all stations (n = 46 sations)  
   _plus       ??? stations (n = 25 stations)  
   _fin        final stations used in the analysis   
+  _mon        monthly precipitation depths (60-years)  
+  _pres       monthly precipitation depths (30-years)  
 
 mapping variables==== 
 voronoi       Theissen polygons  
@@ -124,23 +128,44 @@ counties      lower-48 counties
 bbox          bounding box  
 usmap         USA map as a grob  
 
-daily value fill variables==== 
+daily value check & fill variables==== 
 sta  
-_mon         monthly precipitation depths
-_alt         alternate station dv data for filling missing values 
-_fil         station to be filled 
-_miss_day    checks for missing days 
-_short_name  adds a short name for the station to be filled
-_rap         Rapid City Regional Airport station (NW)  
-_cot         Cottonwood station (NC)  
-_oni         Onida station (NE)   
-_ora         Oral station (SW)   
-_gor         Gordon staion (SC)   
-_mis         Mission station (SE)  
+  _check       used to summarize station flags
+  _alt         alternate station dv data for filling missing values 
+  _fil         station to be filled 
+  _miss_day    checks for missing days 
+  _short_name  adds a short name for the station to be filled
+  _rap         Rapid City Regional Airport station (NW)  
+  _cot         Cottonwood station (NC)  
+  _oni         Onida station (NE)   
+  _ora         Oral station (SW)   
+  _gor         Gordon staion (SC)   
+  _mis         Mission station (SE)  
+
+
+
+  
+L-moment variables====  
+lmom          L-moments  
+  _sta        L-moments for stations
+  _nm        station name
+lmrdia       list of L-moment distributions 
+gev          Generalized Extreme Value Distribution
+glo          Generalized Logistic Distribution
+gpa          Generalized Pareto Distribution
+gno          Generalized Logistic Distribution 
+gov          Govindarajulu Distribution
+pe3          Pearson Type III Distribution  
+L1           first L-moment, similiar to mean
+L_CV         first L-moment ratio, similiar to coefficient of var
+L_skew       second L-moment ratio, similiar to skewness 
+L_kurtosis   third L-moment ratio, similiar to kurtosis
+n            number of months in a given record
+  
+
 
 
 sta_input)   
-dateMin, 
 sta_meta_input,
 
 spi           Standardized Precipitation Index vals from NOAA precip data  
@@ -148,26 +173,7 @@ spi           Standardized Precipitation Index vals from NOAA precip data
 01          one-month SPI etc.
 _freq       frequency of periodicity -- used in seasonality calculations  
 _trend      trend of periodicity -- used in seasonality calculations  
-  
-L-moment variables====  
-lmom          L-moments  
-_sta          L-moments for stations
-_reg          Weighted mean of L-moments for stations
-  
-L1           first L-moment, similiar to mean
-L_CV         first L-moment ratio, similiar to coefficient of var
-L_skew       second L-moment ratio, similiar to skewness 
-L_kurtosis   third L-moment ratio, similiar to kurtosis
-n            number of months in a given record
-  
-Parameters used in the L-moment diagram####  
-aep4         4-Parameter Asymmetric Exponential Power Distribution 
-gev          Generalized Extreme Value Distribution
-glo          Generalized Logistic Distribution
-gpa          Generalized Pareto Distribution
-gno          Generalized Logistic Distribution 
-gov          Govindarajulu Distribution
-pe3          Pearson Type III Distribution  
+
 
 gage          USGS streamgage station  
 
@@ -767,7 +773,7 @@ rm(bbox,
 ```
 
 ```{r check_prcp_data_quality, eval=FALSE}  
-
+  
 # Table of Measurement Flag/Attributes -- mflag----    
 # Blank = no measurement information applicable            
 # A     = precip depth is a multi-day total, accumulated since last meas         
@@ -869,9 +875,6 @@ sta_check <- sta_dv_orig %>%
   ungroup()    
 
 # flags are 0, 7, B, H, K, W, X, Z  
-sta_filled <- sta_filled %>%  
-  select(-sflag_prcp)  
-
 # 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
 # 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
 # A  = U.S. Automated Surface Observing System (ASOS) real-time data  
@@ -1403,8 +1406,6 @@ ggplot2::ggsave(filename = "figure/prcp_dif.png",
 rm(prcp_dabest)    
 ```
 
-
-
 <!--
 need to finish this 
 ```{r ci_result_table, eval=FALSE}  
@@ -1482,11 +1483,10 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 ```  
 -->
 
-
 ```{r compare_locations}  
 
 # the bootstrapping showed there is some difference between past & present  
-sta_pres <- sta_fin %>%  
+sta_pres <- sta_mon %>%  
   filter(yr > 1988)  
 
 export(sta_pres, "data/sta_pres.csv")  
@@ -1547,6 +1547,7 @@ rm(nw,
    prcp_compare  
    )  
 
+rm(sta_mon)
 ```
 
 # L-moments 
@@ -1628,20 +1629,16 @@ lmom_sta <- full_join(lmom_sta_nm, lmom_sta,
   )  
 
 # join the lmoments to the metadata  
-sta_meta <- sta_meta_orig %>% 
-  filter(sta == "RAP" |   
-           sta == "COT" |   
-           sta == "ONI" |   
-           sta == "OEL" |   
-           sta ==  "GOR" |  
-           sta ==  "MIS"  
-  )  
-  
-sta_meta <- full_join(sta_meta, lmom_sta,  
+sta_meta_fin <- full_join(sta_meta_fin, lmom_sta,  
                            by = "sta")  
 
-export(sta_meta, "data/sta_meta.csv")    
-rm(sta_meta_orig)  
+
+export(sta_meta_fin, "data/sta_meta_fin.csv")    
+
+rm(lmom_sta,  
+   lmom_sta_nm  
+   )  
+  
 ```
 
 ```{r Lmoment_diagram_ratios, include=FALSE, eval=FALSE}
@@ -1653,62 +1650,59 @@ rm(sta_meta_orig)
 lmrdia <- lmrdia() 
 
 # extract L-skew & L-kurtosis values for several distributions  
-#aep4 <- lmrdia %>%
+#aep4 <- lmrdia %>%  
 #  extract2(2) %>%
 #  as.tibble()   
 
-gev <- lmrdia[[5]]  %>% as_tibble()  
-glo <- lmrdia[[6]]  %>% as_tibble()  
-gpa <- lmrdia[[7]]  %>% as_tibble()  
-gno <- lmrdia[[9]]  %>% as_tibble()  
-gov <- lmrdia[[10]] %>% as_tibble()   
-pe3 <- lmrdia[[12]] %>% as_tibble()   
+gev <- lmrdia[[5]]  %>% 
+  as_tibble() %>% 
+  mutate(distribution = "GEV")  
 
-# combine and rename columns as distribution types
-int1      <- full_join(gev, glo, by = "V1")  
-int1      <- int1 %>% 
-  rename(GEV = V2.x) %>% 
-  rename(GLO = V2.y) 
+glo <- lmrdia[[6]]  %>% 
+  as_tibble() %>% 
+  mutate(distribution = "GLO")  
 
-int2      <- full_join(int1, gpa, by = "V1") 
-int2      <- int2 %>% rename(GPA = V2) 
+gpa <- lmrdia[[7]]  %>% 
+  as_tibble() %>% 
+  mutate(distribution = "GPA")   
 
-int3      <- full_join(int2, gno, by = "V1") 
-int3      <- int3 %>% rename(GNO = V2) 
+gno <- lmrdia[[9]]  %>% 
+  as_tibble() %>% 
+  mutate(distribution = "GNO")  
 
-int4      <- full_join(int3, gov, by = "V1") 
-int4      <- int4 %>% rename(GOV = V2) 
+gov <- lmrdia[[10]] %>% 
+  as_tibble() %>% 
+  mutate(distribution = "GOV")  
 
-lmom_theo <- full_join(int4, pe3, by = "V1")
-lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>% 
+pe3 <- lmrdia[[12]] %>% 
+  as_tibble() %>% 
+  mutate(distribution = "PE3")     
+
+lmom_theo <- bind_rows(gev,  
+                  glo,  
+                  gpa,  
+                  gno,  
+                  gov,  
+                  pe3
+                  ) %>% 
   rename(L_skew = V1) %>% 
-  arrange(L_skew)  
+  rename(L_kurtosis = V2)
 
-# prepare theoretical distributions for plotting
-lmom_theo <- lmom_theo %>%
-  gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
-  drop_na(L_kurtosis) %>%
-  select(distribution, everything())  
-
-rm(gev, int1, glo, int2, gpa,int3, gno, int4, gov, pe3, lmrdia)
+rm(gev,  
+   glo,  
+   gpa,  
+   gno,  
+   gov,  
+   pe3,  
+   lmrdia  
+   )  
+  
 ```
 
 ```{r plot-lmoment-diagram, include=FALSE, eval=FALSE}
 
 # plot the theoretical distributions, and sample vals----    
-# control plotting order    
-sta_meta$group <- factor(sta_meta$group,    
-                              levels = c(  
-                                "NW",   
-                                "NC",   
-                                "NE",   
-                                "SW",   
-                                "SC",   
-                                "SE"  
-                                )  
-)  
-
-sta_meta %>% 
+sta_meta_fin %>% 
 ggplot(aes(L_skew, L_kurtosis)
        ) + 
   facet_wrap(vars(group)) + 
@@ -1729,10 +1723,8 @@ ggplot(aes(L_skew, L_kurtosis)
 ggplot2::ggsave(filename = "figure/lmom_plot.png",  
                 width = 6, height = 4, units = "in")  
 
-rm(lmom_theo,  
-   lmom_sta,  
-   lmom_sta_nm  
-   )    
+rm(lmom_theo  
+   )      
 
 ```  
 
@@ -3929,6 +3921,33 @@ sta_l1 <- lmom_sta %>%
 
 ```
 
+```{r old-Lmom-combine-code}
+# combine and rename columns as distribution types
+int1      <- full_join(gev, glo, by = "V1")  
+int1      <- int1 %>% 
+  rename(GEV = V2.x) %>% 
+  rename(GLO = V2.y) 
+
+int2      <- full_join(int1, gpa, by = "V1") 
+int2      <- int2 %>% rename(GPA = V2) 
+
+int3      <- full_join(int2, gno, by = "V1") 
+int3      <- int3 %>% rename(GNO = V2) 
+
+int4      <- full_join(int3, gov, by = "V1") 
+int4      <- int4 %>% rename(GOV = V2) 
+
+lmom_theo <- full_join(int4, pe3, by = "V1")
+lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>% 
+  rename(L_skew = V1) %>% 
+  arrange(L_skew)  
+
+# prepare theoretical distributions for plotting
+lmom_theo <- lmom_theo %>%
+  gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
+  drop_na(L_kurtosis) %>%
+  select(distribution, everything())  
+```
 
 
 
