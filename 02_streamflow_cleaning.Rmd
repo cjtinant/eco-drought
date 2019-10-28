@@ -8,8 +8,6 @@ output: html_document
 <!--
 This R markdown file refactors prior code for data cleaning 
 
-1) Develop tables and plots for Chapter 2 
-
 Data:
 Predominant datasets used are:  
 1) USGS daily streamflow and station metadata,  
@@ -38,85 +36,8 @@ Approach:
     - less than 6-years of continuous data for 1990-2018
       for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd 
 
-6) create metadata tables 
-    - gage_table - summary of gage metadata 
-    - ung_table - summary of ungaged watershed metadata 
-    - soils_table - summary of geology, soils, and vegetation 
-
-7) prepare daily flow data for PCA 
-     - check missing records & filter 
-     - remove provincial data 
-     - eliminate watershed size effects: 
-          Daily flow depth is calculated by dividing flow (cms) by watershed 
-          area (sq-km) and multiply the resultant by num. of sec. in a day.  
-          The resulting unit is cu-m-d per sq-km. 
-     - transform the data by BoxCox transformation by forcast::BoxCox
-          The daily flow data are highly skewed.  BoxCox transformation uses 
-          maximum likelihood to identify a best value (lambda) that best 
-          transforms a dataset to an ~ normal distribution.
-
-          # this is table of what the lambda values (probably) mean
-          # lambda = 1 is normal distribution (no change), 
-          # lambda = 0.5 is a square-root transformation, 
-          # lamda = 2 is a square transformation,
-          # lambda = 0 is a logrithmic transformation.
-
-8) make a PCA matrix and tidy the output 
-     - used prcomp() with center & scale = TRUE to center the data with a 
-         mean of zero and standard deviation of unity, e.g. a z-score.  
-         Note: '.' passes select(q1_tr, q7_tr, q30_tr) %>% to prcomp() 
-     - found eigenvectors-- the results about the PC axes
-
-9) construct bootstrap confidence intervals of PC axes to identify a difference 
-     in means. We obtained a 95% confidence interval (95% CI) around the our  
-     estimate of the mean difference. The 95% indicates that a confidence 
-     interval will capture the population mean difference 95% of the time. 
-     So, we can be 95% confident the interval contains the true mean
-     of the population.  We can calculated the 95% CI of the mean difference by 
-     performing bootstrap resampling (Bradley Efron).
-
-     The bootstrap creates multiple resamples (with replacement) from a single 
-     set of observations, and computes the effect size of interest on each of 
-     these resamples. The bootstrap resamples of the effect size can then be 
-     used to determine the 95% CI.
-
-     The resampling distribution of the difference in means approaches a normal 
-     distribution. This is due to the Central Limit Theorem: a large number of 
-     independent random samples will approach a normal distribution even if the 
-     underlying population is not normally distributed.
-
-# Bootstrap resampling gives us two important benefits:
-
-# Non-parametric statistical analysis. There is no need to assume that our 
-# observations, or the underlying populations, are normally distributed. 
-# Thanks to the Central Limit Theorem, the resampling distribution of the 
-# effect size will approach a normality.
-# Easy construction of the 95% CI from the resampling distribution. 
-# For 1000 bootstrap resamples of the mean difference, one can use the 25th 
-# value and the 75th value of the ranked differences as boundaries of the 
-# 95% confidence interval. (This captures the central 95% of the distribution.) 
-# Such an interval construction is known as a percentile interval.
-
-# Adjusting for asymmetrical resampling distributions
-# While resampling distributions of the difference in means often have a normal 
-# distribution, it is not uncommon to encounter a skewed distribution. Thus, 
-# Efron developed the bias-corrected and accelerated bootstrap (BCa bootstrap) 
-# to account for the skew, and still obtain the central 95% of the distribution. 
-# dabestr applies the BCa correction to the resampling bootstrap distributions 
-# of the effect size.
-
-# Estimation plots incorporate bootstrap resampling
-# The estimation plot produced by dabest presents the rawdata and the 
-# bootstrap confidence # interval of the effect size (the difference in means) 
-# side-by-side as a single integrated plot. It thus tightly couples visual 
-# presentation of the raw data with an indication of the population mean 
-# difference, and its confidence interval.
-
-
 Next Steps: 
 -- check into stylr-packag
-
-
 
 Variable naming convention----  
 gage                USGS gaging stations
@@ -125,144 +46,21 @@ gage                USGS gaging stations
   _int1             scratch df for pulling gages with integer fields 
   _int2             scratch df for pulling gages with integer fields 
 
-wsd_  
-  summary
+wsd  
+  _summary
 names   
 
 endDate             used for calling Egret::readNWISDaily  -- "1979-08-01"
 parameter_cd        used for calling Egret::readNWISDaily  -- "2018-09-30"  
 startDate           used for calling Egret::readNWISDaily  -- "00060" 
 
-
-
-
-
-
 lon_riv_dv          scratch df for pulling lon_riv 
 gage_most_dv        scratch df for pulling !lon_riv 
 yrs_rec             calculates years of record 
 gage_dv             daily flow values for waterYear 1980-2017 
-
-wsd_summary     zonal statistics of watershed environmental parameters 
-*   "_id"       unique id
-*  "_sta_id"    four- or seven-digit station ID   
-   "_type "     distinguishes gaged from ungaged 
-   "_watshed"   describes the HUC06 watershed 
-   "_HUC12"     hydrologic unit code 12
-   "_sta_name"    station name derived from outlet HUC12 catchment name
-   "_gage_num"    USGS site number 
-   "_gage_nm"     station name from USGS gage
-   "_dec_lat"     latitude in decimal degrees
-   "_dec_lon"     longitude in decimal degrees
-   "_cat_area"    catchment area in sq km
-*  "_cat_area_l"  natural logarithm of catchment area 
-   "_cat_length"  catchment length
-   "_cat_width"   catchment width
-*  "_lw_ratio"    catchment length divided by catchment width
-   "_str_len"     stream length
-*  "_drain_dens"  stream length divided by catchment area
-*  "_prcp_mean"   areal mean precipitation depth 1992-2012
-*  "_t07_mean"    average July temperature 1992-2012
-*  "_vpd_ann"     areal mean of max vapor deficit 1992-2012
-*  _"vpd_07"      areal mean of max July vapor deficit 1992-2012
-*  "_cat_out"     catchment outlet elevation
-*  "_cat_rel"     difference in max and min elevation
-*  "_slop_med"    median percent slope
-*  "_TWI_mean"    mean terrain wetness index
-*  "_perc_cov"    percent forest cover from NLCD 2016
-*  "_fc_mean"     mean field capacity
-*  "_ksat_mean"   mean horizontal saturated hydraulic conductivity
-*  "_kvert_mean"  mean vertical saturated hydrologic conductivity 
-
-gage_table        summary of gage metadata for flextable 
-ung_table         summary of ungaged watershed metadata for flextable  
-soils_table       summary of geology, soils, and vegetation for flextable  
-
-the tables above use flextable control keys: 
-col_key_char      controls character elelements for flextables
-col_key_int       controls integer elelements for flextables
-col_key_num       controls numeric elelements for flextables
-
-gage_check        scratch variable used to check operations 
-gage_raw          the "raw" data, after removing the NA Qvals 
-  _site_no        Eight-digit USGS gage number
-  _sta            Short name used for this project 
-  _Date           Date 
-  _Q              Discharge in m3/s
-  _Julian         Num. days since January 1, 1850 
-  _Month          Month of the year [1-12] 
-  _Day            Day of the year [1-366] 
-  _DecYear        Decimal year 
-  _MonthSeq       Number of months since January 1, 1850 
-  _waterYear      Year following USGS water year 
-  _Qualifier      Qualifying code
-  _ i             Index of days, starting with 1 
-  _LogQ           Natural logarithm of Q 
-  _Q7             7-day running average of Q
-  _Q30            30-day running average of Q
-
-gage_dv_gath      scratch variable, gathers the Q, Q7, Q30 
-gage_dv_low       censored zero flows (q_val < 0.01)
-gage_dv_high      filtered non-zero flows -> join flows 
-gage_contrib_area used for converting Q [m3/s] -> q [m/day]
-
-gage_dv           the "main" daily mean flow values used in this .Rmd file 
-  _sta            Short name used for this project 
-  _Date           Date     
-  _waterYear      Year following USGS water year format
-  _q1_depth       discharge depth in m/day
-  _q7_depth       7-day running average of q_depth
-  _q30_depth      30-day running average of q_depth 
-
-pca_input         prcomp() input using gage_dv 
-pca_matrix        the matrix created by prcomp() 
-lambda_q1         lambda values for BoxCox transform prior to PCA 
-lambda_q7  
-lambda_q30 
-pca_eigen         results about PC axes -- the eigenvalues
-pca_vars          results about PC rotation -- magnitude and direction of vars  
-
-ecoreg            shapefile data of intersection of watershed area & 
-                    merged SD, NE, WY ecoregions 
-eco_join          join variable for ecoreg & gage_dv 
-
-gage_mon          monthly dv depths used in decomposing PC eigens into trend, 
-                    seasonal, & random comps 
-mon_freq          'anomolize' parameter to remove season from observed vals  
-mon_trend          'anomolize' parameter to remove trend from observed vals 
-decomp_input      input for 'anomolize' decomp function 
-decomp_fun        function to decompose into seasonal, trend, & remainder vals 
-
-mon_sum           summary table of PC1 & seasonal, trend explained 
-mon_sum_gath      prepares to summarize monthly data 
-mon_sum_pc1       summary PC1 & seasonal, trend explained by ecoregion 
-mon_sum_pc2       summary PC2 & seasonal, trend explained by ecoregion  
-mon_sum_pc1_all   summary PC1 & seasonal, trend explained by station 
-  
-pca_plot          prepares PCA data for plotting 
-pc1_pc2_plot      ggplot PC1 vs PC2 plot  
-pc1_q7_plot       ggplot PC1 vs q7 plot  
-pc2_q_diff_plot   ggplot PC2 vs q_diff plot  
-
-mon_plot_pc1     prepares PC1 data for plotting 
-pc1_obs          ggplot of PC1 observations vs time 
-pc1_seas         ggplot of PC1 seasons vs time 
-pc1_trend        ggplot of PC1 trend vs time 
-pc1_remainder    ggplot of PC1 remainder vs time  
+gage_check          scratch variable used to check operations 
 
 gage_meta           cleaned metadata for USGS gaging stations in the study area 
-  "site_no"                site number     
-  "station_nm"             station name     
-  "dec_lat_va"             latitude value in decimal degrees 
-  "dec_long_va"            longitude value in decimal degrees 
-  "state_cd"               State code
-  "county_cd"              County code
-  "alt_va"                 altitude 
-  "huc_cd"                 hydrologic unit code 
-  "drain_area_va"          drainage area in square miles 
-  "contrib_drain_area_va"  contributing drainage area in square miles 
-
-
 --> 
 
 ```{r setup_&_library, message=FALSE}  
@@ -574,7 +372,7 @@ gage_dv <- semi_join(gage_dv, gage_meta,
                      by = "site_no")     
    
 export(gage_meta, "data/gage_meta.csv")   
-export(gage_meta, "data/gage_dv.csv")   
+export(gage_dv, "data/gage_dv.csv")   
 
    
 # clean up  
@@ -583,7 +381,137 @@ rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv)
   
 ```  
 
+```{r clean_daily_flow, eval=FALSE} 
+  
+# this is a small amount of code duplication to reduce API calls     
 
+#gage_dv <- import("data/gage_dv.csv") %>% 
+#    mutate(site_no = zeroPad(site_no, 8)) #%>% 
+#    select(-c())
 
+#gage_meta <- import("data/gage_meta.csv") %>%  
+#    mutate(site_no = zeroPad(site_no, 8)) 
+
+# filter missing records from Q1, Q7, Q30 
+gage_check <- gage_dv %>% 
+  filter(is.na(Q30) | 
+           is.na(Q7) | 
+           is.na(Q) 
+  )  
+
+gage_dv <- gage_dv %>% 
+  filter(!is.na(Q30) & 
+           !is.na(Q7) & 
+           !is.na(Q)  
+  )  
+
+gage_check <- gage_dv %>% 
+  filter(is.na(Q30) | 
+           is.na(Q7) | 
+           is.na(Q) 
+  )  
+
+# 4. remove provincial data - we removed WY 2018 in the prior analysis 
+gage_dv <- gage_dv %>% 
+  filter(Qualifier == "A"   |  
+           Qualifier == "A:e" |  
+           Qualifier == "A:<" 
+  )   
+
+gage_check <- gage_dv %>% 
+  filter(Qualifier != "A") %>% 
+  filter(Qualifier != "A:e") %>%  
+  filter(Qualifier != "A:<")  
+
+# 5. remove 2018 data 
+gage_dv <- gage_dv %>% 
+  filter(waterYear != "2018")  
+
+gage_check <- gage_dv %>%  
+  filter(waterYear == "2018")  
+
+rm(gage_check)   
+
+``` 
+
+```{r censor_low_flows, message=FALSE, eval=FALSE} 
+
+# fix low flows ---- this step needed for the PCA    
+#   EGRET calculates a "better" zero-flow value, but causes issues with results  
+#   this code chunk fixes low flow values by substituting 0.01 cfs  
+#   for zero-flow values   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+
+# 1. gather the different flow values  
+gage_dv_gath <- gage_dv %>%  # using diff var name to check length later   
+  select(site_no, sta, Date, waterYear, Q, Q7, Q30) %>%  
+  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs  
+         -c(site_no, sta, waterYear, Date))   
+
+# 2. filter & censor zero flows & non-zero flows -> join flows  
+gage_dv_low <- gage_dv_gath %>%  # n ~ 123,987/3 = 41,329 obs or ~7%/yr 
+  filter(q_val < 0.01) %>%                
+  mutate(q_val = 0.01)  
+
+gage_dv_high <- gage_dv_gath %>%  
+  filter(q_val >= 0.01) %>%  
+  mutate(q_val = round(.$q_val, digits = 2))  
+
+gage_dv <- bind_rows(gage_dv_high, gage_dv_low) %>%  
+  spread(q_type, q_val)  
+
+# 3. check low-flow stations -- intermittant stations 
+gage_low_flow <- gage_dv_low %>%  
+  distinct(sta) %>% 
+  arrange(sta)  
+
+rm(gage_dv_gath, gage_dv_high, gage_dv_low)   
+
+export(gage_dv, "data/gage_dv_fin.csv")  
+
+``` 
+
+```{r convert_flow_to_depth, message=FALSE, eval=FALSE} 
+  
+# 1. calculate contributing drainage area in square kilometers & sec/day     
+gage_contrib_area <- gage_meta %>%   
+  select(sta, drain_area_va, contrib_drain_area_va) %>%  
+  mutate(contrib_drain_area_va =  
+           contrib_drain_area_va %>%  
+             is.na %>%  
+             ifelse(drain_area_va, contrib_drain_area_va)) %>%  
+  select(-drain_area_va) %>%  
+  mutate(contrib_drain_km2 =  
+           measurements::conv_unit(contrib_drain_area_va,  
+                                   from = "mi2",   
+                                   to = "km2"  
+                                   )  
+         ) %>%  
+  mutate(contrib_drain_km2 =  
+           round(  
+             contrib_drain_km2,  
+             digits = 1  
+             )  
+         ) %>%  
+  mutate(sec_per_day = 60 * 60 * 24)  
+   
+# 2. calculate Q-depth:: q = Q/DA [m/km2 day]    
+gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%  
+  select(site_no, sta, Date, Q, Q7, Q30, waterYear,  
+         contrib_drain_km2, sec_per_day)  %>%  
+  gather(type, value,   
+         -c(site_no, sta, Date, waterYear, contrib_drain_km2, sec_per_day)  
+         ) %>%  
+  mutate(value = value * sec_per_day / contrib_drain_km2) %>%  
+  spread(type, value) %>%  
+  rename(q1_depth = Q) %>%  
+  rename(q7_depth = Q7) %>%  
+  rename(q30_depth = Q30) %>%  
+  select(-c(site_no, contrib_drain_km2, sec_per_day))   
+   
+rm(gage_contrib_area)    
+
+export(gage_depth, "data/gage_depth.csv")    
+``` 
 
 
