@@ -2305,7 +2305,7 @@ rm(distrib,
 
 # Identify seasonality & trend of precipitation data 
 ```{r make stl decomp function}  
-    
+  
 # make function to decompose into seasonal, trend, & remainder----  
 #    the target is 'groups'   
 decomp_fun <- function(df) {  
@@ -2337,8 +2337,8 @@ decomp_fun <- function(df) {
 # deconvolute the grouped prcp into trend, seasonal & random components----  
   
 # import working data####     
-spi_sta <- import("data/spi_sta.csv") %>%   
-  mutate(date = ymd(date))   
+#spi_sta <- import("data/spi_sta.csv") %>%    
+# mutate(date = ymd(date))   
   
 #sta_meta_fin <- import("data/sta_meta_fin.csv")   
   
@@ -2346,11 +2346,8 @@ spi_sta <- import("data/spi_sta.csv") %>%
 spi_sta <- spi_sta %>%   
   mutate(prcp = as.numeric(prcp)) %>%   
   arrange(date) %>%   
-  mutate(yr = year(date)) %>%  
   as_tibble() %>%  
-  # drop precipitation prior to 1989  
-  filter(yr > 1988) %>%  
-  # make two groups based on the bootstrap results  
+  # make groups 
   mutate(group = case_when(  
     sta == "RAP" ~ "NW",  
     sta == "COT" ~ "NC",     
@@ -2359,11 +2356,7 @@ spi_sta <- spi_sta %>%
     sta == "ONI" ~ "SC",  
     sta == "MIS" ~ "SE"  
   )   
-  ) %>%  
-  # make a group mean precip value for plotting  
-  group_by(group, date) %>%   
-  mutate(spi_group = mean(prcp)) %>%  
-  ungroup()   
+  ) 
   
 # identify frequency of seasonality -- should be 12 months====      
 #   the level is group rather than station - so need to combine stations  
@@ -2393,22 +2386,16 @@ trend <- spi_sta  %>%
             min  = min(freq),  
             sd   = sd(freq)  
   )  
- 
+  
 # decompose prcp into seasonal, trend, & remainder====    
 FREQ   <- "12 months"  
 TREND  <- "60 months"   
 TARGET <- "spi_1mo"  
   
 spi_seas <- spi_sta %>%   
-  decomp_fun() #%>%  
-  rename(prcp_group = prcp) %>%  
-  select(-c(remainder_l1, remainder_l2))  
-  
-#prcp_group <- right_join(spi_fin, prcp_group,  
-#                          by = c("group", "date", "prcp_group")  
-#                         ) %>%  
-#  rename(remain_group = remainder) %>%  
-#  mutate(remain_sta = prcp - season - trend)  
+  decomp_fun() 
+
+
   
 # clean up global environment####  
 rm(freq,  
@@ -2427,25 +2414,11 @@ rm(freq,
 # check for anomonies====     
 spi_anom <- spi_seas %>% 
   filter(anomaly == "Yes")  
-
-# order stations for plotting====  
-spi_seas <- spi_seas %>% 
-  mutate(group = fct_relevel(group,  
-                           "NW",  
-                           "NC",  
-                           "NE",  
-                           "SW",  
-                           "SC",  
-                           "SE"  
-  )  
-  )   
-
+  
 # vars for plotting====    
 sta_size   <- 0.2  
 sta_color  <- "black"  
-group_size  <- 0.4  
-group_color <- "gray"  
-
+  
 # prcp observations plot====  
 spi_obs <- 
 spi_seas %>%  
@@ -2459,7 +2432,7 @@ spi_seas %>%
 geom_line(size            = sta_size,  
           colour          = sta_color  
           )    
-
+  
 # precipitation seasons plot====  
 spi_seas_plot <- 
 spi_seas %>%  
@@ -2474,7 +2447,7 @@ spi_seas %>%
 geom_line(size            = sta_size,  
           colour          = sta_color  
           )    
-
+  
 # precipitation trend plot====  
 spi_trend <- 
 spi_seas %>%  
@@ -2489,7 +2462,7 @@ spi_seas %>%
 geom_line(size            = sta_size,  
           colour          = sta_color  
           )    
-
+  
 # precipitation remainder plot====  
 spi_remain <- 
 spi_seas %>%  
@@ -2503,33 +2476,30 @@ spi_seas %>%
 geom_line(size            = sta_size,  
           colour          = sta_color  
           )     
-
+  
 # plot the plots above as a grid & save====  
 cowplot::plot_grid(  
   spi_obs, spi_seas_plot, spi_trend, spi_remain,  
   ncol = 1,   
   align = "v"  
 )  
-
+  
 cowplot::ggsave2("figure/spi_deconv.png",  
                  units = "in",  
                  width = 7,  
                  height = 9)  
-
-rm(spi_obs, 
+  
+rm(spi_obs,  
    spi_seas,  
-   spi_seas_plot, 
+   spi_seas_plot,  
    spi_trend, 
-   spi_remain, 
-   spi_anom, 
-   group_color, 
-   group_size, 
+   spi_remain,  
+   spi_anom,  
    sta_color, 
    sta_size   
    )  
+
 ```  
-
-
 
 
 # OLD CODE  
