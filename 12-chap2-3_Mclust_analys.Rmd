@@ -1,0 +1,318 @@
+
+Title (13-words or less): Hydrological Drought Assessment of Heterogenious Catchments with Short Periods of Record  
+
+<!--
+## Variable naming convention:   
+
+gage            USGS stream gages with daily values 
+    _dv         daily values; used for the first set of gages selected
+    _meta       metadata
+      _ck       a check on the values
+      _incomp   incomplete year 
+      _xx       number of the model run as new dv gets added
+    _fill       estimated dvs based on PCfill values for estimated dvs 
+      _dups     potential or actual duplicate dv values 
+    _miss       missing gaging stations; sused to fill with estimated dvs 
+    _pairs      nearest average PC1 & PC2 
+ 
+lambda_vals     lambda vals from the Box Cox for PCA input 
+
+last_dv         the last
+
+pca 
+    _eigen      fraction explained by eigenvectors 
+    _input      dv depths for pca 
+    _sum        summary of mean values following PCA 
+    _vars       eigenvalues from PCA 
+
+test            variable used to test breaks or errors in code 
+
+vals 
+    _eigen      table of fraction explained by eigenvectors by run 
+    _input      table of dv depths for pca by run 
+    _sum        table of summary of mean values following PCA by run 
+    _vars       table of eigenvalues from PCA by run 
+
+year
+    _length     table of lengths of water years by station 
+      _ck       check of length; also used to append the table of lengths 
+    _sum        water year and days of record in a wide format
+    _summary    water year and days of record 
+-->
+
+```{r setup, include=FALSE, message=FALSE}  
+#knitr::opts_chunk$set(echo = FALSE)    
+options(tibble.print_max = 70) # sets tibble output for printing  
+
+# Sets up the library of packages   
+library("here")          # identifies where to save work  
+library("lubridate")     # easier dates 
+library("tidyverse")     # data munging tools 
+library("janitor")       # tools for examining and cleaning dirty data  
+library("dataRetrieval") # USGS data import  
+library("forecast")      # for BoxCox 
+library("broom")         # sweep up PCA results into tidy frames 
+library("beepr")         # plays notification sounds 
+library("mclust") 
+library("factoextra") 
+library("foreign")
+```
+
+```{r final_hydrologic_analysis} 
+# 1.1 read in data from file 
+precip      <- read.dbf("data/WBD_merge.dbf") 
+gage_dv     <- read_csv("data/gage_dv_fill.csv") 
+mod_outputs <- read_csv("data/mod_outputs") 
+mod_sums    <- read_csv("data/mod_sums")  
+gage_meta <- read_csv("data/gage_dv_meta.csv")  %>% 
+  mutate(site_no = as.character(site_no)) %>% 
+  mutate(site_no = zeroPad(site_no, 8)) %>% 
+  filter(sta != "nio_mar"& 
+         sta != "elk_rob"
+         ) 
+
+#write_csv(mod_params, "data/mod_params") 
+#write_csv(mod_fills, "data/mod_fills") 
+
+# 2.0 summarize final model output 
+fin_output <- mod_outputs %>% 
+  mutate(run_num = str_remove_all(run, "run_")) %>% 
+  mutate(run_num = as.integer(run_num)) %>% 
+  arrange(desc(run_num)) %>% 
+  filter(run_num == max(run_num)) %>% 
+  select(-c(run, run_num)) %>% 
+  distinct() %>% 
+  arrange(.class)
+
+# 2.1 summarize model runs 
+fin_mod_sum <- mod_sums %>% 
+  mutate(run_num = str_remove_all(run, "run_")) %>% 
+  mutate(run_num = as.integer(run_num)) %>% 
+  arrange(run_num) %>% 
+  filter(run_num == max(run_num)) %>% 
+  distinct() 
+
+# 3.0 join model data and metadata 
+gage_dv_sum <- full_join(fin_output, gage_meta, 
+                         by = "sta")
+
+# 4.0 export in order to work on GIS data 
+write_csv(gage_dv_sum, "data/gage_dv_sum.csv") 
+```
+
+
+
+
+```{r some-old-code, eval=FALSE} 
+test <- gage_dv_sum %>% 
+  select(sta) %>% 
+  mutate(sta2 = sta)
+
+test <- full_join(precip, test, by = c("Name" = "sta")) #%>% 
+  filter(is.na(OBJECTID))
+
+# bev_abf??, lcr_abv, lcr_bel, blc_wan, lwr_aro, wkc_wok
+``` 
+
+```{r} 
+
+
+data(banknote)
+mod2 <- Mclust(banknote[,2:7], banknote$Status)
+summary(mod2)
+#plot(mod2) 
+fviz_mclust(mod2, "classification", ellipse.type = "t", ellipse.level = 0.7, pointsize = 1,  palatte = "aaas") 
+
+
+# 3.1. create input for the final model run 
+input <- gage_dv %>% 
+  group_by(sta, water_year) %>% 
+  summarize(log_q1_depth = mean(log_q1_depth), 
+            log_q7_depth = mean(log_q7_depth), 
+            log_q30_depth = mean(log_q30_depth) 
+            ) %>% 
+  ungroup() 
+
+X <- input %>%                # this gets rid of categorical data for Mclust 
+  select(-c(sta, water_year))  
+
+# 2. calculate bic 
+BIC <- mclustBIC(X) 
+
+mod <- Mclust(X, x = BIC) 
+
+library("broom")
+mod_tidy <- tidy(mod) 
+mod_tidy2 <- augment(mod, input) %>% 
+  group_by(sta, .class) %>% 
+  summarise(count = n())
+
+
+glance(mod) 
+
+# 5. get model means and variance, join & clean up 
+params <- pluck(mod$parameters) 
+
+ 
+# clean up 
+rm(input, X, BIC)     
+
+
+summary(mod, parameters = TRUE)  
+# plot(BIC) # Error in UseMethod("logLik") : no applicable method for 'logLik' applied to an object of class "c('double', 'numeric')"
+```
+
+
+
+
+
+
+
+
+```{r create-plots} 
+
+plot(mod, what = "classification") 
+
+plot_BIC <- fviz_mclust(mod, "BIC", ellipse.type = "t", ellipse.level = 0.7, pointsize = 1,  palatte = "aaas") 
+plot_BIC
+
+
+plot_class <- fviz_mclust(mod, 
+                          "classification", 
+                          geom = "point", 
+                          ellipse.type = "t", 
+                          ellipse.level = 0.7, 
+                          pointsize = 1.5,  
+                          palatte = "npg"
+                          ) 
+plot_class
+
+fviz_mclust(mod, "uncertainty", ellipse.type = "t", ellipse.level = 0.7, pointsize = 1.5,  palatte = "aaas") 
+ 
+
+plot_class + 
+  theme_bw()
+
+plot_BIC
+plot_class
+
+plot_vars + 
+  theme_bw
+
+```
+
+
+
+
+
+
+
+
+
+```{r check_Mclust_results}
+summary(mod, parameters = TRUE)  
+#plot(BIC) 
+
+plot(mod, what = "classification") 
+
+fviz_mclust(mod, "classification", geom = "point", ellipse.type = "t", 
+            ellipse.level = 0.7, pointsize = 1,  palatte = "aaas") 
+ 
+# 1.0 check the fill vals 
+gage_fill <- gage_fill %>% 
+  arrange(sta) 
+
+print(gage_fill$sta)  
+
+# 1.1 prepare to plot the existing dvs 
+gage_ck <- gage_dv %>% 
+  filter( 
+#         sta == "bev_abf" |     # run_01 
+#         sta == "blp_bel" |     # run_01 
+#         sta == "ros_ros" |     # run_01 
+#         sta == "whi_slm" |     # run_01 
+#         sta == "wkc_wok"       # run_01 
+         ) %>% 
+  filter(between(water_year, yr_lag, yr_lead)) 
+
+# 1.2 plot the existing dvs
+#ggplot(gage_ck, aes(date, q30_depth)) + 
+#  geom_line(aes(color = sta)) +
+#  facet_grid(sta ~ .) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# 2.0 add in the fill dvs  
+gage_ck <- bind_rows(gage_ck, gage_fill_dv) %>% 
+  arrange(date) 
+
+# 2.1 plot the fill & existing dvs  
+ggplot(gage_ck, aes(date, q30_depth)) + 
+  geom_line(aes(color = sta)) +
+  facet_grid(sta ~ .) 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
+# 3.0 print the fill stations  
+gage_fill <- gage_fill %>% 
+  arrange(sta_pair) 
+
+print(gage_fill$sta_pair) 
+
+# 3.1 prepare to plot the fill stations  
+#gage_ck2 <- gage_dv %>% 
+#  filter( 
+#         sta == "lcr_bel" |          # run 01 
+#         sta == "lwr_mar" |          # run 01 
+#         sta == "lwr_whi" |          # run 01  
+#          sta == "whi_kad" |         # run 01 
+#          sta == "whi_sta"           # run 01   
+#  ) %>% 
+#  filter(between(water_year, yr_lag, yr_lead)) 
+ 
+#gage_ck <- bind_rows(gage_ck, gage_ck2) 
+
+# 3.2 plot the fill stations  
+#ggplot(gage_ck, aes(date, q30_depth)) +
+#  geom_line(aes(color = sta)) +
+#  facet_grid(sta ~ .) 
+
+
+# ~~~~~~~~ testing for issues ~~~~~~~~~~~~~~~~~~~~~~~
+#test <- gage_ck %>% 
+#  filter(between(water_year, 1988, 1989)) %>% 
+#  filter(sta != "che_was") %>% 
+#  filter(sta == "lwr_aro")  
+  
+#test2 <- test %>% 
+#  filter(sta == "spr_her") %>% 
+#  group_by(sta, water_year) %>% 
+#  summarise(count = n()) 
+
+#ggplot(test, aes(date, q1_depth)) +
+##  geom_line(aes(color = sta)) +
+#  facet_grid(sta ~ .) 
+
+
+```
+
+
+```{r} 
+
+
+# clean up global environment 
+gage_dv_orig_ct <- gage_dv_orig %>% 
+  summarise(orig_count = n()) 
+
+gage_dv_fin_ct <- gage_dv %>% 
+  summarise(fin_count = n()) 
+
+perc_miss <- bind_cols(gage_dv_orig_ct, gage_dv_fin_ct) %>% 
+  mutate(perc_miss = 100* (fin_count - orig_count)/fin_count) 
+
+rm(mod_clusts, mod_outputs)
+
+```
+
+
+
+
+
