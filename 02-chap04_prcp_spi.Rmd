@@ -2541,8 +2541,7 @@ rm(spi_obs,
 
 
 
-# OLD CODE
-
+# OLD CODE  
 ```{r things}  
 
 spi_all2 %>% 
@@ -3378,185 +3377,298 @@ ggplot(sta_big, aes(month)) +
 #   leading to greater chance for convection.
 ```
 
-```{r station_plotting_postion, include=FALSE, eval=FALSE} 
-# find the plotting position: using Weibull; a = 0  
-sta_grp <- sta_grp %>% 
-  group_by(station) %>% 
-  arrange(depth) %>% 
-  mutate(position = pp(depth)) %>% 
-  ungroup() 
+```{r delete-possibly-old-spi-seasonality}
+# spi_02mo====  
+TARGET <- "spi_2mo"  
 
-# find the plotting position for log-data: using Weibull; a = 0
-#sta_log <- sta_log %>% 
-#  group_by(station) %>% 
-# arrange(log_depth) %>% 
-#  mutate(position = pp(log_depth)) %>% 
-#  ungroup() 
+spi02  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(spi = spi_2mo) %>%  
+  mutate(duration = 2)  
 
-# plot the depths as a function of plotting position
-ggplot(sta_grp, aes(position, depth)) + 
-  facet_grid(.~station) + 
-  geom_point() + 
-  geom_smooth(method = "lm") +
-  theme_bw() +
-  ggtitle("Weather stations near Pine Ridge Reservation, SD", 
-          subtitle = "1909-2018") + 
-  xlab("Frequency of occurrance") +
-  ylab("Monthly depth in mm") +
-  scale_y_sqrt() +
-  ylab("Depth in mm")
+# spi_03mo====  
+TARGET <- "spi_3mo"  
 
-#ggplot2::ggsave(filename = "rf_freq_plot.png", 
-#                width = 6, height = 6, units = "in")
+spi03  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(season_03mo    = season) %>% 
+  rename(trend_03mo     = trend) %>%  
+  rename(remain_03mo    = remainder) %>%  
+  rename(hival_03mo     = remainder_l1) %>%  
+  rename(loval_03mo     = remainder_l2) %>%  
+  rename(anom_03mo      = anomaly)  
 
-```
+# spi_04mo====  
+TARGET <- "spi_4mo"   
 
-```{r lmoments, include=FALSE, eval=FALSE}
-# This is a long bit of code that takes things out of a list 
+spi04  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(season_04mo    = season) %>%  
+  rename(trend_04mo     = trend) %>%  
+  rename(remain_04mo    = remainder) %>%  
+  rename(hival_04mo     = remainder_l1) %>%  
+  rename(loval_04mo     = remainder_l2) %>%  
+  rename(anom_04mo      = anomaly)  
 
-lmom_sta <- sta_grp %>% 
-  split(.$station) %>%
-  map(~ lmoms(.$depth)) %>%
-  transpose() %>%
-  as_tibble() %>%
-  select(lambdas, ratios) %>%
-  mutate(lambdas = map(lambdas, ~as_tibble(t(.x))))  %>%
-  mutate(lambdas = map(lambdas, 
-                       ~set_names(.x, c("L1", "L2", "L3", 
-                                        "L4", "L5")))) %>%
-  mutate(ratios = map(ratios, ~as_tibble(t(.x))))  %>%
-  mutate(ratios = map(ratios, 
-                      ~set_names(.x, c("T1", "T2", "T3", 
-                                       "T4", "T5")))) %>% 
-  unnest(lambdas) %>%
-  unnest(ratios) %>%
-  mutate(station = c("oel", "cot", "rap", 
-                     "int", "ora")) %>%
-  select(-T1) %>%
-  rename(L_CV = T2) %>% 
-  rename(L_skew = T3) %>%
-  rename(L_kurtosis = T4) %>%
-  select(station, L1, L_CV, L_skew, L_kurtosis)
+# spi_06mo====  
+TARGET <- "spi_6mo"  
 
-# Note that we might consider Weiss 1964 bias value of 1.018 for L1
+spi06  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(season_06mo    = season) %>%  
+  rename(trend_06mo     = trend) %>%  
+  rename(remain_06mo    = remainder) %>%  
+  rename(hival_06mo     = remainder_l1) %>%  
+  rename(loval_06mo     = remainder_l2) %>% 
+  rename(anom_06mo      = anomaly)  
 
-# get the lenths of the datasets
-sta_count <- sta_grp %>%
-  count(station)  
+# spi_09mo====  
+TARGET <- "spi_9mo"  
 
-# join the number of years to the station
-lmom_sta <- left_join(lmom_sta, sta_count, by = "station")
+spi09  <- spi_fin %>% 
+  select(sta, date, paste0(TARGET)) %>% 
+  decomp_fun() %>% 
+  rename(season_09mo    = season) %>% 
+  rename(trend_09mo     = trend) %>%  
+  rename(remain_09mo    = remainder) %>%  
+  rename(hival_09mo     = remainder_l1) %>%  
+  rename(loval_09mo     = remainder_l2) %>%  
+  rename(anom_09mo      = anomaly)  
 
-# calculate weighted means for regional L-moments 
-L1  <- weighted.mean(lmom_sta$L1, lmom_sta$n)
-L_CV  <- weighted.mean(lmom_sta$L_CV, lmom_sta$n)
-L_skew  <- weighted.mean(lmom_sta$L_skew, lmom_sta$n)
-L_kurtosis  <- weighted.mean(lmom_sta$L_kurtosis, lmom_sta$n)
-n       <- sum(lmom_sta$n)
+# spi12mo====  
+TARGET <- "spi_12mo"   
 
-# combine the output into a single weighted mean
-int1     <- cbind(L1, L_CV)
-int2     <- cbind(int1, L_skew)
-int3     <- cbind(int2, L_kurtosis)
-lmom_reg <- cbind(int3, n)
+spi12  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>%  
+  rename(season_12mo    = season) %>%  
+  rename(trend_12mo     = trend) %>%  
+  rename(remain_12mo    = remainder) %>%  
+  rename(hival_12mo     = remainder_l1) %>%  
+  rename(loval_12mo     = remainder_l2) %>%  
+  rename(anom_12mo      = anomaly)  
 
-rm(L1, L_CV, L_skew, L_kurtosis, n, int1, int2, int3, sta_count)
+# spi_24mo====   
+TARGET <- "spi_24mo"  
 
-# finalize the regional L-moment
-lmom_reg <- as.tibble(lmom_reg) %>%
-  mutate(station = "WtMean") %>% 
-  select(station, everything())
-```
+spi24  <- spi_fin %>%  
+  select(sta, date, paste0(TARGET)) %>%  
+  decomp_fun() %>% 
+  rename(season_24mo    = season) %>%   
+  rename(trend_24mo     = trend) %>%   
+  rename(remain_24mo    = remainder) %>%   
+  rename(hival_24mo     = remainder_l1) %>%   
+  rename(loval_24mo     = remainder_l2) %>%   
+  rename(anom_24mo      = anomaly)   
 
-```{r Lmoment_diagram_ratios, include=FALSE, eval=FALSE}
-# extract elements from the lmrdia list to plot in ggplot2  
-#   the x-value is the L-skewness and y-value is L-kurtosis  
+# prepare to rejoin the dataframes 
+gage_mon0 <- gage_mon1 %>% 
+  select(sta:ecoreg) 
 
-# get vals from the lmrdia list 
-# note that as gamma distribution is a 2-parameter dist, it is not shown 
-lmrdia <- lmrdia() 
+gage_mon1 <- gage_mon1 %>% 
+  select(sta, Date, PCval:anomaly) %>% 
+  rename(mon = PCval) %>% 
+  rename_all(paste0, "_PC1") %>% 
+  rename(sta = sta_PC1) %>% 
+  rename(Date = Date_PC1)
 
-# extract L-skew & L-kurtosis values for several distributions
-#aep4 <- lmrdia %>%
-#  extract2(2) %>%
-#  as.tibble()
+gage_mon2 <- gage_mon2 %>% 
+  select(sta, Date, PCval:anomaly) %>% 
+  rename(mon = PCval) %>% 
+  rename_all(paste0, "_PC2") %>% 
+  rename(sta = sta_PC2) %>% 
+  rename(Date = Date_PC2)
 
-gev <- lmrdia %>% 
-  extract2(5) %>% as.tibble()
+# join the datatables   
+gage_mon1 <- full_join(gage_mon0, gage_mon1, 
+                       by = c("sta", "Date")
+) 
 
-glo <- lmrdia %>%
-  extract2(6) %>% as.tibble()
+gage_mon <- full_join(gage_mon1, gage_mon2, 
+                      by = c("sta", "Date")
+) 
 
-gpa <- lmrdia %>%
-  extract2(7) %>% as.tibble()
+rm(gage_mon0, gage_mon1, gage_mon2, decomp_input, mon_trend_sta, decomp_fun)  
 
-gno <- lmrdia %>%
-  extract2(9) %>% as.tibble()
 
-gov <- lmrdia %>%
-  extract2(10) %>% as.tibble()
+# create station and ecoregion summaries 
+gage_mon <- gage_mon %>% 
+  group_by(sta) %>%  
+  mutate(sta_q1 = mean(q1_mon)) %>% 
+  mutate(sta_q7 = mean(q7_mon)) %>%   
+  mutate(sta_q30 = mean(q30_mon)) %>% 
+  mutate(sta_q30_q1 = mean(q30_q1_mon)) %>% 
+  mutate(sta_PC1 = mean(mon_PC1)) %>% 
+  mutate(sta_PC2 = mean(mon_PC2)) %>% 
+  ungroup() %>% 
+  group_by(ecoreg) %>%  
+  mutate(ecoreg_q1 = mean(q1_mon)) %>% 
+  mutate(ecoreg_q7 = mean(q7_mon)) %>%   
+  mutate(ecoreg_q30 = mean(q30_mon)) %>% 
+  mutate(ecoreg_q30_q1 = mean(q30_q1_mon)) %>% 
+  mutate(ecoreg_PC1 = mean(mon_PC1)) %>% 
+  mutate(ecoreg_PC2 = mean(mon_PC2)) %>% 
+  ungroup() %>%  
+  group_by(Date, ecoreg) %>% 
+  mutate(ecoreg_mean_PC1 = mean(mon_PC1)) %>% 
+  mutate(ecoreg_seas_PC1 = mean(season_PC1)) %>% 
+  mutate(ecoreg_trend_PC1 = mean(trend_PC1)) %>%   
+  mutate(ecoreg_remain_PC1 = mean(remainder_PC1)) %>%   
+  ungroup() %>% 
+  arrange(ecoreg_PC1) %>% 
+  mutate(ecoreg = fct_reorder( 
+    as.factor(ecoreg), ecoreg_PC1)  # sets up the ordering by pc-axis 
+  ) %>% 
+  arrange(sta_PC1) %>%   
+  mutate(sta = fct_reorder( 
+    as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
+  ) 
+```  
 
-pe3 <- lmrdia %>%
-  extract2(12) %>% as.tibble()
+```{r plot_precip_seasonality}
 
-# combine and rename columns as distribution types
-#int1      <- full_join(aep4, gev, by = "V1")  
-#int1      <- int1 %>% 
-#               rename(AEP4 = V2.x) %>% 
-#               rename(GEV = V2.y) 
+# check for anomonies   
+spi01_anom <- test %>% 
+  filter(anomaly == "Yes")
 
-#int2      <- full_join(int1, glo, by = "V1") 
-#int2      <- int2 %>% rename(GLO = V2) 
+# prepare for plotting 
+sta_size   <- 0.2  
+sta_color  <- "black" 
+mean_size  <- 0.4  
+mean_color <- "gray"  
 
-# combine and rename columns as distribution types
-int1      <- full_join(gev, glo, by = "V1")  
-int1      <- int1 %>% 
-  rename(GEV = V2.x) %>% 
-  rename(GLO = V2.y) 
-
-int2      <- full_join(int1, gpa, by = "V1") 
-int2      <- int2 %>% rename(GPA = V2) 
-
-int3      <- full_join(int2, gno, by = "V1") 
-int3      <- int3 %>% rename(GNO = V2) 
-
-int4      <- full_join(int3, gov, by = "V1") 
-int4      <- int4 %>% rename(GOV = V2) 
-
-lmom_theo <- full_join(int4, pe3, by = "V1")
-lmom_theo <- lmom_theo %>% rename(PE3 = V2) %>% 
-  rename(L_skew = V1) %>% 
-  arrange(L_skew)
-
-# prepare theoretical distributions for plotting
-lmom_theo <- lmom_theo %>%
-  gather(key = "distribution", value = "L_kurtosis", -L_skew) %>%
-  drop_na(L_kurtosis) %>%
-  select(distribution, everything())  
-
-rm(gev, int1, glo, int2, gpa,int3, gno, int4, gov, pe3, lmrdia)
-```
-
-```{r plot-lmoment-diagram, include=FALSE, eval=FALSE}
-# plots the theo distributions, the sample vals, and regional mean 
-ggplot() + 
-  geom_line(data = lmom_theo, aes(L_skew, L_kurtosis, 
-                                  group = distribution, 
-                                  linetype = distribution)) +
-  geom_point(data = lmom_sta, aes(L_skew, L_kurtosis)) +
-  geom_point(data = lmom_reg, aes(L_skew, L_kurtosis, 
-                                  size = 2, show.legend = NA)) +
+# SPI-1mo observations plot====
+spi01_obs <- spi01 %>% 
+  ggplot(aes(date, spi_1mo)) + 
+  facet_wrap(vars(sta)) +   
+  # plot mean vals 
+  geom_line(aes(date, spi01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
   theme_bw() + 
-  # xlim(0.25, 0.5) +
-  # ylim(0, 0.25) +
-  xlim(0, 0.5) +
-  ylim(0, 0.5) +
-  ggtitle("L-moment diagram for monthly precipitation depth", 
-          subtitle = "Weather stations near Pine Ridge Reservation, 1909-2018")
+  xlab("") + 
+  ylab("SPI one-month values")
 
-#ggplot2::ggsave(filename = "lmom_plot.png", 
-#                width = 6, height = 6, units = "in")
-``` 
+# SPI-1mo seasons plot==== 
+spi01_seas  <- spi01 %>% 
+  ggplot(aes(date, season_01mo)) + 
+  facet_wrap(~ sta) + 
+  # plot mean vals 
+  geom_line(aes(date, seas01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Seasonality")  
+
+# SPI-1mo trend plot====  
+spi01_trend  <- 
+  spi01 %>% 
+  ggplot(aes(date, trend_01mo)) + 
+  facet_wrap(~ sta) + 
+  # plot mean vals 
+  geom_line(aes(date, trend01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Trend")
+
+# SPI-1mo remainder plot==== 
+spi01_remainder <- spi01 %>%   
+  ggplot(aes(date, remain_01mo)) + 
+  facet_wrap(~ sta) + 
+  # plot mean vals
+  geom_line(aes(date, remain01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  
+  #  geom_jitter(aes(Date, ecoreg_remain_PC1), 
+  #              data         = anom_PC1, 
+  #              shape        = 4, 
+  #              size         = 0.7) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("SPI remainder values")
+
+# plot the plots above as a grid & save==== 
+cowplot::plot_grid(
+  spi01_obs, spi01_seas, spi01_trend, spi01_remainder, 
+  ncol = 1, 
+  align = "v"
+)
+
+cowplot::ggsave2("figure/spi01_deconv.png", 
+                 units = "in", 
+                 width = 7, 
+                 height = 9)
+
+
+rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
+```  
+
+```{r ggplot_monthly, eval=FALSE} 
+#sta_mon <- import(file = "data/stations_monthly.csv") %>% 
+#  mutate(date = ymd(date))
+
+#sta_mon %>% 
+#  group_by(sta) %>% 
+#  summarize(count = n())
+
+sta_mon_plus$group <- factor(sta_mon_plus$group,  
+                             levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
+
+# plot monthly precips  
+sta_mon_plus %>%   
+  ggplot(aes(month, depth_mm, group = month)) +  
+  facet_grid(rows = vars(group)) +   
+  geom_quasirandom(size = 0.2, 
+                   position = position_beeswarm()  
+  ) + 
+  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", 
+                              "7", "8", "9", "10", "11", "12"),   
+                   labels = c("J", "F", "M", "A", "M", "J", 
+                              "J", "A", "S", "O", "N", "D")  
+  ) + 
+  theme_bw() +  
+  #  labs(title = "Monthly precipitation depths",  
+  #       subtitle = "Southwestern South Dakota for 1990-2017") +   
+  xlab("") +  
+  ylab("mm")  
+
+
+ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
+                width = 6, height = 6, units = "in")
+
+````  
 
 ```{r old code}
 # download daily precip data from NOAA GHCN database ------------------------   
@@ -3948,302 +4060,6 @@ lmom_theo <- lmom_theo %>%
   drop_na(L_kurtosis) %>%
   select(distribution, everything())  
 ```
-
-
-
-```{r delete-possibly-old-spi-seasonality}
-# spi_02mo====  
-TARGET <- "spi_2mo"  
-
-spi02  <- spi_fin %>%  
-  select(sta, date, paste0(TARGET)) %>%  
-  decomp_fun() %>%  
-  rename(spi = spi_2mo) %>%  
-  mutate(duration = 2)  
-
-# spi_03mo====  
-TARGET <- "spi_3mo"  
-
-spi03  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>%  
-  decomp_fun() %>%  
-  rename(season_03mo    = season) %>% 
-  rename(trend_03mo     = trend) %>%  
-  rename(remain_03mo    = remainder) %>%  
-  rename(hival_03mo     = remainder_l1) %>%  
-  rename(loval_03mo     = remainder_l2) %>%  
-  rename(anom_03mo      = anomaly)  
-
-# spi_04mo====  
-TARGET <- "spi_4mo"   
-
-spi04  <- spi_fin %>%  
-  select(sta, date, paste0(TARGET)) %>%  
-  decomp_fun() %>%  
-  rename(season_04mo    = season) %>%  
-  rename(trend_04mo     = trend) %>%  
-  rename(remain_04mo    = remainder) %>%  
-  rename(hival_04mo     = remainder_l1) %>%  
-  rename(loval_04mo     = remainder_l2) %>%  
-  rename(anom_04mo      = anomaly)  
-
-# spi_06mo====  
-TARGET <- "spi_6mo"  
-
-spi06  <- spi_fin %>%  
-  select(sta, date, paste0(TARGET)) %>%  
-  decomp_fun() %>%  
-  rename(season_06mo    = season) %>%  
-  rename(trend_06mo     = trend) %>%  
-  rename(remain_06mo    = remainder) %>%  
-  rename(hival_06mo     = remainder_l1) %>%  
-  rename(loval_06mo     = remainder_l2) %>% 
-  rename(anom_06mo      = anomaly)  
-
-# spi_09mo====  
-TARGET <- "spi_9mo"  
-
-spi09  <- spi_fin %>% 
-  select(sta, date, paste0(TARGET)) %>% 
-  decomp_fun() %>% 
-  rename(season_09mo    = season) %>% 
-  rename(trend_09mo     = trend) %>%  
-  rename(remain_09mo    = remainder) %>%  
-  rename(hival_09mo     = remainder_l1) %>%  
-  rename(loval_09mo     = remainder_l2) %>%  
-  rename(anom_09mo      = anomaly)  
-
-# spi12mo====  
-TARGET <- "spi_12mo"   
-
-spi12  <- spi_fin %>%  
-  select(sta, date, paste0(TARGET)) %>%  
-  decomp_fun() %>%  
-  rename(season_12mo    = season) %>%  
-  rename(trend_12mo     = trend) %>%  
-  rename(remain_12mo    = remainder) %>%  
-  rename(hival_12mo     = remainder_l1) %>%  
-  rename(loval_12mo     = remainder_l2) %>%  
-  rename(anom_12mo      = anomaly)  
-
-# spi_24mo====   
-TARGET <- "spi_24mo"  
-
-spi24  <- spi_fin %>%  
-  select(sta, date, paste0(TARGET)) %>%  
-  decomp_fun() %>% 
-  rename(season_24mo    = season) %>%   
-  rename(trend_24mo     = trend) %>%   
-  rename(remain_24mo    = remainder) %>%   
-  rename(hival_24mo     = remainder_l1) %>%   
-  rename(loval_24mo     = remainder_l2) %>%   
-  rename(anom_24mo      = anomaly)   
-
-# prepare to rejoin the dataframes 
-gage_mon0 <- gage_mon1 %>% 
-  select(sta:ecoreg) 
-
-gage_mon1 <- gage_mon1 %>% 
-  select(sta, Date, PCval:anomaly) %>% 
-  rename(mon = PCval) %>% 
-  rename_all(paste0, "_PC1") %>% 
-  rename(sta = sta_PC1) %>% 
-  rename(Date = Date_PC1)
-
-gage_mon2 <- gage_mon2 %>% 
-  select(sta, Date, PCval:anomaly) %>% 
-  rename(mon = PCval) %>% 
-  rename_all(paste0, "_PC2") %>% 
-  rename(sta = sta_PC2) %>% 
-  rename(Date = Date_PC2)
-
-# join the datatables   
-gage_mon1 <- full_join(gage_mon0, gage_mon1, 
-                       by = c("sta", "Date")
-) 
-
-gage_mon <- full_join(gage_mon1, gage_mon2, 
-                      by = c("sta", "Date")
-) 
-
-rm(gage_mon0, gage_mon1, gage_mon2, decomp_input, mon_trend_sta, decomp_fun)  
-
-
-# create station and ecoregion summaries 
-gage_mon <- gage_mon %>% 
-  group_by(sta) %>%  
-  mutate(sta_q1 = mean(q1_mon)) %>% 
-  mutate(sta_q7 = mean(q7_mon)) %>%   
-  mutate(sta_q30 = mean(q30_mon)) %>% 
-  mutate(sta_q30_q1 = mean(q30_q1_mon)) %>% 
-  mutate(sta_PC1 = mean(mon_PC1)) %>% 
-  mutate(sta_PC2 = mean(mon_PC2)) %>% 
-  ungroup() %>% 
-  group_by(ecoreg) %>%  
-  mutate(ecoreg_q1 = mean(q1_mon)) %>% 
-  mutate(ecoreg_q7 = mean(q7_mon)) %>%   
-  mutate(ecoreg_q30 = mean(q30_mon)) %>% 
-  mutate(ecoreg_q30_q1 = mean(q30_q1_mon)) %>% 
-  mutate(ecoreg_PC1 = mean(mon_PC1)) %>% 
-  mutate(ecoreg_PC2 = mean(mon_PC2)) %>% 
-  ungroup() %>%  
-  group_by(Date, ecoreg) %>% 
-  mutate(ecoreg_mean_PC1 = mean(mon_PC1)) %>% 
-  mutate(ecoreg_seas_PC1 = mean(season_PC1)) %>% 
-  mutate(ecoreg_trend_PC1 = mean(trend_PC1)) %>%   
-  mutate(ecoreg_remain_PC1 = mean(remainder_PC1)) %>%   
-  ungroup() %>% 
-  arrange(ecoreg_PC1) %>% 
-  mutate(ecoreg = fct_reorder( 
-    as.factor(ecoreg), ecoreg_PC1)  # sets up the ordering by pc-axis 
-  ) %>% 
-  arrange(sta_PC1) %>%   
-  mutate(sta = fct_reorder( 
-    as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
-  ) 
-```  
-
-```{r plot_precip_seasonality}
-
-# check for anomonies   
-spi01_anom <- test %>% 
-  filter(anomaly == "Yes")
-
-# prepare for plotting 
-sta_size   <- 0.2  
-sta_color  <- "black" 
-mean_size  <- 0.4  
-mean_color <- "gray"  
-
-# SPI-1mo observations plot====
-spi01_obs <- spi01 %>% 
-  ggplot(aes(date, spi_1mo)) + 
-  facet_wrap(vars(sta)) +   
-  # plot mean vals 
-  geom_line(aes(date, spi01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("SPI one-month values")
-
-# SPI-1mo seasons plot==== 
-spi01_seas  <- spi01 %>% 
-  ggplot(aes(date, season_01mo)) + 
-  facet_wrap(~ sta) + 
-  # plot mean vals 
-  geom_line(aes(date, seas01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Seasonality")  
-
-# SPI-1mo trend plot====  
-spi01_trend  <- 
-  spi01 %>% 
-  ggplot(aes(date, trend_01mo)) + 
-  facet_wrap(~ sta) + 
-  # plot mean vals 
-  geom_line(aes(date, trend01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Trend")
-
-# SPI-1mo remainder plot==== 
-spi01_remainder <- spi01 %>%   
-  ggplot(aes(date, remain_01mo)) + 
-  facet_wrap(~ sta) + 
-  # plot mean vals
-  geom_line(aes(date, remain01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  
-  #  geom_jitter(aes(Date, ecoreg_remain_PC1), 
-  #              data         = anom_PC1, 
-  #              shape        = 4, 
-  #              size         = 0.7) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("SPI remainder values")
-
-# plot the plots above as a grid & save==== 
-cowplot::plot_grid(
-  spi01_obs, spi01_seas, spi01_trend, spi01_remainder, 
-  ncol = 1, 
-  align = "v"
-)
-
-cowplot::ggsave2("figure/spi01_deconv.png", 
-                 units = "in", 
-                 width = 7, 
-                 height = 9)
-
-
-rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
-```  
-
-```{r ggplot_monthly, eval=FALSE} 
-#sta_mon <- import(file = "data/stations_monthly.csv") %>% 
-#  mutate(date = ymd(date))
-
-#sta_mon %>% 
-#  group_by(sta) %>% 
-#  summarize(count = n())
-
-sta_mon_plus$group <- factor(sta_mon_plus$group,  
-                             levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
-
-# plot monthly precips  
-sta_mon_plus %>%   
-  ggplot(aes(month, depth_mm, group = month)) +  
-  facet_grid(rows = vars(group)) +   
-  geom_quasirandom(size = 0.2, 
-                   position = position_beeswarm()  
-  ) + 
-  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", 
-                              "7", "8", "9", "10", "11", "12"),   
-                   labels = c("J", "F", "M", "A", "M", "J", 
-                              "J", "A", "S", "O", "N", "D")  
-  ) + 
-  theme_bw() +  
-  #  labs(title = "Monthly precipitation depths",  
-  #       subtitle = "Southwestern South Dakota for 1990-2017") +   
-  xlab("") +  
-  ylab("mm")  
-
-
-ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
-                width = 6, height = 6, units = "in")
-
-````  
-
 
 ```{r to-delete-old-data-fill}
 
