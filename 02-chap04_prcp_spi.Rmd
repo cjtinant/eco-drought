@@ -50,15 +50,36 @@ This R markdown file calculates SCI
 Standardized precipitation index - SPI  
 Streamflow runoff index - SRI  
 
-Data:
-Predominant datasets used are:  
-1) NOAA data from 
-2) USGS daily streamflow and station metadata,  
 Analysis steps 
-1.0)  download and clean daily precip -- identified & filled NA
+1.0)  sets up the library and settings 
+
+2.0)  downloads precipitation daily data and metadata (sta_orig); 
+2.1)    creates groups by location;   
+2.2)    creates short names;  
+2.3)    downloads daily data for original stations (30-years);  
+2.4)    removes incomplete years (sta_plus)  
+2.5)    defines the final stations  (sta_fin)
+
+3.0)  plots study area map;  
+3.1)  prepares map elements: Theissen line segments, stream gages, location  
+        data: states, counties, USA map-grob
+
+
+
+
+
+
+-- identified & filled NA
 2.0)  convert daily precip to monthly precip  
 2.1)  Updated unit vals - originally in tenths of mm; now in mm 
 3.0)  Created plots 
+
+
+Data:
+Predominant datasets used are:  
+1) NOAA data from NOAA GHCN database - 60-years (1959-2019)
+2) USGS daily streamflow and station metadata,  
+3) 
 
 3)  prepare data for drought index 
 
@@ -84,10 +105,35 @@ Variable naming convention----
 a_session    list variable of session information  
 
 precipitation and spi variables====  
-_meta       metadata  
-_fin        final stations  
-_mon        monthly precipitation depths  ??? 
 sta           NOAA weather station locations  
+  _dv         daily values  
+  _meta       metadata  
+  _orig       all stations (n = 46 sations)  
+  _plus       ??? stations (n = 25 stations)  
+  _fin        final stations used in the analysis   
+
+mapping variables==== 
+voronoi       Theissen polygons  
+usa           lower-48 states  
+states        lower-48 states & counties 
+counties      lower-48 counties  
+  _sd         South Dakota  
+  _ne         Nebraska  
+  _wy         Wyoming  
+  _bound      boundary -- a state line  
+bbox          bounding box  
+usmap         USA map as a grob  
+
+daily value fill variables==== 
+dateMin, 
+
+
+
+
+sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name,   
+   sta_input)   
+_mon        monthly precipitation depths  ??? 
+
 spi           Standardized Precipitation Index vals from NOAA precip data  
 _rap        Rapid City Regional Airport station (NW)  
 _cot        Cottonwood station (NC)  
@@ -224,11 +270,11 @@ why_to_write()
 ```  
 
 ```{r download_prcp_metadata, eval=FALSE} 
-
-# Get possible station metadata----  
+ 
+# Get possible station metadata----   
 # It's also possible to check station id with the mapping tool at:    
 # https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
-
+  
 # The geographical extent given as SElat, SElon, NWlat, NWlon  
 sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),  
                                limit = 1000) %>%      # n = 777  
@@ -245,10 +291,10 @@ sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),
   filter(str_detect(id, "^GHCND"))  %>%                 # n =  60      
   filter(!str_detect(name, "^MAGPIE")) %>%              # n =  59  
   filter(elevation < 1200)                              # n =  46    
-
+  
 # create groups of stations by region====      
 #   Notes: the string "GHCND:" doesn't appear in calls to get Global Historical  
-#   Climatology Network (GHCN) Daily Data 
+#   Climatology Network (GHCN) Daily Data  
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(north_group = case_when(  
     latitude > 43.5 ~ "N",  
@@ -261,14 +307,13 @@ sta_meta_orig <- sta_meta_orig %>%
   )  %>%  
   mutate(group = str_c(north_group, east_group, sep = "")) %>%  
   select(-c(north_group, east_group)) %>%  
-  
   separate(  
     col = id,  
     sep = ":",   
     into = c("type", "sta_id")   
-  ) %>% 
+  ) %>%  
   arrange(name)  
-
+  
 # add short names to metadata====   
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(sta = case_when(  
@@ -323,22 +368,10 @@ sta_meta_orig <- sta_meta_orig %>%
   )   
   ) %>%   
   select(sta, name, longitude, latitude, elevation, group, everything())  
-
-# select final stations for each group====   
-sta_meta_fin <- subset(sta_meta_orig,   
-                       sta %in% 
-                         c("RAP", 
-                           "COT",  
-                           "ONI",  
-                           "OEL", 
-                           "GOR", 
-                           "MIS"  
-                         )   
-)   
   
 # download daily precip data from NOAA GHCN database-all_stations====      
 # date function calls start one-year early for long-term drought calcs  
-dateMin = "1987-01-01"      
+dateMin = "1959-01-01"      
 dateMax = "2018-12-31"    
   
 sta_dv_orig <- sta_meta_orig %>%   
@@ -358,41 +391,58 @@ sta_dv_orig <- sta_dv_orig %>%
   mutate(year  = year(date)) %>%  
   mutate(month = month(date)) %>%  
   select(date, year, month, everything())   
-  
+   
 sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
                          by = c("id" = "sta_id"))  
   
 # check for missing years====           
-sta_miss_yr <- sta_dv_orig     %>%    
-  group_by(name, year) %>%   
-  summarise(num_day = n())     %>%   
-  filter(num_day < 345)        %>%   
+sta_miss_yr <- sta_dv_orig %>%    
+  group_by(name, year)     %>%   
+  summarise(num_day = n()) %>%   
+  filter(num_day < 345)    %>%   
   ungroup() %>%  
   group_by(name) %>%  
   summarise(num_year = n()) %>%  
-  filter(num_year > 3)  
-  
-# remove stations with 3 years of > 95% completeness====    
-sta_dv_plus <- anti_join(sta_dv_orig, sta_miss_yr,  
-                         by = "name")   
-  
-sta_meta_plus <- semi_join(sta_meta_orig, sta_dv_plus,    
-                           by = "name")  
-  
-# export files and clean up global environment  
-export(sta_meta_orig, "data/sta_meta_orig.csv")   
-export(sta_meta_plus, "data/sta_meta_plus.csv")   
-export(sta_meta_fin, "data/sta_meta_fin.csv")  
+  filter(num_year > 3)   
+   
+# remove stations with 3 years of > 95% completeness====     
+sta_dv_plus <- anti_join(sta_dv_orig, sta_miss_yr,   
+                         by = "name")    
+   
+sta_meta_plus <- semi_join(sta_meta_orig, sta_dv_plus,     
+                           by = "name")   
+
+# select final stations for each group====   
+# this was created from the map below   
+sta_meta_fin <- subset(sta_meta_orig,   
+                       sta %in%  
+                         c("RAP",  
+                           "COT",  
+                           "ONI",  
+                           "OEL",  
+                           "GOR",  
+                           "MIS"  
+                         )   
+)   
+
+sta_dv_fin <- semi_join(sta_dv_plus, sta_meta_fin, 
+                        by = "sta")
+
+# export files and clean up global environment====     
+export(sta_meta_orig, "data/sta_meta_orig.csv")    
+export(sta_meta_plus, "data/sta_meta_plus.csv")    
+export(sta_meta_fin, "data/sta_meta_fin.csv")   
   
 export(sta_dv_orig, "data/sta_dv_orig.csv")   
-export(sta_dv_plus, "data/sta_dv_orig.csv")   
-  
+export(sta_dv_plus, "data/sta_dv_plus.csv")    
+export(sta_dv_fin, "data/sta_dv_fin.csv")     
+
 rm(sta_miss_yr,  
    dateMin,  
    dateMax  
-)    
+)     
   
-```  
+```   
 
 ```{r plot-theissen-polygons, eval=FALSE}
 
@@ -400,7 +450,7 @@ rm(sta_miss_yr,
 # create Theissen line segments====      
 voronoi        <- deldir(sta_meta_fin$lon, sta_meta_fin$lat)    
 
-# import stream gages====  
+# import stream gages====  (NEED TO FIX THIS!)
 gage_meta_fin  <- import("data/gage_meta_fin.csv") %>% 
   mutate(type = case_when(  
     sta == "" ~ "Inactive",  
@@ -551,7 +601,7 @@ usmap <- ggplot() +
 usmap <- as_grob(usmap, device = NULL)  
   
 rm(usa)  
-     
+  
 # plot weather station map====    
 # Legend.position can be a numeric vector c(x,y), where x and y are the   
 #   coordinates of the legend box between 0 and 1.  
@@ -689,39 +739,147 @@ rm(bbox,
 
 ```
 
+
+<!-- 
+need to update this
+```{r check_prcp_data_quality, eval=FALSE}  
+
+# Table of Measurement Flag/Attributes -- mflag  
+# Blank = no measurement information applicable            
+# A     = precip depth is a multi-day total, accumulated since last meas         
+# B     = precipitation total formed from two twelve-hour totals  
+# D     = precipitation total formed from four six-hour totals           
+# H     = represents TMAX or TMIN or average of hourly values (TAVG)           
+# K     = converted from knots            
+# L     = temperature appears lagged w/ respect to reported hr of observation  
+# O     = converted from oktas  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
+# W    = converted from 16-point WBAN code (for wind direction)  
+
+sta_check <- sta_fin %>%  
+  group_by(sta, mflag_prcp) %>%  
+  summarise(mflag = n())  
+
+# flags are T & P flags  
+sta_filled <- sta_filled %>%  
+  select(-mflag_prcp)  
+
+# Table of Quality Flag/Attributes  
+# Blank = did not fail any quality assurance check   
+# D     = failed duplicate check           
+# G     = failed gap check           
+# I     = failed internal consistency check           
+# K     = failed streak/frequent-value check           
+# L     = failed check on length of multiday period  
+# M     = failed mega-consistency check            
+# N     = failed naught check            
+# O     = failed climatological outlier check            
+# R     = failed lagged range check           
+# S     = failed spatial consistency check            
+# T     = failed temporal consistency check            
+# W     = temperature too warm for snow            
+# X     = failed bounds check           
+# Z     = flagged as a result of an official Datzilla investigation  
+
+sta_check <- sta_filled %>%  
+  group_by(name, qflag_prcp) %>%  
+  summarise(qflag = n())  
+
+# flags are O, L, I flags  
+sta_filled <- sta_filled %>%  
+  select(-qflag_prcp)  
+
+# Table Source Flag/Attributes   
+# Blank = No source (i.e., data value missing)  
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
+# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)   
+# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
+# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
+# a  = Australian data from the Australian Bureau of Meteorology           
+# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
+# b  = Belarus update           
+# C  = Environment Canada            
+# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)      
+# F  = U.S. Fort data             
+# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data   
+# H  = High Plains Regional Climate Center real-time data            
+# I  = International collection (non U.S. data received thru pers. contacts   
+# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
+# M  = Monthly METAR Extract (additional ASOS data)           
+# N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
+# Q  = Data from African countries w/ later permission granted  
+# R  = NCDC Reference Network Database  
+# r  = All-Russian Research Inst. Hydromet Information-World Data Center    
+# S  = Global Summary of the Day (NCDC DSI-9618)  
+#        NOTE: "S" values are derived from hourly synoptic reports   
+#         exchanged on the Global Telecommunications System (GTS).  
+#         Daily values derived in this fashion may differ significantly from  
+#        "true" daily data, particularly for precip (i.e., use with caution).  
+# s  = China Met Admn/Nat Met Info/Climate Data Centr (http://cdc.cma.gov.cn)   
+# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center   
+# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr  
+# u  = Ukraine update           
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
+# Z  = Datzilla official additions or replacements           
+# z  = Uzbekistan update   
+
+sta_check <- sta_filled %>%   
+  group_by(name, sflag_prcp) %>%  
+  summarise(sflag = n())  
+
+# flags are 0, 7, B, H, K, W, X, Z  
+sta_filled <- sta_filled %>%  
+  select(-sflag_prcp)  
+
+rm(sta_check)   
+
+# export daily data   
+export(sta_filled, file = "data/sta_filled.csv")  
+```  
+-->  
+
+
+
 ```{r download-station-data, eval=FALSE}
 # import precipitation metadata----  
-sta_meta_orig <- import("data/sta_meta_orig.csv")  
-dateMax       <- "2018-12-31"    
+#sta_meta_orig <- import("data/sta_meta_orig.csv")  
+#dateMax       <- "2018-12-31"    
 
 # create a df of monthly precipitation values-NW-RAP----  
 # prepare to download data  
-station <- "RAP"  
-dateMin <- "1949-01-01"   
+#station <- "RAP"  
+#dateMin <- "1949-01-01"   
 
-sta_meta_input <- sta_meta_orig %>%   
-  filter(group == "NW")     
+#sta_meta_input <- sta_meta_orig %>%   
+#  filter(group == "NW")     
 
 # download daily precip data from NOAA GHCN database 
-sta_input <- sta_meta_input %>%  
-  dplyr::select(sta_id) %>%  
-  split(.$sta_id) %>%  
-  map_dfr(~meteo_tidy_ghcnd(stationid  = .$sta_id,   
-                            keep_flags = TRUE,   
-                            var        = "PRCP",     
-                            date_min   = dateMin,   
-                            date_max   = dateMax)   
-  )     
+#sta_input <- sta_meta_input %>%  
+#  dplyr::select(sta_id) %>%  
+#  split(.$sta_id) %>%  
+#  map_dfr(~meteo_tidy_ghcnd(stationid  = .$sta_id,   
+#                            keep_flags = TRUE,   
+#                            var        = "PRCP",     
+#                            date_min   = dateMin,   
+#                            date_max   = dateMax)   
+#  )     
 
 # fix date & add year and month    
-sta_input<- sta_input %>%  
-  mutate(date  = ymd(date)) %>%  
-  mutate(year  = year(date)) %>%   
-  mutate(month = month(date)) %>%  
-  select(date, year, month, everything())    
+#sta_input<- sta_input %>%  
+#  mutate(date  = ymd(date)) %>%  
+#  mutate(year  = year(date)) %>%   
+#  mutate(month = month(date)) %>%  
+#  select(date, year, month, everything())    
 
-sta_input <- left_join(sta_input, sta_meta_orig,  
-                       by = c("id" = "sta_id"))  
+#sta_input <- left_join(sta_input, sta_meta_orig,  
+#                       by = c("id" = "sta_id"))  
+
+
+station <- "RAP"  
+sta_input <- sta_dv_orig %>% 
+  filter(sta == station)
 
 # fill missing data & check for missing days     
 sta_fil <- sta_input   %>%   
@@ -739,9 +897,14 @@ sta_short_name <- sta_fil %>%
   select(sta, id)   
 
 # get alternate site data & check if sta_mis_day = 0      
-sta_alt <- sta_input %>%   
+sta_alt <- sta_dv_orig %>%   
   filter(str_detect(name, "^RAPID CITY 4")) %>%        
   filter(!is.na(prcp))                             
+
+# get alternate site data & check if sta_mis_day = 0      
+#sta_alt <- sta_input %>%   
+#  filter(str_detect(name, "^RAPID CITY 4")) %>%        
+#  filter(!is.na(prcp))                             
 
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
@@ -771,20 +934,22 @@ sta_miss_day <- sta_fil        %>%
   filter(num_day < 365)   
 
 # make a monthly prcp df     
-sta_fil <- sta_fil              %>%  
+sta_mon_rap <- sta_fil          %>%  
   arrange(date)                 %>%  
-  mutate(mon    = month(date))  %>%  
-  mutate(yr      = year(date))  %>%  
-  group_by(sta, mon, yr)        %>%  
+#  mutate(mon    = month(date))  %>%  
+#  mutate(yr      = year(date))  %>%  
+  group_by(sta, month, year)        %>%  
   summarize(prcp = sum(prcp))   %>%  
   ungroup()                     %>% 
   mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = yr,  
-                              month = mon,  
+  mutate(date    = make_date(year  = year,  
+                              month = month,  
                               day   = day)  
   ) %>%           
-  select(sta, date, prcp) %>%  
-  arrange(date)  
+  select(sta, date, prcp) #%>%  
+#  arrange(date)  
+
+#START HERE
 
 # clean up    
 rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name,   
@@ -1515,105 +1680,6 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 ```  
 -->
 
-<!-- 
-need to update this
-```{r check_prcp_data_quality, eval=FALSE}  
-
-# Table of Measurement Flag/Attributes -- mflag  
-# Blank = no measurement information applicable            
-# A     = precip depth is a multi-day total, accumulated since last meas         
-# B     = precipitation total formed from two twelve-hour totals  
-# D     = precipitation total formed from four six-hour totals           
-# H     = represents TMAX or TMIN or average of hourly values (TAVG)           
-# K     = converted from knots            
-# L     = temperature appears lagged w/ respect to reported hr of observation  
-# O     = converted from oktas  
-# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
-# T     = trace of precipitation, snowfall, or snow depth   
-# W    = converted from 16-point WBAN code (for wind direction)  
-
-sta_check <- sta_fin %>%  
-  group_by(sta, mflag_prcp) %>%  
-  summarise(mflag = n())  
-
-# flags are T & P flags  
-sta_filled <- sta_filled %>%  
-  select(-mflag_prcp)  
-
-# Table of Quality Flag/Attributes  
-# Blank = did not fail any quality assurance check   
-# D     = failed duplicate check           
-# G     = failed gap check           
-# I     = failed internal consistency check           
-# K     = failed streak/frequent-value check           
-# L     = failed check on length of multiday period  
-# M     = failed mega-consistency check            
-# N     = failed naught check            
-# O     = failed climatological outlier check            
-# R     = failed lagged range check           
-# S     = failed spatial consistency check            
-# T     = failed temporal consistency check            
-# W     = temperature too warm for snow            
-# X     = failed bounds check           
-# Z     = flagged as a result of an official Datzilla investigation  
-
-sta_check <- sta_filled %>%  
-  group_by(name, qflag_prcp) %>%  
-  summarise(qflag = n())  
-
-# flags are O, L, I flags  
-sta_filled <- sta_filled %>%  
-  select(-qflag_prcp)  
-
-# Table Source Flag/Attributes   
-# Blank = No source (i.e., data value missing)  
-# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
-# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)   
-# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
-# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
-# a  = Australian data from the Australian Bureau of Meteorology           
-# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
-# b  = Belarus update           
-# C  = Environment Canada            
-# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)      
-# F  = U.S. Fort data             
-# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data   
-# H  = High Plains Regional Climate Center real-time data            
-# I  = International collection (non U.S. data received thru pers. contacts   
-# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
-# M  = Monthly METAR Extract (additional ASOS data)           
-# N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
-# Q  = Data from African countries w/ later permission granted  
-# R  = NCDC Reference Network Database  
-# r  = All-Russian Research Inst. Hydromet Information-World Data Center    
-# S  = Global Summary of the Day (NCDC DSI-9618)  
-#        NOTE: "S" values are derived from hourly synoptic reports   
-#         exchanged on the Global Telecommunications System (GTS).  
-#         Daily values derived in this fashion may differ significantly from  
-#        "true" daily data, particularly for precip (i.e., use with caution).  
-# s  = China Met Admn/Nat Met Info/Climate Data Centr (http://cdc.cma.gov.cn)   
-# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center   
-# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr  
-# u  = Ukraine update           
-# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
-# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
-# Z  = Datzilla official additions or replacements           
-# z  = Uzbekistan update   
-
-sta_check <- sta_filled %>%   
-  group_by(name, sflag_prcp) %>%  
-  summarise(sflag = n())  
-
-# flags are 0, 7, B, H, K, W, X, Z  
-sta_filled <- sta_filled %>%  
-  select(-sflag_prcp)  
-
-rm(sta_check)   
-
-# export daily data   
-export(sta_filled, file = "data/sta_filled.csv")  
-```  
--->
 
 ```{r compare_locations}  
 
