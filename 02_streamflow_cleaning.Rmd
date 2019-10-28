@@ -125,27 +125,18 @@ gage                USGS gaging stations
   _int1             scratch df for pulling gages with integer fields 
   _int2             scratch df for pulling gages with integer fields 
 
+wsd_  
+  summary
+names   
+
+endDate             used for calling Egret::readNWISDaily  -- "1979-08-01"
+parameter_cd        used for calling Egret::readNWISDaily  -- "2018-09-30"  
+startDate           used for calling Egret::readNWISDaily  -- "00060" 
 
 
 
 
 
-
-gage_meta           cleaned metadata for USGS gaging stations in the study area 
-  "site_no"                site number     
-  "station_nm"             station name     
-  "dec_lat_va"             latitude value in decimal degrees 
-  "dec_long_va"            longitude value in decimal degrees 
-  "state_cd"               State code
-  "county_cd"              County code
-  "alt_va"                 altitude 
-  "huc_cd"                 hydrologic unit code 
-  "drain_area_va"          drainage area in square miles 
-  "contrib_drain_area_va"  contributing drainage area in square miles 
-
-endDate             used for calling Egret::readNWISDaily 
-parameter_cd        used for calling Egret::readNWISDaily 
-startDate           used for calling Egret::readNWISDaily 
 
 lon_riv_dv          scratch df for pulling lon_riv 
 gage_most_dv        scratch df for pulling !lon_riv 
@@ -259,6 +250,18 @@ pc1_seas         ggplot of PC1 seasons vs time
 pc1_trend        ggplot of PC1 trend vs time 
 pc1_remainder    ggplot of PC1 remainder vs time  
 
+gage_meta           cleaned metadata for USGS gaging stations in the study area 
+  "site_no"                site number     
+  "station_nm"             station name     
+  "dec_lat_va"             latitude value in decimal degrees 
+  "dec_long_va"            longitude value in decimal degrees 
+  "state_cd"               State code
+  "county_cd"              County code
+  "alt_va"                 altitude 
+  "huc_cd"                 hydrologic unit code 
+  "drain_area_va"          drainage area in square miles 
+  "contrib_drain_area_va"  contributing drainage area in square miles 
+
 
 --> 
 
@@ -272,27 +275,10 @@ options(tibble.print_max = 70) # sets tibble output for printing
 library("conflicted")        # An alternative conflict resolution strategy  
 library("here")              # identifies where to save work  
 library("dataRetrieval")     # USGS data import  
+library("EGRET")            # Exploration and Graphics for RivEr Trends  
 library("rio")               # more robust I/O - to import and clean data  
 library("sf")               # simple features--spatial geometries for R  
 library("tidyverse")  
-
-
-#library("rnoaa")             # R wrapper for NOAA data inc. NCDC  
-#library("lubridate")         # easier dates   
-#library("lmomco")            # lmoments to find distribution   
-#library('deldir')            # for Vorononi tesselation - Theissen polygons  
-#library("SCI")               # calculates SPI & RDI   
-#library("forecast")          # using the BoxCox function   
-#library("broom")             # tidies linear models   
-#library("ggbeeswarm")        # plot 1D data as a violin / beeswarm plot  
-#library("scales")            # graphical scales map data to aesthetics,  
-                             #   & methods for determining breaks and labels  
-                             #   for axes and legends  
-#library("anomalize")         # detect anomalies using the tidyverse   
-#library("dabestr")           # data analysis using bootstrap estimation   
-#library("cowplot")  
-#library("flextable")        # construct complex table with 'kable'  
-#library("officer")          # facilitates '.docx' access for table export   
 
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
@@ -359,11 +345,11 @@ rm(gage_meta_int1,
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
  
 ``` 
-
+  
 ```{r clean_gage_metadata, eval=FALSE} 
   
 #gage_meta_poss <- import("data/gage_meta_poss.csv")       
-
+  
 # select final stations for consideration----  
 # 1. remove gages that do not meet standards====    
 gage_meta <- gage_meta_poss %>%    
@@ -417,11 +403,11 @@ gage_meta <- gage_meta %>%
   select(-c(well_depth_va, hole_depth_va, depth_src_cd))  
 
 rm(gage_meta_poss)  
-
-``` 
-
-```{r add_names_to_gage_meta, eval=FALSE}  
   
+```  
+  
+```{r add_names_to_gage_meta, eval=FALSE}  
+   
 # get data from QGIS analysis of gaged & ungaged watersheds of interest====    
 wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
                        layer = "wbd_summary",  
@@ -435,31 +421,29 @@ names <- wsd_summary %>%
   drop_na() %>%  
   mutate(site_no = zeroPad(site_no, 8))  
 
-gage_meta <- full_join(names, gage_meta,  
-                       by ="site_no") 
+gage_meta <- full_join(names, gage_meta,   
+                       by ="site_no")  
 
-gage_meta <- gage_meta %>% 
-  filter(sta != " ")
-
+gage_meta <- gage_meta %>%  
+  filter(sta != " ")  
+  
 # export metadata to data folder----   
-export(gage_meta, "data/gage_meta_fin.csv")  
-
-rm(names, wsd_summary)  
+export(gage_meta, "data/gage_meta.csv")  
   
 ``` 
 
-```{r import_daily_flow_data, eval=FALSE} 
+```{r import_daily_flow_data, eval=FALSE, message=FALSE} 
   
 # this is a small amount of code duplication to reduce API calls   
 #   to allow for working remotely -- set above to eval=FALSE  
-gage_meta <- import("data/gage_meta_fin.csv") %>%  
-    mutate(site_no = zeroPad(site_no, 8))  
+#gage_meta <- import("data/gage_meta_fin.csv") %>%  
+#    mutate(site_no = zeroPad(site_no, 8))  
   
-wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
-                       layer = "wbd_summary",  
-                       as_tibble = TRUE) %>%  
-  st_drop_geometry() %>%  
-  mutate_if(is.factor, as.character)  
+#wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
+#                       layer = "wbd_summary",  
+#                       as_tibble = TRUE) %>%  
+#  st_drop_geometry() %>%  
+#  mutate_if(is.factor, as.character)  
   
 # set parameters for Egret::readNWISDaily    
 startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30   
@@ -490,7 +474,7 @@ gage_most_dv <- gage_meta %>%
     endDate),  
     .id = "site_no")  
   
-# remove the 1978 data needed to calculate Q7 & Q30  
+# remove the 1978 data that was needed to calculate Q7 & Q30  
 gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%  
   filter(waterYear > "1979")  
   
@@ -498,7 +482,7 @@ gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%
 
 ```{r filter_short_flow_recs, eval=FALSE}
   
-# 1. prepare to filter gages with short flow records---------------------------   
+# 1. prepare to filter gages with short flow records----     
 # calculate min & max years of record   
 yrs_summary <- gage_dv %>% 
   group_by(site_no) %>%                  
@@ -507,62 +491,33 @@ yrs_summary <- gage_dv %>%
             max_year = max(waterYear)   
             ) %>%                     
   ungroup() %>%  
-  mutate(apparent_yrs = 1 + max_year - min_year)  
-  
-gage_meta <- full_join(yrs_summary, gage_meta,      # N = 88  
+  mutate(apparent_yrs = 1 + max_year - min_year) %>% 
+  mutate(yeas_rec = as.numeric(years_rec))   
+
+#gage_meta <- gage_meta %>% 
+#    mutate(site_no = zeroPad(site_no, 8))  
+
+gage_meta <- full_join(yrs_summary, gage_meta,        
                        by = "site_no")  
   
 rm(yrs_summary)  
-  
-# 2. filter gages with less than 6 years of record----------------------------  
+   
+# 2. filter gages with less than 6 years of record----    
 # filter gages with no records  
 gage_check <- gage_meta %>%  
   filter(is.na(years_rec))  
   
 gage_meta <- gage_meta %>%  
-  filter(!is.na(years_rec))                           # N = 69  
-  
-# 06400500 CHEYENNE R NEAR HOT SPRINGS SD  
-# 06403500 FRENCH CR NEAR FAIRBURN SD  
-# 06404500 BATTLE CR NEAR HERMOSA SD  
-# 06424500 ELK CR ABOVE PIEDMONT SD  
-# 06437200 BEAR BUTTE CR NEAR GALENA,SD  
-# 06437500 BEAR BUTTE CR NEAR STURGIS SD  
-# 06440500 NORTH FORK BAD R NEAR PHILIP SD  
-# 06445000 WHITE R BELW COTTONWOOD C N WHITNEY, NEBR.  
-# 06445500 WHITE R NEAR CHADRON NEBR  
-# 06446200 WHITE R NEAR ROCKYFORD SD  
-# 06449250 SPRING CR NEAR ST FRANCIS SD  
-# 06455900 NIOBRARA RIVER NEAR DUNLAP, NEBR.  
-# 06456500 NIOBRARA RIVER NR HAY SPRINGS, NEBR.  
-# 06457000 NIOBRARA RIVER NEAR COLCLESSER, NEBR.  
-# 06458500 BEAR C NR ELI NEBR  
-# 06459000 NIOBRARA R NEAR CODY, NEBR.  
-# 06460900 MINNECHADUZA CREEK NEAR KILGORE, NEBRASKA  
-# 06463000 NIOBRARA RIVER AT MEADVILLE NE  
-# 06464000 KEYA PAHA R NEAR HIDDEN TIMBER SD   
+  filter(!is.na(years_rec))                         
   
 # drop stations with less than 6 years of record   
 gage_check <- gage_meta %>%  
   filter(years_rec < 6)  
   
 gage_meta <- gage_meta %>%  
-  filter(years_rec >= 6)                         # N = 58  
+  filter(years_rec >= 6)                        
   
-# The following were removed because less than 6 years of record   
-# 06400870 HORSEHEAD CR NEAR OELRICHS SD  
-# 06405400 GRACE COOLIDGE CR NEAR FAIRBURN SD  
-# 06405500 GRACE COOLIDGE CR NEAR HERMOSA SD  
-# 06437400 BEAR BUTTE CREEK AT STURGIS, SD  
-# 06441400 WILLOW CREEK NEAR FORT PIERRE, SD  
-# 06442130 CEDAR CREEK NR PRESHO, SD  
-# 06442600 MEDICINE CREEK NR LOWER BRULE, SD  
-# 06442950 CROW CR NEAR GANN VALLEY SD  
-# 06445590 BIG BORDEAUX CREEK NEAR CHADRON NEBR  
-# 06459200 SNAKE RIVER ABV MERRITT RESERVOIR NEBR  
-# 10150005 Big Beaver Cr at Nebr Hwy 12 nr Valentine, Nebr 
-  
-# 3. check for incomplete days of record ------------------------------------   
+# 3. check for incomplete days of record====    
 yr_incomp <- gage_dv %>%                           
   group_by(site_no, waterYear) %>%                   
   summarise(days_yr = n()) %>%                     
@@ -576,7 +531,7 @@ gage_meta <- full_join(yr_incomp, gage_meta,
                        by = "site_no") %>%  
   filter(!is.na(years_rec))  
   
-# 4. remove data with short record between 1990-2015 ------------------------- 
+# 4. remove data with short record between 1990-2015====  
 gage_check <- gage_meta %>%  
   filter(sta == "")  
   
@@ -607,21 +562,28 @@ gage_meta <- gage_meta %>%
 # 06457500   1980   1991   NIOBRARA RIVER NEAR GORDON, NEBR.  
   
 # sync gage_dv w/ gage_meta & export results as posthoc to avoid interference  
-names <- wsd_summary %>%  
-  select(site_no = gage_num, sta = sta_id) %>%  
-  drop_na() %>%  
-  mutate(site_no = zeroPad(site_no, 8))  
-  
-gage_dv <- full_join(names, gage_dv,  
-                     by ="site_no")   
-  
-gage_dv <- semi_join(gage_dv, gage_meta,  
-                     by = "site_no")    
-  
-export(gage_meta, "data/gage_meta_posthoc.csv")  
-  
-# clean up 
-rm(startDate, endDate, parameter_cd, wsd_summary, names) 
+#names <- wsd_summary %>%  
+#  select(site_no = gage_num, sta = sta_id) %>%  
+#  drop_na() %>%  
+#  mutate(site_no = zeroPad(site_no, 8))  
+   
+gage_dv <- full_join(names, gage_dv,   
+                     by ="site_no")    
+   
+gage_dv <- semi_join(gage_dv, gage_meta,   
+                     by = "site_no")     
+   
+export(gage_meta, "data/gage_meta.csv")   
+export(gage_meta, "data/gage_dv.csv")   
+
+   
+# clean up  
+rm(startDate, endDate, parameter_cd, wsd_summary, names)  
 rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv)  
   
 ```  
+
+
+
+
+
