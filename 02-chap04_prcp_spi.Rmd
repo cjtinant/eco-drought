@@ -731,22 +731,22 @@ ggplot() +
                linetype        = 1,    
                color           = "gray35"   
   ) +   
-  geom_text(data          = sta_meta_fin,   
+  geom_text(data          = sta_meta_fin,    
             aes(x         = longitude,   
                 y         = latitude,  
-                label     = sta),   
+                label     = sta),    
             vjust         = -0.8,  
             check_overlap = TRUE   
-  ) +    
+  ) +      
   # add the US map as a grob    
   annotation_custom(grob = usmap,    
                     xmin = -99.3,    
                     xmax = -97.6,   
                     ymin = 44.5,   
                     ymax = 45.5)    
- 
+  
 # export map & clean up   
-ggplot2::ggsave(filename = "figure/theissen_init.png",    
+ggplot2::ggsave(filename = "figure/theissen_map.png",    
                 width    = 7.5,  
                 height   = 4.5,  
                 units    = "in"  
@@ -760,7 +760,8 @@ rm(bbox,
    states,   
    usmap,   
    voronoi,   
-   wy_bound   
+   wy_bound, 
+   sta_meta_orig  
 )    
 
 ```
@@ -1321,7 +1322,8 @@ sta_mon <- sta_dv_fill          %>%
 export(sta_dv_fill, "data/sta_dv_fill.csv")    
 export(sta_mon, "data/sta_mon.csv")  
 
-rm(sta_dv_alt)
+rm(sta_dv_alt,  
+   sta_dv_fill)
 
 ```  
 
@@ -1338,10 +1340,10 @@ rm(sta_dv_alt)
 #   Still had memory allocation issues @ 50,000 reps after increasing memory.   
   
 # import final monthly precip data & prepare for bootstrapping====   
-sta_fin <- import("data/sta_fin.csv") %>%  
+sta_mon <- import("data/sta_mon.csv") %>%  
   mutate(date = ymd(date)) %>%  
-  mutate(yr = year(date)) %>%    
-
+  mutate(yr = year(date)) %>%     
+  
   # create an id variable  
   mutate(Period = case_when(   
     yr < 1989 ~ "<1989",  
@@ -1355,14 +1357,14 @@ sta_fin <- import("data/sta_fin.csv") %>%
   arrange(date)   
   
 # print a summary of the data====  
-sta_fin %>%   
+sta_mon %>%   
   group_by(group) %>%   
   summarise(count = n()) %>%   
   ungroup() %>%   
   mutate(num_yr = count/(12))  
   
 # construct bootstrap confidence interval of prcp====   
-prcp_dabest <- sta_fin %>%   
+prcp_dabest <- sta_mon %>%   
   dabest(x = group,             # grouping variable  
          y = prcp,              # measurement variable   
 # list order shows control as first group on the list   
@@ -1398,694 +1400,10 @@ plot(prcp_dabest,
 ggplot2::ggsave(filename = "figure/prcp_dif.png",   
                 width = 6.5, height = 4.5, units = "in")  
 
-#rm(prcp_dabest)    
+rm(prcp_dabest)    
 ```
 
 
-
-```{r to-delete}
-
-
-
-# import precipitation metadata----  
-#sta_meta_orig <- import("data/sta_meta_orig.csv")  
-#dateMax       <- "2018-12-31"    
-
- 
-# prepare to download data  
-#station <- "RAP"  
-#dateMin <- "1949-01-01"    
-  
-#sta_meta_input <- sta_meta_orig %>%   
-#  filter(group == "NW")     
-
-# download daily precip data from NOAA GHCN database 
-#sta_input <- sta_meta_input %>%   
-#  dplyr::select(sta_id) %>%  
-#  split(.$sta_id) %>%  
-#  map_dfr(~meteo_tidy_ghcnd(stationid  = .$sta_id,   
-#                            keep_flags = TRUE,   
-#                            var        = "PRCP",     
-#                            date_min   = dateMin,   
-#                            date_max   = dateMax)   
-#  )     
-
-# fix date & add year and month    
-#sta_input<- sta_input %>%  
-#  mutate(date  = ymd(date)) %>%  
-#  mutate(year  = year(date)) %>%   
-#  mutate(month = month(date)) %>%  
-#  select(date, year, month, everything())    
-
-#sta_input <- left_join(sta_input, sta_meta_orig,  
-#                       by = c("id" = "sta_id"))  
-
-
-# get alternate site data & check if sta_mis_day = 0      
-#sta_alt <- sta_input %>%   
-#  filter(str_detect(name, "^RAPID CITY 4")) %>%        
-#  filter(!is.na(prcp))      
-
-# make a monthly prcp df     
-sta_mon_rap <- sta_fil          %>%  
-  arrange(date)                 %>%  
-#  mutate(mon    = month(date))  %>%  
-#  mutate(yr      = year(date))  %>%  
-  group_by(sta, month, year)        %>%  
-  summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
-  mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = year,  
-                              month = month,  
-                              day   = day)  
-  ) %>%           
-  select(sta, date, prcp) #%>%  
-#  arrange(date)  
-
-# prepare to download data    
-station <- "COT"   
-dateMin <- "1946-01-01"      
-
-sta_meta_input <- sta_meta_orig %>%  
-  filter(group == "NC"   
-  )    
-
-# download daily precip data from NOAA GHCN database    
-sta_input <- sta_meta_input %>%  
-  select(sta_id) %>%  
-  split(.$sta_id) %>%  
-  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
-                            keep_flags = TRUE,   
-                            var = "PRCP",   
-                            date_min = dateMin,   
-                            date_max = dateMax)  
-  )       
-
-# fix date & add year and month     
-sta_input<- sta_input %>%  
-  mutate(date = ymd(date)) %>%  
-  mutate(year = year(date)) %>%  
-  mutate(month = month(date)) %>%  
-  select(date, year, month, everything())   
-
-sta_input <- left_join(sta_input, sta_meta_orig, 
-                       by = c("id" = "sta_id")) 
-
-# prepare fill & check for missing days    
-sta_fil <- sta_input   %>%  
-  filter(sta == station) %>%  
-  filter(!is.na(prcp))                                     
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-sta_short_name <- sta_fil %>%   
-  slice(1) %>%  
-  select(sta, id)  
-
-# get alternate site data & check if sta_mis_day = 0  
-sta_alt <- sta_input %>%   
-  filter(str_detect(name, "^MILES")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(sta = sta_short_name$sta) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil) 
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-  
-  
-  
-# get alternate site data & check if sta_mis_day = 0  
-sta_alt <- sta_input %>%   
-  filter(str_detect(name, "^INTERIOR")) %>%        
-  filter(!is.na(prcp))  
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta)  
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-  
-# get alternate site data & check if sta_mis_day = 0  
-# Phillip & Plainview were big zeros
-sta_alt <- sta_input %>%   
-  filter(str_detect(name, "^DUPREE")) %>%        
-  filter(!is.na(prcp))  
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta)  
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-# make a monthly prcp df  
-sta_fil <- sta_fil              %>%  
-  arrange(date)                 %>%  
-  mutate(mon    = month(date))  %>%  
-  mutate(yr      = year(date))  %>%  
-  group_by(sta, mon, yr)        %>%  
-  summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
-  mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = yr,  
-                              month = mon,  
-                              day   = day)  
-  ) %>%           
-  select(sta, date, prcp) %>%  
-  arrange(date)  
-
-# prepare for input to calculate SCI and clean up   
-sta_cot <- sta_fil %>%  
-  arrange(date)  
-
-cot <- as.double(sta_cot$prcp)    
-
-rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
-   sta_input)   
-  
-  
-# create a df of monthly precipitation values-NE-ONI----  
-# prepare to download data     
-station <- "ONI"  
-dateMin <- "1913-01-01"     
-
-sta_meta_input <- sta_meta_orig %>% 
-  filter(group == "NE" 
-  ) 
-
-# download daily precip data from NOAA GHCN database   
-sta_input <- sta_meta_input %>%  
-  select(sta_id) %>%  
-  split(.$sta_id) %>%  
-  map_dfr(~meteo_tidy_ghcnd(stationid  = .$sta_id,   
-                            keep_flags = TRUE,   
-                            var        = "PRCP",   
-                            date_min   = dateMin,   
-                            date_max   = dateMax)    
-  )      
-
-# fix date & add year and month        
-sta_input<- sta_input %>%        
-  mutate(date = ymd(date)) %>%   
-  mutate(year = year(date)) %>%    
-  mutate(month = month(date)) %>%    
-  select(date, year, month, everything())    
-
-sta_input <- left_join(sta_input, sta_meta_orig,  
-                       by = c("id" = "sta_id")) 
-
-# prepare fill & check for missing days  
-sta_fil <- sta_input   %>%  
-  filter(sta == station) %>%  
-  filter(!is.na(prcp))                                     
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-sta_short_name <- sta_fil %>%   
-  slice(1) %>%  
-  select(sta, id)  
-  
-# get alternate site data & check if sta_mis_day = 0  
-sta_alt <- sta_input %>%   
-  filter(str_detect(name, "^KENNE")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil) 
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)    
-  
-# get alternate site data & check if sta_mis_day = 0   
-sta_alt <- sta_input %>%   
-  filter(str_detect(name, "^PIERRE")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-# make a monthly prcp df   
-sta_fil <- sta_fil               %>%  
-  arrange(date)                  %>%  
-  mutate(mon      = month(date)) %>%  
-  mutate(yr       = year(date))  %>%  
-  group_by(sta, mon, yr)         %>%  
-  summarize(prcp  = sum(prcp))   %>%  
-  ungroup()                      %>% 
-  mutate(day      = 15)          %>%  
-  mutate(date     = make_date(  
-    year  = yr,  
-    month = mon,  
-    day   = day)  
-  ) %>%           
-  select(sta, date, prcp) %>%  
-  arrange(date)  
-
-# prepare for input to calculate SCI and clean up   
-sta_oni <- sta_fil %>%  
-  arrange(date)  
-
-oni <- as.double(sta_oni$prcp)  
-
-rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
-   sta_input)     
-   
-   
-# create a df of monthly precipitation values-SW-OEL----  
-# prepare to download data  
-station <- "OEL"  
-dateMin <- "1948-01-01"      
-
-sta_meta_input <- sta_meta_orig %>%   
-  filter(group == "SW" 
-  )   
-  
-# download daily precip data from NOAA GHCN database       
-sta_input <- sta_meta_input %>%  
-  select(sta_id) %>%  
-  split(.$sta_id) %>%  
-  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
-                            keep_flags = TRUE,   
-                            var = "PRCP",   
-                            date_min = dateMin,    
-                            date_max = dateMax)  
-  )     
-  
-# fix date & add year and month   
-sta_input<- sta_input %>%  
-  mutate(date = ymd(date)) %>%  
-  mutate(year = year(date)) %>%  
-  mutate(month = month(date)) %>%  
-  select(date, year, month, everything())   
-  
-sta_input <- left_join(sta_input, sta_meta_orig,   
-                       by = c("id" = "sta_id"))   
-  
-# prepare fill & check for missing days   
-sta_fil <- sta_input   %>%  
-  filter(sta == station) %>%  
-  filter(!is.na(prcp))                                     
-  
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-  
-sta_short_name <- sta_fil %>%   
-  slice(1) %>%  
-  select(sta, id)  
-  
-# get alternate site data & check if sta_mis_day = 0  
-sta_alt <- sta_input %>%    
-  filter(str_detect(name, "^ORAL")) %>%        
-  filter(!is.na(prcp))                             
-  
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta)  
-  
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-  
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-# get alternate site data & check if sta_mis_day = 0    
-sta_alt <- sta_input %>%    
-  filter(str_detect(name, "^HOT SPRINGS")) %>%        
-  filter(!is.na(prcp))                             
-  
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta)  
-  
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-  
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-  
-# make monthly prcp df  
-sta_fil <- sta_fil               %>%  
-  arrange(date)                  %>%  
-  mutate(mon      = month(date)) %>%  
-  mutate(yr       = year(date))  %>%  
-  group_by(sta, mon, yr)         %>%  
-  summarize(prcp  = sum(prcp))   %>%  
-  ungroup()                      %>% 
-  mutate(day      = 15)          %>%  
-  mutate(date     = make_date(  
-    year  = yr,  
-    month = mon,  
-    day   = day)  
-  ) %>%           
-  select(sta, date, prcp) %>%  
-  arrange(date)  
-  
-# prepare for input to calculate SCI and clean up    
-sta_oel <- sta_fil %>% 
-  arrange(date)  
-  
-oel <- as.double(sta_oel$prcp) 
-  
-rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
-   sta_input)  
-
-# create a df of monthly precipitation values-SC-GOR----  
-# prepare to download data    
-station <- "GOR"  
-dateMin <- "1937-01-01"       
-  
-# prepare to download data  
-sta_meta_input <- sta_meta_orig %>%   
-  filter(group == "SC" ) 
-
-# download daily precip data from NOAA GHCN database     
-sta_input <- sta_meta_input %>%  
-  select(sta_id) %>%  
-  split(.$sta_id) %>%   
-  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
-                            keep_flags = TRUE,   
-                            var = "PRCP",    
-                            date_min = dateMin,   
-                            date_max = dateMax)  
-  )     
-  
-# fix date & add year and month      
-sta_input<- sta_input %>%  
-  mutate(date = ymd(date)) %>%   
-  mutate(year = year(date)) %>%  
-  mutate(month = month(date)) %>%  
-  select(date, year, month, everything())   
-   
-sta_input <- left_join(sta_input, sta_meta_orig,    
-                       by = c("id" = "sta_id"))  
-   
-# prepare fill & check for missing days    
-sta_fil <- sta_input   %>%  
-  filter(sta == station) %>%  
-  filter(!is.na(prcp))                                     
-  
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-  
-sta_short_name <- sta_fil %>%   
-  slice(1) %>%  
-  select(sta, id)  
-  
-# get alternate site data & check if sta_mis_day = 0   
-sta_alt <- sta_input %>%    
-  filter(str_detect(name, "^VALENTINE NWR")) %>%        
-  filter(!is.na(prcp))                             
-   
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta)  
-   
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-   
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%    
-  summarise(num_day = n())     %>%   
-  ungroup()                    %>%   
-  filter(num_day < 365)   
-  
-# get alternate site data & check if sta_mis_day = 0  
-# Kyle was a big zero  
-sta_alt <- sta_input %>%    
-  filter(str_detect(name, "^MULLEN")) %>%        
-  filter(!is.na(prcp))                             
-   
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta) 
-  
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-  
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-  
-# get alternate site data & check if sta_mis_day = 0   
-sta_alt <- sta_input %>%    
-  filter(str_detect(name, "^ELLSWORTH")) %>%        
-  filter(!is.na(prcp))                             
-   
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
-  mutate(sta = sta_short_name$sta)  
-   
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-   
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-  
-# make monthly prcp df    
-sta_fil <- sta_fil               %>%  
-  arrange(date)                  %>%  
-  mutate(mon      = month(date)) %>%  
-  mutate(yr       = year(date))  %>%  
-  group_by(sta, mon, yr)         %>%  
-  summarize(prcp  = sum(prcp))   %>%  
-  ungroup()                      %>%  
-  mutate(day      = 15)          %>%  
-  mutate(date     = make_date(  
-    year  = yr,  
-    month = mon,  
-    day   = day)  
-  ) %>%           
-  select(sta, date, prcp) %>%  
-  arrange(date)  
-  
-# prepare for input to calculate SCI and clean up     
-sta_gor <- sta_fil %>%  
-  arrange(date) 
-  
-gor <- as.double(sta_gor$prcp)  
-  
-rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
-   sta_input)    
-  
-# create a df of monthly precipitation values-SW-MIS----  
-# prepare to download data     
-station <- "MIS"  
-dateMin <- "1952-01-01"  
-
-sta_meta_input <- sta_meta_orig %>% 
-  filter(group == "SE" 
-  )   
-
-# download daily precip data from NOAA GHCN database     
-sta_input <- sta_meta_input %>%  
-  select(sta_id) %>%  
-  split(.$sta_id) %>%  
-  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
-                            keep_flags = TRUE,   
-                            var = "PRCP",   
-                            date_min = dateMin,    
-                            date_max = dateMax)  
-  )     
-
-# fix date & add year and month     
-sta_input<- sta_input %>%  
-  mutate(date = ymd(date)) %>%  
-  mutate(year = year(date)) %>%  
-  mutate(month = month(date)) %>%  
-  select(date, year, month, everything())   
-
-sta_input <- left_join(sta_input, sta_meta_orig, 
-                       by = c("id" = "sta_id")) 
-
-# prepare fill & check for missing days     
-sta_fil <- sta_input   %>%  
-  filter(sta == station) %>%  
-  filter(!is.na(prcp))                                     
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-sta_short_name <- sta_fil %>%   
-  slice(1) %>%  
-  select(sta, id)    
-
-# get alternate site data & check if sta_mis_day = 0   
-sta_alt <- sta_input %>%    
-  filter(str_detect(name, "^WOOD")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(sta = sta_short_name$sta) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-sta_mon_rap <- sta_fil          %>%  
-  arrange(date)                 %>%  
-  group_by(sta, month, year)    %>%  
-  summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
-  mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = year,  
-                              month = month,  
-                              day   = day)  
-  ) %>%           
-  select(sta, date, prcp) 
-
-sta_mon_cot <- sta_fil          %>%  
-  arrange(date)                 %>%  
-  group_by(sta, month, year)    %>%  
-  summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
-  mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = year,  
-                              month = month,  
-                              day   = day)  
-  ) %>%           
-  select(sta, date, prcp) 
-
-sta_mon_oni <- sta_fil          %>%  
-  arrange(date)                 %>%  
-  group_by(sta, month, year)    %>%  
-  summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
-  mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = year,  
-                              month = month,  
-                              day   = day)  
-  ) %>%           
-  select(sta, date, prcp) 
-
-sta_mon_oel <- sta_fil          %>%  
-  arrange(date)                 %>%  
-  group_by(sta, month, year)    %>%  
-  summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
-  mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = year,  
-                              month = month,  
-                              day   = day)  
-  ) %>%           
-  select(sta, date, prcp) 
-
-sta_mon_gor <- sta_fil          %>%  
-  arrange(date)                 %>%  
-  group_by(sta, month, year)    %>%  
-  summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
-  mutate(day     = 15)          %>%  
-  mutate(date    = make_date(year  = year,  
-                              month = month,  
-                              day   = day)  
-  ) %>%           
-  select(sta, date, prcp) 
-
-# get alternate site data & check if sta_mis_day = 0  
-sta_alt <- sta_input %>%    
-  filter(str_detect(name, "^VALENTINE MILLER")) %>%        
-  filter(!is.na(prcp))                             
-
-sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
-  mutate(sta = sta_short_name$sta) 
-
-sta_fil <- bind_rows(sta_alt, sta_fil)  
-
-sta_miss_day <- sta_fil        %>%   
-  group_by(sta, year)          %>%   
-  summarise(num_day = n())     %>%  
-  ungroup()                    %>%  
-  filter(num_day < 365)   
-
-# make monthly prcp df    
-sta_fil <- sta_fil               %>%  
-  arrange(date)                  %>%  
-  mutate(mon      = month(date)) %>%  
-  mutate(yr       = year(date))  %>%  
-  group_by(sta, mon, yr)         %>%  
-  summarize(prcp  = sum(prcp))   %>%  
-  ungroup()                      %>% 
-  mutate(day      = 15)          %>%  
-  mutate(date     = make_date(  
-    year  = yr,  
-    month = mon,  
-    day   = day)  
-  ) %>%           
-  select(sta, date, prcp) %>%  
-  arrange(date)  
-
-# prepare for input to calculate SCI and clean up    
-sta_mis <- sta_fil %>% 
-  arrange(date) 
-
-mis <- as.double(sta_mis$prcp) 
-
-rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
-   sta_input) 
-  
-# prepare final spi values----      
-sta_fin <- bind_rows(sta_cot,     
-                     sta_gor,    
-                     sta_mis,   
-                     sta_oel,  
-                     sta_oni,    
-                     sta_rap) %>%    
-  # remove shorter record stations   
-  mutate(yr = year(date)) %>%   
-  filter(yr > 1953) %>%    
-  # filter to a 60-yr time period   
-  filter(yr > 1958)       
-```   
 
 <!--
 need to finish this 
@@ -5848,3 +5166,685 @@ cowplot::ggsave2("figure/spi01_deconv.png",
 
 rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
 ```  
+
+```{r to-delete}
+
+# import precipitation metadata----  
+#sta_meta_orig <- import("data/sta_meta_orig.csv")  
+#dateMax       <- "2018-12-31"    
+
+ 
+# prepare to download data  
+#station <- "RAP"  
+#dateMin <- "1949-01-01"    
+  
+#sta_meta_input <- sta_meta_orig %>%   
+#  filter(group == "NW")     
+
+# download daily precip data from NOAA GHCN database 
+#sta_input <- sta_meta_input %>%   
+#  dplyr::select(sta_id) %>%  
+#  split(.$sta_id) %>%  
+#  map_dfr(~meteo_tidy_ghcnd(stationid  = .$sta_id,   
+#                            keep_flags = TRUE,   
+#                            var        = "PRCP",     
+#                            date_min   = dateMin,   
+#                            date_max   = dateMax)   
+#  )     
+
+# fix date & add year and month    
+#sta_input<- sta_input %>%  
+#  mutate(date  = ymd(date)) %>%  
+#  mutate(year  = year(date)) %>%   
+#  mutate(month = month(date)) %>%  
+#  select(date, year, month, everything())    
+
+#sta_input <- left_join(sta_input, sta_meta_orig,  
+#                       by = c("id" = "sta_id"))  
+
+
+# get alternate site data & check if sta_mis_day = 0      
+#sta_alt <- sta_input %>%   
+#  filter(str_detect(name, "^RAPID CITY 4")) %>%        
+#  filter(!is.na(prcp))      
+
+# make a monthly prcp df     
+sta_mon_rap <- sta_fil          %>%  
+  arrange(date)                 %>%  
+#  mutate(mon    = month(date))  %>%  
+#  mutate(yr      = year(date))  %>%  
+  group_by(sta, month, year)        %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>% 
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year  = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp) #%>%  
+#  arrange(date)  
+
+# prepare to download data    
+station <- "COT"   
+dateMin <- "1946-01-01"      
+
+sta_meta_input <- sta_meta_orig %>%  
+  filter(group == "NC"   
+  )    
+
+# download daily precip data from NOAA GHCN database    
+sta_input <- sta_meta_input %>%  
+  select(sta_id) %>%  
+  split(.$sta_id) %>%  
+  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
+                            keep_flags = TRUE,   
+                            var = "PRCP",   
+                            date_min = dateMin,   
+                            date_max = dateMax)  
+  )       
+
+# fix date & add year and month     
+sta_input<- sta_input %>%  
+  mutate(date = ymd(date)) %>%  
+  mutate(year = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  select(date, year, month, everything())   
+
+sta_input <- left_join(sta_input, sta_meta_orig, 
+                       by = c("id" = "sta_id")) 
+
+# prepare fill & check for missing days    
+sta_fil <- sta_input   %>%  
+  filter(sta == station) %>%  
+  filter(!is.na(prcp))                                     
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)  
+
+# get alternate site data & check if sta_mis_day = 0  
+sta_alt <- sta_input %>%   
+  filter(str_detect(name, "^MILES")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(sta = sta_short_name$sta) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil) 
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+  
+  
+# get alternate site data & check if sta_mis_day = 0  
+sta_alt <- sta_input %>%   
+  filter(str_detect(name, "^INTERIOR")) %>%        
+  filter(!is.na(prcp))  
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+# get alternate site data & check if sta_mis_day = 0  
+# Phillip & Plainview were big zeros
+sta_alt <- sta_input %>%   
+  filter(str_detect(name, "^DUPREE")) %>%        
+  filter(!is.na(prcp))  
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+# make a monthly prcp df  
+sta_fil <- sta_fil              %>%  
+  arrange(date)                 %>%  
+  mutate(mon    = month(date))  %>%  
+  mutate(yr      = year(date))  %>%  
+  group_by(sta, mon, yr)        %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>% 
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year  = yr,  
+                              month = mon,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp) %>%  
+  arrange(date)  
+
+# prepare for input to calculate SCI and clean up   
+sta_cot <- sta_fil %>%  
+  arrange(date)  
+
+cot <- as.double(sta_cot$prcp)    
+
+rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
+   sta_input)   
+  
+  
+# create a df of monthly precipitation values-NE-ONI----  
+# prepare to download data     
+station <- "ONI"  
+dateMin <- "1913-01-01"     
+
+sta_meta_input <- sta_meta_orig %>% 
+  filter(group == "NE" 
+  ) 
+
+# download daily precip data from NOAA GHCN database   
+sta_input <- sta_meta_input %>%  
+  select(sta_id) %>%  
+  split(.$sta_id) %>%  
+  map_dfr(~meteo_tidy_ghcnd(stationid  = .$sta_id,   
+                            keep_flags = TRUE,   
+                            var        = "PRCP",   
+                            date_min   = dateMin,   
+                            date_max   = dateMax)    
+  )      
+
+# fix date & add year and month        
+sta_input<- sta_input %>%        
+  mutate(date = ymd(date)) %>%   
+  mutate(year = year(date)) %>%    
+  mutate(month = month(date)) %>%    
+  select(date, year, month, everything())    
+
+sta_input <- left_join(sta_input, sta_meta_orig,  
+                       by = c("id" = "sta_id")) 
+
+# prepare fill & check for missing days  
+sta_fil <- sta_input   %>%  
+  filter(sta == station) %>%  
+  filter(!is.na(prcp))                                     
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)  
+  
+# get alternate site data & check if sta_mis_day = 0  
+sta_alt <- sta_input %>%   
+  filter(str_detect(name, "^KENNE")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil) 
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0   
+sta_alt <- sta_input %>%   
+  filter(str_detect(name, "^PIERRE")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+# make a monthly prcp df   
+sta_fil <- sta_fil               %>%  
+  arrange(date)                  %>%  
+  mutate(mon      = month(date)) %>%  
+  mutate(yr       = year(date))  %>%  
+  group_by(sta, mon, yr)         %>%  
+  summarize(prcp  = sum(prcp))   %>%  
+  ungroup()                      %>% 
+  mutate(day      = 15)          %>%  
+  mutate(date     = make_date(  
+    year  = yr,  
+    month = mon,  
+    day   = day)  
+  ) %>%           
+  select(sta, date, prcp) %>%  
+  arrange(date)  
+
+# prepare for input to calculate SCI and clean up   
+sta_oni <- sta_fil %>%  
+  arrange(date)  
+
+oni <- as.double(sta_oni$prcp)  
+
+rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
+   sta_input)     
+   
+   
+# create a df of monthly precipitation values-SW-OEL----  
+# prepare to download data  
+station <- "OEL"  
+dateMin <- "1948-01-01"      
+
+sta_meta_input <- sta_meta_orig %>%   
+  filter(group == "SW" 
+  )   
+  
+# download daily precip data from NOAA GHCN database       
+sta_input <- sta_meta_input %>%  
+  select(sta_id) %>%  
+  split(.$sta_id) %>%  
+  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
+                            keep_flags = TRUE,   
+                            var = "PRCP",   
+                            date_min = dateMin,    
+                            date_max = dateMax)  
+  )     
+  
+# fix date & add year and month   
+sta_input<- sta_input %>%  
+  mutate(date = ymd(date)) %>%  
+  mutate(year = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  select(date, year, month, everything())   
+  
+sta_input <- left_join(sta_input, sta_meta_orig,   
+                       by = c("id" = "sta_id"))   
+  
+# prepare fill & check for missing days   
+sta_fil <- sta_input   %>%  
+  filter(sta == station) %>%  
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)  
+  
+# get alternate site data & check if sta_mis_day = 0  
+sta_alt <- sta_input %>%    
+  filter(str_detect(name, "^ORAL")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+  
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+# get alternate site data & check if sta_mis_day = 0    
+sta_alt <- sta_input %>%    
+  filter(str_detect(name, "^HOT SPRINGS")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+  
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+# make monthly prcp df  
+sta_fil <- sta_fil               %>%  
+  arrange(date)                  %>%  
+  mutate(mon      = month(date)) %>%  
+  mutate(yr       = year(date))  %>%  
+  group_by(sta, mon, yr)         %>%  
+  summarize(prcp  = sum(prcp))   %>%  
+  ungroup()                      %>% 
+  mutate(day      = 15)          %>%  
+  mutate(date     = make_date(  
+    year  = yr,  
+    month = mon,  
+    day   = day)  
+  ) %>%           
+  select(sta, date, prcp) %>%  
+  arrange(date)  
+  
+# prepare for input to calculate SCI and clean up    
+sta_oel <- sta_fil %>% 
+  arrange(date)  
+  
+oel <- as.double(sta_oel$prcp) 
+  
+rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
+   sta_input)  
+
+# create a df of monthly precipitation values-SC-GOR----  
+# prepare to download data    
+station <- "GOR"  
+dateMin <- "1937-01-01"       
+  
+# prepare to download data  
+sta_meta_input <- sta_meta_orig %>%   
+  filter(group == "SC" ) 
+
+# download daily precip data from NOAA GHCN database     
+sta_input <- sta_meta_input %>%  
+  select(sta_id) %>%  
+  split(.$sta_id) %>%   
+  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
+                            keep_flags = TRUE,   
+                            var = "PRCP",    
+                            date_min = dateMin,   
+                            date_max = dateMax)  
+  )     
+  
+# fix date & add year and month      
+sta_input<- sta_input %>%  
+  mutate(date = ymd(date)) %>%   
+  mutate(year = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  select(date, year, month, everything())   
+   
+sta_input <- left_join(sta_input, sta_meta_orig,    
+                       by = c("id" = "sta_id"))  
+   
+# prepare fill & check for missing days    
+sta_fil <- sta_input   %>%  
+  filter(sta == station) %>%  
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)  
+  
+# get alternate site data & check if sta_mis_day = 0   
+sta_alt <- sta_input %>%    
+  filter(str_detect(name, "^VALENTINE NWR")) %>%        
+  filter(!is.na(prcp))                             
+   
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+   
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+   
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%   
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# get alternate site data & check if sta_mis_day = 0  
+# Kyle was a big zero  
+sta_alt <- sta_input %>%    
+  filter(str_detect(name, "^MULLEN")) %>%        
+  filter(!is.na(prcp))                             
+   
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta) 
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+  
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+# get alternate site data & check if sta_mis_day = 0   
+sta_alt <- sta_input %>%    
+  filter(str_detect(name, "^ELLSWORTH")) %>%        
+  filter(!is.na(prcp))                             
+   
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+   
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+   
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+# make monthly prcp df    
+sta_fil <- sta_fil               %>%  
+  arrange(date)                  %>%  
+  mutate(mon      = month(date)) %>%  
+  mutate(yr       = year(date))  %>%  
+  group_by(sta, mon, yr)         %>%  
+  summarize(prcp  = sum(prcp))   %>%  
+  ungroup()                      %>%  
+  mutate(day      = 15)          %>%  
+  mutate(date     = make_date(  
+    year  = yr,  
+    month = mon,  
+    day   = day)  
+  ) %>%           
+  select(sta, date, prcp) %>%  
+  arrange(date)  
+  
+# prepare for input to calculate SCI and clean up     
+sta_gor <- sta_fil %>%  
+  arrange(date) 
+  
+gor <- as.double(sta_gor$prcp)  
+  
+rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
+   sta_input)    
+  
+# create a df of monthly precipitation values-SW-MIS----  
+# prepare to download data     
+station <- "MIS"  
+dateMin <- "1952-01-01"  
+
+sta_meta_input <- sta_meta_orig %>% 
+  filter(group == "SE" 
+  )   
+
+# download daily precip data from NOAA GHCN database     
+sta_input <- sta_meta_input %>%  
+  select(sta_id) %>%  
+  split(.$sta_id) %>%  
+  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
+                            keep_flags = TRUE,   
+                            var = "PRCP",   
+                            date_min = dateMin,    
+                            date_max = dateMax)  
+  )     
+
+# fix date & add year and month     
+sta_input<- sta_input %>%  
+  mutate(date = ymd(date)) %>%  
+  mutate(year = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  select(date, year, month, everything())   
+
+sta_input <- left_join(sta_input, sta_meta_orig, 
+                       by = c("id" = "sta_id")) 
+
+# prepare fill & check for missing days     
+sta_fil <- sta_input   %>%  
+  filter(sta == station) %>%  
+  filter(!is.na(prcp))                                     
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)    
+
+# get alternate site data & check if sta_mis_day = 0   
+sta_alt <- sta_input %>%    
+  filter(str_detect(name, "^WOOD")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(sta = sta_short_name$sta) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+sta_mon_rap <- sta_fil          %>%  
+  arrange(date)                 %>%  
+  group_by(sta, month, year)    %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>% 
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year  = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp) 
+
+sta_mon_cot <- sta_fil          %>%  
+  arrange(date)                 %>%  
+  group_by(sta, month, year)    %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>% 
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year  = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp) 
+
+sta_mon_oni <- sta_fil          %>%  
+  arrange(date)                 %>%  
+  group_by(sta, month, year)    %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>% 
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year  = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp) 
+
+sta_mon_oel <- sta_fil          %>%  
+  arrange(date)                 %>%  
+  group_by(sta, month, year)    %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>% 
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year  = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp) 
+
+sta_mon_gor <- sta_fil          %>%  
+  arrange(date)                 %>%  
+  group_by(sta, month, year)    %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>% 
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year  = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp) 
+
+# get alternate site data & check if sta_mis_day = 0  
+sta_alt <- sta_input %>%    
+  filter(str_detect(name, "^VALENTINE MILLER")) %>%        
+  filter(!is.na(prcp))                             
+
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>% 
+  mutate(sta = sta_short_name$sta) 
+
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+
+# make monthly prcp df    
+sta_fil <- sta_fil               %>%  
+  arrange(date)                  %>%  
+  mutate(mon      = month(date)) %>%  
+  mutate(yr       = year(date))  %>%  
+  group_by(sta, mon, yr)         %>%  
+  summarize(prcp  = sum(prcp))   %>%  
+  ungroup()                      %>% 
+  mutate(day      = 15)          %>%  
+  mutate(date     = make_date(  
+    year  = yr,  
+    month = mon,  
+    day   = day)  
+  ) %>%           
+  select(sta, date, prcp) %>%  
+  arrange(date)  
+
+# prepare for input to calculate SCI and clean up    
+sta_mis <- sta_fil %>% 
+  arrange(date) 
+
+mis <- as.double(sta_mis$prcp) 
+
+rm(dateMin, sta_alt, sta_fil, sta_meta_input, sta_miss_day, sta_short_name, 
+   sta_input) 
+  
+# prepare final spi values----      
+sta_fin <- bind_rows(sta_cot,     
+                     sta_gor,    
+                     sta_mis,   
+                     sta_oel,  
+                     sta_oni,    
+                     sta_rap) %>%    
+  # remove shorter record stations   
+  mutate(yr = year(date)) %>%   
+  filter(yr > 1953) %>%    
+  # filter to a 60-yr time period   
+  filter(yr > 1958)       
+```   
