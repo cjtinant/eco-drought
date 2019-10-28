@@ -5,11 +5,37 @@ date: "10/23/2019"
 output: html_document
 ---
 
+<!--  
+
+sta           NOAA weather station locations  
+  _meta       metadata  
+  _fin        final stations used in the analysis  
+  _orig       all stations (n = 46 sations)  
+  _plus       potential stations (n = 14 stations)  
+  
+wsd  
+  _summary    summary watershed locations-- includes gaged & ungaged wsds  
+  
+mapping variables==== 
+voronoi       Theissen polygons for stations  
+usa           lower-48 states  
+states        lower-48 states & counties 
+counties      lower-48 counties  
+  _sd         South Dakota  
+  _ne         Nebraska  
+  _wy         Wyoming  
+  _bound      boundary -- a state line  
+bbox          bounding box  
+usmap         USA map as a grob  
+
+-->  
+
 ```{r setup_&_library, message=FALSE}  
 knitr::opts_chunk$set(echo = FALSE)   
 options(tibble.print_max = 70) # sets tibble output for printing       
 
 # Sets up the library of packages   
+library("conflicted")        # An alternative conflict resolution strategy  
 library("here")              # identifies where to save work  
 library("rio")               # more robust I/O - to import and clean data  
 library('deldir')            # for Vorononi tesselation - Theissen polygons  
@@ -24,7 +50,308 @@ sta_meta_orig <- import("data/sta_meta_orig.csv")
 sta_meta_plus <- import("data/sta_meta_plus.csv")   
 sta_meta_fin  <- import("data/sta_meta_fin.csv")  
 
+# import stream gages====  (NEED TO FIX THIS!)
+#gage_meta_fin  <- import("data/gage_meta_fin.csv") %>% 
+#  mutate(type = case_when(  
+#    sta == "" ~ "Inactive",  
+#    TRUE ~ "Active")  
+#    )  
+
+wsd_summary <- import("data/wsd_summary.csv")  
+
+
 ```
+
+```{r plot-theissen-polygons, eval=FALSE}
+
+# prepare map elements----  
+# create Theissen line segments====      
+voronoi        <- deldir(sta_meta_fin$lon, sta_meta_fin$lat)    
+
+# order stations for plotting====   
+sta_meta_plus <- sta_meta_plus %>%  
+  mutate(group = fct_relevel(group,   
+                             "NW",  
+                             "NC",  
+                             "NE",  
+                             "SW",  
+                             "SC",  
+                             "SE"   
+  )  
+  )   
+  
+sta_meta_orig <- sta_meta_orig %>%  
+  mutate(group = fct_relevel(group,   
+                             "NW",  
+                             "NC",  
+                             "NE",  
+                             "SW",  
+                             "SC",  
+                             "SE"  
+  )  
+  )   
+   
+sta_meta_fin <- sta_meta_fin %>%  
+  mutate(group = fct_relevel(group,   
+                             "NW",  
+                             "NC",  
+                             "NE",  
+                             "SW",  
+                             "SC",  
+                             "SE"   
+  )  
+  )   
+   
+# Define the study area using data from the 'maps' package-----   
+# import polygon data for maps====   
+usa            <- map_data("usa")    
+states         <- map_data("state")   
+counties       <- map_data("county")   
+   
+# filter counties for mapping====  
+#   need to filter counties for SD & NE separately because of duplicate vals   
+#   subset SD counties####   
+counties_sd <- subset(counties,  
+                      region %in%   
+                        c("south dakota"))  
+     
+counties_sd <- subset(counties_sd,  
+                      subregion %in%  
+                        c("butte",  
+                          "meade",  
+                          "lawrence",  
+                          "pennington",  
+                          "custer",  
+                          "fall river",  
+                          "shannon",  
+                          "jackson",  
+                          "bennett",  
+                          "haakon",    
+                          "todd",     
+                          "mellette",  
+                          "jones",  
+                          "stanley",  
+                          "lyman",  
+                          "tripp",  
+                          "hughes",  
+                          "ziebach",  
+                          "dewey",  
+                          "hughes",  
+                          "sully",   
+                          "potter"     
+                        )  
+)    
+   
+#   subset NE counties####  
+counties_ne <- subset(counties,   
+                      region %in%  
+                        c("nebraska"))  
+   
+counties_ne <- subset(counties_ne,   
+                      subregion %in%  
+                        c("sioux",   
+                          "dawes",   
+                          "sheridan",   
+                          "box butte",    
+                          "cherry",  
+                          "brown",   
+                          "keya paha",    
+                          "rock"        
+                        )   
+)   
+    
+#   join SD & NE counties####   
+counties <- bind_rows(counties_sd, counties_ne)  
+rm(counties_sd, counties_ne)   
+
+# create SD-NE & SD-WY lines====   
+ne_bound <- subset(counties,   
+                   subregion %in%     
+                     c("fall river",   
+                       "shannon",  
+                       "bennett",   
+                       "todd",   
+                       "tripp")) %>%  
+  filter(lat < 43.1)      
+  
+wy_bound <- subset(counties,   
+                   subregion %in%  
+                     c("butte",      
+                       "lawrence"  ,  
+                       "pennington" ,  
+                       "custer",      
+                       "fall river",  
+                       "sioux"  
+                     )) %>%  
+  filter(long < -104)  
+     
+# plot US map as a grob----   
+# create a bounding box -- order is SW, NW, NE, SE====    
+bbox <- tibble(lat = c(42.0, 45.0, 45.0, 42.0),  
+               long = c(-104.5, -104.5, -99.5, -99.5),  
+               group = c(1, 1, 1, 1)  
+)  
+  
+# plot US map====     
+usmap <- ggplot() +  
+  geom_polygon(data = usa,  
+               aes(x=long, y = lat, group = group),   
+               fill = "gray70",  
+               color = "gray70"  
+  ) +       
+  coord_fixed(1.3) +  
+  theme_nothing() +  
+  geom_polygon(data = bbox,  
+               aes(x=long, y = lat, group = group),  
+               fill = "gray30",  
+               color = "gray30") +   
+  xlab("") +   
+  ylab("")   
+     
+# change the US map into a grob####   
+usmap <- as_grob(usmap, device = NULL)  
+  
+rm(usa)  
+  
+# plot weather station map====    
+# Legend.position can be a numeric vector c(x,y), where x and y are the   
+#   coordinates of the legend box between 0 and 1.  
+#     c(0,0) corresponds to the “bottom left” and   
+#     c(1,1) corresponds to the “top right” position.  
+  
+ggplot() +   
+  theme_classic() +  
+  coord_fixed(1.3) +  
+  xlab("") +    
+  ylab("") +      
+  theme(axis.line         = element_line(colour = "grey60")) +  
+  theme(axis.ticks        = element_line(colour = "grey60")) +  
+  theme(axis.text         = element_text(colour = "grey50")) +  
+  theme(legend.position   = c(1.1, 0.4)) +    
+  theme(legend.title      = element_text(size = 10)) +   
+  theme(legend.text       = element_text(size = 8)) +  
+  theme(legend.key.height =  unit(0.5, 'cm')) +  
+  guides(fill  = guide_legend(order = 2),  
+         color = guide_legend(order = 1)  
+  ) +     
+  # add counties      
+  geom_polygon(data      = counties,   
+               aes(x     = long,  
+                   y     = lat,     
+                   group = group),   
+               color     = "gray80",  
+               fill      = "NA") +   
+  # add NE stateline boundary    
+  geom_line(data      = ne_bound,   
+            aes(x     = long,    
+                y     = lat,     
+                group = group),  
+            color     = "gray60"  
+  ) +   
+  #   # add WY stateline boundary    
+  geom_line(data = wy_bound,   
+            aes(x     = long,  
+                y     = lat,    
+                group = group),  
+            color     = "gray60"    
+  ) +    
+# add stream gaging stations     
+  geom_point(data     = wsd_summary,  
+             aes(dec_lon,  
+                 dec_lat,   
+                 fill = factor(wsd_summary$type)   
+                 ),   
+             shape    = 24,  
+             size     = 0.6,    
+             stroke   = 0.5,  
+             color    = "gray50"   
+  ) +      
+  scale_fill_grey(   
+                  start      = 0.4,    
+                  end        = 0.8,    
+                  na.value   = "red",   
+                  aesthetics = "fill",    
+                  name       = 'Stream locations',   
+                  guide      = 'legend'   
+  ) +   
+  # add orig stations   
+  geom_point(data      = sta_meta_orig,   
+             aes(x     = longitude,  
+                 y     = latitude,   
+                 color = factor(sta_meta_orig$group)   
+             ),    
+             size      = 1     
+  ) +       
+  # add plus stations    
+  geom_point(data       = sta_meta_plus,  
+             aes(x      = longitude,  
+                 y      = latitude,   
+                 color  = factor(sta_meta_plus$group)   
+             ),       
+             size       = 2  
+  ) +  
+  scale_colour_grey(   
+                    start      = 0.2,    
+                    end        = 0.8,    
+                    na.value   = "red",   
+                    aesthetics = "colour",  
+                    name       = 'Station groups',  
+                    guide      = 'legend'   
+  ) +   
+  # add final stations     
+  geom_point(data      = sta_meta_fin,   
+             aes(x     = longitude,   
+                 y     = latitude,   
+                 color = factor(sta_meta_fin$group)   
+             ),       
+             size      = 3   
+  ) +   
+  # add Theissen polygons   
+  geom_segment(data = voronoi$dirsgs,   
+               aes(x           = x1,   
+                   y           = y1,   
+                   xend        = x2,   
+                   yend        = y2),   
+               size            = 1,    
+               linetype        = 1,    
+               color           = "gray35"   
+  ) +   
+  geom_text(data          = sta_meta_fin,    
+            aes(x         = longitude,   
+                y         = latitude,  
+                label     = sta),    
+            vjust         = -0.8,  
+            check_overlap = TRUE   
+  ) +      
+  # add the US map as a grob    
+  annotation_custom(grob = usmap,    
+                    xmin = -99.3,    
+                    xmax = -97.6,   
+                    ymin = 44.5,   
+                    ymax = 45.5)    
+  
+# export map & clean up   
+ggplot2::ggsave(filename = "figure/theissen_map.png",    
+                width    = 7.5,  
+                height   = 4.5,  
+                units    = "in"  
+)     
+ 
+rm(bbox,   
+   counties,   
+   sta_meta_fin,  
+   wsd_summary,  
+   ne_bound,  
+   sta_meta_plus,   
+   states,   
+   usmap,   
+   voronoi,   
+   wy_bound, 
+   sta_meta_orig  
+)    
+
+```
+
 
 ```{r plot-theissen-polygons-map}
 
