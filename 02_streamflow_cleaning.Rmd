@@ -273,6 +273,7 @@ library("conflicted")        # An alternative conflict resolution strategy
 library("here")              # identifies where to save work  
 library("dataRetrieval")     # USGS data import  
 library("rio")               # more robust I/O - to import and clean data  
+library("sf")               # simple features--spatial geometries for R  
 library("tidyverse")  
 
 
@@ -314,48 +315,53 @@ why_to_write()
 
 # get possible stations from NWIS website----  
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),    
-                       parameterCd = "00060",  
-                       hasDataTypeCd = "dv") %>%  
+                           parameterCd = "00060",  
+                           hasDataTypeCd = "dv") %>%  
   arrange(site_no)   
-  
+
 # 2. get stream station metadata====   
 # this needs to be run in parts because some project numbers & 
 # inventories are stored as integers & others are stored as characters 
- 
+
 gage_meta_int1 <- gage_poss %>% 
-    slice(7, 17, 142, 148) %>% 
+  slice(7, 17, 142, 148) %>% 
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
-  
+
 gage_meta_int2 <- gage_poss %>% 
-    slice(94) %>% 
+  slice(94) %>% 
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
-  
+
 gage_meta_int3 <- gage_poss %>% 
-    slice(-c(7, 17, 94, 142, 148)) %>% 
+  slice(-c(7, 17, 94, 142, 148)) %>% 
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
-  
+
 # 3. join gage metadata 
 gage_meta_poss <- bind_rows(gage_meta_int1, 
                             gage_meta_int2, 
                             gage_meta_int3) %>% 
-#gage_meta_poss <- gage_meta_poss %>%  
+  #gage_meta_poss <- gage_meta_poss %>%  
   mutate(site_no = zeroPad(site_no, 8))  
- 
+
 # clean up 
-rm(gage_meta_int1, gage_meta_int2, gage_meta_int3, gage_poss)  
- 
+rm(gage_meta_int1,  
+   gage_meta_int2,  
+   gage_meta_int3,  
+   gage_poss  
+)    
+
 # 4. export metadata to data folder----  
 export(gage_meta_poss, "data/gage_meta_poss.csv")  
  
 ``` 
 
 ```{r clean_gage_metadata, eval=FALSE} 
+  
 #gage_meta_poss <- import("data/gage_meta_poss.csv")       
 
 # select final stations for consideration----  
@@ -365,8 +371,8 @@ gage_meta <- gage_meta_poss %>%
   mutate(site_no = zeroPad(site_no, 8)) %>%              # pad site_no   
   mutate(reliability_cd = replace_na(reliability_cd, 0))  %>% #  NA <- zero  
   filter(site_no != "06461150"&  
-         site_no != "06463670"&   
-         site_no != "06461595") %>%  # remove short sites w/ provisional data  
+           site_no != "06463670"&   
+           site_no != "06461595") %>%  # remove short sites w/ provisional data  
   filter(site_no != "06441000") %>%  # only active 180 days/yr   
   filter(site_no != "06438000") %>%  
   filter(site_no != "06437000") %>%  # remove northern Black Hills stations  
@@ -385,7 +391,7 @@ gage_meta <- gage_meta_poss %>%
   filter(!str_detect(station_nm, 'RAPID')) %>%    
   # Rapid Creek & upper Spring Creek  
   filter(!str_detect(station_nm, 'MISSOURI'))  
-  
+
 # 2. remove provisional sites====       
 gage_meta <- gage_meta %>%  
   mutate(site_no = as.character(site_no)) %>%  
@@ -393,7 +399,7 @@ gage_meta <- gage_meta %>%
   mutate(length = str_length(site_no)) %>%  
   filter(length <= 8) %>%   # removes two provisional sites  
   select(-length)  
-   
+
 # 3. remove codes not needed for this project  
 gage_meta <- gage_meta %>%  
   select(-agency_cd) %>%  
@@ -409,79 +415,84 @@ gage_meta <- gage_meta %>%
   select(-c(tz_cd, local_time_fg)) %>% # daily data, so NA  
   select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>%  
   select(-c(well_depth_va, hole_depth_va, depth_src_cd))  
-  
+
 rm(gage_meta_poss)  
-  
+
 ``` 
 
 ```{r add_names_to_gage_meta, eval=FALSE}  
   
-# get data from QGIS analysis of gaged & ungaged watersheds of interest  
-wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
-                       layer = "wbd_summary", 
-                       as_tibble = TRUE) %>% 
-  st_drop_geometry() %>% 
-  mutate_if(is.factor, as.character) 
-  
-# join names to gage_meta  
-names <- wsd_summary %>% 
-  select(site_no = gage_num, sta = sta_id) %>% 
-  drop_na() %>% 
-  mutate(site_no = zeroPad(site_no, 8)) 
-  
-gage_meta <- full_join(names, gage_meta, 
-                     by ="site_no")  
-  
-# export metadata to data folder ---------------------------------------------  
+# get data from QGIS analysis of gaged & ungaged watersheds of interest====    
+wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
+                       layer = "wbd_summary",  
+                       as_tibble = TRUE) %>%  
+  st_drop_geometry() %>%  
+  mutate_if(is.factor, as.character)  
+
+# join names to gage_meta   
+names <- wsd_summary %>%  
+  select(site_no = gage_num, sta = sta_id) %>%  
+  drop_na() %>%  
+  mutate(site_no = zeroPad(site_no, 8))  
+
+gage_meta <- full_join(names, gage_meta,  
+                       by ="site_no") 
+
+gage_meta <- gage_meta %>% 
+  filter(sta != " ")
+
+# export metadata to data folder----   
 export(gage_meta, "data/gage_meta_fin.csv")  
- 
+
+rm(names, wsd_summary)  
+  
 ``` 
 
 ```{r import_daily_flow_data, eval=FALSE} 
-   
+  
 # this is a small amount of code duplication to reduce API calls   
 #   to allow for working remotely -- set above to eval=FALSE  
 gage_meta <- import("data/gage_meta_fin.csv") %>%  
     mutate(site_no = zeroPad(site_no, 8))  
   
-wsd_summary <- st_read("sp_data/eco-drought.gpkg", 
-                       layer = "wbd_summary", 
-                       as_tibble = TRUE) %>% 
-  st_drop_geometry() %>% 
-  mutate_if(is.factor, as.character) 
- 
-# set parameters for Egret::readNWISDaily   
-startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30  
-endDate      <- "2018-09-30"  
-parameter_cd <- "00060" 
+wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
+                       layer = "wbd_summary",  
+                       as_tibble = TRUE) %>%  
+  st_drop_geometry() %>%  
+  mutate_if(is.factor, as.character)  
   
-# get daily flows ------------------------------------------------------------ 
+# set parameters for Egret::readNWISDaily    
+startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30   
+endDate      <- "2018-09-30"   
+parameter_cd <- "00060"  
+  
+# get daily flows----  
 # note for EGRET::readNWISDailyQ the discharge is in m^3/s   
   
 # Long River gage needs to be called separately or it creates an error  
 gage_lonriv_dv <- gage_meta %>%  
   filter(site_no == "06463500") %>%  
   split(.$site_no)  %>%  
-  map_dfr(~ readNWISDaily( 
-    siteNumber = .$site_no, 
-    parameter_cd, 
-    startDate, 
-    endDate), 
-    .id = "site_no") 
+  map_dfr(~ readNWISDaily(  
+    siteNumber = .$site_no,  
+    parameter_cd,  
+    startDate,  
+    endDate),  
+    .id = "site_no")  
   
-gage_most_dv <- gage_meta %>% 
-  filter(site_no != "06463500") %>%           # drop long river from call  
-  split(.$site_no) %>%  
-  map_dfr(~ readNWISDaily( 
-    siteNumber = .$site_no, 
-    parameter_cd, 
-    startDate, 
-    endDate), 
-    .id = "site_no") 
+gage_most_dv <- gage_meta %>%  
+  filter(site_no != "06463500") %>%           # drop long river from call   
+  split(.$site_no) %>%   
+  map_dfr(~ readNWISDaily(  
+    siteNumber = .$site_no,  
+    parameter_cd,  
+    startDate,  
+    endDate),  
+    .id = "site_no")  
   
-# remove the 1978 data needed to calculate Q7 & Q30 
-gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>% 
-  filter(waterYear > "1979") 
+# remove the 1978 data needed to calculate Q7 & Q30  
+gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%  
+  filter(waterYear > "1979")  
   
 ```  
 
