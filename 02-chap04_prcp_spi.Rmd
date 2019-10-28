@@ -2481,7 +2481,7 @@ decomp_fun <- function(df) {
   
 ```
 
-```{r deconvolute_prcp}  
+```{r deconvolute_spi}  
   
 # deconvolute the grouped prcp into trend, seasonal & random components----  
   
@@ -2514,11 +2514,6 @@ spi_sta <- spi_sta %>%
   mutate(spi_group = mean(prcp)) %>%  
   ungroup()   
   
-#prcp_group <- spi_sta %>%  
-#  group_by(group, date) %>%  
-#  summarise(prcp = mean(prcp)) %>%  
-#  ungroup()   
-  
 # identify frequency of seasonality -- should be 12 months====      
 #   the level is group rather than station - so need to combine stations  
 freq <- spi_sta  %>%    
@@ -2536,7 +2531,7 @@ freq <- spi_sta  %>%
   )   
   
 #   identify trend of periodicity -- should be 60 months====  
-prcp_trend <- spi_sta  %>%  
+trend <- spi_sta  %>%  
   split(.$group) %>%  
   map_dfc(~ anomalize::time_trend(  
     period       = "auto", data = .)   
@@ -2562,11 +2557,11 @@ spi_seas <- spi_sta %>%
 #                          by = c("group", "date", "prcp_group")  
 #                         ) %>%  
 #  rename(remain_group = remainder) %>%  
-3  mutate(remain_sta = prcp - season - trend)  
+#  mutate(remain_sta = prcp - season - trend)  
   
 # clean up global environment####  
-rm(prcp_freq,  
-   prcp_trend,      
+rm(freq,  
+   trend,      
    FREQ,  
    TARGET,  
    TREND,  
@@ -2576,10 +2571,10 @@ rm(prcp_freq,
 ```  
 
 # Seasonality plotting  
-```{r plot_precip_seasonality}
+```{r plot_seasonality}
 
 # check for anomonies====     
-prcp_anom <- spi_seas %>% 
+spi_anom <- spi_seas %>% 
   filter(anomaly == "Yes")  
 
 # order stations for plotting====  
@@ -2608,16 +2603,6 @@ spi_seas %>%
   xlab("") +  
   ylab("SPI 1-month") +   
   scale_y_continuous(limits = c(-3, 3)) +
-#  coord_fixed(1.3) +  
-#  theme(axis.line         = element_line(colour = "grey60")) +  
-#  theme(axis.ticks        = element_line(colour = "grey60")) +  
-#  theme(axis.text         = element_text(colour = "grey50")) +  
-#  theme(legend.position   = c(1.1, 0.4)) +    
-#  theme(legend.title      = element_text(size = 10)) +   
-#  theme(legend.text       = element_text(size = 8)) +  
-#  theme(legend.key.height =  unit(0.5, 'cm')) +  
-#  guides(fill  = guide_legend(order = 2),
-#         color = guide_legend(order = 1)) + 
   facet_wrap(vars(group)) +   
 # plot station vals  
 geom_line(size            = sta_size,  
@@ -2680,114 +2665,20 @@ cowplot::ggsave2("figure/spi_deconv.png",
                  width = 7,  
                  height = 9)  
 
-#rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom)  
+rm(spi_obs, 
+   spi_seas,  
+   spi_seas_plot, 
+   spi_trend, 
+   spi_remain, 
+   spi_anom, 
+   group_color, 
+   group_size, 
+   sta_color, 
+   sta_size   
+   )  
 ```  
 
-```{r plot_precip_seasonality}
 
-# check for anomonies   
-spi01_anom <- test %>% 
-  filter(anomaly == "Yes")
-
-# prepare for plotting 
-sta_size   <- 0.2  
-sta_color  <- "black" 
-mean_size  <- 0.4  
-mean_color <- "gray"  
-
-# SPI-1mo observations plot====
-spi01_obs <- spi01 %>% 
-  ggplot(aes(date, spi_1mo)) + 
-  facet_wrap(vars(sta)) +   
-  # plot mean vals 
-  geom_line(aes(date, spi01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("SPI one-month values")
-
-# SPI-1mo seasons plot==== 
-spi01_seas  <- spi01 %>% 
-  ggplot(aes(date, season_01mo)) + 
-  facet_wrap(~ sta) + 
-  # plot mean vals 
-  geom_line(aes(date, seas01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Seasonality")  
-
-# SPI-1mo trend plot====  
-spi01_trend  <- 
-  spi01 %>% 
-  ggplot(aes(date, trend_01mo)) + 
-  facet_wrap(~ sta) + 
-  # plot mean vals 
-  geom_line(aes(date, trend01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Trend")
-
-# SPI-1mo remainder plot==== 
-spi01_remainder <- spi01 %>%   
-  ggplot(aes(date, remain_01mo)) + 
-  facet_wrap(~ sta) + 
-  # plot mean vals
-  geom_line(aes(date, remain01_mean), 
-            size            = mean_size, 
-            colour          = mean_color 
-  ) + 
-  # plot station vals 
-  geom_line(size            = sta_size, 
-            colour          = sta_color
-  ) + 
-  
-  #  geom_jitter(aes(Date, ecoreg_remain_PC1), 
-  #              data         = anom_PC1, 
-  #              shape        = 4, 
-  #              size         = 0.7) + 
-  scale_y_continuous(limits = c(-3, 3)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("SPI remainder values")
-
-# plot the plots above as a grid & save==== 
-cowplot::plot_grid(
-  spi01_obs, spi01_seas, spi01_trend, spi01_remainder, 
-  ncol = 1, 
-  align = "v"
-)
-
-cowplot::ggsave2("figure/spi01_deconv.png", 
-                 units = "in", 
-                 width = 7, 
-                 height = 9)
-
-
-rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
-```  
 
 
 
@@ -5300,4 +5191,110 @@ sta_mon <- semi_join(sta_mon_plus, sta_meta,
 
 export(sta_mon, "data/sta_mon.csv")  
 export(sta_meta, "data/sta_meta.csv")  
-```
+```  
+
+```{r plot_precip_seasonality}
+
+# check for anomonies   
+spi01_anom <- test %>% 
+  filter(anomaly == "Yes")
+
+# prepare for plotting 
+sta_size   <- 0.2  
+sta_color  <- "black" 
+mean_size  <- 0.4  
+mean_color <- "gray"  
+
+# SPI-1mo observations plot====
+spi01_obs <- spi01 %>% 
+  ggplot(aes(date, spi_1mo)) + 
+  facet_wrap(vars(sta)) +   
+  # plot mean vals 
+  geom_line(aes(date, spi01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("SPI one-month values")
+
+# SPI-1mo seasons plot==== 
+spi01_seas  <- spi01 %>% 
+  ggplot(aes(date, season_01mo)) + 
+  facet_wrap(~ sta) + 
+  # plot mean vals 
+  geom_line(aes(date, seas01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Seasonality")  
+
+# SPI-1mo trend plot====  
+spi01_trend  <- 
+  spi01 %>% 
+  ggplot(aes(date, trend_01mo)) + 
+  facet_wrap(~ sta) + 
+  # plot mean vals 
+  geom_line(aes(date, trend01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("Trend")
+
+# SPI-1mo remainder plot==== 
+spi01_remainder <- spi01 %>%   
+  ggplot(aes(date, remain_01mo)) + 
+  facet_wrap(~ sta) + 
+  # plot mean vals
+  geom_line(aes(date, remain01_mean), 
+            size            = mean_size, 
+            colour          = mean_color 
+  ) + 
+  # plot station vals 
+  geom_line(size            = sta_size, 
+            colour          = sta_color
+  ) + 
+  
+  #  geom_jitter(aes(Date, ecoreg_remain_PC1), 
+  #              data         = anom_PC1, 
+  #              shape        = 4, 
+  #              size         = 0.7) + 
+  scale_y_continuous(limits = c(-3, 3)) + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("SPI remainder values")
+
+# plot the plots above as a grid & save==== 
+cowplot::plot_grid(
+  spi01_obs, spi01_seas, spi01_trend, spi01_remainder, 
+  ncol = 1, 
+  align = "v"
+)
+
+cowplot::ggsave2("figure/spi01_deconv.png", 
+                 units = "in", 
+                 width = 7, 
+                 height = 9)
+
+
+rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
+```  
