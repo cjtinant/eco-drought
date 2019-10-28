@@ -2549,7 +2549,7 @@ rm(spi_obs,
 
 
 
-
+# OLD CODE
 
 ```{r things}  
 
@@ -3298,7 +3298,7 @@ rm(spi_location, spi_shape, spi_scale)
 ```
 
 
-# OLD CODE 
+ # TO DELETE  
 ```{r import-data} 
 
 # combine and rename columns as distribution types
@@ -3929,207 +3929,8 @@ sta_l1 <- lmom_sta %>%
 
 ```
 
-# TO DELETE  
-```{r plot-theissen-polygons-delete}
 
-sta_meta_fin   <- import("data/sta_meta_fin.csv")   
-sta_meta_orig  <- import("data/sta_meta_orig.csv")  
-gage_meta_fin  <- import("data/gage_meta_fin.csv")   
 
-# plot a map of the study area----   
-# create Theissen line segments====      
-voronoi        <- deldir(sta_meta_fin$lon, sta_meta_fin$lat)    
-
-# import polygon data for maps====   
-usa            <- map_data("usa")    
-states         <- map_data("state")   
-counties       <- map_data("county")   
-
-# filter counties for AOI====   
-#   need to filter counties for SD & NE separately because of duplicate vals  
-#   subset SD counties####   
-counties_sd <- subset(counties, 
-                      region %in% 
-                        c("south dakota"))  
-
-counties_sd <- subset(counties_sd,   
-                      subregion %in%   
-                        c("butte",   
-                          "meade",   
-                          "lawrence", 
-                          "pennington",   
-                          "custer",   
-                          "fall river",   
-                          "shannon",   
-                          "jackson",   
-                          "bennett",  
-                          "haakon",   
-                          "todd",   
-                          "mellette",   
-                          "jones", 
-                          "stanley",   
-                          "lyman",  
-                          "tripp",  
-                          "hughes",  
-                          "ziebach",  
-                          "dewey",  
-                          "hughes", 
-                          "sully",   
-                          "potter"     
-                        )    
-)      
-
-#   subset NE counties####
-counties_ne <- subset(counties, region %in%    
-                        c("nebraska")) %>%    
-  filter(subregion == "sioux" |    
-           subregion == "dawes" |    
-           subregion == "sheridan" |    
-           subregion == "box butte" |   
-           subregion == "cherry" |    
-           subregion == "brown" |    
-           subregion == "keya paha" |  
-           subregion == "rock"  
-  )  
-
-#   join SD & NE counties####   
-counties <- bind_rows(counties_sd, counties_ne)  
-rm(counties_sd, counties_ne)  
-# create a bounding box -- order is SW, NW, NE, SE====  
-bbox <- tibble(lat = c(42.0, 45.0, 45.0, 42.0), 
-               long = c(-104.5, -104.5, -99.5, -99.5), 
-               group = c(1, 1, 1, 1)
-)
-
-# create SD-NE & SD-WY lines for AOI==== 
-ne_bound <- subset(counties,   
-                   subregion %in% c("fall river",     
-                                    "shannon",   
-                                    "bennett",    
-                                    "todd",    
-                                    "tripp")   
-) %>%  
-  filter(lat < 43.1)    
-
-wy_bound <- subset(counties,     
-                   subregion %in% c("butte",   
-                                    "lawrence"  , 
-                                    "pennington" , 
-                                    "custer", 
-                                    "fall river", 
-                                    "sioux"
-                   )  
-) %>%  
-  filter(long < -104) 
-
-# plot US map====
-usmap <- ggplot() + 
-  geom_polygon(data = usa, 
-               aes(x=long, y = lat, group = group),  
-               fill = "gray70", 
-               color = "gray70"
-  ) + 
-  coord_fixed(1.3) + 
-  theme_nothing() + 
-  geom_polygon(data = bbox, 
-               aes(x=long, y = lat, group = group), 
-               fill = "gray30", 
-               color = "gray30") +
-  
-  xlab("") +  
-  ylab("")  
-
-# change the US map into a grob####  
-usmap <- as_grob(usmap, device = NULL)
-
-# plot county map====  
-ggplot() +  
-  theme_nothing() +  
-  coord_fixed(1.3) +  
-  # add counties  
-  geom_polygon(data      = counties,  
-               aes(x     = long, 
-                   y     = lat, 
-                   group = group),  
-               color     = "gray80",  
-               fill      = "NA") +  
-  # add stateline boundaries  
-  geom_line(data      = ne_bound,  
-            aes(x     = long, 
-                y     = lat, 
-                group = group),  
-            color     = "gray60"  
-  ) +  
-  geom_line(data = wy_bound,  
-            aes(x     = long, 
-                y     = lat, 
-                group = group),  
-            color     = "gray60"    
-  ) +   
-  # add small stations  
-  geom_point(data  = sta_meta_orig,  
-             aes(x = longitude, 
-                 y = latitude),   
-             size  = 1,  
-             color = "gray40") +  
-  # add stream gages 
-  geom_point(data = gage_meta_fin, 
-             aes(dec_long_va, dec_lat_va),  
-             shape  = 24, 
-             fill   = NA,  
-             size   = 0.8,   
-             stroke = 0.5, 
-             color  = "gray50"  
-  ) +     
-  # add final stations   
-  geom_point(data  = sta_meta_fin, 
-             aes(x = longitude,   
-                 y = latitude),   
-             size  = 3,   
-             color = "black"
-  ) +     
-  # add Theissen polygons  
-  geom_segment(data = voronoi$dirsgs,
-               aes(x           = x1, 
-                   y           = y1, 
-                   xend        = x2,
-                   yend        = y2), 
-               size            = 1, 
-               linetype        = 1, 
-               color           = "gray20"
-  ) +  
-  geom_text(data          = sta_meta_fin, 
-            aes(x         = longitude, 
-                y         = latitude, 
-                label     = sta), 
-            vjust         = 1.6, 
-            check_overlap = TRUE
-  ) +  
-  # add the US map as a grob  
-  annotation_custom(grob = usmap2, 
-                    xmin = -99.5, 
-                    xmax = -97.8, 
-                    ymin = 44.5,  
-                    ymax = 45.5)  
-
-# export map  
-ggplot2::ggsave(filename = "figure/theissen_fin.png",    
-                width = 7.5, height = 4.5, units = "in")  
-
-rm(bbox,   
-   counties,   
-   counties_sd,   
-   ne_bound,  
-   sd_bound,  
-   sta_meta_orig,  
-   states,  
-   usa,  
-   usmap,  
-   voronoi,  
-   wy_bound  
-)   
-
-``` 
 
 ```{r delete-possibly-old-spi-seasonality}
 # spi_02mo====  
@@ -4283,102 +4084,6 @@ gage_mon <- gage_mon %>%
   ) 
 ```  
 
-```{r ggplot_monthly, eval=FALSE} 
-#sta_mon <- import(file = "data/stations_monthly.csv") %>% 
-#  mutate(date = ymd(date))
-
-#sta_mon %>% 
-#  group_by(sta) %>% 
-#  summarize(count = n())
-
-sta_mon_plus$group <- factor(sta_mon_plus$group,  
-                             levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
-
-# plot monthly precips  
-sta_mon_plus %>%   
-  ggplot(aes(month, depth_mm, group = month)) +  
-  facet_grid(rows = vars(group)) +   
-  geom_quasirandom(size = 0.2, 
-                   position = position_beeswarm()  
-  ) + 
-  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", 
-                              "7", "8", "9", "10", "11", "12"),   
-                   labels = c("J", "F", "M", "A", "M", "J", 
-                              "J", "A", "S", "O", "N", "D")  
-  ) + 
-  theme_bw() +  
-  #  labs(title = "Monthly precipitation depths",  
-  #       subtitle = "Southwestern South Dakota for 1990-2017") +   
-  xlab("") +  
-  ylab("mm")  
-
-
-ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
-                width = 6, height = 6, units = "in")
-
-```
-
-```{r prcp_daily2monthly, eval=FALSE} 
-
-# add short names and create monthly data -----------------------------------  
-scratch <- sta_meta_plus %>%  
-  select(sta, sta_id)   
-
-sta_mon_plus <- full_join(scratch, sta_filled,   
-                          by = "sta_id")  %>%   
-  select(-c(name, sta_id))           %>%  
-  mutate(year = year(date))          %>%  
-  mutate(month = month(date))        %>%  
-  group_by(year, month, sta)         %>%   
-  summarize(prcp_tenths = sum(prcp)) %>%  
-  mutate(prcp_mm = prcp_tenths/10)   %>%  
-  select(-prcp_tenths) %>%  
-  ungroup()  
-
-rm(scratch)  
-
-# spread results & create date with day at midpoint of month ----------------  
-sta_mon_long <- sta_mon_plus %>%  
-  spread(sta, prcp_mm) %>%  
-  mutate(day = 15) %>%  
-  mutate(date = make_date(year = year, month = month, day = day)) %>%   
-  select(date, year, month, everything()) %>%  
-  select(-day) %>%   
-  ungroup() %>%  
-  filter(!is.na(date))  
-
-sta_mon_plus <- sta_mon_long %>%  
-  gather(key = sta, val = depth_mm,  
-         -c(date, year, month))  
-
-rm(sta_mon_long, sta_filled, sta_dv_plus)   
-
-sta_mon_plus <- full_join(sta_mon_plus, sta_meta_plus,  
-                          by = "sta")  
-
-export(sta_mon_plus, file = "data/stations_mon_plus.csv")  
-
-```  
-
-```{r save_prior_work, eval=FALSE}  
-#export(sta_dv_orig, "data/sta_dv_orig.csv")  
-# export(sta_meta_orig, "data/sta_meta_orig.csv")   -- saved above 
-
-export(sta_mon_plus, "data/sta_mon_plus.csv")  
-
-
-sta_mon_plus <- import("data/sta_mon_plus.csv")
-sta_meta_plus <- import("data/sta_meta_plus.csv")
-
-
-
-sta_mon <- semi_join(sta_mon_plus, sta_meta, 
-                     by = "sta")  
-
-export(sta_mon, "data/sta_mon.csv")  
-export(sta_meta, "data/sta_meta.csv")  
-```  
-
 ```{r plot_precip_seasonality}
 
 # check for anomonies   
@@ -4485,7 +4190,43 @@ cowplot::ggsave2("figure/spi01_deconv.png",
 rm(spi01_obs, spi01_seas, spi01_trend, spi01_remainder, spi01_anom) 
 ```  
 
-```{r to-delete}
+```{r ggplot_monthly, eval=FALSE} 
+#sta_mon <- import(file = "data/stations_monthly.csv") %>% 
+#  mutate(date = ymd(date))
+
+#sta_mon %>% 
+#  group_by(sta) %>% 
+#  summarize(count = n())
+
+sta_mon_plus$group <- factor(sta_mon_plus$group,  
+                             levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
+
+# plot monthly precips  
+sta_mon_plus %>%   
+  ggplot(aes(month, depth_mm, group = month)) +  
+  facet_grid(rows = vars(group)) +   
+  geom_quasirandom(size = 0.2, 
+                   position = position_beeswarm()  
+  ) + 
+  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", 
+                              "7", "8", "9", "10", "11", "12"),   
+                   labels = c("J", "F", "M", "A", "M", "J", 
+                              "J", "A", "S", "O", "N", "D")  
+  ) + 
+  theme_bw() +  
+  #  labs(title = "Monthly precipitation depths",  
+  #       subtitle = "Southwestern South Dakota for 1990-2017") +   
+  xlab("") +  
+  ylab("mm")  
+
+
+ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
+                width = 6, height = 6, units = "in")
+
+````  
+
+
+```{r to-delete-old-data-fill}
 
 # import precipitation metadata----  
 #sta_meta_orig <- import("data/sta_meta_orig.csv")  
