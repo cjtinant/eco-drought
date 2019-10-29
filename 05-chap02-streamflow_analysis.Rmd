@@ -118,11 +118,20 @@ Next Steps:
 
 Variable naming convention:   
 # ~~~~~~~~~~~~~~~~~~~~~~~~~
-gage_poss           possible USGS gaging stations in the study area 
-gage_meta_poss      metadata for possible gaging stations
--- _int1            scratch df for pulling gages with integer fields 
--- _int2            scratch df for pulling gages with integer fields 
--- _char            scratch df for pulling gages with character fields 
+gage               USGS streamflow gages  
+   _dv             daily mean flow values  
+   _dep            daily mean flow depths  
+
+
+
+
+  _sta            Short name used for this project 
+  _Date           Date     
+  _waterYear      Year following USGS water year format
+  _q1_depth       discharge depth in m/day
+  _q7_depth       7-day running average of q_depth
+  _q30_depth      30-day running average of q_depth 
+
 
 gage_meta           cleaned metadata for USGS gaging stations in the study area 
   "site_no"                site number     
@@ -176,14 +185,7 @@ wsd_summary     zonal statistics of watershed environmental parameters
 *  "_ksat_mean"   mean horizontal saturated hydraulic conductivity
 *  "_kvert_mean"  mean vertical saturated hydrologic conductivity 
 
-gage_table        summary of gage metadata for flextable 
-ung_table         summary of ungaged watershed metadata for flextable  
-soils_table       summary of geology, soils, and vegetation for flextable  
 
-the tables above use flextable control keys: 
-col_key_char      controls character elelements for flextables
-col_key_int       controls integer elelements for flextables
-col_key_num       controls numeric elelements for flextables
 
 gage_check        scratch variable used to check operations 
 gage_raw          the "raw" data, after removing the NA Qvals 
@@ -208,13 +210,7 @@ gage_dv_low       censored zero flows (q_val < 0.01)
 gage_dv_high      filtered non-zero flows -> join flows 
 gage_contrib_area used for converting Q [m3/s] -> q [m/day]
 
-gage_dv           the "main" daily mean flow values used in this .Rmd file 
-  _sta            Short name used for this project 
-  _Date           Date     
-  _waterYear      Year following USGS water year format
-  _q1_depth       discharge depth in m/day
-  _q7_depth       7-day running average of q_depth
-  _q30_depth      30-day running average of q_depth 
+
 
 pca_input         prcomp() input using gage_dv 
 pca_matrix        the matrix created by prcomp() 
@@ -283,9 +279,9 @@ library("assertthat")
 
 #library("dataRetrieval")    # USGS data import 
 #library("EGRET")            # Exploration and Graphics for RivEr Trends 
-#library("janitor")          # tools for examining and cleaning dirty data  
-#library("stringi")          # character string processing facilities 
-#library("sf")               # simple features--spatial geometries for R 
+#library("janitor")          # tools for examining and cleaning dirty data   
+#library("stringi")          # character string processing facilities  
+#library("sf")               # simple features--spatial geometries for R  
 
 
 # resolve conflicted packages----  
@@ -297,70 +293,10 @@ conflict_prefer("select", "dplyr")
 
 ``` 
 
-```{r PCA-calculations, eval=FALSE}  
-  
-# 1. Prepare to approach normality using forcast::BoxCox ---------------------  
- 
-# make dataframes of lambda values 
-lambda_q1  <- enframe(  
-  BoxCox.lambda(gage_dv$q1_depth)  
-  )   
+# Import streamflow data from 'streamflow_cleaning.Rmd'====  
+gage_dep <- import("data/gage_depth.csv")  
 
-lambda_q7  <- enframe( 
-  BoxCox.lambda(gage_dv$q7_depth) 
-  )   
 
-lambda_q30 <- enframe(  
-  BoxCox.lambda(gage_dv$q30_depth)  
-  ) 
-
-# join the dataframes & clean up   
-lambda_vals <- bind_cols(lambda_q1, lambda_q7, lambda_q30)  %>%  
-  select(-c(name1, name2)) %>% 
-  rename(lambda_q1  = value) %>%  
-  rename(lambda_q7  = value1) %>% 
-  rename(lambda_q30 = value2) 
-
-rm(lambda_q1, lambda_q7, lambda_q30)  
-
-# create a PCA input dataframe 
-pca_input <- gage_dv %>% 
-  mutate(q1_tr = BoxCox(.$q1_depth, lambda_vals$lambda_q1)) %>% 
-  mutate(q7_tr = BoxCox(.$q7_depth, lambda_vals$lambda_q7)) %>% 
-  mutate(q30_tr = BoxCox(.$q30_depth, lambda_vals$lambda_q30)) %>% 
-  dplyr::select(sta, Date, q1_tr, q7_tr, q30_tr)  
-
-# 2. calculate PCA matrix -----------------------------------------------------   
-pca_matrix <- pca_input %>%  
-  select(q1_tr, q7_tr, q30_tr) %>% 
-  prcomp(., center = TRUE, scale. = TRUE)      
-
-# 3. Gather & summarize PCA results ------------------------------------------ 
-pca_eigen <-tidy(pca_matrix, matrix = "pcs")       # results about PC axes 
-
-pca_vars <-  tidy(pca_matrix, matrix = "variables") %>%     # PCA loadings 
-  filter(PC != 3) %>%              
-  rename(var = column) %>% 
-  mutate(PC = as.character(PC)) %>% 
-  mutate(pc_stem = "PC") %>% 
-  unite("pc_axis", 
-        c("pc_stem", "PC"), 
-        sep = "", 
-        remove = TRUE 
-        ) %>%  
-  spread(pc_axis, value) %>% 
-  mutate(labels = c("q1", "q30", "q7")) 
-  
-gage_dv <- augment(pca_matrix, data = gage_dv) %>% 
-  select(-c(.rownames, .fittedPC3)) %>%       # bind sample vals to PCA matrix 
-      mutate(q1_q30_diff = q1_depth - q30_depth) 
-
-# 4. save results 
-export(gage_dv, "data/gage_dv_posthoc.csv")  
-export(pca_eigen, "data/pca_eigen.csv")  
-export(pca_vars, "data/pca_vars.csv")  
-
-```
 
 # bootstrapping 
 ```{r bootstrap, eval=FALSE}

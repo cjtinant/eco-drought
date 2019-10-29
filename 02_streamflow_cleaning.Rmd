@@ -376,8 +376,16 @@ export(gage_dv, "data/gage_dv.csv")
 
    
 # clean up  
-rm(startDate, endDate, parameter_cd, wsd_summary, names)  
-rm(gage_check, yr_incomp, gage_lonriv_dv, gage_most_dv)  
+rm(startDate,  
+   endDate,  
+   parameter_cd,  
+   wsd_summary,  
+   names,   
+   gage_check,  
+   yr_incomp,  
+   gage_lonriv_dv,  
+   gage_most_dv  
+   )  
   
 ```  
 
@@ -513,5 +521,102 @@ rm(gage_contrib_area)
 
 export(gage_depth, "data/gage_depth.csv")    
 ``` 
+
+```{r PCA-calculations, eval=FALSE}  
+
+# Prepare to approach normality using forcast::BoxCox----    
+# make a dataframe of lambda values====   
+lambda_q1  <- enframe(  
+  BoxCox.lambda(gage_dep$q1_depth)  
+  )   
+  
+lambda_q7  <- enframe(  
+  BoxCox.lambda(gage_dep$q7_depth)  
+  )   
+  
+lambda_q30 <- enframe(  
+  BoxCox.lambda(gage_dep$q30_depth)  
+  )  
+  
+lambda_vals <- bind_cols(lambda_q1,  
+                         lambda_q7,  
+                         lambda_q30  
+                         ) %>%   
+  select(-c(name1, name2)) %>%  
+  rename(lambda_q1  = value) %>%   
+  rename(lambda_q7  = value1) %>%  
+  rename(lambda_q30 = value2)  
+  
+rm(lambda_q1, lambda_q7, lambda_q30)    
+  
+# create a PCA input dataframe & PCA matrix====   
+pca_input <- gage_dep %>%  
+  mutate(q1_tr = BoxCox(.$q1_depth,  
+                        lambda_vals$lambda_q1)   
+         ) %>%  
+  mutate(q7_tr = BoxCox(.$q7_depth,  
+                        lambda_vals$lambda_q7)  
+         ) %>%  
+  mutate(q30_tr = BoxCox(.$q30_depth,  
+                         lambda_vals$lambda_q30)  
+         ) %>%  
+  select(sta,  
+         Date,  
+         q1_tr,  
+         q7_tr,  
+         q30_tr  
+         )    
+  
+pca_matrix <- pca_input %>%  
+  select(q1_tr,  
+         q7_tr,  
+         q30_tr  
+         ) %>%   
+  prcomp(.,  
+         center = TRUE,  
+         scale. = TRUE  
+         )        
+
+# Gather & summarize PCA results----  
+# results about PC axes  
+pca_eigen <- tidy(pca_matrix, 
+                  matrix = "pcs"  
+                  )       
+
+# PCA loadings 
+pca_vars <-  tidy(pca_matrix,  
+                  matrix = "variables"  
+                  ) %>%     
+  filter(PC != 3) %>%              
+  rename(var = column) %>%  
+  mutate(PC = as.character(PC)) %>%  
+  mutate(pc_stem = "PC") %>%  
+  unite("pc_axis",  
+        c("pc_stem",  
+          "PC"  
+          ),  
+        sep = "",  
+        remove = TRUE  
+        ) %>%   
+  spread(pc_axis,  
+         value) %>%  
+  mutate(labels = c("q1", "q30", "q7")  
+         )   
+  
+# Bind sample vals to PCA matrix  
+gage_dep <- augment(pca_matrix, 
+                   data = gage_dep  
+                   ) %>% 
+  select(-c(.rownames, 
+            .fittedPC3)
+         ) %>%       
+      mutate(q1_q30_diff = q1_depth - q30_depth) 
+
+# Save results 
+export(gage_dep, "data/gage_dep.csv")  
+export(pca_eigen, "data/pca_eigen.csv")  
+export(pca_vars, "data/pca_vars.csv")  
+
+```  
 
 
