@@ -1,0 +1,306 @@
+---
+title: "02_streamflow_cleaning"
+author: "CJ Tinant"
+date: "10/28/2019"
+output: html_document
+---
+
+<!--
+This R markdown file is for creating tables
+
+
+
+--> 
+
+```{r setup_&_library, message=FALSE}   
+  
+knitr::opts_chunk$set(echo = FALSE)     
+options(tibble.print_max = 70) # sets tibble output for printing        
+  
+# Sets up the library of packages   
+library("conflicted")        # An alternative conflict resolution strategy  
+library("here")              # identifies where to save work  
+library("dataRetrieval")     # USGS data import  
+library("EGRET")            # Exploration and Graphics for RivEr Trends  
+library("rio")               # more robust I/O - to import and clean data  
+library("sf")               # simple features--spatial geometries for R  
+library("tidyverse")  
+
+# resolve conflicted packages----  
+conflict_prefer("filter", "dplyr")  
+conflict_prefer("select", "dplyr")  
+  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+why_to_write <- function()   
+{today <- today(tzone = "") 
+paper2 <- ymd("2019-11-15")  
+until <- paper2 - today  
+print(paste("You have", until, "days until the second paper is due"  
+))  
+}  
+why_to_write()  
+  
+```  
+
+
+```{r prepare-table_gage_metadata, eval=FALSE} 
+   
+# prepare df for gaging station metadata  
+gage_table <- gage_meta %>%   
+  mutate(contrib_drain_area_va = 
+           coalesce(contrib_drain_area_va, drain_area_va) 
+  ) %>% 
+  mutate(alt_si = 
+           conv_unit(alt_va, "ft", "m") 
+         ) %>% 
+  mutate(contrib_drain_area_si = 
+           conv_unit(contrib_drain_area_va, "mi2", "km2") 
+         ) 
+
+gage_table$years_rec <-  as.integer(gage_table$years_rec) 
+
+gage_table <- gage_table %>% 
+select(site_no, station_nm, dec_lat_va, dec_long_va, alt_si, years_rec, 
+         contrib_drain_area_si) 
+
+# set column keys for flextable -- these variables also used below 
+col_key_num <-gage_table %>% 
+  select(dec_lat_va:alt_si, contrib_drain_area_si) %>% 
+  names() 
+
+col_key_int <-gage_table %>% 
+  select(years_rec, site_no) %>% 
+  names() 
+
+# convert tibble to a flextable 
+gage_table <- flextable(gage_table) %>% 
+  colformat_num(col_keys = col_key_num, 
+                big.mark=",", 
+                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(site_no = "Sta. Number", 
+                    station_nm = "Name", 
+                    dec_lat_va = "Latitude", 
+                    dec_long_va = "Longitude", 
+                    alt_si = "Elevation, m", 
+                    years_rec = "Years of Record", 
+                    contrib_drain_area_si = "Drainage Area, sq-km") %>% 
+  autofit() %>% 
+  theme_booktabs() 
+ 
+``` 
+
+```{r prepare-table_ungaged_metadata, eval=FALSE} 
+
+# prepare df for ungaged watershed metadata   
+ung_table <- wsd_summary %>% 
+  filter(type == "ungaged") %>%   
+  select(HUC12, sta_id, sta_name, dec_lat, dec_lon, cat_out, cat_area)   
+  
+# set column keys for flextable   
+col_key_num <- ung_table %>%  
+  select(dec_lat, dec_lon, cat_out, cat_area) %>%   
+  names() 
+  
+col_key_int <-ung_table %>%   
+  select() %>%  
+  names() 
+  
+# convert tibble to a flextable   
+ung_table <- flextable(ung_table) %>%   
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 1, na_str = "N/A") %>%  
+  set_header_labels(HUC12 = "Hydrologic Unit Code",  
+                    sta_id = "Station Id",   
+                    sta_name = "Name",  
+                    dec_lat = "Latitude",  
+                    dec_lon = "Longitude",  
+                    cat_out = "Elevation, m", 
+                    cat_area = "Drainage Area, sq-km") %>%  
+  autofit() %>%  
+  theme_booktabs() 
+ 
+``` 
+
+```{r prepare-table_soils, eval=FALSE} 
+
+# prepare data for soils table    
+soils_table <- tibble(   
+  order = c(6, 5, 4, 3, 2, 1),   
+  geo_age = c("Quaternary", "Tertiary", "Tertiary",   
+              "Tertiary", "Cretaceous", "Cretaceous"),   
+  geo_units = c("Eolean deposits", "Arikaree Group", "Arikaree Group",   
+            "White River Group", "Pierre Formation", "Inyan Kara Group"),   
+  ecoregion_lvl4	=  
+    c("Nebraska Sand Hills",  
+      "Keya Paha Tablelands",  
+      "Pine Ridge Escarpment",  
+      "White River Badlands", 
+      "Pierre Shale Plains",  
+      "Black Hills Foothills"),   
+  soil_order = c("Entisols",  
+                 "Entisols, Mollisols", 
+                 "Entisols, Mollisols",   
+                 "Aridisols, Entisols, Inceptisols",   
+                 "Mollisols",   
+                 "Alfisols, Entisols"),  
+  vegetation =   
+    c("Sand bluestem, Little bluestem, Prairie sandreed, Big bluestem, Switchgrass",   
+      "Blue grama, Sideoats grama, Western wheatgrass, Little bluestem, Needleandthread",   
+      "Ponderosa pine, Eastern redcedar, Western snowberry, Skunkbush sumac, Chokecherry, Prairie rose, Little bluestem, Western wheatgrass, Green needlegrass, Prairie sandreed",   
+    "Sand sagebrush, Silver sagebrush, Western wheatgrass, Blue gramma, Sideoats grama, Buffalograss",   
+    "Little bluestem, Buffalograss",  
+    "Ponderosa pine, Little bluestem, Western wheatgrass, Sideoats gramma")  
+    ) %>%   
+  arrange(order)  
+  
+# export table for import later   
+#export(soils_table, "data/soils_table.csv")  
+  
+#print.noquote(names(soils_table))  
+  
+# set column keys for flextable   
+col_key_char <- soils_table %>%   
+  select(geo_age, geo_units, ecoregion_lvl4, soil_order, vegetation) %>%   
+  names()   
+  
+# convert tibble to a flextable   
+soils_table <- flextable(soils_table) %>%  
+   colformat_char(col_keys = col_key_char) %>%  
+  set_header_labels(geo_age = "Geologic age",  
+                    geo_units = "Major geologic unit",  
+                    ecoregion_lvl4	= "Level IV ecoregion",  
+                    soil_order = "Soil order",   
+                    vegetation = "Major vegetation types") %>%  
+  autofit() %>%   
+  theme_booktabs()  
+  
+```  
+
+```{r prepare-table_hydro_metrics, eval=FALSE}  
+   
+# prepare df for hydrologic metric table    
+hydro_table <- wsd_summary %>%    
+  select(type, cat_area, lw_ratio, drain_dens, prcp_mean, t07_mean, vpd_ann,   
+         vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov, fc_mean,   
+         ksat_mean, kvert_mean) %>%   
+  gather(metric, value, -type) %>%   
+  group_by(metric, type) %>%   
+  summarize(max = max(value),   
+            median = median(value),   
+            min = min(value)) %>%   
+  ungroup() %>%   
+  modify_if(is.numeric, ~round(., digits = 1)) %>%   
+  gather(key, stat, -c(type, metric)) %>%   
+  unite_("combined", c("key","type")) %>%   
+  spread(combined, stat) %>%  
+  select(metric, max_gaged, median_gaged, min_gaged,   
+         max_ungaged, median_ungaged, min_ungaged)   
+  
+# add additional columns   
+hydro_tab2 <- tibble(metric = hydro_table$metric,   
+                     type = c("planimetric", "elevation", "elevation",  
+                              "planimetric", "soils", "soils", "soils",  
+                              "planimetric", "cover", "climate",  
+                              "elevation", "climate", "elevation", "climate",     
+                              "climate"),  
+                     transformation = c("1/ln(x)", "sqrt(x)", "sqrt(x)",  
+                                        "none", "none", "ln(x)", "ln(x)",  
+                                        "ln(x)", "ln(x)", "x^2", "ln(x)",  
+                                        "x^2", "x^2", "x^2", "x^2"),  
+                     description = c("catchment area",  
+                                     "catchment outlet elevation",  
+                                     "catchment relief",  
+                                     "drainage density",  
+                                     "field capacity",  
+                                     "forested area (proportion of catchment)",  
+                                     "horizontal saturated hydraulic   conductivity",  
+                                "vertical saturated hydraulic conductivity",   
+                                     "catchment length to width ratio",  
+                                     "mean annual precipitation",  
+                                     "median catchment slope",  
+                                     "mean July temperature",  
+                                     "mean topographic wetness index value",  
+                                     "July maximum vapor pressure deficit",  
+                                     "annual maximum vapor pressure deficit"),  
+                     units = c("hectares", "meters", "meters",   
+                               "km per square km", "meters per meter",  
+                               "sq. meters per sq. meter", "micrometers/sec",  
+                               "micrometers/sec", "meters per meter",  
+                               "millimeters", "percent", "Centigrade",  
+                               "dimensionless", "kilopascals", "kilopascals"),  
+                     base_data = c("USGS metadata & feature geometry", "NED",  
+                     "NED", "NED", "SSURGO", "NLCD", "SSURGO", "SSURGO",  
+                     "feature geometry", "PRISM", "NED", "PRISM", "NED",   
+                     "PRISM", "PRISM")  
+                     )   
+  
+hydro_table <- full_join(hydro_table, hydro_tab2,   
+                         by = "metric"  
+                         )    
+  
+hydro_table <- hydro_table %>%   
+  select(metric, type, transformation, description,   
+         units, base_data, everything()) %>%  
+  arrange(type)   
+  
+# set column keys & header labels for flextable   
+col_key_num <- hydro_table %>%   
+  select(-metric) %>%   
+  names()   
+  
+header_labels <- c(  
+    metric = "Indicator",   
+    type = "Indicator type",         
+    transformation = "Transformation",   
+    description = "Description",  
+    units = "Units",   
+    base_data = "Base data",     
+    max_gaged = "max",   
+    median_gaged = "median",   
+    min_gaged = "min",        
+    max_ungaged = "max",   
+    median_ungaged = "median",   
+    min_ungaged = "min"  
+    )     
+  
+top_row <- c("", "", "", "", "", "", "Gaged", "Gaged", "Gaged",  
+             "Ungaged", "ungaged", "Ungaged")    
+  
+hydro_table <- hydro_table %>%   
+  flextable() %>%   
+  theme_booktabs() %>%   
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 1, na_str = "N/A") %>%   
+  set_header_labels(values = header_labels) %>%  
+  add_header_row(values = top_row,   
+  top = TRUE) %>%   
+  merge_at(i = 1, j = 7:9, part = "header") %>%   
+  merge_at(i = 1, j = 10:12, part = "header") %>%   
+  autofit()   
+  
+hydro_table   
+  
+```  
+
+```{r export_flextables_as_docx, eval=FALSE}   
+  
+# export a docx of flextables    
+tables_ch2 <- read_docx() %>%   
+  body_add_flextable(value = gage_table)  %>%  
+  body_add_break() %>%   
+  body_add_flextable(value = ung_table) %>%   
+  body_add_break() %>%  
+  body_add_flextable(value = soils_table) %>%  
+  body_add_break() %>%  
+  body_add_flextable(value = hydro_table)  
+  
+print(tables_ch2, target = "output/tables_ch2.docx") 
+  
+rm(col_key_char, col_key_int, col_key_num, header_labels, names, top_row, 
+   ung_summary)  
+rm(gage_table, soils_table, ung_table, tables_ch2) 
+  
+```  
+
