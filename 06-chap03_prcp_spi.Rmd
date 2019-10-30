@@ -1179,7 +1179,7 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 ```  
 -->
 
-```{r compare_locations}  
+```{r compare_precip_locations}  
 
 # the bootstrapping showed there is some difference between past & present  
 sta_pres <- sta_mon %>%  
@@ -1246,8 +1246,10 @@ rm(nw,
 rm(sta_mon)
 ```
 
+```{r import_streamflow}
+gage_mon_full <- import("data/gage_mon_full.csv")  
 
-
+```
 
 # L-moments 
 ```{r lmoments, include=FALSE, eval=FALSE}
@@ -1427,8 +1429,8 @@ rm(lmom_theo
 
 ```  
 
-# calculate SPI  
-```{r spi_prepare, eval=FALSE}
+# calculate SCI  
+```{r SCI_prepare, eval=FALSE}
   
 # fitSCI identifies Standardized Climate Index (SCI) parameters----      
 #   some notes about the SCI package:   
@@ -1446,8 +1448,8 @@ warn_me    <- TRUE  # sets explicit warning
 first_mon  <- 1     # Set first month for each station  
 sci.limit  <- 3     # Sets a limit of [-3, 3] for limit  
   
-# spi function====                                         
-spi.fun <- function(sta, time_scale) fitSCI( x = sta,   
+# sci function====                                         
+sci.fun <- function(sta, time_scale) fitSCI( x = sta,   
                                              start.fun.fix  = TRUE,   
                                              time.scale     = time_scale,   
                                              first.mon      = first_mon,  
@@ -1459,6 +1461,555 @@ spi.fun <- function(sta, time_scale) fitSCI( x = sta,
                                              warn	         = warn_me    
 )  
   
+```  
+
+```{r calculate_SPI}
+  
+# prepare spi function vector inputs (1986-2018)----   
+# north-west (NW)   
+sta_rap <- sta_pres %>%  
+  arrange(date) %>%  
+  filter(sta == "RAP")   
+  
+rap <- as.double(sta_rap$prcp)   
+  
+# north-central (NC)  
+sta_cot <- sta_pres %>%  
+  arrange(date) %>% 
+  filter(sta == "COT")   
+  
+cot <- as.double(sta_cot$prcp)   
+
+# north-east (NE)  
+sta_oni <- sta_pres %>%  
+  arrange(date) %>% 
+  filter(sta == "ONI")    
+  
+oni <- as.double(sta_oni$prcp)   
+
+# south-west (SW)  
+sta_oel <- sta_pres %>%  
+  arrange(date) %>% 
+  filter(sta == "OEL")   
+  
+oel <- as.double(sta_oel$prcp)   
+
+# south-central (SC)  
+sta_gor <- sta_pres %>%  
+  arrange(date) %>% 
+  filter(sta == "GOR")    
+  
+gor <- as.double(sta_gor$prcp)   
+
+# south-east (SE)  
+sta_mis <- sta_pres %>%  
+  arrange(date) %>% 
+  filter(sta == "MIS")   
+  
+mis <- as.double(sta_mis$prcp)   
+
+# calculate SPI-rap----  
+# set up the station for spi & make spi list vars====  
+sta      <- rap  
+spi_1mo  <- spi.fun(sta, 1)                             
+spi_2mo  <- spi.fun(sta, 2)                             
+spi_3mo  <- spi.fun(sta, 3)                             
+spi_4mo  <- spi.fun(sta, 4)    
+spi_6mo  <- spi.fun(sta, 6)    
+spi_9mo  <- spi.fun(sta, 9)    
+spi_12mo <- spi.fun(sta, 12)   
+  
+# Apply the transformation identified by fitSCI function====  
+spi_1mo  <- transformSCI(sta,    
+                         first.mon = first_mon,  
+                         obj       = spi_1mo) %>%  
+  enframe(name                     = NULL)   
+  
+spi_2mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_2mo) %>%   
+  enframe(name                     = NULL)  
+  
+spi_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = spi_3mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_4mo  <- transformSCI(sta,    
+                         first.mon = first_mon,   
+                         obj       = spi_4mo) %>%  
+  enframe(name                     = NULL)    
+  
+spi_6mo  <- transformSCI(sta,   
+                         first.mon = first_mon,  
+                         obj       = spi_6mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = spi_9mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_12mo) %>%   
+  enframe(name                     = NULL)   
+  
+# bind and rename the spi vals====     
+spi_rap <- bind_cols(sta_rap,     
+                     spi_1mo,   
+                     spi_2mo,   
+                     spi_3mo,  
+                     spi_4mo,   
+                     spi_6mo,  
+                     spi_9mo,   
+                     spi_12mo  
+) %>%      
+  rename(spi_1mo = value)   %>%  
+  rename(spi_2mo = value1)  %>%   
+  rename(spi_3mo = value2)  %>%  
+  rename(spi_4mo = value3)  %>%   
+  rename(spi_6mo = value4)  %>%   
+  rename(spi_9mo = value5)  %>%  
+  rename(spi_12mo = value6) 
+  
+# clean up global environment====  
+rm(spi_1mo,  
+   spi_2mo,  
+   spi_3mo,  
+   spi_4mo,   
+   spi_6mo,  
+   spi_9mo,  
+   spi_12mo  
+   )      
+rm(sta_rap, rap)   
+  
+# calculate SPI-cot----  
+# set up the station for spi & make spi list vars   
+sta      <- cot  
+spi_1mo  <- spi.fun(sta, 1)                               
+spi_2mo  <- spi.fun(sta, 2)                             
+spi_3mo  <- spi.fun(sta, 3)                            
+spi_4mo  <- spi.fun(sta, 4)    
+spi_6mo  <- spi.fun(sta, 6)   
+spi_9mo  <- spi.fun(sta, 9)   
+spi_12mo <- spi.fun(sta, 12)  
+  
+# Apply the transformation identified by fitSCI function    
+spi_1mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_1mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_2mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_2mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_3mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_4mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_4mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_6mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_6mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_9mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_12mo) %>%  
+  enframe(name                     = NULL)  
+
+# bind and rename the spi vals     
+spi_cot <- bind_cols(sta_cot,     
+                     spi_1mo,  
+                     spi_2mo,   
+                     spi_3mo,  
+                     spi_4mo,  
+                     spi_6mo,  
+                     spi_9mo,   
+                     spi_12mo   
+) %>%    
+  rename(spi_1mo = value)   %>%  
+  rename(spi_2mo = value1)  %>%  
+  rename(spi_3mo = value2)  %>%  
+  rename(spi_4mo = value3)  %>%  
+  rename(spi_6mo = value4)  %>%  
+  rename(spi_9mo = value5)  %>%   
+  rename(spi_12mo = value6) 
+
+# clean up global environment  
+rm(spi_1mo,  
+   spi_2mo,  
+   spi_3mo,  
+   spi_4mo,  
+   spi_6mo,  
+   spi_9mo,  
+   spi_12mo  
+   )     
+rm(sta_cot, cot)  
+
+# calculate SPI-oni----  
+# set up the station for spi & make spi list vars     
+sta      <- oni    
+spi_1mo  <- spi.fun(sta, 1)                              
+spi_2mo  <- spi.fun(sta, 2)                             
+spi_3mo  <- spi.fun(sta, 3)                            
+spi_4mo  <- spi.fun(sta, 4)   
+spi_6mo  <- spi.fun(sta, 6)   
+spi_9mo  <- spi.fun(sta, 9)   
+spi_12mo <- spi.fun(sta, 12)  
+
+# Apply the transformation identified by fitSCI function      
+spi_1mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_1mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_2mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_2mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_3mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_4mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_4mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_6mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_6mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_9mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_12mo) %>%  
+  enframe(name                     = NULL)  
+
+# bind and rename the spi vals     
+spi_oni <- bind_cols(sta_oni,     
+                     spi_1mo,  
+                     spi_2mo,   
+                     spi_3mo,  
+                     spi_4mo,  
+                     spi_6mo,  
+                     spi_9mo,  
+                     spi_12mo  
+) %>%  
+  rename(spi_1mo = value)   %>%  
+  rename(spi_2mo = value1)  %>%  
+  rename(spi_3mo = value2)  %>%  
+  rename(spi_4mo = value3)  %>%  
+  rename(spi_6mo = value4)  %>%  
+  rename(spi_9mo = value5)  %>%  
+  rename(spi_12mo = value6)  
+
+# clean up global environment  
+rm(spi_1mo,  
+   spi_2mo,  
+   spi_3mo,  
+   spi_4mo,  
+   spi_6mo,  
+   spi_9mo,  
+   spi_12mo  
+   )    
+rm(sta_oni, oni)  
+
+# calculate SPI-oel----  
+# set up the station for spi & make spi list vars  
+sta      <- oel  
+spi_1mo  <- spi.fun(sta, 1)                              
+spi_2mo  <- spi.fun(sta, 2)                             
+spi_3mo  <- spi.fun(sta, 3)                            
+spi_4mo  <- spi.fun(sta, 4)   
+spi_6mo  <- spi.fun(sta, 6)   
+spi_9mo  <- spi.fun(sta, 9)    
+spi_12mo <- spi.fun(sta, 12)  
+
+# Apply the transformation identified by fitSCI function       
+spi_1mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj = spi_1mo) %>%  
+  enframe(name = NULL)  
+
+spi_2mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj = spi_2mo) %>%  
+  enframe(name = NULL)  
+
+spi_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj = spi_3mo) %>%  
+  enframe(name = NULL)  
+
+spi_4mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj = spi_4mo) %>%  
+  enframe(name = NULL)  
+
+spi_6mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj = spi_6mo) %>%  
+  enframe(name = NULL)  
+
+spi_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj = spi_9mo) %>%  
+  enframe(name = NULL)  
+
+spi_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj = spi_12mo) %>%  
+  enframe(name = NULL)  
+  
+# bind and rename the spi vals   
+spi_oel <- bind_cols(sta_oel,     
+                     spi_1mo,  
+                     spi_2mo,   
+                     spi_3mo,  
+                     spi_4mo,  
+                     spi_6mo,   
+                     spi_9mo,    
+                     spi_12mo  
+) %>%   
+  rename(spi_1mo = value)   %>%  
+  rename(spi_2mo = value1)  %>%  
+  rename(spi_3mo = value2)  %>%  
+  rename(spi_4mo = value3)  %>%  
+  rename(spi_6mo = value4)  %>%  
+  rename(spi_9mo = value5)  %>%  
+  rename(spi_12mo = value6)      
+
+# clean up global environment        
+rm(spi_1mo,  
+   spi_2mo,  
+   spi_3mo,  
+   spi_4mo,  
+   spi_6mo,  
+   spi_9mo,  
+   spi_12mo  
+   )    
+rm(sta_oel, oel)    
+  
+# calculate SPI-gor----  
+# set up the station for spi & make spi list vars  
+sta      <- gor    
+spi_1mo  <- spi.fun(sta, 1)                              
+spi_2mo  <- spi.fun(sta, 2)                             
+spi_3mo  <- spi.fun(sta, 3)                            
+spi_4mo  <- spi.fun(sta, 4)   
+spi_6mo  <- spi.fun(sta, 6)   
+spi_9mo  <- spi.fun(sta, 9)   
+spi_12mo <- spi.fun(sta, 12)  
+
+# Apply the transformation identified by fitSCI function        
+spi_1mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_1mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_2mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_2mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_3mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_4mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_4mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_6mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_6mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_9mo) %>%  
+  enframe(name                     = NULL)  
+
+spi_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_12mo) %>%  
+  enframe(name                     = NULL)  
+  
+# bind and rename the spi vals      
+spi_gor <- bind_cols(sta_gor,     
+                     spi_1mo,  
+                     spi_2mo,   
+                     spi_3mo,  
+                     spi_4mo,  
+                     spi_6mo,  
+                     spi_9mo,   
+                     spi_12mo     
+) %>%  
+  rename(spi_1mo = value)   %>%  
+  rename(spi_2mo = value1)  %>%  
+  rename(spi_3mo = value2)  %>%  
+  rename(spi_4mo = value3)  %>%  
+  rename(spi_6mo = value4)  %>%  
+  rename(spi_9mo = value5)  %>%  
+  rename(spi_12mo = value6)    
+
+# clean up global environment    
+rm(spi_1mo,   
+   spi_2mo,  
+   spi_3mo,   
+   spi_4mo,  
+   spi_6mo,  
+   spi_9mo,  
+   spi_12mo   
+   )    
+rm(sta_gor, gor)    
+  
+# calculate SPI-mis----  
+# set up the station for spi & make spi list vars  
+sta      <- mis  
+spi_1mo  <- spi.fun(sta, 1)                              
+spi_2mo  <- spi.fun(sta, 2)                             
+spi_3mo  <- spi.fun(sta, 3)                            
+spi_4mo  <- spi.fun(sta, 4)    
+spi_6mo  <- spi.fun(sta, 6)   
+spi_9mo  <- spi.fun(sta, 9)   
+spi_12mo <- spi.fun(sta, 12)  
+  
+# Apply the transformation identified by fitSCI function     
+spi_1mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_1mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_2mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_2mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_3mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_4mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_4mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_6mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_6mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_9mo) %>%  
+  enframe(name                     = NULL)  
+  
+spi_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = spi_12mo) %>%  
+  enframe(name                     = NULL)  
+  
+# bind and rename the spi vals     
+spi_mis <- bind_cols(sta_mis,     
+                     spi_1mo,  
+                     spi_2mo,   
+                     spi_3mo,  
+                     spi_4mo,  
+                     spi_6mo,  
+                     spi_9mo,   
+                     spi_12mo   
+) %>%  
+  rename(spi_1mo = value)   %>%  
+  rename(spi_2mo = value1)  %>%  
+  rename(spi_3mo = value2)  %>%  
+  rename(spi_4mo = value3)  %>%  
+  rename(spi_6mo = value4)  %>%  
+  rename(spi_9mo = value5)  %>%  
+  rename(spi_12mo = value6) 
+  
+# clean up global environment  
+rm(spi_1mo,  
+   spi_2mo,  
+   spi_3mo,  
+   spi_4mo,  
+   spi_6mo,  
+   spi_9mo,  
+   spi_12mo   
+   )   
+rm(sta_mis, mis)      
+  
+# join spi data----  
+spi_sta <- bind_rows(spi_rap,  
+                 spi_cot,  
+                 spi_oni,  
+                 spi_oel,  
+                 spi_gor,  
+                 spi_mis,  
+                 ) %>% 
+  select(-c(Period, group)) %>%  
+    # truncate spi vals to [-3, 3]    
+  gather(key = type, val = value, -c(sta, date, yr, prcp)) %>%  
+  mutate(value = case_when(     
+    value < -3.0 ~ -3.0,    
+    value >  3.0 ~  3.0,  
+    TRUE ~ value)) %>%  
+  spread(type, value) %>%    
+  # move the longer spi-values to the end of the df    
+  select(-spi_12mo, spi_12mo)    
+  
+# export spi data        
+export(spi_sta, "data/spi_sta.csv")  
+
+# clean up workspace    
+rm(distrib,  
+   first_mon,   
+   p_zero,   
+   p_zero_cm,   
+   scale,   
+   sci.limit,   
+   sta,   
+   time_scale,   
+   warn_me,  
+   spi.fun,  
+   spi_cot,  
+   spi_gor,  
+   spi_mis,  
+   spi_oel,  
+   spi_oni,  
+   spi_rap, 
+   sta_pres  
+   )         
+
+```  
+
+```{r calculate_SCI}
+
 # prepare spi function vector inputs (1986-2018)----   
 # north-west (NW)   
 sta_rap <- sta_pres %>%  
@@ -2000,10 +2551,11 @@ rm(distrib,
    sta_pres  
    )         
 
-```  
+``` 
 
-# Identify seasonality & trend of precipitation data 
-```{r make stl decomp function}  
+
+# Identify seasonality & trend of SCI data 
+```{r make_stl-decomp_function}  
   
 # make function to decompose into seasonal, trend, & remainder----  
 #    the target is 'groups'   
