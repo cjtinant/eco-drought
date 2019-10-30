@@ -73,10 +73,15 @@ options(tibble.print_max = 70) # sets tibble output for printing
 library("conflicted")        # An alternative conflict resolution strategy  
 library("here")              # identifies where to save work  
 library("dataRetrieval")     # USGS data import  
-library("EGRET")            # Exploration and Graphics for RivEr Trends  
+library("EGRET")             # Exploration and Graphics for RivEr Trends  
 library("rio")               # more robust I/O - to import and clean data  
-library("sf")               # simple features--spatial geometries for R  
+library("sf")                # simple features--spatial geometries for R  
+library("lubridate")         # easier dates 
+library("forecast")          # for BoxCox.lambda 
+library("stringi")           # character string processing facilities  
+library("broom")             # convert statistical objs into tidy tibbles 
 library("tidyverse")  
+
 
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
@@ -94,7 +99,6 @@ why_to_write()
 
 ```  
 
-# data cleaning 
 ```{r import_daily_flow_metadata, eval=FALSE}  
 
 # get possible stations from NWIS website----  
@@ -524,6 +528,8 @@ export(gage_depth, "data/gage_depth.csv")
 
 ```{r PCA-calculations, eval=FALSE}  
 
+gage_dep <- import("data/gage_depth.csv") 
+
 # Prepare to approach normality using forcast::BoxCox----    
 # make a dataframe of lambda values====   
 lambda_q1  <- enframe(  
@@ -610,13 +616,141 @@ gage_dep <- augment(pca_matrix,
   select(-c(.rownames, 
             .fittedPC3)
          ) %>%       
-      mutate(q1_q30_diff = q1_depth - q30_depth) 
-
-# Save results 
+      mutate(q1_q30_diff = q1_depth - q30_depth)  
+  
+# Save results  
 export(gage_dep, "data/gage_dep.csv")  
 export(pca_eigen, "data/pca_eigen.csv")  
-export(pca_vars, "data/pca_vars.csv")  
+export(pca_vars, "data/pca_vars.csv")   
 
+rm(pca_eigen, pca_input, pca_matrix, pca_vars, lambda_vals)  
+  
 ```  
 
+```{r add_ecoreg_&_metadata}
+
+# 1. read in shapefile data of intersection of watershed area &  
+# merged SD, NE, WY ecoregions----  
+ecoreg <- st_read("sp_data/ecoreg_int.shp",  
+                       as_tibble = TRUE) %>%  
+  st_drop_geometry() %>%                       #  we only want the data table  
+  mutate_if(is.factor, as.character) %>%   
+  rename(ecoreg_L4 = US_L4NAME) %>%     
+  rename(ecoreg_L3 = US_L3NAME) %>%  
+  rename(ecoreg_L2 = NA_L2NAME) %>%  
+  rename(ecoreg_L1 = NA_L1NAME) %>%  
+  rename(area_km = Shape_Area) %>%   
+  select(sta_id, watshed, ecoreg_L4, ecoreg_L3,  
+         ecoreg_L2, ecoreg_L1, area_km) %>%  
+# prep for gather -> change title case  
+  mutate(grouped_id = row_number()) %>%  
+  gather(key, val, -c(sta_id, watshed, grouped_id)) %>%  
+  mutate(val = stri_trans_totitle(val)) %>%  
+  spread(key, val) %>%  
+  select(-grouped_id) %>%  
+  mutate(area_km = as.numeric(area_km)  # round the areas  
+         ) %>%  
+  mutate(area_km = round(area_km, digits = 2)  
+         )%>%  
+# get percentages by ecoregion  
+  group_by(sta_id) %>%  
+  mutate(area_tot = sum(area_km)) %>%  
+  mutate(area_perc = round(  
+    area_km / area_tot,  
+    digits = 2)  
+  ) %>%  
+  ungroup() %>%  
+  filter(area_perc > 0.10) %>%   
+  arrange(  
+    desc(area_perc)  
+    ) %>%  
+  arrange(sta_id) %>%  
+  select(sta_id, area_perc, ecoreg_L4,  
+         ecoreg_L3, ecoreg_L2, ecoreg_L1, watshed)  
+  
+# 2. generalize ecoregions using max percentage & percentage near the gage  
+ecoreg <- ecoreg %>%  
+  group_by(sta_id) %>%   
+  arrange(sta_id, desc(area_perc)) %>%  
+  # make a default pick based on the max %  
+  mutate(ecoreg_wtsd = head(ecoreg_L4, 1) ) %>%  
+  # refine the pick based on expert knowlege & percentage near the gage  
+  mutate(  
+    ecoreg_wtsd =   
+           case_when(  
+             sta_id == "bat_bhr" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "blp_bel" ~ "White River Badlands",   
+             sta_id == "che_buf" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_pla" ~ "Semiarid Pierre Shale Plains",   
+             sta_id == "che_red" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_sce" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_was" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "lcr_bel" ~ "Sand Hills",      
+             sta_id == "lwr_aro" ~ "Sand Hills",  
+             sta_id == "lwr_mar" ~ "Sand Hills",  
+             sta_id == "lwr_ros" ~ "Sand Hills",  
+             sta_id == "lwr_vet" ~ "Sand Hills",  
+             sta_id == "lwr_whi" ~ "Sand Hills",  
+             sta_id == "spr_her" ~ "Black Hills Plateau",   
+             sta_id == "whi_int" ~ "White River Badlands",  
+             sta_id == "whi_kad" ~ "White River Badlands",  
+             sta_id == "whi_oac" ~ "Subhumid Pierre Shale Plains",   
+                           TRUE ~ ecoreg_wtsd)  
+   ) %>%   
+  select(sta_id, ecoreg_wtsd, everything()) %>%   
+  group_by(sta_id) %>%   
+  distinct(ecoreg_wtsd, .keep_all = TRUE) %>%   
+  # generalize the Pierre shale   
+  mutate(  
+    ecoreg_wtsd =   
+           case_when(  
+             ecoreg_wtsd ==  
+               "Semiarid Pierre Shale Plains" ~ "Pierre Shale Plains",  
+             ecoreg_wtsd ==  
+               "Subhumid Pierre Shale Plains" ~ "Pierre Shale Plains", 
+                           TRUE ~ ecoreg_wtsd)  
+   ) %>%  
+  ungroup %>%  
+  arrange(ecoreg_wtsd)  
+  
+# 3. join ecoregions to gage_dv  
+eco_join <- ecoreg %>%  
+  select(sta = sta_id, ecoreg = ecoreg_wtsd)  
+  
+gage_dep <- full_join(gage_dep, eco_join,  
+                  by = "sta")  
+
+rm(eco_join, ecoreg) 
+
+```   
+
+```{r daily_to_monthly_depth}
+
+# average daily depths into monthly mean depths----    
+gage_mon <- gage_dep %>%  
+  mutate(yr = year(Date)) %>% 
+  mutate(mon = month(Date)) %>%  
+  mutate(q30_q1_diff = q30_depth - q1_depth) %>%  
+  group_by(sta, mon, yr) %>% 
+  summarize(waterYear = first(waterYear),   
+            q1_mon     = mean(q1_depth), 
+            q7_mon     = mean(q7_depth), 
+            q30_mon    = mean(q30_depth),           
+            PC1_mon    = mean(.fittedPC1), 
+            PC2_mon    = mean(.fittedPC2), 
+            q30_q1_mon = mean(abs(q30_q1_diff)),  
+            ecoreg      = first(ecoreg) 
+  ) %>% 
+  mutate(day = 15) %>%   
+  ungroup() %>% 
+  unite("Date", c("yr", "mon", "day")) %>% 
+  mutate(Date = ymd(Date)) %>% 
+  gather(key = axis, value = PCval, 
+         -c(sta, Date, waterYear, ecoreg, q1_mon, 
+            q7_mon, q30_mon, q30_q1_mon) 
+  )  %>%   
+  as_tibble() 
+
+export(gage_mon, "data/gage_mon.csv")  
+```
 

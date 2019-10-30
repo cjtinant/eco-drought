@@ -263,8 +263,6 @@ library("lubridate")        # easier dates
 library("measurements")     # eases measurement system manipulation 
 library("flextable")        # construct complex table with 'kable'  
 library("officer")          # facilitates '.docx' access for table export  
-library("forecast")         # for BoxCox.lambda 
-library("tidyverse")        # data munging tools 
 library("broom")            # convert statistical objs into tidy tibbles 
 library("ggfortify")        # data vis tools for statistical analysis 
 library("anomalize")        # detect anomalies using the tidyverse  
@@ -276,47 +274,49 @@ library("dabestr")          # data analysis using bootstrap estimation
 library("Metrics")          # evaluation metrics for machine learning  
 library("DataExplorer") #--- used for plot_correlation() --- 
 library("assertthat") 
+library("tidyverse")        # data munging tools 
 
 #library("dataRetrieval")    # USGS data import 
 #library("EGRET")            # Exploration and Graphics for RivEr Trends 
 #library("janitor")          # tools for examining and cleaning dirty data   
-#library("stringi")          # character string processing facilities  
-#library("sf")               # simple features--spatial geometries for R  
 
+#library("sf")               # simple features--spatial geometries for R  
+# library("mathpix")                # support for 'Mathpix' image to 'LaTeX'   
+# library("cowplot") 
 
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
- 
-# library("mathpix")                # support for 'Mathpix' image to 'LaTeX'   
-# library("cowplot") 
 
-``` 
-
-# Import streamflow data from 'streamflow_cleaning.Rmd'====  
-gage_dep <- import("data/gage_depth.csv")  
-
-
-
-# bootstrapping 
-```{r bootstrap, eval=FALSE}
-
-# Construct bootstrap confidence intervals of PC axes to identify a difference 
-#   in means 
-#
 # Notes on dabest
 # dabest for monthly scale (14,027 obs; 40,000 reps) takes ~2 hours.  
 # even with increasing memory, I ran into a memory allocation 
 #  limit at 50,000 reps
 
 # increase memory allocation for dabest() 
-usethis::edit_r_environ("project") 
+# usethis::edit_r_environ("project") 
+
+``` 
+
+
+```{r immport_streamflow}
+
+# Import streamflow data from 'streamflow_cleaning.Rmd'====  
+gage_dep <- import("data/gage_depth.csv")  
+
+```
+
+
+
+# bootstrapping 
+```{r bootstrap, eval=FALSE}
+
+# Construct bootstrap confidence intervals of PC axes to identify 
+#   a difference in means 
 
 # remove 'leftover' attributes introduced by stl 
 gage_mon <- gage_mon %>% 
   as_tibble() 
-
-# shorten names of ecoregion to fix overplotting 
 
 # calculate 95% CI for PC1 - 'control' is Pierre Shale Plains 
 ci_input_pc1 <- gage_mon %>%      
@@ -362,7 +362,7 @@ ci_plot_pc1 <- plot(ci_input_pc1,
                     tick.fontsize = 7, 
                     axes.title.fontsize = 11, 
                     palette = "Greys"  
-                    )    
+)    
 
 ci_plot_pc2 <- plot(ci_input_pc2, 
                     rawplot.type = "swarmplot", 
@@ -370,7 +370,7 @@ ci_plot_pc2 <- plot(ci_input_pc2,
                     tick.fontsize = 7, 
                     axes.title.fontsize = 11, 
                     palette = "Greys"  
-                    )    
+)    
 
 cowplot::plot_grid( 
   ci_plot_pc1,
@@ -381,9 +381,9 @@ cowplot::plot_grid(
 # save the plot 
 
 cowplot::ggsave2("figure/ci_plot.png", 
-        units = "in",  
-        width = 7, 
-        height = 9) 
+                 units = "in",  
+                 width = 7, 
+                 height = 9) 
 
 rm(ci_plot_pc1, ci_plot_pc2)
 ```
@@ -394,7 +394,7 @@ rm(ci_plot_pc1, ci_plot_pc2)
 ci_results_pc1 <- ci_input_pc1 %>% 
   pluck("result") %>% 
   select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
-  
+
 ci_results_pc2 <- ci_input_pc2 %>% 
   pluck("result") %>% 
   select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
@@ -406,17 +406,17 @@ ci_table <- ci_table %>%
   mutate(variable =  case_when( 
     variable == "observed_PC1" ~ "PC1", 
     variable == "observed_PC2" ~ "PC2"    
-    )
-    ) %>% 
+  )
+  ) %>% 
   mutate(ci = as.integer(ci)) %>% 
   select(variable, everything())
 
 # convert tibble to a flextable after fixing vars for presentation 
 ci_table <- ci_table %>% 
   flextable() %>% 
-#  colformat_num(col_keys = col_key_num, 
-#                big.mark=",", 
-#                digits = 1, na_str = "N/A") %>% 
+  #  colformat_num(col_keys = col_key_num, 
+  #                big.mark=",", 
+  #                digits = 1, na_str = "N/A") %>% 
   set_header_labels(control_group = "Control Group", 
                     test_group = "Test Groups", 
                     control_size = "Control Size",
@@ -431,7 +431,7 @@ ci_table <- ci_table %>%
   align(., part = "all", align = "center") %>% 
   theme_booktabs() 
 
-  
+
 ci_table2 <- read_docx() %>% 
   body_add_flextable(value = ci_table)  
 
@@ -446,39 +446,16 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 
 # 1. prep to deconvolute PC eigens into trend, seasonal, & random comps. ---- 
 
-# 1.1. dv plots too busy -- scaling daily flow values into monthly mean depths  
-gage_mon <- gage_dv %>%  
-  mutate(yr = year(Date)) %>% 
-  mutate(mon = month(Date)) %>%  
-  mutate(q30_q1_diff = q30_depth - q1_depth) %>%  
-  group_by(sta, mon, yr) %>% 
-  summarize(waterYear = first(waterYear),   
-            q1_mon     = mean(q1_depth), 
-            q7_mon     = mean(q7_depth), 
-            q30_mon    = mean(q30_depth),           
-            PC1_mon    = mean(.fittedPC1), 
-            PC2_mon    = mean(.fittedPC2), 
-            q30_q1_mon = mean(abs(q30_q1_diff)),  
-            ecoreg      = first(ecoreg) 
-            ) %>% 
-  mutate(day = 15) %>%   
-  ungroup() %>% 
-  unite("Date", c("yr", "mon", "day")) %>% 
-  mutate(Date = ymd(Date)) %>% 
-  gather(key = axis, value = PCval, 
-         -c(sta, Date, waterYear, ecoreg, q1_mon, 
-            q7_mon, q30_mon, q30_q1_mon) 
-         )  %>% 
-  as_tibble() 
+
 
 # 2. calculate parameters to remove season & trend from observed vals ----
 # 2.1. find the average monthly frequency & enframe 
 mon_freq <- gage_mon  %>% 
-      select(-c(waterYear,ecoreg)) %>%  
+  select(-c(waterYear,ecoreg)) %>%  
   arrange(Date) %>% 
   unite(sta_axis, c(sta, axis), sep = ".") %>% 
-    ungroup() %>%                       # not sure what this is for.... 
-    split(.$sta_axis) %>% 
+  ungroup() %>%                       # not sure what this is for.... 
+  split(.$sta_axis) %>% 
   map_dfc(~ time_frequency( 
     period = "auto", data = .) 
   ) %>% 
@@ -487,15 +464,15 @@ mon_freq <- gage_mon  %>%
             max = max(freq),
             min = min(freq), 
             sd = sd(freq)
-            ) 
+  ) 
 
 # 2.2. find the average monthly trend by sta 
 mon_trend_sta <- gage_mon  %>% 
-      select(-c(waterYear,ecoreg)) %>%  
+  select(-c(waterYear,ecoreg)) %>%  
   arrange(Date) %>% 
   unite(sta_axis, c(sta, axis), sep = ".") %>% 
-    ungroup() %>%                       # not sure what this is for.... 
-    split(.$sta_axis) %>% 
+  ungroup() %>%                       # not sure what this is for.... 
+  split(.$sta_axis) %>% 
   map_dfc(~ time_trend( 
     period = "auto", data = .) 
   ) %>% 
@@ -516,20 +493,20 @@ rm(mon_freq, mon_trend, eco_join)
 # 3. make function to decompose into seasonal, trend, & remainder -------------  
 decomp_fun <- function(df) { 
   arrange(df, .data$Date) %>% 
-  group_by(.data$sta) %>% 
-  time_decompose( 
-    target  = PCval, 
-    data         = ., 
-    method       = "stl", 
-    frequency    = decomp_input$freq, 
-    trend        = decomp_input$trend, 
-    merge        = TRUE, 
-    message      = TRUE 
+    group_by(.data$sta) %>% 
+    time_decompose( 
+      target  = PCval, 
+      data         = ., 
+      method       = "stl", 
+      frequency    = decomp_input$freq, 
+      trend        = decomp_input$trend, 
+      merge        = TRUE, 
+      message      = TRUE 
     ) %>% 
-  ungroup() %>% 
-  anomalize(remainder, 
-            method = "gesd", 
-            alpha = 0.003) 
+    ungroup() %>% 
+    anomalize(remainder, 
+              method = "gesd", 
+              alpha = 0.003) 
 }
 
 # 3.1 map_dfr causes issues with indexing; using a manual split and combine  
@@ -545,14 +522,14 @@ gage_mon2 <- decomp_fun(gage_mon2)
 # prepare to rejoin the dataframes 
 gage_mon0 <- gage_mon1 %>% 
   select(sta:ecoreg) 
-  
+
 gage_mon1 <- gage_mon1 %>% 
   select(sta, Date, PCval:anomaly) %>% 
   rename(mon = PCval) %>% 
   rename_all(paste0, "_PC1") %>% 
   rename(sta = sta_PC1) %>% 
   rename(Date = Date_PC1)
-  
+
 gage_mon2 <- gage_mon2 %>% 
   select(sta, Date, PCval:anomaly) %>% 
   rename(mon = PCval) %>% 
@@ -562,12 +539,12 @@ gage_mon2 <- gage_mon2 %>%
 
 # join the datatables   
 gage_mon1 <- full_join(gage_mon0, gage_mon1, 
-                  by = c("sta", "Date")
-                  ) 
+                       by = c("sta", "Date")
+) 
 
 gage_mon <- full_join(gage_mon1, gage_mon2, 
-                  by = c("sta", "Date")
-                  ) 
+                      by = c("sta", "Date")
+) 
 
 rm(gage_mon0, gage_mon1, gage_mon2, decomp_input, mon_trend_sta, decomp_fun)  
 
@@ -599,11 +576,12 @@ gage_mon <- gage_mon %>%
   arrange(ecoreg_PC1) %>% 
   mutate(ecoreg = fct_reorder( 
     as.factor(ecoreg), ecoreg_PC1)  # sets up the ordering by pc-axis 
-    ) %>% 
+  ) %>% 
   arrange(sta_PC1) %>%   
   mutate(sta = fct_reorder( 
     as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
-    ) 
+  ) 
+
 ```  
 
 ```{r plot_time-series_PC1}
@@ -774,113 +752,12 @@ rm(mon_sum_gath)
 
 ``` 
 
-# glm models 
-```{r add-ecoregions-start-here-for-analysis}
-   
-# Data and analysis starts with this code chunk  
- 
-# 1. import cleaned dv data    
-gage_dv <- import("data/gage_dv_posthoc.csv")   
-  
-# 1. read in shapefile data of intersection of watershed area &  
-# merged SD, NE, WY ecoregions ----------------------------------------------- 
-ecoreg <- st_read("sp_data/ecoreg_int.shp",  
-                       as_tibble = TRUE) %>%  
-  st_drop_geometry() %>%                       #  we only want the data table  
-  mutate_if(is.factor, as.character) %>%   
-  rename(ecoreg_L4 = US_L4NAME) %>%     
-  rename(ecoreg_L3 = US_L3NAME) %>%  
-  rename(ecoreg_L2 = NA_L2NAME) %>%  
-  rename(ecoreg_L1 = NA_L1NAME) %>%  
-  rename(area_km = Shape_Area) %>%   
-  select(sta_id, watshed, ecoreg_L4, ecoreg_L3,  
-         ecoreg_L2, ecoreg_L1, area_km) %>%  
-# prep for gather -> change title case  
-  mutate(grouped_id = row_number()) %>%  
-  gather(key, val, -c(sta_id, watshed, grouped_id)) %>%  
-  mutate(val = stri_trans_totitle(val)) %>%  
-  spread(key, val) %>%  
-  select(-grouped_id) %>%  
-  mutate(area_km = as.numeric(area_km)  # round the areas  
-         ) %>%  
-  mutate(area_km = round(area_km, digits = 2)  
-         )%>%  
-# get percentages by ecoregion  
-  group_by(sta_id) %>%  
-  mutate(area_tot = sum(area_km)) %>%  
-  mutate(area_perc = round(  
-    area_km / area_tot,  
-    digits = 2)  
-  ) %>%  
-  ungroup() %>%  
-  filter(area_perc > 0.10) %>%   
-  arrange(  
-    desc(area_perc)  
-    ) %>%  
-  arrange(sta_id) %>%  
-  select(sta_id, area_perc, ecoreg_L4,  
-         ecoreg_L3, ecoreg_L2, ecoreg_L1, watshed)  
-  
-# 2. generalize ecoregions using max percentage & percentage near the gage  
-ecoreg <- ecoreg %>%  
-  group_by(sta_id) %>%   
-  arrange(sta_id, desc(area_perc)) %>%  
-  # make a default pick based on the max %  
-  mutate(ecoreg_wtsd = head(ecoreg_L4, 1) ) %>%  
-  # refine the pick based on expert knowlege & percentage near the gage  
-  mutate(  
-    ecoreg_wtsd =   
-           case_when(  
-             sta_id == "bat_bhr" ~ "Semiarid Pierre Shale Plains",  
-             sta_id == "blp_bel" ~ "White River Badlands",   
-             sta_id == "che_buf" ~ "Semiarid Pierre Shale Plains",  
-             sta_id == "che_pla" ~ "Semiarid Pierre Shale Plains",   
-             sta_id == "che_red" ~ "Semiarid Pierre Shale Plains",  
-             sta_id == "che_sce" ~ "Semiarid Pierre Shale Plains",  
-             sta_id == "che_was" ~ "Semiarid Pierre Shale Plains",  
-             sta_id == "lcr_bel" ~ "Sand Hills",      
-             sta_id == "lwr_aro" ~ "Sand Hills",  
-             sta_id == "lwr_mar" ~ "Sand Hills",  
-             sta_id == "lwr_ros" ~ "Sand Hills",  
-             sta_id == "lwr_vet" ~ "Sand Hills",  
-             sta_id == "lwr_whi" ~ "Sand Hills",  
-             sta_id == "spr_her" ~ "Black Hills Plateau",   
-             sta_id == "whi_int" ~ "White River Badlands",  
-             sta_id == "whi_kad" ~ "White River Badlands",  
-             sta_id == "whi_oac" ~ "Subhumid Pierre Shale Plains",   
-                           TRUE ~ ecoreg_wtsd)  
-   ) %>%   
-  select(sta_id, ecoreg_wtsd, everything()) %>%   
-  group_by(sta_id) %>%   
-  distinct(ecoreg_wtsd, .keep_all = TRUE) %>%   
-  # generalize the Pierre shale   
-  mutate(  
-    ecoreg_wtsd =   
-           case_when(  
-             ecoreg_wtsd ==  
-               "Semiarid Pierre Shale Plains" ~ "Pierre Shale Plains",  
-             ecoreg_wtsd ==  
-               "Subhumid Pierre Shale Plains" ~ "Pierre Shale Plains", 
-                           TRUE ~ ecoreg_wtsd)  
-   ) %>%  
-  ungroup %>%  
-  arrange(ecoreg_wtsd)  
-  
-# 3. join ecoregions to gage_dv  
-eco_join <- ecoreg %>%  
-  select(sta = sta_id, ecoreg = ecoreg_wtsd)  
-  
-gage_dv <- full_join(gage_dv, eco_join,  
-                  by = "sta")  
-  
-```   
-
 ```{r import_spatial_data} 
   
 # this chunk adds and joins spatial data  
   
 # check layer names for the project geopackage  
-gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>%  
+gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>%   
   tibble::enframe(.) %>%  
   select(value)  
   
@@ -1052,9 +929,11 @@ gaged <- gaged %>%
     ) %>% 
   mutate(mon_summer = -mon_cos) %>%  
   select(-mon_cos)    
-   
+
 ```  
 
+
+# glm models 
 ```{r build-glm-models-dv} 
   
 # clean up global environment   
