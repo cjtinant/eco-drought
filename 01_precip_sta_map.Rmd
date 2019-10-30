@@ -34,7 +34,7 @@ usmap         USA map as a grob
 knitr::opts_chunk$set(echo = FALSE)   
 options(tibble.print_max = 70) # sets tibble output for printing       
 
-# Sets up the library of packages   
+# Set up the library of packages----     
 library("conflicted")        # An alternative conflict resolution strategy  
 library("here")              # identifies where to save work  
 library("rio")               # more robust I/O - to import and clean data  
@@ -42,10 +42,15 @@ library('deldir')            # for Vorononi tesselation - Theissen polygons
 library("cowplot")           # features for creating publication-quality figs
 library("tidyverse") 
 
+# resolve conflicts among package====  
+conflict_prefer("filter", "dplyr")  
+conflict_prefer("filter", "dplyr")  
+
 ``` 
 
 ```{r get_data}  
-  
+
+# import weather station data----    
 sta_meta_orig <- import("data/sta_meta_orig.csv")   
 sta_meta_plus <- import("data/sta_meta_plus.csv")   
 sta_meta_fin  <- import("data/sta_meta_fin.csv")  
@@ -57,8 +62,37 @@ sta_meta_fin  <- import("data/sta_meta_fin.csv")
 #    TRUE ~ "Active")  
 #    )  
 
-wsd_summary <- import("data/wsd_summary.csv")  
+# import stream gage data====  
+wsd_summary <- import("data/wsd_summary.csv") %>% 
+  rename(sta = sta_id)
 
+gage_full <- import("data/gage_mon_full.csv")  
+
+# identify complete stations for plotting====  
+gage_full <- semi_join(wsd_summary, gage_full,  
+                            by = "sta") %>%  
+  mutate(complete = "yes") %>%  
+  mutate(type = "gaged") %>%  
+  select(sta, type, complete)  
+
+wsd_summary <- full_join(wsd_summary, gage_full, 
+                          by = c("type", "sta")
+                          ) %>% 
+  select(sta,  
+         type,  
+         complete,  
+         dec_lat,  
+         dec_lon  
+         ) %>%   
+  mutate(type2 = case_when(  
+    complete   == "yes" ~ "complete",  
+    type       == "gaged" ~ "incomplete", 
+    TRUE ~ type
+    ))  %>% 
+  select(-c(complete, type)) %>% 
+  rename(type = type2)
+
+rm(gage_full)
 
 ```
 
@@ -262,16 +296,16 @@ ggplot() +
                  fill = factor(wsd_summary$type)   
                  ),   
              shape    = 24,  
-             size     = 0.6,    
+             size     = 0.8,    
              stroke   = 0.5,  
              color    = "gray50"   
   ) +      
   scale_fill_grey(   
-                  start      = 0.4,    
-                  end        = 0.8,    
+                  start      = 0.5,    
+                  end        = 1.0,    
                   na.value   = "red",   
                   aesthetics = "fill",    
-                  name       = 'Stream locations',   
+                  name       = 'Streamflow records',   
                   guide      = 'legend'   
   ) +   
   # add orig stations   
@@ -291,7 +325,7 @@ ggplot() +
              size       = 2  
   ) +  
   scale_colour_grey(   
-                    start      = 0.2,    
+                    start      = 0.0,    
                     end        = 0.8,    
                     na.value   = "red",   
                     aesthetics = "colour",  
