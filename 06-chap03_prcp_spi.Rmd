@@ -1027,7 +1027,7 @@ rm(sta_dv_alt,
 ```  
 
 # use bootstrapping to check precip differences 
-```{r bootstrap_precip}
+```{r bootstrap_precip}  
   
 # Construct bootstrap confidence intervals of precipitation----   
 #   to identify differences in means   
@@ -1098,7 +1098,7 @@ plot(prcp_dabest,
 # save results====   
 ggplot2::ggsave(filename = "figure/prcp_dif.png",   
                 width = 6.5, height = 4.5, units = "in")  
-
+  
 rm(prcp_dabest)    
 ```
 
@@ -1246,14 +1246,21 @@ rm(nw,
 rm(sta_mon)
 ```
 
-```{r import_streamflow}
-gage_mon_full <- import("data/gage_mon_full.csv")  
+```{r import_streamflow_data}   
 
+# import streamflow----  
+gage_mon_full <- import("data/gage_mon_full.csv") %>% 
+# drop unneeded cols & duplicates
+  select(sta, Date, q1_mon) %>% 
+  distinct() 
+
+gage_meta_lmom <-  import("data/gage_meta.csv")  
+  
 ```
 
 # L-moments 
-```{r lmoments, include=FALSE, eval=FALSE}
-
+```{r lmoments_prcp, include=FALSE, eval=FALSE}
+  
 # Note that we might consider Weiss 1964 bias value of 1.018 for L1   
   
 # Calculate L-moment ratios   
@@ -1265,25 +1272,21 @@ lmom_sta <- sta_pres %>%
   select(lambdas, ratios) %>%  
   mutate(lambdas = map(lambdas,   
                        ~as_tibble(t(.x))  
-  )    
-  ) %>%  
+  )) %>%  
   mutate(lambdas = map(lambdas,   
                        ~set_names(.x,  
                                   c("L1", "L2", "L3", "L4", "L5")  
                        )  
-  )    
-  ) %>%  
+  )) %>%  
   mutate(ratios = map(ratios,  
                       ~as_tibble(t(.x)   
                       )   
-  )   
-  ) %>%  
+  )) %>%  
   mutate(ratios = map(ratios,  
                       ~set_names(.x,  
                                  c("T1", "T2", "T3", "T4", "T5")   
                       )   
-  )   
-  ) %>%  
+  )) %>%  
   unnest(lambdas) %>%  
   unnest(ratios)  %>%   
   select(-T1) %>%  
@@ -1294,27 +1297,27 @@ lmom_sta <- sta_pres %>%
   mutate(L1 = round(L1,  
                     digits = 2)  
   )  
-
+  
 # get station names from the list  
 lmom_sta_nm <- sta_pres %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$prcp)) %>%  
   transpose()  
-
+  
 lmom_sta_nm <- lmom_sta_nm %>%  
   pluck(1) %>%  
   enframe()  
-
+  
 lmom_sta_nm <- lmom_sta_nm %>%  
   unnest(value)  
-
+  
 lmom_sta_nm <- lmom_sta_nm %>%  
   group_by(name) %>%  
   summarize(L1 = first(value)) %>%  
   ungroup() %>%  
   mutate(L1 = round(L1,  
                     digits = 2))  
-
+  
 # join name to lmom vals & to the metadata  
 lmom_sta <- full_join(lmom_sta_nm, lmom_sta,  
                       by = "L1") %>%  
@@ -1328,16 +1331,102 @@ lmom_sta <- full_join(lmom_sta_nm, lmom_sta,
   mutate(L_kurtosis = round(L_kurtosis,  
                             digits = 2)  
   )  
-
-# join the lmoments to the metadata  
-sta_meta_fin <- full_join(sta_meta_fin, lmom_sta,  
-                           by = "sta")  
-
-
+  
+# join the lmoments to the metadata   
+sta_meta_fin <- full_join(sta_meta_fin, lmom_sta,   
+                           by = "sta")   
+  
+  
 export(sta_meta_fin, "data/sta_meta_fin.csv")    
-
+  
 rm(lmom_sta,  
    lmom_sta_nm  
+   )  
+  
+```
+
+```{r lmoments_streamflow, include=FALSE, eval=FALSE}
+  
+# Note that we might consider Weiss 1964 bias value of 1.018 for L1   
+  
+# Calculate L-moment ratios   
+lmom_gage <- gage_mon_full %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$q1_mon)) %>%    
+  transpose() %>%  
+  as_tibble() %>%  
+  select(lambdas, ratios) %>%  
+  mutate(lambdas = map(lambdas,   
+                       ~as_tibble(t(.x))  
+  )) %>%  
+  mutate(lambdas = map(lambdas,   
+                       ~set_names(.x,  
+                                  c("L1", "L2", "L3", "L4", "L5")  
+                       )  
+  )) %>%  
+  mutate(ratios = map(ratios,  
+                      ~as_tibble(t(.x)   
+                      )   
+  )) %>%  
+  mutate(ratios = map(ratios,  
+                      ~set_names(.x,  
+                                 c("T1", "T2", "T3", "T4", "T5")   
+                      )   
+  )) %>%  
+  unnest(lambdas) %>%  
+  unnest(ratios)  %>%   
+  select(-T1) %>%  
+  rename(L_CV = T2) %>%  
+  rename(L_skew = T3) %>%  
+  rename(L_kurtosis = T4) %>%  
+  select(L1, L_CV, L_skew, L_kurtosis) %>%  
+  mutate(L1 = round(L1,  
+                    digits = 2)  
+  )  
+  
+# get station names from the list  
+lmom_gage_nm <- gage_mon_full %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$q1_mon)) %>%  
+  transpose()  
+  
+lmom_gage_nm <- lmom_gage_nm %>%  
+  pluck(1) %>%  
+  enframe()  
+  
+lmom_gage_nm <- lmom_gage_nm %>%  
+  unnest(value)  
+  
+lmom_gage_nm <- lmom_gage_nm %>%  
+  group_by(name) %>%  
+  summarize(L1 = first(value)) %>%  
+  ungroup() %>%  
+  mutate(L1 = round(L1,  
+                    digits = 2))  
+  
+# join name to lmom vals & to the metadata  
+lmom_gage <- full_join(lmom_gage_nm, lmom_gage,  
+                      by = "L1") %>%  
+  rename(sta = name) %>%  
+  mutate(L_CV = round(L_CV,  
+                      digits = 2)  
+  ) %>%  
+  mutate(L_skew = round(L_skew,  
+                        digits = 2)  
+  ) %>%  
+  mutate(L_kurtosis = round(L_kurtosis,  
+                            digits = 2)  
+  )  
+  
+# join the lmoments to the metadata   
+gage_meta_lmom <- full_join(gage_meta_lmom, lmom_gage,   
+                            by = "sta")   
+
+export(gage_meta_lmom, "data/gage_meta_lmom.csv")    
+  
+rm(lmom_gage,  
+   lmom_gage_nm,  
+   gage_mon_full  
    )  
   
 ```
