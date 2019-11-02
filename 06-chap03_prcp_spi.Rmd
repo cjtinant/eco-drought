@@ -17,10 +17,10 @@ a useful description of commits -- http://r-pkgs.had.co.nz/git.html
 # assignment operator  <-    	    Option+-  
 
 # Code chunks====  
-# collapse                        Alt+L
-# expand                          Shift+Alt+L
-# collapse all                    Alt+O
-# expand all                      Shift+Alt+O
+# collapse                        Cmd+Option+L
+# expand                          Cmd+Shift+Option+L
+# collapse all                    Cmd+Option+O
+# expand all                      Cmd+Shift+Option+O
 
 # Navigation====
 # insert section                 Cmd+Shift+R 
@@ -1180,13 +1180,13 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 -->
 
 ```{r compare_precip_locations}  
-
+  
 # the bootstrapping showed there is some difference between past & present  
 sta_pres <- sta_mon %>%  
   filter(yr > 1988)  
-
+  
 export(sta_pres, "data/sta_pres.csv")  
-
+  
 # comparison of locations----   
 # split out northwest & southeast to prepare for plot    
 nw <- sta_pres %>%  
@@ -1243,24 +1243,28 @@ rm(nw,
    prcp_compare  
    )  
 
-rm(sta_mon)
+rm(sta_mon)  
+  
 ```
 
-```{r import_streamflow_data}   
-
-# import streamflow----  
+```{r import_streamflow_data, eval=FALSE}   
+ 
+# import full streamflow records----   
 gage_mon_full <- import("data/gage_mon_full.csv") %>% 
 # drop unneeded cols & duplicates
   select(sta, Date, q1_mon) %>% 
   distinct() 
-
+ 
 gage_meta_lmom <-  import("data/gage_meta.csv")  
   
 ```
 
 # L-moments 
-```{r lmoments_prcp, include=FALSE, eval=FALSE}
-  
+```{r lmoments_prcp, eval=FALSE}
+
+sta_pres     <- import("data/sta_pres.csv")  
+sta_meta_fin <- import("data/sta_meta_fin.csv")
+
 # Note that we might consider Weiss 1964 bias value of 1.018 for L1   
   
 # Calculate L-moment ratios   
@@ -1333,11 +1337,12 @@ lmom_sta <- full_join(lmom_sta_nm, lmom_sta,
   )  
   
 # join the lmoments to the metadata   
-sta_meta_fin <- full_join(sta_meta_fin, lmom_sta,   
+sta_meta_lmom <- full_join(sta_meta_fin, lmom_sta,   
                            by = "sta")   
   
+
   
-export(sta_meta_fin, "data/sta_meta_fin.csv")    
+export(sta_meta_lmom, "data/sta_meta_lmom.csv")    
   
 rm(lmom_sta,  
    lmom_sta_nm  
@@ -1345,7 +1350,7 @@ rm(lmom_sta,
   
 ```
 
-```{r lmoments_streamflow, include=FALSE, eval=FALSE}
+```{r lmoments_streamflow, eval=FALSE}
   
 # Note that we might consider Weiss 1964 bias value of 1.018 for L1   
   
@@ -1418,9 +1423,12 @@ lmom_gage <- full_join(lmom_gage_nm, lmom_gage,
                             digits = 2)  
   )  
   
-# join the lmoments to the metadata   
+# join the lmoments to the metadata & drop unneeded cols   
 gage_meta_lmom <- full_join(gage_meta_lmom, lmom_gage,   
                             by = "sta")   
+
+gage_meta_lmom <- gage_meta_lmom %>% 
+  select(-c(yrs_incomp:yeas_rec))
 
 export(gage_meta_lmom, "data/gage_meta_lmom.csv")    
   
@@ -1431,53 +1439,51 @@ rm(lmom_gage,
   
 ```
 
-```{r Lmoment_diagram_ratios, include=FALSE, eval=FALSE}
+```{r Lmoment_diagram_ratios}
 # extract elements from the lmrdia list to plot in ggplot2    
-#   the x-value is the L-skewness and y-value is L-kurtosis  
-
+#   the x-value is the L-skewness and y-value is L-kurtosis   
+  
 # get vals from the lmrdia list  
-# note that as gamma distribution is a 2-parameter dist, it is not shown 
-lmrdia <- lmrdia() 
-
+# note that as gamma distribution is a 2-parameter dist, it is not shown  
+lmrdia <- lmrdia()  
+  
 # extract L-skew & L-kurtosis values for several distributions  
-#aep4 <- lmrdia %>%  
-#  extract2(2) %>%
-#  as.tibble()   
-
-gev <- lmrdia[[5]]  %>% 
-  as_tibble() %>% 
+#   note:  aep4 <- lmrdia %>% extract2(2) %>% as.tibble()   
+  
+gev <- lmrdia[[5]]  %>%  
+  as_tibble() %>%  
   mutate(distribution = "GEV")  
-
-glo <- lmrdia[[6]]  %>% 
-  as_tibble() %>% 
+  
+glo <- lmrdia[[6]]  %>%  
+  as_tibble() %>%  
   mutate(distribution = "GLO")  
-
-gpa <- lmrdia[[7]]  %>% 
-  as_tibble() %>% 
+  
+gpa <- lmrdia[[7]]  %>%  
+  as_tibble() %>%  
   mutate(distribution = "GPA")   
-
-gno <- lmrdia[[9]]  %>% 
-  as_tibble() %>% 
+  
+gno <- lmrdia[[9]]  %>%  
+  as_tibble() %>%  
   mutate(distribution = "GNO")  
-
-gov <- lmrdia[[10]] %>% 
-  as_tibble() %>% 
+  
+gov <- lmrdia[[10]] %>%  
+  as_tibble() %>%  
   mutate(distribution = "GOV")  
-
-pe3 <- lmrdia[[12]] %>% 
-  as_tibble() %>% 
+  
+pe3 <- lmrdia[[12]] %>%  
+  as_tibble() %>%  
   mutate(distribution = "PE3")     
-
+  
 lmom_theo <- bind_rows(gev,  
                   glo,  
                   gpa,  
                   gno,  
                   gov,  
-                  pe3
-                  ) %>% 
-  rename(L_skew = V1) %>% 
-  rename(L_kurtosis = V2)
-
+                  pe3  
+                  ) %>%  
+  rename(L_skew = V1) %>%  
+  rename(L_kurtosis = V2)  
+  
 rm(gev,  
    glo,  
    gpa,  
@@ -1489,33 +1495,58 @@ rm(gev,
   
 ```
 
-```{r plot-lmoment-diagram, include=FALSE, eval=FALSE}
+```{r plot-lmoment-diagram}
+ 
+lmom_gage <- import("data/gage_meta_lmom.csv") %>% 
+  select(sta, L1:L_kurtosis) %>% 
+  mutate(type = "gage")  
+  
+lmom_sta <- import("data/sta_meta_lmom.csv") %>% 
+  select(sta, L1:L_kurtosis) %>% 
+  mutate(type = "sta")  
+
+lmom_data <- 
+
 
 # plot the theoretical distributions, and sample vals----    
-sta_meta_fin %>% 
-ggplot(aes(L_skew, L_kurtosis)
-       ) + 
-  facet_wrap(vars(group)) + 
-  geom_point() +  
-  geom_line(data = lmom_theo, 
-            aes(L_skew, 
-                L_kurtosis, 
-                group = distribution, 
-                linetype = distribution)) +  
-  xlim(-0.25, 0.5) + 
-  ylim(-0.25, 0.5) + 
+
+ggplot(midwest, aes(x=area, y=poptotal)) + geom_point()
+
+ggplot(midwest, 
+       aes(x = area, 
+           y = poptotal
+           )) + 
   theme_bw() + 
-  #  ggtitle("L-moment diagram for monthly precipitation depths",  
-  #          subtitle = "1990-2018")  
-  labs(x = "L-skew", 
-       y = "L-kurtosis") 
+  geom_point()    
 
-ggplot2::ggsave(filename = "figure/lmom_plot.png",  
-                width = 6, height = 4, units = "in")  
 
+ggplot(lmom_sta,   
+       aes(x = L_skew,  
+           y = L_kurtosis  
+       )) +  
+  labs(x = "L-skew",  
+       y = "L-kurtosis"  
+  ) +   
+  #  xlim(-0.25, 0.5) +  
+  #  ylim(-0.25, 0.5) +  
+  theme_bw() +    
+  geom_point() +   
+  geom_line(data = lmom_theo,  
+            aes(L_skew,  
+                L_kurtosis,  
+                group = distribution,  
+                linetype = distribution  
+            ))     
+
+
+
+  
+#ggplot2::ggsave(filename = "figure/lmom_plot.png",  
+#                width = 6, height = 4, units = "in")  
+  
 rm(lmom_theo  
    )      
-
+  
 ```  
 
 # calculate SCI  
