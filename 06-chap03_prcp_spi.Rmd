@@ -146,8 +146,19 @@ L_CV         first L-moment ratio, similiar to coefficient of var
 L_skew       second L-moment ratio, similiar to skewness 
 L_kurtosis   third L-moment ratio, similiar to kurtosis
 n            number of months in a given record
-  
 
+dischord     the Hosking and Wallis discordancy of the first three L-moment 
+             ratios according to their implementation in Hosking and Wallis 
+             (1997) and earlier. Discordancy triplets of these L-moment ratios 
+             is heuristically measured by locating the triplet from the mean
+             center of the 3-dim. cloud of values. 
+  $Dmax	     The maximum discordancy D_{max} = (n-1)/3.
+  $Dalpha1   The critical value of D for α_1 = 0.10 (default) 
+  $Dalpha2	 The critical value of D for α_2 = 0.01 (default) 
+  $Dcrit	   The critical value of discordancy (user or tabled).
+  $D	       The discordancy of the L-moment ratios used to trigger isD	
+  $isD       Are the L-moment ratios discordant (if starred) 
+  $signif	   A hyphen, star, or double star based on Dalpha1 and Dalpha2 vals.
 
 
 sta_input)   
@@ -177,10 +188,10 @@ What is the underlying distribution of precipitation data?
 
 ```{r setup_&_library, message=FALSE}  
   
-knitr::opts_chunk$set(echo = FALSE)     
-options(tibble.print_max = 70) # sets tibble output for printing        
+knitr::opts_chunk$set(echo = FALSE)      
+options(tibble.print_max = 70) # sets tibble output for printing         
   
-# increase memory allocation for dabest()  
+# increase memory allocation for dabest()   
 # usethis::edit_r_environ("project")  
   
 # Get API key (aka, token) for downloading precip data at   http://www.ncdc.noaa.gov/cdo-web/token  
@@ -208,11 +219,11 @@ library("cowplot")
 #library("flextable")        # construct complex table with 'kable'  
 #library("officer")          # facilitates '.docx' access for table export   
 library("tidyverse")  
-
+  
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
-
+  
 # other packages I have thought about ---------------------------------------  
 # library("ggfortify")        # data vis tools for statistical analysis 
 # library("ggpubr")           # some easy ggplot wrappers for publication ready                                #   'ggplot2'- based plots  
@@ -244,7 +255,6 @@ conflict_prefer("select", "dplyr")
 #library("jsonlite")          # Convert between JSON data and R objects  
 #library("curl")              # Drop-in replacement for base url  
 #library("listviewer")        # htmlwidget for interactive views of R lists  
-
   
 #library("forecast")         # for BoxCox.lambda   
 #library("magrittr") # provides aliases for easier reading  
@@ -263,14 +273,14 @@ why_to_write <- function()
 paper2 <- ymd("2019-11-15")  
 until <- paper2 - today  
 print(paste("You have", until, "days until the second paper is due"  
-))  
-}  
-why_to_write()
-
+))   
+}   
+why_to_write()  
+  
 ```  
 
 ```{r download_prcp_data, eval=FALSE} 
-  s
+  
 # Get possible station metadata----   
 # It's also possible to check station id with the mapping tool at:    
 # https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
@@ -1245,25 +1255,6 @@ rm(sta_mon)
   
 ```
 
-```{r import_streamflow_data, eval=FALSE}   
- 
-# import full streamflow records----   
-gage_mon_full <- import("data/gage_mon_full.csv") 
-lmom_gage_meta <-  import("data/gage_meta.csv")  
-
-gage_eco <- gage_mon_full %>% 
-  select(sta, ecoreg) %>% 
-  distinct()  
-  
-# add ecoregions   
-lmom_gage_meta <- right_join(lmom_gage_meta, gage_eco, 
-                            by = "sta")  
-
-rm(gage_eco  
-   )  
-  
-```
-
 # L-moments 
 ```{r lmoments_prcp, eval=FALSE}
 
@@ -1354,9 +1345,28 @@ rm(sta_meta_fin,
   
 ```
 
-```{r lmoments_streamflow, eval=FALSE}
+```{r import_streamflow_data, eval=FALSE}   
+ 
+# import full streamflow records----   
+gage_mon_full <- import("data/gage_mon_full.csv")  
+lmom_gage_meta <-  import("data/gage_meta.csv")  
+
+gage_eco <- gage_mon_full %>% 
+  select(sta, ecoreg) %>% 
+  distinct()  
   
-# Note that we might consider Weiss 1964 bias value of 1.018 for L1   
+# add ecoregions   
+lmom_gage_meta <- right_join(lmom_gage_meta, gage_eco, 
+                            by = "sta")  
+
+rm(gage_eco  
+   )  
+  
+```
+
+```{r lmoments_streamflow, eval=FALSE}
+
+# Note -- we might consider Weiss 1964 bias value of 1.018 for L1   
 
 # Calculate L-moment ratios   
 lmom_gage <- gage_mon_full %>%  
@@ -1417,7 +1427,7 @@ lmom_gage <- full_join(lmom_gage_nm, lmom_gage,
 # check value 
 bad_fpi <- tibble(lmom_gage_list[["ratios"]][["bad_fpi"]]) 
 
-# clean up 
+# clean up df & join with metadata====  
 lmom_gage <- lmom_gage %>% 
   gather(type, value, -sta) %>% 
   mutate(value = round(value,  
@@ -1426,18 +1436,36 @@ lmom_gage <- lmom_gage %>%
   spread(type, value) %>% 
   select(sta, L1, L_CV, L_skew, L_kurtosis)
 
-lmom_gage_meta <- full_join(lmom_gage_meta, lmom_gage,   
+lmom_gage <- full_join(lmom_gage_meta, lmom_gage,   
                             by = "sta") 
 
+# check stations for discordance & prepare for join====    
+dischord <- lmrdiscord(site = lmom_gage$sta, 
+                       digits = 2, 
+                       t2 = lmom_gage$L_CV, 
+                       t3 = lmom_gage$L_skew, 
+                       t4 = lmom_gage$L_kurtosis
+)  
 
-export(lmom_gage_meta, "data/gage_meta_lmom.csv")    
+dischord <- dischord %>% 
+  mutate(site = as.character(site)) %>%  
+  rename(sta = site) %>% 
+  rename(L_CV = t2) %>%  
+  rename(L_skew = t3) %>%  
+  rename(L_kurtosis = t4)
+
+lmom_gage <- full_join(lmom_gage, dischord, 
+                  by = c("sta", "L_CV", "L_skew", 'L_kurtosis'))  
+
+export(lmom_gage, "data/gage_meta_lmom.csv")    
   
-rm(lmom_gage,meta, 
+rm(lmom_gage_meta, 
    bad_fpi, 
    lmom_gage_list,  
    lmom_gage_nm,  
    lmom_gage,  
-   gage_mon_full  
+   gage_mon_full, 
+   dischord
    )  
   
 ```
@@ -2194,23 +2222,123 @@ rm(distrib,
 
 ```  
 
+<!-- 
+       )) +  
+  labs(x = "L-skew",  
+       y = "L-kurtosis"  
+  ) +   
+  xlim(-0.4, 0.75) +  
+  ylim(-0.1, 0.4) +  
+  theme_bw() +    
+  theme(legend.title      = element_text(size = 10), 
+        legend.text       = element_text(size = 8), 
+        legend.key.height =  unit(0.3, 'cm'),  
+        legend.spacing    = unit(0.1, "cm")) +  
+  guides(linetype         = guide_legend(order = 1),  
+         color            = guide_legend(order = 2), 
+         shape            = guide_legend(order = 3)  
+--> 
 
 ```{r identify_streamflow_locations}
 # import full streamflow records----   
 gage_mon_full <- import("data/gage_mon_full.csv") 
-lmom_gage_meta <-  import("data/gage_meta.csv")  
+lmom_gage_meta <-  import("data/gage_meta_lmom.csv")  
 
-gage_eco <- gage_mon_full %>% 
-  select(sta, ecoreg) %>% 
-  distinct()  
-  
-# add ecoregions   
-lmom_gage_meta <- right_join(lmom_gage_meta, gage_eco, 
-                            by = "sta")  
+# create groups of stations by region & refactor levels====      
+lmom_gage_meta <- lmom_gage_meta %>%   
+  mutate(north_group = case_when(   
+    dec_lat_va > 43.5 ~ "N",   
+    TRUE ~ "S")   
+  ) %>%   
+  mutate(east_group = case_when(  
+    dec_long_va > -100.67 ~ "E",  
+    dec_long_va > -102.33 ~ "C",    
+    TRUE ~ "W")  
+  )  %>%  
+  mutate(group = str_c(north_group, east_group, sep = "")) %>%  
+  select(-c(north_group, east_group)) %>%  
+  arrange(group, ecoreg) %>%  
+  select(site_no,  
+         sta,  
+         ecoreg,  
+         everything()  
+  ) %>%  
+  mutate(ecoreg = fct_relevel(ecoreg,  
+                              "Sand Hills",  
+                              "Keya Paha Tablelands",  
+                              "Black Hills Plateau",  
+                              "White River Badlands",  
+                              "Pine Ridge Escarpment",  
+                              "Pierre Shale Plains")  
+  ) %>%  
+  mutate(group = fct_relevel(group, 
+                             "NW",  
+                             "NC",  
+                             "NE",  
+                             "SW",  
+                             "SC",  
+                             "SE")  
+  )     
 
-rm(gage_eco  
-   )  
+
+
 ```
+
+# plot the theoretical distributions, and groups====     
+ggplot(lmom_gage_meta, 
+       aes(x = L_skew,  
+           y = L_kurtosis 
+       )) + 
+  facet_wrap(vars(group) #, 
+#             nrows = 2, 
+#             ncols = 3
+) +  
+  # add l-moments 
+  geom_line(data = lmom_theo,  
+            size = 0.5, 
+            color = "gray30", 
+            aes(L_skew,  
+                L_kurtosis,  
+                group = distribution,  
+                linetype = distribution
+            )) 
+#+ 
+  scale_linetype_discrete(name = "Distribution") + 
+  # add point data 
+  geom_point(
+    size = 2, 
+    aes(shape = flow_regime,  
+        color = ecoreg  
+    )) + 
+  scale_shape_discrete(name = "Flow regime") +
+  scale_colour_grey(
+    breaks = rev(
+      levels(lmom_data$ecoreg)
+    ), 
+    guide = "legend", 
+    start      = 0.2,    
+    end        = 0.8,    
+    na.value   = "red",   
+    aesthetics = "colour",  
+    name       = 'Ecoregion'  
+  )    
+
+# save plot & clean-up====  
+ggplot2::ggsave(filename = "figure/lmom_plot.png",  
+                width = 6, height = 3.6, units = "in")  
+
+rm(lmom_theo,  
+   lmom_gage,  
+   lmom_sta,  
+   lmom_data, 
+   type_labels, 
+   lmom_gage_meta, 
+   sta_meta_lmom  
+)        
+
+```  
+
+
 
 ```{r calculate_SRI}
 
