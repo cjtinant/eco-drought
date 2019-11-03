@@ -99,23 +99,23 @@ why_to_write()
 ```  
 
 ```{r import_daily_flow_metadata, eval=FALSE}  
-
+  
 # get possible stations from NWIS website----  
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),    
                            parameterCd = "00060",  
                            hasDataTypeCd = "dv") %>%  
   arrange(site_no)   
-
+  
 # 2. get stream station metadata====   
 # this needs to be run in parts because some project numbers & 
 # inventories are stored as integers & others are stored as characters 
-
+  
 gage_meta_int1 <- gage_poss %>% 
   slice(7, 17, 142, 148) %>% 
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
-
+  
 gage_meta_int2 <- gage_poss %>% 
   slice(94) %>% 
   split(.$site_no) %>% 
@@ -127,14 +127,14 @@ gage_meta_int3 <- gage_poss %>%
   split(.$site_no) %>% 
   map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
   select(-c(project_no, inventory_dt)) 
-
+  
 # 3. join gage metadata 
 gage_meta_poss <- bind_rows(gage_meta_int1, 
                             gage_meta_int2, 
                             gage_meta_int3) %>% 
   #gage_meta_poss <- gage_meta_poss %>%  
   mutate(site_no = zeroPad(site_no, 8))  
-
+  
 # clean up 
 rm(gage_meta_int1,  
    gage_meta_int2,  
@@ -178,7 +178,7 @@ gage_meta <- gage_meta_poss %>%
   filter(!str_detect(station_nm, 'RAPID')) %>%    
   # Rapid Creek & upper Spring Creek  
   filter(!str_detect(station_nm, 'MISSOURI'))  
-
+  
 # 2. remove provisional sites====       
 gage_meta <- gage_meta %>%  
   mutate(site_no = as.character(site_no)) %>%  
@@ -186,7 +186,7 @@ gage_meta <- gage_meta %>%
   mutate(length = str_length(site_no)) %>%  
   filter(length <= 8) %>%   # removes two provisional sites  
   select(-length)  
-
+  
 # 3. remove codes not needed for this project  
 gage_meta <- gage_meta %>%  
   select(-agency_cd) %>%  
@@ -208,23 +208,23 @@ rm(gage_meta_poss)
 ```  
   
 ```{r add_names_to_gage_meta, eval=FALSE}  
-   
+  
 # get data from QGIS analysis of gaged & ungaged watersheds of interest====    
 wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
                        layer = "wbd_summary",  
                        as_tibble = TRUE) %>%  
   st_drop_geometry() %>%  
   mutate_if(is.factor, as.character)  
-
+  
 # join names to gage_meta   
 names <- wsd_summary %>%  
   select(site_no = gage_num, sta = sta_id) %>%  
   drop_na() %>%  
   mutate(site_no = zeroPad(site_no, 8))  
-
+  
 gage_meta <- full_join(names, gage_meta,   
                        by ="site_no")  
-
+  
 gage_meta <- gage_meta %>%  
   filter(sta != " ")  
   
@@ -235,49 +235,49 @@ export(gage_meta, "data/gage_meta.csv")
 
 ```{r import_daily_flow_data, eval=FALSE, message=FALSE} 
   
-# this is a small amount of code duplication to reduce API calls   
-#   to allow for working remotely -- set above to eval=FALSE  
-#gage_meta <- import("data/gage_meta_fin.csv") %>%  
-#    mutate(site_no = zeroPad(site_no, 8))  
+# this is a small amount of code duplication to reduce API calls    
+#   to allow for working remotely -- set above to eval=FALSE   
+#gage_meta <- import("data/gage_meta_fin.csv") %>%   
+#    mutate(site_no = zeroPad(site_no, 8))   
   
-#wsd_summary <- st_read("sp_data/eco-drought.gpkg",  
-#                       layer = "wbd_summary",  
-#                       as_tibble = TRUE) %>%  
-#  st_drop_geometry() %>%  
-#  mutate_if(is.factor, as.character)  
+#wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
+#                       layer = "wbd_summary",   
+#                       as_tibble = TRUE) %>%   
+#  st_drop_geometry() %>%   
+#  mutate_if(is.factor, as.character)   
   
-# set parameters for Egret::readNWISDaily    
-startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30   
-endDate      <- "2018-09-30"   
-parameter_cd <- "00060"  
+# set parameters for Egret::readNWISDaily     
+startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30    
+endDate      <- "2018-09-30"    
+parameter_cd <- "00060"   
   
-# get daily flows----  
+# get daily flows----   
 # note for EGRET::readNWISDailyQ the discharge is in m^3/s   
   
-# Long River gage needs to be called separately or it creates an error  
-gage_lonriv_dv <- gage_meta %>%  
-  filter(site_no == "06463500") %>%  
-  split(.$site_no)  %>%  
-  map_dfr(~ readNWISDaily(  
-    siteNumber = .$site_no,  
-    parameter_cd,  
-    startDate,  
-    endDate),  
-    .id = "site_no")  
-  
-gage_most_dv <- gage_meta %>%  
+# Long River gage needs to be called separately or it creates an error   
+gage_lonriv_dv <- gage_meta %>%   
+  filter(site_no == "06463500") %>%   
+  split(.$site_no)  %>%   
+  map_dfr(~ readNWISDaily(   
+    siteNumber = .$site_no,   
+    parameter_cd,   
+    startDate,   
+    endDate),   
+    .id = "site_no")   
+   
+gage_most_dv <- gage_meta %>%   
   filter(site_no != "06463500") %>%           # drop long river from call   
-  split(.$site_no) %>%   
-  map_dfr(~ readNWISDaily(  
-    siteNumber = .$site_no,  
-    parameter_cd,  
-    startDate,  
+  split(.$site_no) %>%    
+  map_dfr(~ readNWISDaily(   
+    siteNumber = .$site_no,   
+    parameter_cd,   
+    startDate,   
     endDate),  
-    .id = "site_no")  
+    .id = "site_no")   
   
-# remove the 1978 data that was needed to calculate Q7 & Q30  
-gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%  
-  filter(waterYear > "1979")  
+# remove the 1978 data that was needed to calculate Q7 & Q30   
+gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%   
+  filter(waterYear > "1979")   
   
 ```  
 
@@ -294,15 +294,15 @@ yrs_summary <- gage_dv %>%
   ungroup() %>%  
   mutate(apparent_yrs = 1 + max_year - min_year) %>% 
   mutate(yeas_rec = as.numeric(years_rec))   
-
+  
 #gage_meta <- gage_meta %>% 
 #    mutate(site_no = zeroPad(site_no, 8))  
-
+  
 gage_meta <- full_join(yrs_summary, gage_meta,        
                        by = "site_no")  
   
 rm(yrs_summary)  
-   
+  
 # 2. filter gages with less than 6 years of record----    
 # filter gages with no records  
 gage_check <- gage_meta %>%  
@@ -367,17 +367,16 @@ gage_meta <- gage_meta %>%
 #  select(site_no = gage_num, sta = sta_id) %>%  
 #  drop_na() %>%  
 #  mutate(site_no = zeroPad(site_no, 8))  
-   
+  
 gage_dv <- full_join(names, gage_dv,   
                      by ="site_no")    
-   
+  
 gage_dv <- semi_join(gage_dv, gage_meta,   
                      by = "site_no")     
-   
+ 
 export(gage_meta, "data/gage_meta.csv")   
 export(gage_dv, "data/gage_dv.csv")   
-
-   
+  
 # clean up  
 rm(startDate,  
    endDate,  
@@ -505,7 +504,7 @@ gage_contrib_area <- gage_meta %>%
              )  
          ) %>%  
   mutate(sec_per_day = 60 * 60 * 24)  
-   
+  
 # 2. calculate Q-depth:: q = Q/DA [m/km2 day]    
 gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%  
   select(site_no, sta, Date, Q, Q7, Q30, waterYear,  
@@ -519,10 +518,11 @@ gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%
   rename(q7_depth = Q7) %>%  
   rename(q30_depth = Q30) %>%  
   select(-c(site_no, contrib_drain_km2, sec_per_day))   
-   
+  
 rm(gage_contrib_area)    
-
+  
 export(gage_depth, "data/gage_depth.csv")    
+  
 ``` 
 
 ```{r PCA-calculations, eval=FALSE}  
@@ -627,7 +627,7 @@ rm(pca_eigen, pca_input, pca_matrix, pca_vars, lambda_vals)
 ```  
 
 ```{r add_ecoreg_&_metadata}
-
+  
 # 1. read in shapefile data of intersection of watershed area &  
 # merged SD, NE, WY ecoregions----  
 ecoreg <- st_read("sp_data/ecoreg_int.shp",  
@@ -706,7 +706,7 @@ ecoreg <- ecoreg %>%
              ecoreg_wtsd ==  
                "Semiarid Pierre Shale Plains" ~ "Pierre Shale Plains",  
              ecoreg_wtsd ==  
-               "Subhumid Pierre Shale Plains" ~ "Pierre Shale Plains", 
+               "Subhumid Pierre Shale Plains" ~ "Pierre Shale Plains",  
                            TRUE ~ ecoreg_wtsd)  
    ) %>%  
   ungroup %>%  
@@ -718,39 +718,40 @@ eco_join <- ecoreg %>%
   
 gage_dep <- full_join(gage_dep, eco_join,  
                   by = "sta")  
-
-rm(eco_join, ecoreg) 
-
+ 
+rm(eco_join, ecoreg)  
+  
 ```   
 
 ```{r daily_to_monthly_depth}
-
+  
 # average daily depths into monthly mean depths----     
 gage_mon <- gage_dep %>%  
-  mutate(yr = year(Date)) %>% 
+  mutate(yr = year(Date)) %>%  
   mutate(mon = month(Date)) %>%  
   mutate(q30_q1_diff = q30_depth - q1_depth) %>%  
-  group_by(sta, mon, yr) %>% 
+  group_by(sta, mon, yr) %>%  
   summarize(waterYear = first(waterYear),   
-            q1_mon     = mean(q1_depth), 
-            q7_mon     = mean(q7_depth), 
+            q1_mon     = mean(q1_depth),  
+            q7_mon     = mean(q7_depth),  
             q30_mon    = mean(q30_depth),           
-            PC1_mon    = mean(.fittedPC1), 
-            PC2_mon    = mean(.fittedPC2), 
+            PC1_mon    = mean(.fittedPC1),  
+            PC2_mon    = mean(.fittedPC2),  
             q30_q1_mon = mean(abs(q30_q1_diff)),  
-            ecoreg      = first(ecoreg) 
-  ) %>% 
+            ecoreg      = first(ecoreg)  
+  ) %>%  
   mutate(day = 15) %>%   
-  ungroup() %>% 
-  unite("Date", c("yr", "mon", "day")) %>% 
-  mutate(Date = ymd(Date)) %>% 
-  gather(key = axis, value = PCval, 
-         -c(sta, Date, waterYear, ecoreg, q1_mon, 
-            q7_mon, q30_mon, q30_q1_mon) 
+  ungroup() %>%  
+  unite("Date", c("yr", "mon", "day")) %>%  
+  mutate(Date = ymd(Date)) %>%  
+  gather(key = axis, value = PCval,  
+         -c(sta, Date, waterYear, ecoreg, q1_mon,  
+            q7_mon, q30_mon, q30_q1_mon)  
   )  %>%   
-  as_tibble() 
-
-export(gage_mon, "data/gage_mon.csv")  
+  as_tibble()  
+  
+export(gage_mon, "data/gage_mon.csv")   
+  
 ```
 
 ```{r select_complete_records}  
