@@ -594,10 +594,10 @@ rm(sta_check)
 ```  
 
 ```{r fill-station-data, eval=FALSE}
-
+  
 # create a df of monthly precipitation values-NW-RAP---- 
 station <- "RAP"  
-sta_fil <- sta_dv_alt %>% 
+sta_fil <- sta_dv_alt %>%  
   filter(sta == station)  
 
 # fill missing data & check for missing days     
@@ -606,56 +606,56 @@ sta_fil <- sta_dv_alt   %>%
   filter(!is.na(prcp))                                     
 
 sta_miss_day <- sta_fil        %>%     
-  group_by(sta, year)          %>%   
+  group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)     
-
+  
 sta_short_name <- sta_fil %>%   
   slice(1) %>%  
   select(sta, id)   
-
+  
 # get alternate site data & check if sta_mis_day = 0      
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^RAPID CITY 4")) %>%        
   filter(!is.na(prcp))    
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)    
-
+  
 # get alternate site data & check if sta_mis_day = 0        
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^ELM")) %>%        
   filter(!is.na(prcp))                             
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)   
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # make a filled prcp df & clean up     
 sta_rap <- sta_fil  
-
+  
 rm(sta_alt,  
    sta_fil,  
    sta_miss_day,  
    sta_short_name  
    )     
-
+  
 # create a df of monthly precipitation values-NC-COT----  
 station <- "COT"  
 sta_fil <- sta_dv_alt %>% 
@@ -1188,10 +1188,10 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 -->
 
 ```{r compare_precip_locations}  
-  
-# the bootstrapping showed there is some difference between past & present  
-sta_pres <- sta_mon %>%  
-  filter(yr > 1988)  
+   
+# the bootstrapping showed there is some difference between past & present   
+sta_pres <- sta_mon %>%   
+  filter(yr > 1988)   
   
 export(sta_pres, "data/sta_pres.csv")  
   
@@ -1272,14 +1272,14 @@ lmom_sta <- sta_pres %>%
   select(lambdas, ratios) %>%  
   mutate(lambdas = map(lambdas,   
                        ~as_tibble(t(.x))  
-  )) %>%  
-  mutate(lambdas = map(lambdas,   
-                       ~set_names(.x,  
+  )) %>%   
+  mutate(lambdas = map(lambdas,    
+                       ~set_names(.x,   
                                   c("L1", "L2", "L3", "L4", "L5")  
                        )  
-  )) %>%  
-  mutate(ratios = map(ratios,  
-                      ~as_tibble(t(.x)   
+  )) %>%   
+  mutate(ratios = map(ratios,   
+                      ~as_tibble(t(.x)    
                       )   
   )) %>%  
   mutate(ratios = map(ratios,  
@@ -1459,6 +1459,7 @@ lmom_gage <- full_join(lmom_gage, dischord,
 
 export(lmom_gage, "data/gage_meta_lmom.csv")    
   
+# clean up
 rm(lmom_gage_meta, 
    bad_fpi, 
    lmom_gage_list,  
@@ -1527,20 +1528,9 @@ rm(gev,
 ```
 
 ```{r plot-lmoment-diagram}
-
-# prepare data for plot----     
-lmom_gage <- import("data/gage_meta_lmom.csv") %>% 
-  select(sta,  
-         flow_regime,  
-         ecoreg,  
-         L1,  
-         L_CV,  
-         L_skew,  
-         L_kurtosis  
-  ) %>% 
-  mutate(type = "gage")  
-
-lmom_sta <- import("data/sta_meta_lmom.csv") %>% 
+  
+# prepare station data for plot====  
+lmom_sta <- import("data/sta_meta_lmom.csv") %>%  
   select(sta, 
          L1,  
          L_CV,  
@@ -1550,27 +1540,69 @@ lmom_sta <- import("data/sta_meta_lmom.csv") %>%
   mutate(flow_regime = "precipitation") %>% 
   mutate(ecoreg = "NA") %>% 
   mutate(type = "sta")  
+  
+# prepare gage data for plot====       
+# drop discordant stations & calculate ecoregion vals 
+lmom_gage <- import("data/gage_meta_lmom.csv") %>%  
+  select(sta,  
+         flow_regime,  
+         ecoreg,  
+         L1,   
+         L_CV,   
+         L_skew,   
+         L_kurtosis,  
+         isD   
+  ) %>%  
+  filter(isD == FALSE) %>%  
+  select(-isD) %>%  
+  mutate(type = "gage")  
+  
+# calculate ecoregion values 
+lmom_ecoreg <- lmom_gage %>% 
+  group_by(ecoreg) %>% 
+  summarise(L1         = mean(L1),  
+            L_CV       = mean(L_CV),  
+            L_skew     = mean(L_skew),  
+            L_kurtosis = mean(L_kurtosis), 
+            n          = n()  
+            ) %>%  
+  ungroup() %>% 
+  gather(key, val, -ecoreg) %>%  
+  mutate(val           = round(val, digits = 2)) %>% 
+  spread(key, val) %>% 
+  select(ecoreg, L1, L_CV, L_skew, L_kurtosis) %>% 
+  mutate(sta           = NA) %>% 
+  mutate(flow_regime   = "ecoregion mean") %>% 
+  mutate(type          = "gage")  
 
+# join station & individual gage data 
 lmom_data <- bind_rows(lmom_gage,  
-                       lmom_sta 
+                       lmom_sta, 
+                       lmom_ecoreg
 )  
-
+  
+  
 # refactor levels and provide label names====  
 lmom_data <- lmom_data %>% 
   mutate(ecoreg = fct_relevel(ecoreg, 
-                              "NA",  
+                              "NA", 
                               "Sand Hills", 
                               "Keya Paha Tablelands", 
                               "Black Hills Plateau", 
                               "White River Badlands", 
                               "Pine Ridge Escarpment",  
-                              "Pierre Shale Plains"   
-  )  
-  )    
+                              "Pierre Shale Plains")    
+  ) %>% 
+  mutate(flow_regime = fct_relevel(flow_regime, 
+                                   "precipitation", 
+                                   "perennial", 
+                                   "intermittent", 
+                                   "ecoregion mean"
+  ))    
 
 type_labels <- c(
   gage = "stream gages", 
-  sta = "weather stations"
+  sta = "weather stations & ecoregion means"
 )  
 
 # plot the theoretical distributions, and sample vals----    
@@ -1581,22 +1613,22 @@ ggplot(lmom_data,
   labs(x = "L-skew",  
        y = "L-kurtosis"  
   ) +   
-  xlim(-0.4, 0.75) +  
-  ylim(-0.1, 0.4) +  
+  xlim(-0.4, 0.5) +  
+  ylim(-0.1, 0.3) +  
   theme_bw() +    
   theme(legend.title      = element_text(size = 10), 
         legend.text       = element_text(size = 8), 
-        legend.key.height =  unit(0.3, 'cm'),  
+        legend.key.height = unit(0.3, 'cm'),  
         legend.spacing    = unit(0.1, "cm")) +  
   guides(linetype         = guide_legend(order = 1),  
          color            = guide_legend(order = 2), 
          shape            = guide_legend(order = 3)
   ) +     
-  facet_grid(cols     = vars(type), 
-             rows     = NULL, 
-             scale    = "fixed", 
-             labeller = labeller(
-               type     = type_labels
+  facet_grid(cols     = vars(type),   
+             rows     = NULL,  
+             scale    = "fixed",   
+             labeller = labeller(  
+               type     = type_labels  
              )  
   ) +  
   # add l-moments 
@@ -1609,50 +1641,54 @@ ggplot(lmom_data,
                 linetype = distribution
             )) + 
   scale_linetype_discrete(name = "Distribution") + 
-  # add point data 
+  # add individual station data 
   geom_point(
     size = 2, 
-    aes(shape = flow_regime,  
-        color = ecoreg  
+    aes(shape = flow_regime,   
+        color = ecoreg
     )) + 
-  scale_shape_discrete(name = "Flow regime") +
+  scale_shape_discrete(name = "Type") +
   scale_colour_grey(
     breaks = rev(
       levels(lmom_data$ecoreg)
     ), 
     guide = "legend", 
-    start      = 0.2,    
+    start      = 0.0,    
     end        = 0.8,    
     na.value   = "red",   
     aesthetics = "colour",  
     name       = 'Ecoregion'  
-  )    
-
-# save plot & clean-up====  
+  ) 
+  
+# save plot & table====  
 ggplot2::ggsave(filename = "figure/lmom_plot.png",  
                 width = 6, height = 3.6, units = "in")  
-
-rm(lmom_theo,  
-   lmom_gage,  
-   lmom_sta,  
-   lmom_data, 
-   type_labels, 
-   lmom_gage_meta, 
-   sta_meta_lmom  
+  
+export(lmom_data, "data/lmom_table.csv")  
+  
+# clean-up====   
+rm(lmom_theo,   
+   lmom_gage,   
+   lmom_ecoreg,    
+   lmom_sta,   
+   type_labels,  
+   lmom_gage_meta,  
+   sta_meta_lmom,  
+   lmom_data   
 )        
-
+  
 ```  
 
 # calculate SCI  
 ```{r SCI_prepare, eval=FALSE}
   
 # fitSCI identifies Standardized Climate Index (SCI) parameters----       
-#   some notes about the SCI package:    
+#   some notes about the SCI package:     
 #     the SCI package doesn't like snake_case variables,     
 #     need to change tibble to a vector as double:   
-#       cot <- as.double(sta_cot$depth_mm)    
+#       cot <- as.double(sta_cot$depth_mm)     
   
-# Initial values for SCI calculations====      
+# Initial values for SCI calculations====       
 time_scale <- 1     # sets the length of the averaging period    
 distrib    <- "pe3" # sets the distribution type    
 p_zero     <- TRUE  # sets a function to reduce zero-precip bias   
@@ -1661,8 +1697,8 @@ scale      <- "sd"  # scales input by subtract mean & divide by sd
 warn_me    <- TRUE  # sets explicit warning    
 first_mon  <- 1     # Set first month for each station   
 sci.limit  <- 3     # Sets a limit of [-3, 3] for limit   
-   
-# sci function====                                          
+  
+# sci function====                                           
 sci.fun <- function(sta, time_scale) fitSCI( x = sta,    
                                              start.fun.fix  = TRUE,    
                                              time.scale     = time_scale,    
@@ -1673,15 +1709,15 @@ sci.fun <- function(sta, time_scale) fitSCI( x = sta,
                                              scaling        = scale,     
                                              sci.limit      = sci_limit,    
                                              warn	         = warn_me     
-)   
+)     
   
 ```  
 
 ```{r calculate_SPI}
   
-# prepare spi function vector inputs (1986-2018)----   
+# prepare spi function vector inputs (1989-01 to 2017-01)----   
 # north-west (NW)   
-sta_rap <- sta_pres %>%  
+sta_rap <- sta_pres %>%   
   arrange(date) %>%  
   filter(sta == "RAP")   
   
@@ -1689,11 +1725,11 @@ rap <- as.double(sta_rap$prcp)
   
 # north-central (NC)  
 sta_cot <- sta_pres %>%  
-  arrange(date) %>% 
+  arrange(date) %>%  
   filter(sta == "COT")   
   
 cot <- as.double(sta_cot$prcp)   
-
+  
 # north-east (NE)  
 sta_oni <- sta_pres %>%  
   arrange(date) %>% 
@@ -2222,168 +2258,128 @@ rm(distrib,
 
 ```  
 
-<!-- 
-       )) +  
-  labs(x = "L-skew",  
-       y = "L-kurtosis"  
-  ) +   
-  xlim(-0.4, 0.75) +  
-  ylim(-0.1, 0.4) +  
-  theme_bw() +    
-  theme(legend.title      = element_text(size = 10), 
-        legend.text       = element_text(size = 8), 
-        legend.key.height =  unit(0.3, 'cm'),  
-        legend.spacing    = unit(0.1, "cm")) +  
-  guides(linetype         = guide_legend(order = 1),  
-         color            = guide_legend(order = 2), 
-         shape            = guide_legend(order = 3)  
---> 
+```{r identify_representive_gages}
+  
+# import streamflow records & metadata----   
+gage_mon <- import("data/gage_mon_full.csv") 
+  
+# remove discordant stations & discord calcs 
+gage_meta <- import("data/gage_meta_lmom.csv") %>% 
+  filter(isD == FALSE) %>% 
+  select(-c(Dmax:Dcrit, isD, signif))  
+  
+# get mean L-statistic values from discord calculations 
+gage_mean <-  import("data/lmom_table.csv") %>% 
+  filter(sta == "") %>% 
+  select(ecoreg, L_CV, L_skew, L_kurtosis) %>% 
+  rename(L_CV_mean   = L_CV) %>%   
+  rename(L_skew_mean = L_skew) %>% 
+  rename(L_kurt_mean = L_kurtosis)  
+  
+# find distance from centers 
+gage_meta <- left_join(gage_meta, gage_mean, 
+                       by = "ecoreg") %>% 
+  mutate(L_CV_diff   = L_CV - L_CV_mean) %>%  
+  mutate(L_skew_diff = L_skew - L_skew_mean) %>%
+  mutate(L_kurt_diff = L_kurtosis - L_kurt_mean) %>% 
+  mutate(D2 = round(digits = 2, 
+                    sqrt(L_CV_diff^2 + L_skew_diff^2 + L_kurt_diff^2)
+                    )  
+         ) %>% 
+  arrange(D2)  
 
-```{r identify_streamflow_locations}
-# import full streamflow records----   
-gage_mon_full <- import("data/gage_mon_full.csv") 
-lmom_gage_meta <-  import("data/gage_meta_lmom.csv")  
+# select gages by ecoreg by distance from centroid====     
+gage_pick <- gage_meta %>%  
+  group_by(ecoreg) %>% 
+  summarise(sta    = first(sta),  
+            L1     = first(L1), 
+            L_CV   = first(L_CV), 
+            L_skew = first(L_skew), 
+            L_kurt = first(L_kurtosis), 
+            D      = first(D), 
+            D2     = first(D2)  
+  )  
 
-# create groups of stations by region & refactor levels====      
-lmom_gage_meta <- lmom_gage_meta %>%   
-  mutate(north_group = case_when(   
-    dec_lat_va > 43.5 ~ "N",   
-    TRUE ~ "S")   
-  ) %>%   
-  mutate(east_group = case_when(  
-    dec_long_va > -100.67 ~ "E",  
-    dec_long_va > -102.33 ~ "C",    
-    TRUE ~ "W")  
-  )  %>%  
-  mutate(group = str_c(north_group, east_group, sep = "")) %>%  
-  select(-c(north_group, east_group)) %>%  
-  arrange(group, ecoreg) %>%  
-  select(site_no,  
-         sta,  
-         ecoreg,  
-         everything()  
-  ) %>%  
-  mutate(ecoreg = fct_relevel(ecoreg,  
-                              "Sand Hills",  
-                              "Keya Paha Tablelands",  
-                              "Black Hills Plateau",  
-                              "White River Badlands",  
-                              "Pine Ridge Escarpment",  
-                              "Pierre Shale Plains")  
-  ) %>%  
-  mutate(group = fct_relevel(group, 
-                             "NW",  
-                             "NC",  
-                             "NE",  
-                             "SW",  
-                             "SC",  
-                             "SE")  
-  )     
+# create a 30-year record for input 
+sri_input <- semi_join(gage_mon, gage_pick, 
+                        by = "sta") %>% 
+  mutate(yr = year(Date)) %>% 
+  filter(yr > 1988)     
 
+# export selection and clean-up
+export(sri_input, "data/sri_input.csv")  
 
-
+rm(sri_input,  
+   gage_mean,  
+   gage_meta,  
+   gage_mon,  
+   gage_pick  
+   )    
 ```
-
-# plot the theoretical distributions, and groups====     
-ggplot(lmom_gage_meta, 
-       aes(x = L_skew,  
-           y = L_kurtosis 
-       )) + 
-  facet_wrap(vars(group) #, 
-#             nrows = 2, 
-#             ncols = 3
-) +  
-  # add l-moments 
-  geom_line(data = lmom_theo,  
-            size = 0.5, 
-            color = "gray30", 
-            aes(L_skew,  
-                L_kurtosis,  
-                group = distribution,  
-                linetype = distribution
-            )) 
-#+ 
-  scale_linetype_discrete(name = "Distribution") + 
-  # add point data 
-  geom_point(
-    size = 2, 
-    aes(shape = flow_regime,  
-        color = ecoreg  
-    )) + 
-  scale_shape_discrete(name = "Flow regime") +
-  scale_colour_grey(
-    breaks = rev(
-      levels(lmom_data$ecoreg)
-    ), 
-    guide = "legend", 
-    start      = 0.2,    
-    end        = 0.8,    
-    na.value   = "red",   
-    aesthetics = "colour",  
-    name       = 'Ecoregion'  
-  )    
-
-# save plot & clean-up====  
-ggplot2::ggsave(filename = "figure/lmom_plot.png",  
-                width = 6, height = 3.6, units = "in")  
-
-rm(lmom_theo,  
-   lmom_gage,  
-   lmom_sta,  
-   lmom_data, 
-   type_labels, 
-   lmom_gage_meta, 
-   sta_meta_lmom  
-)        
-
-```  
-
-
 
 ```{r calculate_SRI}
 
-# prepare spi function vector inputs (1986-2018)----   
-# north-west (NW)   
-sta_rap <- sta_pres %>%  
-  arrange(date) %>% 
-  filter(sta == "RAP")   
+# import and check gage data (1989-01 to 2017-01)----    
+sri_input <- import("data/sri_input.csv") %>%  
+    rename(date = Date)   
   
-rap <- as.double(sta_rap$prcp)   
+sri_check <- sri_input %>% 
+  group_by(sta) %>% 
+  summarise(min_yr = min(yr), 
+            max_yr = max(yr)  
+  )  
+
+sri_check <- sri_input %>% 
+  filter(yr == "1989") %>% 
+  mutate(mon = month(date)) %>%   
+  arrange(date) %>% 
+  group_by(sta, ecoreg) %>% 
+  summarise(min_mon = min(mon), 
+            max_mon = max(mon)  
+  ) %>% 
+  ungroup()  
+
+# Black Hills Plateau (bhp)  
+gage_bhp <- sri_input %>%  
+  arrange(date) %>% 
+  filter(sta == "bat_her")   
+  
+bhp <- as.double(gage_bhp$log_q1_mon)   
   
 # north-central (NC)  
-sta_cot <- sta_pres %>%  
+sta_cot <- sri_input %>%  
   arrange(date) %>% 
   filter(sta == "COT")   
   
-cot <- as.double(sta_cot$prcp)   
+cot <- as.double(sta_cot$log_q1_mon)   
 
 # north-east (NE)  
-sta_oni <- sta_pres %>%  
+sta_oni <- sri_input %>%  
   arrange(date) %>% 
   filter(sta == "ONI")    
   
-oni <- as.double(sta_oni$prcp)   
+oni <- as.double(sta_oni$log_q1_mon)   
 
 # south-west (SW)  
-sta_oel <- sta_pres %>%  
+sta_oel <- sri_input %>%  
   arrange(date) %>% 
   filter(sta == "OEL")   
   
-oel <- as.double(sta_oel$prcp)   
+oel <- as.double(sta_oel$log_q1_mon)   
 
 # south-central (SC)  
-sta_gor <- sta_pres %>%  
+sta_gor <- sri_input %>%  
   arrange(date) %>% 
   filter(sta == "GOR")    
   
-gor <- as.double(sta_gor$prcp)   
+gor <- as.double(sta_gor$log_q1_mon)   
 
 # south-east (SE)  
-sta_mis <- sta_pres %>%  
+sta_mis <- sri_input %>%  
   arrange(date) %>% 
   filter(sta == "MIS")   
   
-mis <- as.double(sta_mis$prcp)   
+mis <- as.double(sta_mis$log_q1_mon)   
 
 # calculate SPI-rap----  
 # set up the station for spi & make spi list vars====  
@@ -2433,7 +2429,7 @@ spi_12mo <- transformSCI(sta,
   enframe(name                     = NULL)   
   
 # bind and rename the spi vals====     
-spi_rap <- bind_cols(sta_rap,     
+spi_rap <- bind_cols(bat_her,     
                      spi_1mo,   
                      spi_2mo,   
                      spi_3mo,  
@@ -2459,7 +2455,7 @@ rm(spi_1mo,
    spi_9mo,  
    spi_12mo  
    )      
-rm(sta_rap, rap)   
+rm(bat_her, rap)   
   
 # calculate SPI-cot----  
 # set up the station for spi & make spi list vars   
@@ -2851,7 +2847,7 @@ spi_sta <- bind_rows(spi_rap,
                  ) %>% 
   select(-c(Period, group)) %>%  
     # truncate spi vals to [-3, 3]    
-  gather(key = type, val = value, -c(sta, date, yr, prcp)) %>%  
+  gather(key = type, val = value, -c(sta, date, yr, log_q1_mon)) %>%  
   mutate(value = case_when(     
     value < -3.0 ~ -3.0,    
     value >  3.0 ~  3.0,  
@@ -2880,7 +2876,7 @@ rm(distrib,
    spi_oel,  
    spi_oni,  
    spi_rap, 
-   sta_pres  
+   sri_input  
    )         
 
 ``` 
