@@ -1250,12 +1250,19 @@ rm(sta_mon)
 ```{r import_streamflow_data, eval=FALSE}   
  
 # import full streamflow records----   
-gage_mon_full <- import("data/gage_mon_full.csv") %>% 
-# drop unneeded cols & duplicates
-  select(sta, Date, q1_mon) %>% 
-  distinct() 
- 
-gage_meta_lmom <-  import("data/gage_meta.csv")  
+gage_mon_full <- import("data/gage_mon_full.csv") 
+lmom_gage_meta <-  import("data/gage_meta.csv")  
+
+gage_eco <- gage_mon_full %>% 
+  select(sta, ecoreg) %>% 
+  distinct()  
+  
+# add ecoregions   
+lmom_gage_meta <- right_join(lmom_gage_meta, gage_eco, 
+                            by = "sta")  
+
+rm(gage_eco  
+   )  
   
 ```
 
@@ -1339,27 +1346,26 @@ lmom_sta <- full_join(lmom_sta_nm, lmom_sta,
 # join the lmoments to the metadata   
 sta_meta_lmom <- full_join(sta_meta_fin, lmom_sta,   
                            by = "sta")   
-  
 
-  
 export(sta_meta_lmom, "data/sta_meta_lmom.csv")    
-  
-rm(lmom_sta,  
-   lmom_sta_nm  
-   )  
+   
+rm(sta_meta_fin,   
+   lmom_sta_nm,  
+   sta_pres  
+   )   
   
 ```
 
 ```{r lmoments_streamflow, eval=FALSE}
   
 # Note that we might consider Weiss 1964 bias value of 1.018 for L1   
-  
+
 # Calculate L-moment ratios   
 lmom_gage <- gage_mon_full %>%  
   split(.$sta) %>%  
-  map(~ lmoms(.$q1_mon)) %>%    
-  transpose() %>%  
-  as_tibble() %>%  
+  map(~ lmoms(.$log_q1_mon)) %>%    
+  transpose() %>% 
+  as_tibble(rownames = sta) %>%  
   select(lambdas, ratios) %>%  
   mutate(lambdas = map(lambdas,   
                        ~as_tibble(t(.x))  
@@ -1388,59 +1394,58 @@ lmom_gage <- gage_mon_full %>%
   mutate(L1 = round(L1,  
                     digits = 2)  
   )  
-  
+
 # get station names from the list  
-lmom_gage_nm <- gage_mon_full %>%  
+lmom_gage_list <- gage_mon_full %>%  
   split(.$sta) %>%  
-  map(~ lmoms(.$q1_mon)) %>%  
+  map(~ lmoms(.$log_q1_mon)) %>%  
   transpose()  
   
-lmom_gage_nm <- lmom_gage_nm %>%  
-  pluck(1) %>%  
+lmom_gage_nm <- lmom_gage_list %>%  
+  pluck(2) %>%                     # plucks lmom-ratios
   enframe()  
   
 lmom_gage_nm <- lmom_gage_nm %>%  
-  unnest(value)  
-  
-lmom_gage_nm <- lmom_gage_nm %>%  
-  group_by(name) %>%  
-  summarize(L1 = first(value)) %>%  
-  ungroup() %>%  
-  mutate(L1 = round(L1,  
-                    digits = 2))  
+  unnest(value) %>% 
+  drop_na() %>% 
+  rename(sta = name) %>% 
+  group_by(sta) %>% 
+  summarize(L_CV = first(value)) 
   
 # join name to lmom vals & to the metadata  
-lmom_gage <- full_join(lmom_gage_nm, lmom_gage,  
-                      by = "L1") %>%  
-  rename(sta = name) %>%  
-  mutate(L_CV = round(L_CV,  
-                      digits = 2)  
-  ) %>%  
-  mutate(L_skew = round(L_skew,  
-                        digits = 2)  
-  ) %>%  
-  mutate(L_kurtosis = round(L_kurtosis,  
-                            digits = 2)  
-  )  
+lmom_gage <- full_join(lmom_gage_nm, lmom_gage, 
+                        by = ("L_CV")) 
   
-# join the lmoments to the metadata & drop unneeded cols   
-gage_meta_lmom <- full_join(gage_meta_lmom, lmom_gage,   
-                            by = "sta")   
+# check value 
+bad_fpi <- tibble(lmom_gage_list[["ratios"]][["bad_fpi"]]) 
 
-gage_meta_lmom <- gage_meta_lmom %>% 
-  select(-c(yrs_incomp:yeas_rec))
+# clean up 
+lmom_gage <- lmom_gage %>% 
+  gather(type, value, -sta) %>% 
+  mutate(value = round(value,  
+                       digits = 2)  
+         ) %>%   
+  spread(type, value) %>% 
+  select(sta, L1, L_CV, L_skew, L_kurtosis)
 
-export(gage_meta_lmom, "data/gage_meta_lmom.csv")    
+lmom_gage_meta <- full_join(lmom_gage_meta, lmom_gage,   
+                            by = "sta") 
+
+
+export(lmom_gage_meta, "data/gage_meta_lmom.csv")    
   
-rm(lmom_gage,  
+rm(lmom_gage,meta, 
+   bad_fpi, 
+   lmom_gage_list,  
    lmom_gage_nm,  
+   lmom_gage,  
    gage_mon_full  
    )  
   
 ```
 
 ```{r Lmoment_diagram_ratios}
-# extract elements from the lmrdia list to plot in ggplot2    
+# extract elements from the lmrdia list to plot in ggplot2      
 #   the x-value is the L-skewness and y-value is L-kurtosis   
   
 # get vals from the lmrdia list  
@@ -1496,57 +1501,120 @@ rm(gev,
 ```
 
 ```{r plot-lmoment-diagram}
- 
+
+# prepare data for plot----     
 lmom_gage <- import("data/gage_meta_lmom.csv") %>% 
-  select(sta, L1:L_kurtosis) %>% 
+  select(sta,  
+         flow_regime,  
+         ecoreg,  
+         L1,  
+         L_CV,  
+         L_skew,  
+         L_kurtosis  
+  ) %>% 
   mutate(type = "gage")  
-  
+
 lmom_sta <- import("data/sta_meta_lmom.csv") %>% 
-  select(sta, L1:L_kurtosis) %>% 
+  select(sta, 
+         L1,  
+         L_CV,  
+         L_skew,  
+         L_kurtosis  
+  ) %>% 
+  mutate(flow_regime = "precipitation") %>% 
+  mutate(ecoreg = "NA") %>% 
   mutate(type = "sta")  
 
-lmom_data <- 
+lmom_data <- bind_rows(lmom_gage,  
+                       lmom_sta 
+)  
 
+# refactor levels and provide label names====  
+lmom_data <- lmom_data %>% 
+  mutate(ecoreg = fct_relevel(ecoreg, 
+                              "NA",  
+                              "Sand Hills", 
+                              "Keya Paha Tablelands", 
+                              "Black Hills Plateau", 
+                              "White River Badlands", 
+                              "Pine Ridge Escarpment",  
+                              "Pierre Shale Plains"   
+  )  
+  )    
+
+type_labels <- c(
+  gage = "stream gages", 
+  sta = "weather stations"
+)  
 
 # plot the theoretical distributions, and sample vals----    
-
-ggplot(midwest, aes(x=area, y=poptotal)) + geom_point()
-
-ggplot(midwest, 
-       aes(x = area, 
-           y = poptotal
-           )) + 
-  theme_bw() + 
-  geom_point()    
-
-
-ggplot(lmom_sta,   
+ggplot(lmom_data,   
        aes(x = L_skew,  
            y = L_kurtosis  
        )) +  
   labs(x = "L-skew",  
        y = "L-kurtosis"  
   ) +   
-  #  xlim(-0.25, 0.5) +  
-  #  ylim(-0.25, 0.5) +  
+  xlim(-0.4, 0.75) +  
+  ylim(-0.1, 0.4) +  
   theme_bw() +    
-  geom_point() +   
+  theme(legend.title      = element_text(size = 10), 
+        legend.text       = element_text(size = 8), 
+        legend.key.height =  unit(0.3, 'cm'),  
+        legend.spacing    = unit(0.1, "cm")) +  
+  guides(linetype         = guide_legend(order = 1),  
+         color            = guide_legend(order = 2), 
+         shape            = guide_legend(order = 3)
+  ) +     
+  facet_grid(cols     = vars(type), 
+             rows     = NULL, 
+             scale    = "fixed", 
+             labeller = labeller(
+               type     = type_labels
+             )  
+  ) +  
+  # add l-moments 
   geom_line(data = lmom_theo,  
+            size = 0.5, 
+            color = "gray30", 
             aes(L_skew,  
                 L_kurtosis,  
                 group = distribution,  
-                linetype = distribution  
-            ))     
+                linetype = distribution
+            )) + 
+  scale_linetype_discrete(name = "Distribution") + 
+  # add point data 
+  geom_point(
+    size = 2, 
+    aes(shape = flow_regime,  
+        color = ecoreg  
+    )) + 
+  scale_shape_discrete(name = "Flow regime") +
+  scale_colour_grey(
+    breaks = rev(
+      levels(lmom_data$ecoreg)
+    ), 
+    guide = "legend", 
+    start      = 0.2,    
+    end        = 0.8,    
+    na.value   = "red",   
+    aesthetics = "colour",  
+    name       = 'Ecoregion'  
+  )    
 
+# save plot & clean-up====  
+ggplot2::ggsave(filename = "figure/lmom_plot.png",  
+                width = 6, height = 3.6, units = "in")  
 
+rm(lmom_theo,  
+   lmom_gage,  
+   lmom_sta,  
+   lmom_data, 
+   type_labels, 
+   lmom_gage_meta, 
+   sta_meta_lmom  
+)        
 
-  
-#ggplot2::ggsave(filename = "figure/lmom_plot.png",  
-#                width = 6, height = 4, units = "in")  
-  
-rm(lmom_theo  
-   )      
-  
 ```  
 
 # calculate SCI  
