@@ -593,7 +593,7 @@ rm(sta_check)
   
 ```  
 
-```{r fill-station-data, eval=FALSE}
+```{r fill-prcp-na, eval=FALSE}
   
 # create a df of monthly precipitation values-NW-RAP---- 
 station <- "RAP"  
@@ -3043,7 +3043,7 @@ FREQ   <- "12 months"
 TREND  <- "60 months"    
 TARGET <- "sci_1mo"   
    
-sci_seas <- sci_gage %>%   
+sri_seas <- sci_gage %>%   
   decomp_fun()  
   
 # clean up global environment####   
@@ -3065,7 +3065,8 @@ rm(freq,
 spi_anom <- spi_seas %>%   
   filter(anomaly == "Yes") 
 
-
+sri_anom <- sri_seas %>%   
+  filter(anomaly == "Yes") 
   
 # vars for plotting====    
 sta_size   <- 0.2  
@@ -3140,12 +3141,95 @@ cowplot::ggsave2("figure/spi_deconv.png",
                  units = "in",  
                  width = 7,  
                  height = 9)  
+
+# streamflow observations plot====  
+# set plotting position 
+sri_seas <- sri_seas %>% 
+  mutate(group = fct_relevel(ecoreg,
+                             "Pierre Shale Plains", 
+                             "Pine Ridge Escarpment", 
+                             "White River Badlands", 
+                             "Black Hills Plateau", 
+                             "Keya Paha Tablelands", 
+                             "Sand Hills")     
+  )
+
+sri_obs <- sri_seas %>%  
+  ggplot(aes(date, sci_1mo)) +     
+  theme_bw() +  
+  xlab("") +  
+  ylab("SRI 1-month") +   
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(group)) +   
+# plot station vals  
+geom_line(size            = sta_size,  
+          colour          = sta_color  
+          )    
   
+# precipitation seasons plot====   
+sri_seas_plot <- sri_seas %>%       
+  ggplot(aes(date, season)) +     
+  theme_bw() +  
+  xlab("") +  
+  ylab("SPI 1-month") +   
+  scale_y_continuous(limits = c(-3, 3)) +   
+  facet_wrap(vars(group),  
+             nrow = 2) +   
+# plot group vals              
+geom_line(size            = sta_size,  
+          colour          = sta_color  
+          )    
+   
+# precipitation trend plot====   
+sri_trend <- sri_seas %>%   
+  ggplot(aes(date, trend)) +      
+  theme_bw() +   
+  xlab("") +   
+  ylab("SPI 1-month") +    
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(group),        
+             nrow = 2) +    
+# plot group vals   
+geom_line(size            = sta_size,   
+          colour          = sta_color   
+          )    
+  
+# precipitation remainder plot====  
+sri_remain <- sri_seas %>%                
+  ggplot(aes(date, remainder)) +     
+  theme_bw() +                  
+  xlab("") +                     
+  ylab("SPI 1-month") +   
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(group)) +   
+# plot station vals         
+geom_line(size            = sta_size,  
+          colour          = sta_color  
+          )     
+  
+# plot the plots above as a grid & save====  
+cowplot::plot_grid(  
+  sri_obs, sri_seas_plot, sri_trend, sri_remain,  
+  ncol = 1,   
+  align = "v"  
+)  
+  
+cowplot::ggsave2("figure/sri_deconv.png",  
+                 units = "in",  
+                 width = 7,  
+                 height = 9)  
+
+# clean-up====  
 rm(spi_obs,  
    spi_seas,  
    spi_seas_plot,  
    spi_trend,  
    spi_remain,  
+   sri_obs,  
+   sri_seas,  
+   sri_seas_plot,  
+   sri_trend,  
+   sri_remain,
    spi_anom,  
    sta_color,  
    sta_size   
