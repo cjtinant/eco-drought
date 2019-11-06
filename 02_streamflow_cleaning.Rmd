@@ -98,7 +98,7 @@ print(paste("You have", until, "days until the second paper is due"
 why_to_write()  
 ```  
 
-```{r import_daily_flow_metadata, eval=FALSE}  
+```{r import_daily_flow_metadata}  
   
 # get possible stations from NWIS website----  
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),    
@@ -143,13 +143,13 @@ rm(gage_meta_int1,
 )    
 
 # 4. export metadata to data folder----  
-export(gage_meta_poss, "data/gage_meta_poss.csv")  
+#export(gage_meta_poss, "data/gage_meta_poss.csv")  
  
 ``` 
   
-```{r clean_gage_metadata, eval=FALSE} 
+```{r clean_gage_metadata} 
   
-#gage_meta_poss <- import("data/gage_meta_poss.csv")       
+gage_meta_poss <- import("data/gage_meta_poss.csv")       
   
 # select final stations for consideration----  
 # 1. remove gages that do not meet standards====    
@@ -207,7 +207,7 @@ rm(gage_meta_poss)
   
 ```  
   
-```{r add_names_to_gage_meta, eval=FALSE}  
+```{r add_names_to_gage_meta}  
   
 # get data from QGIS analysis of gaged & ungaged watersheds of interest====    
 wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
@@ -229,22 +229,14 @@ gage_meta <- gage_meta %>%
   filter(sta != " ")  
   
 # export metadata to data folder----   
-export(gage_meta, "data/gage_meta.csv")  
+#export(gage_meta, "data/gage_meta.csv")  
   
 ``` 
 
-```{r import_daily_flow_data, eval=FALSE, message=FALSE} 
+```{r import_daily_flow_data, message=FALSE} 
   
 # this is a small amount of code duplication to reduce API calls    
 #   to allow for working remotely -- set above to eval=FALSE   
-#gage_meta <- import("data/gage_meta_fin.csv") %>%   
-#    mutate(site_no = zeroPad(site_no, 8))   
-  
-#wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
-#                       layer = "wbd_summary",   
-#                       as_tibble = TRUE) %>%   
-#  st_drop_geometry() %>%   
-#  mutate_if(is.factor, as.character)   
   
 # set parameters for Egret::readNWISDaily     
 startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30    
@@ -278,10 +270,12 @@ gage_most_dv <- gage_meta %>%
 # remove the 1978 data that was needed to calculate Q7 & Q30   
 gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%   
   filter(waterYear > "1979")   
+
+rm(gage_lonriv_dv, gage_most_dv)  
   
 ```  
 
-```{r filter_short_flow_recs, eval=FALSE}
+```{r filter_short_flow_recs}
   
 # 1. prepare to filter gages with short flow records----     
 # calculate min & max years of record   
@@ -295,8 +289,8 @@ yrs_summary <- gage_dv %>%
   mutate(apparent_yrs = 1 + max_year - min_year) %>% 
   mutate(yeas_rec = as.numeric(years_rec))   
   
-#gage_meta <- gage_meta %>% 
-#    mutate(site_no = zeroPad(site_no, 8))  
+gage_meta <- import("data/gage_meta.csv") %>% 
+    mutate(site_no = zeroPad(site_no, 8))  
   
 gage_meta <- full_join(yrs_summary, gage_meta,        
                        by = "site_no")  
@@ -363,19 +357,14 @@ gage_meta <- gage_meta %>%
 # 06457500   1980   1991   NIOBRARA RIVER NEAR GORDON, NEBR.  
   
 # sync gage_dv w/ gage_meta & export results as posthoc to avoid interference  
-#names <- wsd_summary %>%  
-#  select(site_no = gage_num, sta = sta_id) %>%  
-#  drop_na() %>%  
-#  mutate(site_no = zeroPad(site_no, 8))  
-  
 gage_dv <- full_join(names, gage_dv,   
                      by ="site_no")    
   
 gage_dv <- semi_join(gage_dv, gage_meta,   
                      by = "site_no")     
  
-export(gage_meta, "data/gage_meta.csv")   
-export(gage_dv, "data/gage_dv.csv")   
+#export(gage_meta, "data/gage_meta.csv")   
+#export(gage_dv, "data/gage_dv.csv")   
   
 # clean up  
 rm(startDate,  
@@ -384,23 +373,20 @@ rm(startDate,
    wsd_summary,  
    names,   
    gage_check,  
-   yr_incomp,  
-   gage_lonriv_dv,  
-   gage_most_dv  
-   )  
+   yr_incomp  
+   )    
   
 ```  
 
-```{r clean_daily_flow, eval=FALSE} 
+```{r clean_daily_flow} 
   
 # this is a small amount of code duplication to reduce API calls     
+  
+gage_dv <- import("data/gage_dv.csv") %>% 
+    mutate(site_no = zeroPad(site_no, 8)) 
 
-#gage_dv <- import("data/gage_dv.csv") %>% 
-#    mutate(site_no = zeroPad(site_no, 8)) #%>% 
-#    select(-c())
-
-#gage_meta <- import("data/gage_meta.csv") %>%  
-#    mutate(site_no = zeroPad(site_no, 8)) 
+gage_meta <- import("data/gage_meta.csv") %>%  
+    mutate(site_no = zeroPad(site_no, 8)) 
 
 # filter missing records from Q1, Q7, Q30 
 gage_check <- gage_dv %>% 
@@ -442,13 +428,17 @@ gage_check <- gage_dv %>%
 
 rm(gage_check)   
 
+#export(gage_dv, "data/gage_dv.csv")   
+  
 ``` 
 
-```{r censor_low_flows, message=FALSE, eval=FALSE} 
+```{r censor_low_flows, message=FALSE} 
+
+gage_dv <- import("data/gage_dv.csv")  
 
 # fix low flows ---- this step needed for the PCA    
 #   EGRET calculates a "better" zero-flow value, but causes issues with results  
-#   this code chunk fixes low flow values by substituting 0.01 cfs  
+#   this code chunk fixes low flow values by substituting 0.01 cfs    
 #   for zero-flow values   
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
 
@@ -475,22 +465,38 @@ gage_low_flow <- gage_dv_low %>%
   distinct(sta) %>% 
   arrange(sta)  
 
-rm(gage_dv_gath, gage_dv_high, gage_dv_low)   
+rm(gage_dv_gath, 
+   gage_dv_high,  
+   gage_dv_low  
+   )     
 
-export(gage_dv, "data/gage_dv_fin.csv")  
+# incorporate zero flow into a gage id  
+gage_low_flow <- gage_low_flow %>%  
+  mutate(flow_regime = "intermittent") 
 
+gage_meta <- full_join(gage_meta, gage_low_flow) 
+
+gage_meta <-gage_meta %>%  
+  mutate(flow_regime = 
+           replace_na(flow_regime, "perennial")  
+         )  
+
+# export results  
+#export(gage_meta, "data/gage_meta.csv")    
+#export(gage_dv, "data/gage_dv_fin.csv")  
+  
 ``` 
 
-```{r convert_flow_to_depth, message=FALSE, eval=FALSE} 
-  
+```{r convert_flow_to_depth, message=FALSE} 
+
 # 1. calculate contributing drainage area in square kilometers & sec/day     
 gage_contrib_area <- gage_meta %>%   
   select(sta, drain_area_va, contrib_drain_area_va) %>%  
-  mutate(contrib_drain_area_va =  
+  mutate(contrib_drain_area_va =   
            contrib_drain_area_va %>%  
-             is.na %>%  
-             ifelse(drain_area_va, contrib_drain_area_va)) %>%  
-  select(-drain_area_va) %>%  
+             is.na %>%   
+             ifelse(drain_area_va, contrib_drain_area_va)) %>%   
+  select(-drain_area_va) %>%   
   mutate(contrib_drain_km2 =  
            measurements::conv_unit(contrib_drain_area_va,  
                                    from = "mi2",   
@@ -521,26 +527,26 @@ gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%
   
 rm(gage_contrib_area)    
   
-export(gage_depth, "data/gage_depth.csv")    
+#export(gage_depth, "data/gage_depth.csv")    
   
 ``` 
 
-```{r PCA-calculations, eval=FALSE}  
+```{r PCA-calculations}  
 
-gage_dep <- import("data/gage_depth.csv") 
-
+gage_depth <- import("data/gage_depth.csv") 
+  
 # Prepare to approach normality using forcast::BoxCox----    
 # make a dataframe of lambda values====   
-lambda_q1  <- enframe(  
-  BoxCox.lambda(gage_dep$q1_depth)  
-  )   
-  
+lambda_q1  <- enframe(   
+  BoxCox.lambda(gage_depth$q1_depth)   
+  )    
+ 
 lambda_q7  <- enframe(  
-  BoxCox.lambda(gage_dep$q7_depth)  
+  BoxCox.lambda(gage_depth$q7_depth)  
   )   
   
 lambda_q30 <- enframe(  
-  BoxCox.lambda(gage_dep$q30_depth)  
+  BoxCox.lambda(gage_depth$q30_depth)  
   )  
   
 lambda_vals <- bind_cols(lambda_q1,  
@@ -555,7 +561,7 @@ lambda_vals <- bind_cols(lambda_q1,
 rm(lambda_q1, lambda_q7, lambda_q30)    
   
 # create a PCA input dataframe & PCA matrix====   
-pca_input <- gage_dep %>%  
+pca_input <- gage_depth %>%  
   mutate(q1_tr = BoxCox(.$q1_depth,  
                         lambda_vals$lambda_q1)   
          ) %>%  
@@ -609,8 +615,8 @@ pca_vars <-  tidy(pca_matrix,
          )   
   
 # Bind sample vals to PCA matrix  
-gage_dep <- augment(pca_matrix, 
-                   data = gage_dep  
+gage_depth <- augment(pca_matrix, 
+                   data = gage_depth  
                    ) %>% 
   select(-c(.rownames, 
             .fittedPC3)
@@ -618,16 +624,18 @@ gage_dep <- augment(pca_matrix,
       mutate(q1_q30_diff = q1_depth - q30_depth)  
   
 # Save results  
-export(gage_dep, "data/gage_dep.csv")  
-export(pca_eigen, "data/pca_eigen.csv")  
-export(pca_vars, "data/pca_vars.csv")   
-
+#export(gage_depth, "data/gage_depth.csv")   
+#export(pca_eigen, "data/pca_eigen.csv")  
+#export(pca_vars, "data/pca_vars.csv")   
+  
 rm(pca_eigen, pca_input, pca_matrix, pca_vars, lambda_vals)  
   
 ```  
 
 ```{r add_ecoreg_&_metadata}
-  
+
+#gage_meta <- import("data/gage_meta.csv")  
+
 # 1. read in shapefile data of intersection of watershed area &  
 # merged SD, NE, WY ecoregions----  
 ecoreg <- st_read("sp_data/ecoreg_int.shp",  
@@ -716,22 +724,36 @@ ecoreg <- ecoreg %>%
 eco_join <- ecoreg %>%  
   select(sta = sta_id, ecoreg = ecoreg_wtsd)  
   
-gage_dep <- full_join(gage_dep, eco_join,  
-                  by = "sta")  
- 
+gage_depth <- full_join(gage_depth, eco_join,  
+                  by = "sta")   
+  
 rm(eco_join, ecoreg)  
+
+gage_ecoreg <- gage_depth %>% 
+  select(sta, ecoreg) %>% 
+  distinct()  
+
+gage_meta <- full_join(gage_meta, gage_ecoreg, 
+                         by = "sta")  
+
+#export(gage_depth, "data/gage_depth.csv")    
+#export(gage_meta, "data/gage_meta.csv")   
   
 ```   
 
 ```{r daily_to_monthly_depth}
-  
+
+gage_depth <- gage_depth %>% 
+  mutate(log_q1_depth = log10(q1_depth))    
+
 # average daily depths into monthly mean depths----     
-gage_mon <- gage_dep %>%  
+gage_mon <- gage_depth %>%  
   mutate(yr = year(Date)) %>%  
   mutate(mon = month(Date)) %>%  
   mutate(q30_q1_diff = q30_depth - q1_depth) %>%  
   group_by(sta, mon, yr) %>%  
   summarize(waterYear = first(waterYear),   
+            log_q1_mon = mean(log_q1_depth),  
             q1_mon     = mean(q1_depth),  
             q7_mon     = mean(q7_depth),  
             q30_mon    = mean(q30_depth),           
@@ -744,40 +766,36 @@ gage_mon <- gage_dep %>%
   ungroup() %>%  
   unite("Date", c("yr", "mon", "day")) %>%  
   mutate(Date = ymd(Date)) %>%  
-  gather(key = axis, value = PCval,  
-         -c(sta, Date, waterYear, ecoreg, q1_mon,  
-            q7_mon, q30_mon, q30_q1_mon)  
-  )  %>%   
-  as_tibble()  
+  as_tibble()   
   
-export(gage_mon, "data/gage_mon.csv")   
+#export(gage_mon, "data/gage_mon.csv")   
   
 ```
 
 ```{r select_complete_records}  
 
 # select complete records for period >1989 to present (n = 29) for SRI  
-gage_mon <- import("data/gage_mon.csv") %>% 
-  mutate(Date = ymd(Date))  
+#gage_mon <- import("data/gage_mon.csv") %>%  
+#  mutate(Date = ymd(Date))  
 
-gage_yrs_comp <- gage_mon %>% 
+gage_yrs_comp <- gage_mon %>%  
   filter(Date > "1988-12-15") %>% 
   group_by(sta, waterYear) %>% 
+  summarise(years = n()   
+  ) %>%  
+  group_by(sta) %>%  
   summarise(years = n()  
-  ) %>% 
-  group_by(sta) %>% 
-  summarise(years = n() 
-  ) %>% 
-  ungroup() %>% 
-  filter(years >= 29)
-
-
-gage_mon_full <- semi_join(gage_mon, gage_yrs_comp, 
+  ) %>%  
+  ungroup() %>%  
+  filter(years >= 29)  
+  
+gage_mon_full <- semi_join(gage_mon, gage_yrs_comp,  
                            by = "sta")  
-
-export(gage_mon_full, "data/gage_mon_full.csv")  
-
+  
+#export(gage_mon_full, "data/gage_mon_full.csv")   
+  
 rm(gage_yrs_comp)  
+  
 ```
 
 
