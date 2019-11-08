@@ -1399,9 +1399,9 @@ rm(gage_eco)
   
 ```
 
-```{r lmoments_streamflow, eval=FALSE}
+```{r lmoments_streamflow, eval=FALSE} 
   
-# Note -- we might consider Weiss 1964 bias value of 1.018 for L1    
+# Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
   
 # Calculate L-moment ratios   
 lmom_gage <- gage_mon_full %>%  
@@ -1470,12 +1470,13 @@ lmom_gage <- lmom_gage %>%
          ) %>%   
   spread(type, value) %>%  
   select(sta, L1, L_CV, L_skew, L_kurtosis)
-
+  
 lmom_gage <- full_join(lmom_gage_meta, lmom_gage,    
                             by = "sta")  
- 
+  
 # check stations for discordance & prepare for join====    
-dischord <- lmrdiscord(site = lmom_gage$sta,  
+dischord <- lmrdiscord(site = lmom_gage$sta, 
+#                       Dcrit = 2.5, 
                        digits = 2,  
                        t2 = lmom_gage$L_CV,  
                        t3 = lmom_gage$L_skew,   
@@ -1507,7 +1508,7 @@ rm(lmom_gage_meta,
 ```
 
 ```{r Lmoment_diagram_ratios}
-# extract elements from the lmrdia list to plot in ggplot2       
+# extract elements from the lmrdia list to plot in ggplot2        
 #   the x-value is the L-skewness and y-value is L-kurtosis   
   
 # get vals from the lmrdia list  
@@ -1716,9 +1717,9 @@ rm(lmom_theo,
 ```  
 
 # calculate SCI  
-```{r identify_representive_gages}
+```{r identify_representive_gages} 
   
-# import streamflow records & metadata----    
+# import streamflow records & metadata----     
 gage_mon <- import("data/gage_mon_full.csv")  
   
 # remove discordant stations & discord calcs  
@@ -1751,7 +1752,7 @@ gage_meta <- left_join(gage_meta, gage_mean,
   arrange(D2)  
   
 # select gages by ecoreg by distance from centroid====     
-#gage_pick <- gage_meta %>%  
+#gage_pick <- gage_meta %>%   
 #  group_by(ecoreg) %>%  
 #  summarise(sta    = first(sta),  
 #            L1     = first(L1),  
@@ -1777,11 +1778,11 @@ rm(sri_input,
    gage_meta,  
 #   gage_pick,    
    gage_mon
-  )  
+  )   
   
 ```
 
-```{r SCI_function, eval=FALSE}
+```{r SCI_function, eval=FALSE} 
   
 # fitSCI identifies Standardized Climate Index (SCI) parameters----       
 #   some notes about the SCI package:      
@@ -1797,7 +1798,7 @@ p_zero_cm  <- TRUE  # uses Weibull plotting position for p_zero
 scale      <- "sd"  # scales input by subtract mean & divide by sd     
 warn_me    <- TRUE  # sets explicit warning    
 first_mon  <- 1     # Set first month for each station   
-sci.limit  <- 3     # Sets a limit of [-3, 3] for limit   
+sci.limit  <- 3.5     # Sets a limit of [-3, 3] for limit   
   
 # sci function====                                            
 sci.fun <- function(sta, time_scale) fitSCI( x = sta,    
@@ -1808,7 +1809,6 @@ sci.fun <- function(sta, time_scale) fitSCI( x = sta,
                                              p0             = p_zero,     
                                              p0.center.mass = p_zero_cm,     
                                              scaling        = scale,     
-                                             sci.limit      = sci_limit,    
                                              warn	         = warn_me     
 )     
   
@@ -2502,10 +2502,10 @@ rm(sri_check,
   
 ```  
 
-```{r calculate_SRI}
+```{r calculate_SRI_prelim, eval=FALSE}
   
 # calculate SCI_blp----  
-# SCI calcs - bha_bat -- set up the station for sci & make sci list vars====  
+# SCI prelim - bha_bat -- set up the station for sci & make sci list vars====  
 sta      <- bhp_bat_v   
 sci_1mo  <- sci.fun(sta, 1)                             
 sci_2mo  <- sci.fun(sta, 2)                             
@@ -2515,49 +2515,409 @@ sci_6mo  <- sci.fun(sta, 6)    # month 12 fail
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)   
   
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_bat <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_bat")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# SCI prelim - bhp_bev -- set up the station for sci & make sci list vars====    
+sta      <- bhp_bev_v  
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)                             
+sci_3mo  <- sci.fun(sta, 3)                             
+sci_4mo  <- sci.fun(sta, 4)    
+sci_6mo  <- sci.fun(sta, 6)    
+sci_9mo  <- sci.fun(sta, 9)    
+sci_12mo <- sci.fun(sta, 12)   
+
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_bev <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_bev")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# SCI prelim - bha_fal -- set up the station for sci & make sci list vars====    
+sta      <- bhp_fal_v   
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 4                      
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail for month 1-, 5-        
+sci_4mo  <- sci.fun(sta, 4)    
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 6-  
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 7-, 8-  
+sci_12mo <- sci.fun(sta, 12)   # MLE fail for month 8-, 9-  
+  
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_fal <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_fal")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# SCI prelim - bha_frn -- set up the station for sci & make sci list vars====  
+sta      <- bhp_frn_v   
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 8-, 11-                 
+sci_3mo  <- sci.fun(sta, 3)           
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail for month 1- 
+sci_6mo  <- sci.fun(sta, 6)     
+sci_9mo  <- sci.fun(sta, 9)     
+sci_12mo <- sci.fun(sta, 12)   
+  
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_frn <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_frn")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# join distribution parameters -- blp====  
+dist_bhp <- bind_rows(dist_bhp_bat,  
+                      dist_bhp_bev,  
+                      dist_bhp_fal,  
+                      dist_bhp_frn  
+                      )  
+
+# get the stations & months with MLE non-convergence  
+fail_bhp <- dist_bhp %>% 
+  filter(is.na(shape)) %>% 
+  select(sta, duration, month)  
+
+# get group means 
+dist_bhp_g <- dist_bhp %>%   
+  filter(!is.na(shape)) %>%  
+  group_by(duration, month) %>%   
+  summarize(shape       = mean(shape),   
+            scale       = mean(scale),  
+            location    = mean(location)   
+            ) %>% 
+  ungroup()  
+
+# create final group means for non-converging stations  
+dist_bhp_g <- semi_join(dist_bhp_g, fail_bhp,  
+                      by = c("month", "duration")) 
+
+dist_bhp_g <- full_join(fail_bhp, dist_bhp_g, 
+                      by = c("month", "duration")
+                      )  
+
+dist_bhp_fill <- dist_bhp %>% 
+  select(month, duration, P0, N.P0, N) %>% 
+  filter(!is.na(P0)) %>%  
+  group_by(month, duration) %>% 
+  summarise(P0 = mean(P0),  
+            N.P0 = mean(P0),  
+            N = mean(N)) %>% 
+  ungroup()  
+
+dist_bhp_g <- left_join(dist_bhp_g, dist_bhp_fill, 
+                         by = c("duration", "month")
+                         )   
+
+M12_06 <- dist_bhp_g %>% 
+  select(-c(1:3)) %>% 
+  slice(1) %>% 
+  as.double()
+
+#rm(fail_bhp,  
+   dist_bhp_bat,  
+   dist_bhp_bev,  
+   dist_bhp_fal,  
+   dist_bhp_frn  
+   )    
+```
+
+```{r calculate_SRI}
+# SCI calcs - bha_bat -- set up the station for sci & make sci list vars====  
+sta      <- bhp_bat_v   
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)                             
+sci_3mo  <- sci.fun(sta, 3)                           
+sci_4mo  <- sci.fun(sta, 4)     
+sci_6mo  <- sci.fun(sta, 6)    # month 12 fail  
+sci_9mo  <- sci.fun(sta, 9)    
+sci_12mo <- sci.fun(sta, 12)   
+  
 # bha_bat -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
-                         obj       = sci_1mo) %>%  
-  enframe(name                     = NULL)   
+                         obj       = sci_1mo, 
+                         sci.limit = sci.limit  
+                         ) %>%  
+  enframe(name                     = NULL)    
   
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
-                         obj       = sci_2mo) %>%   
+                         obj       = sci_2mo,
+                         sci.limit = sci.limit  
+                         ) %>%  
   enframe(name                     = NULL)  
   
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
-                         obj       = sci_3mo) %>%  
+                         obj       = sci_3mo, 
+                         sci.limit = sci.limit  
+                         ) %>%   
   enframe(name                     = NULL)  
   
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
-                         obj       = sci_4mo) %>%  
+                         obj       = sci_4mo, 
+                         sci.limit = sci.limit  
+                         ) %>%    
   enframe(name                     = NULL)    
-  
+
+# Using group mean   
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
-                         obj       = sci_6mo) %>%  
+                         obj       = sci_6mo, 
+                         sci.limit = sci.limit  
+                         ) %>%    
   enframe(name                     = NULL)  
   
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
-                         obj       = sci_9mo) %>%  
+                         obj       = sci_9mo, 
+                         sci.limit = sci.limit  
+                         ) %>%  
   enframe(name                     = NULL)  
   
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
-                         obj       = sci_12mo) %>%   
+                         obj       = sci_12mo, 
+                         sci.limit = sci.limit  
+                         ) %>%    
   enframe(name                     = NULL)   
   
-# bha_bat -- bind and rename the sci vals####       
+# bha_bat -- bind and rename the sci vals====         
 sci_bhp_bat <- bind_cols(bhp_bat,     
                      sci_1mo,   
                      sci_2mo,   
                      sci_3mo,  
                      sci_4mo,   
-                     sci_6mo,  
+                     sci_6mo,   
                      sci_9mo,   
                      sci_12mo  
 ) %>%                             
@@ -2567,7 +2927,7 @@ sci_bhp_bat <- bind_cols(bhp_bat,
   rename(sci_4mo = value3)  %>%   
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
-  rename(sci_12mo = value6)  
+  rename(sci_12mo = value6)   
   
 # bha_bat -- clean up global environment====  
 rm(sci_1mo,  
@@ -2580,7 +2940,7 @@ rm(sci_1mo,
    )      
 rm(bhp_bat, bhp_bat_v)   
   
-# SCI calcs - bha_bev -- set up the station for sci & make sci list vars====    
+# SCI calcs - bhp_bev -- set up the station for sci & make sci list vars====    
 sta      <- bhp_bev_v  
 sci_1mo  <- sci.fun(sta, 1)                             
 sci_2mo  <- sci.fun(sta, 2)                             
@@ -2590,6 +2950,7 @@ sci_6mo  <- sci.fun(sta, 6)
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)   
   
+
 # bha_bev -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
@@ -2626,7 +2987,7 @@ sci_12mo <- transformSCI(sta,
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
   
-# bha_bev -- bind and rename the sci vals####      
+# bha_bev -- bind and rename the sci vals====        
 sci_bhp_bev <- bind_cols(bhp_bev,      
                      sci_1mo,   
                      sci_2mo,   
@@ -2636,7 +2997,7 @@ sci_bhp_bev <- bind_cols(bhp_bev,
                      sci_9mo,   
                      sci_12mo  
 ) %>%                             
-  rename(sci_1mo = value)   %>%  
+  rename(sci_1mo = value)   %>%   
   rename(sci_2mo = value1)  %>%   
   rename(sci_3mo = value2)  %>%  
   rename(sci_4mo = value3)  %>%   
@@ -2665,6 +3026,7 @@ sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 6-
 sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 7-, 8-  
 sci_12mo <- sci.fun(sta, 12)   # MLE fail for month 8-, 9-  
   
+
 # bha_fal -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,   
@@ -2737,7 +3099,7 @@ sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 8-, 11-
 sci_3mo  <- sci.fun(sta, 3)           
 sci_4mo  <- sci.fun(sta, 4)    # MLE fail for month 1- 
 sci_6mo  <- sci.fun(sta, 6)     
-sci_9mo  <- sci.fun(sta, 9)     
+sci_9mo  <- sci.fun(sta, 9)      
 sci_12mo <- sci.fun(sta, 12)   
   
 # bha_frn -- apply the transformation identified by fitSCI function====    
@@ -4158,7 +4520,7 @@ rm(sci_1mo,
    sci_9mo,  
    sci_12mo   
    )   
-rm(bad_whi, bad_whi_v)    
+rm(bad_whi, bad_whi_v)     
   
 # clean up sci.fun vars====  
 rm(  
@@ -4171,7 +4533,8 @@ rm(
   sta,  
   time_scale,  
   warn_me  
-  )  
+  )   
+  
 ```
 
 ```{r join_SRI}
@@ -4314,18 +4677,25 @@ rm(sci_bhp_bat,
    sci_snd_ros,  
    sci_snd_vet,  
    sci_snd_whi,    
-   sci_bad_whi  
+   sci_bad_whi, 
+   sci_bad,  
+   sci_bhp,  
+   sci_kpt,  
+   sci_pre,  
+   sci_psp,  
+   sci_snd,  
+   sci.fun  
 )  
   
 ```
 
 # Identify seasonality & trend of SCI data 
-```{r make_stl-decomp_function}  
-
+```{r make_stl-decomp_function}    
+  
 # make function to decompose into seasonal, trend, & remainder----  
-decomp_fun <- function(df) {   
+decomp_fun <- function(df) {    
   arrange(df, .data$date) %>%  
-    group_by(.data$group) %>%  
+    group_by(.data$sta) %>%  
     time_decompose(   
       target         = , TARGET,     
       data           = .,   
@@ -4351,20 +4721,20 @@ decomp_fun <- function(df) {
   
 # deconvolute the grouped prcp into trend, seasonal & random components----  
   
-# import working data####     
+# import working data####       
 #spi_sta <- import("data/spi_sta.csv") %>%    
 # mutate(date = ymd(date))   
   
-#sta_meta_fin <- import("data/sta_meta_fin.csv")   
+sta_meta_fin <- import("data/sta_meta_fin.csv")     
   
-# prepare for deconvoluting the grouped precip====  
+# prepare for deconvoluting the grouped precip====   
 spi_sta <- spi_sta %>%   
   mutate(prcp = as.numeric(prcp)) %>%   
   arrange(date) %>%   
   as_tibble() %>%  
-  # make groups 
+  # make groups  
   mutate(group = case_when(  
-    sta == "RAP" ~ "NW",  
+    sta == "RAP" ~ "NW",   
     sta == "COT" ~ "NC",     
     sta == "OEL" ~ "NE",     
     sta == "GOR" ~ "SW",  
@@ -4375,7 +4745,7 @@ spi_sta <- spi_sta %>%
   
 # identify frequency of seasonality -- should be 12 months====      
 #   the level is group rather than station - so need to combine stations  
-freq <- spi_sta  %>%    
+freq <- spi_sta  %>%     
   split(.$group) %>%   
   map_dfc(~ anomalize::time_frequency(  
     period       = "auto",  
@@ -4383,7 +4753,7 @@ freq <- spi_sta  %>%
   ) %>%  
   gather(key     = group,  
          value   = freq) %>%   
-  summarise(freq = mean(freq),   
+  summarise(freq = mean(freq),    
             max  = max(freq),   
             min  = min(freq),   
             sd   = sd(freq)  
@@ -4391,7 +4761,7 @@ freq <- spi_sta  %>%
   
 #   identify trend of periodicity -- should be 60 months====  
 trend <- spi_sta  %>%  
-  split(.$group) %>%  
+  split(.$group) %>%   
   map_dfc(~ anomalize::time_trend(  
     period       = "auto", data = .)   
   ) %>%  
@@ -4409,8 +4779,6 @@ TARGET <- "spi_1mo"
   
 spi_seas <- spi_sta %>%   
   decomp_fun() 
-
-
   
 # clean up global environment####  
 rm(freq,  
@@ -4425,25 +4793,24 @@ rm(freq,
 
 ```{r deconvolute_sri}  
   
-# deconvolute the grouped prcp into trend, seasonal & random components----  
-  
-# import working data####   
+# deconvolute the grouped prcp into trend, seasonal & random components----   
+
+# import working data####    
 gage_meta <-  import("data/gage_meta.csv")   
 
 sci_gage <- import("data/sci_gage.csv") %>%    
   mutate(date = ymd(date))   
-
+  
 # prepare for deconvoluting the grouped precip====  
 # the target for decomp_fun is 'group' -- RUN THIS FOR 'sci_gage' 
 sci_gage <- sci_gage %>%   
     arrange(date) %>%   
   as_tibble() %>%  
-  mutate(group = ecoreg)   
+  mutate(group = sta)   
   
 # identify frequency of seasonality -- should be 12 months====      
-#   the level is group rather than station - so need to combine stations  
 freq <- sci_gage  %>%    
-  split(.$group) %>%   
+  split(.$sta) %>%   
   map_dfc(~ anomalize::time_frequency(  
     period       = "auto",  
     data = .)   
@@ -4458,7 +4825,7 @@ freq <- sci_gage  %>%
   
 #   identify trend of periodicity -- should be 60 months====   
 trend <- sci_gage  %>%   
-  split(.$group) %>%   
+  split(.$sta) %>%   
   map_dfc(~ anomalize::time_trend(   
     period       = "auto", data = .)    
   ) %>%                        
@@ -4475,21 +4842,22 @@ TREND  <- "60 months"
 TARGET <- "sci_1mo"   
    
 sri_seas <- sci_gage %>%   
-  decomp_fun()  
+  decomp_fun()   
   
-# clean up global environment####   
+# clean up global environment====     
 rm(freq,  
-   trend,      
+   trend,       
    FREQ,  
    TARGET,  
    TREND,  
-   decomp_fun  
+   decomp_fun, 
+   sci_gage
    )    
   
 ```  
 
 # Seasonality plotting  
-```{r plot_seasonality} 
+```{r plot_seasonality_spi} 
 # this code chunk is set up for both spi & sri seasonality plotting 
   
 # check for anomonies====     
@@ -4547,7 +4915,7 @@ geom_line(size            = sta_size,
           colour          = sta_color   
           )    
   
-# precipitation remainder plot====  
+# precipitation remainder plot====   
 spi_remain <-       
 spi_seas %>%                
   ggplot(aes(date, remainder)) +     
@@ -4572,71 +4940,228 @@ cowplot::ggsave2("figure/spi_deconv.png",
                  units = "in",  
                  width = 7,  
                  height = 9)  
+```
+  
+```{r prep_season_plot_sri}
+  
+# identify seasonally intermittant streams  
+sri_intermit <- sri_seas %>% 
+  group_by(sta) %>% 
+  summarise(season_max = max(season) 
+  ) %>% 
+  ungroup() %>% 
+  arrange(desc(season_max))  
 
-# streamflow observations plot====  
-# set plotting position 
+sri_seas_int <- sri_seas %>% 
+  filter(sta == "elk_elm")  
+
 sri_seas <- sri_seas %>% 
-  mutate(group = fct_relevel(ecoreg,
-                             "Pierre Shale Plains", 
-                             "Pine Ridge Escarpment", 
-                             "White River Badlands", 
-                             "Black Hills Plateau", 
-                             "Keya Paha Tablelands", 
-                             "Sand Hills")     
-  )
+  filter(sta != "elk_elm")
 
-sri_obs <- sri_seas %>%  
+# calculate group mean & sd====   
+# note elk_elm has really high seasonality and is removed from future calcs
+sri_1mo_mean <- sri_seas %>%  
+  group_by(ecoreg, date) %>% 
+  summarise(sci_1mo_sd = sd(sci_1mo),
+            sci_1mo    = mean(sci_1mo) 
+  ) %>%  
+  ungroup() %>% 
+  mutate(sci_1mo_hi = sci_1mo + sci_1mo_sd) %>% 
+  mutate(sci_1mo_lo = sci_1mo - sci_1mo_sd) %>% 
+  select(-c(sci_1mo_sd)) %>% 
+  gather(key = sci_type, value = sci_hi_lo, 
+         -c(ecoreg, date, sci_1mo)
+         )    
+
+sri_seas_mean <- sri_seas %>%  
+  group_by(ecoreg, date) %>% 
+  summarise(season_sd = sd(season),
+            season    = mean(season) 
+  ) %>%  
+  ungroup() %>% 
+  mutate(season_hi = season + season_sd) %>% 
+  mutate(season_lo = season - season_sd) %>% 
+  select(-c(season_sd)) %>% 
+  gather(key = season_type, value = seas_hi_lo, 
+         -c(ecoreg, date, season) 
+         )   
+
+sri_trend_mean <- sri_seas %>%  
+  group_by(ecoreg, date) %>% 
+  summarise(trend_sd = sd(trend),
+            trend    = mean(trend) 
+  ) %>%  
+  ungroup() %>% 
+  mutate(trend_hi = trend + trend_sd) %>% 
+  mutate(trend_lo = trend - trend_sd) %>% 
+  select(-c(trend_sd)) %>% 
+  gather(key = trend_type, value = trend_hi_lo, 
+         -c(ecoreg, date, trend)
+  )  
+  
+sri_remain_mean <- sri_seas %>%  
+  group_by(ecoreg, date) %>% 
+  summarise(remain_sd = sd(remainder),
+            remain    = mean(remainder) 
+  ) %>%  
+  ungroup() %>% 
+  mutate(remain_hi = remain + remain_sd) %>% 
+  mutate(remain_lo = remain - remain_sd) %>% 
+  select(-c(remain_sd)) %>% 
+  gather(key = remain_type, value = remain_hi_lo, 
+         -c(ecoreg, date, remain)
+  )  
+
+
+sri_means <- full_join(sri_1mo_mean, sri_seas_mean, 
+                       by = c("ecoreg", "date")  
+                       )      
+sri_means <- full_join(sri_means, sri_trend_mean, 
+                       by = c("ecoreg", "date")  
+                       ) 
+sri_means <- full_join(sri_means, sri_remain_mean, 
+                       by = c("ecoreg", "date")  
+                       ) 
+ 
+rm(sri_1mo_mean, sri_seas_mean, sri_trend_mean, sri_intermit)
+```
+
+```{r}
+
+sri_anom <- sri_seas %>% 
+  filter(sta != "elk_elm") %>%   
+  filter(anomaly == "Yes") 
+
+# set plotting position====     
+sri_seas <- sri_seas %>% 
+  mutate(ecoreg = fct_relevel(ecoreg,
+                              "Pierre Shale Plains", 
+                              "Pine Ridge Escarpment", 
+                              "White River Badlands", 
+                              "Black Hills Plateau", 
+                              "Keya Paha Tablelands", 
+                              "Sand Hills")     
+  ) 
+
+sri_means <- sri_means %>% 
+  mutate(ecoreg = fct_relevel(ecoreg,
+                              "Pierre Shale Plains", 
+                              "Pine Ridge Escarpment", 
+                              "White River Badlands", 
+                              "Black Hills Plateau", 
+                              "Keya Paha Tablelands", 
+                              "Sand Hills")     
+  ) 
+  
+# streamflow observations plot====  
+sri_obs <- sri_seas %>%   
   ggplot(aes(date, sci_1mo)) +     
   theme_bw() +  
   xlab("") +  
   ylab("SRI 1-month") +   
   scale_y_continuous(limits = c(-3, 3)) +  
-  facet_wrap(vars(group)) +   
-# plot station vals  
-geom_line(size            = sta_size,  
-          colour          = sta_color  
-          )    
-  
-# precipitation seasons plot====   
-sri_seas_plot <- sri_seas %>%       
+  facet_wrap(vars(ecoreg),   
+             nrow = 2 
+  ) +   
+  # plot all station vals  
+  geom_line(size            = 1,  
+            colour          = "gray80"  
+  )  + 
+# plot mean +/- 1 SD 
+  geom_line(data = sri_means,  
+            aes(date, sci_hi_lo), 
+            size            = 0.6,  
+            colour          = "gray60"  
+  )   +  
+# plot mean 
+  geom_line(data = sri_means,  
+            size            = 0.3,  
+            colour          = "black"  
+  )  
+
+# streamflow seasons plot====   
+sri_seas_plot <- 
+sri_seas %>% 
   ggplot(aes(date, season)) +     
   theme_bw() +  
   xlab("") +  
-  ylab("SPI 1-month") +   
+  ylab("SRI 1-month") +   
   scale_y_continuous(limits = c(-3, 3)) +   
-  facet_wrap(vars(group),  
+  facet_wrap(vars(ecoreg),  
              nrow = 2) +   
-# plot group vals              
-geom_line(size            = sta_size,  
-          colour          = sta_color  
-          )    
-   
-# precipitation trend plot====   
-sri_trend <- sri_seas %>%   
-  ggplot(aes(date, trend)) +      
-  theme_bw() +   
-  xlab("") +   
-  ylab("SPI 1-month") +    
-  scale_y_continuous(limits = c(-3, 3)) +  
-  facet_wrap(vars(group),        
-             nrow = 2) +    
-# plot group vals   
-geom_line(size            = sta_size,   
-          colour          = sta_color   
-          )    
+  # plot all station vals  
+  geom_line(size            = 1,  
+            colour          = "gray80"  
+  )  + 
+# plot mean +/- 1 SD 
+  geom_line(data = sri_means,  
+            aes(date, seas_hi_lo), 
+            size            = 0.3,  
+            colour          = "gray60"  
+  )   +  
+# plot mean 
+  geom_line(data = sri_means,  
+            aes(date, season), 
+            size            = 0.3,  
+            colour          = "black"  
+  )  
   
-# precipitation remainder plot====  
-sri_remain <- sri_seas %>%                
+# streamflow trend plot====   
+sri_trend <- sri_seas %>% 
+  ggplot(aes(date, trend)) +     
+  theme_bw() +  
+  xlab("") +  
+  ylab("SRI 1-month") +   
+  scale_y_continuous(limits = c(-3, 3)) +   
+  facet_wrap(vars(ecoreg),  
+             nrow = 2) +   
+  # plot all station vals  
+  geom_line(size            = 1,  
+            colour          = "gray80"  
+  )  + 
+# plot mean +/- 1 SD 
+  geom_line(data = sri_means,  
+            aes(date, trend_hi_lo), 
+            size            = 0.3,  
+            colour          = "gray60"  
+  )   +  
+# plot mean 
+  geom_line(data = sri_means,  
+            aes(date, trend), 
+            size            = 0.3,  
+            colour          = "black"  
+  )  
+
+# streamflow remainder plot====   
+#sri_remain <- 
+sri_seas %>% 
   ggplot(aes(date, remainder)) +     
-  theme_bw() +                  
-  xlab("") +                     
-  ylab("SPI 1-month") +   
-  scale_y_continuous(limits = c(-3, 3)) +  
-  facet_wrap(vars(group)) +   
-# plot station vals         
-geom_line(size            = sta_size,  
-          colour          = sta_color  
-          )     
+  theme_bw() +  
+  xlab("") +  
+  ylab("SRI 1-month") +   
+  scale_y_continuous(limits = c(-3, 3)) +   
+  facet_wrap(vars(ecoreg),  
+             nrow = 2) +   
+  # plot all station vals  
+  geom_line(size            = 1,  
+            colour          = "gray80"  
+  )  + 
+# plot mean +/- 1 SD 
+  geom_line(data = sri_means,  
+            aes(date, remain_hi_lo), 
+            size            = 0.3,  
+            colour          = "gray60"  
+  )   +  
+# plot mean 
+  geom_line(data = sri_means,  
+            aes(date, remain), 
+            size            = 0.3,  
+            colour          = "black"  
+  ) + 
+# plot anomolies 
+  geom_point(data = sri_anom,  
+             aes(date, sci_1mo),  
+             shape = 8)  
   
 # plot the plots above as a grid & save====  
 cowplot::plot_grid(  
@@ -4649,7 +5174,7 @@ cowplot::ggsave2("figure/sri_deconv.png",
                  units = "in",  
                  width = 7,  
                  height = 9)  
-
+  
 # clean-up====  
 rm(spi_obs,  
    spi_seas_plot,  
@@ -4659,20 +5184,66 @@ rm(spi_obs,
    sri_seas,  
    sri_seas_plot,  
    sri_trend,  
-   sri_remain,
+   sri_remain, 
    spi_anom,  
    sta_color,  
    sta_size   
    )         
+  
 
-# check pierre shale seasonality 
-psp_seas <- sri_seas %>% 
-  filter(ecoreg == "Pierre Shale Plains") %>% 
-  mutate(mon = month(date)) %>% 
-  group_by(mon) %>% 
-  summarize(mon_dep = mean(season))
-
+ 
 ```  
+
+
+# precipitation remainder plot====  
+sri_remain <- sri_seas %>%                
+  ggplot(aes(date, remainder)) +     
+  theme_bw() +                  
+  xlab("") +                     
+  ylab("SPI 1-month") +   
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(group)) +   
+# plot station vals         
+geom_line(size            = sta_size,  
+          colour          = sta_color  
+          )     
+
+
+#sri_trend <- 
+sri_seas %>%   
+  ggplot(aes(date, trend)) +      
+  theme_bw() +   
+  xlab("") +   
+  ylab("SPI 1-month") +    
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(ecoreg),        
+             nrow = 2) +    
+# plot group vals   
+geom_line(size            = sta_size,   
+          colour          = sta_color   
+
+
+#sri_seas <- sri_seas %>%  
+  mutate(group = fct_relevel(ecoreg,
+                             "Pierre Shale Plains", 
+                             "Pine Ridge Escarpment", 
+                             "White River Badlands", 
+                             "Black Hills Plateau", 
+                             "Keya Paha Tablelands", 
+                             "Sand Hills")     
+  )  
+  
+sri_obs <- sri_seas %>%  
+  ggplot(aes(date, sci_1mo)) +     
+  theme_bw() +  
+  xlab("") +  
+  ylab("SRI 1-month") +   
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(group)) +   
+# plot station vals  
+geom_line(size            = sta_size,  
+          colour          = sta_color  
+          )    
 
 # TO DO Monthly plot PRCP_MON  
 ```{r plot-annual}
