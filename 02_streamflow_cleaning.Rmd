@@ -742,10 +742,10 @@ gage_meta <- full_join(gage_meta, gage_ecoreg,
 ```   
 
 ```{r daily_to_monthly_depth}
-
-gage_depth <- gage_depth %>% 
-  mutate(log_q1_depth = log10(q1_depth))    
-
+#gage_depth <- import("data/gage_depth.csv")  
+#gage_depth <- gage_depth %>% 
+#  mutate(log_q1_depth = log10(q1_depth))    
+  
 # average daily depths into monthly mean depths----     
 gage_mon <- gage_depth %>%  
   mutate(yr = year(Date)) %>%  
@@ -774,27 +774,41 @@ gage_mon <- gage_depth %>%
 
 ```{r select_complete_records}  
 
-# select complete records for period >1989 to present (n = 29) for SRI  
-#gage_mon <- import("data/gage_mon.csv") %>%  
-#  mutate(Date = ymd(Date))  
+# select complete records for period >1989 to present (n = 30) for SRI  
+gage_mon <- import("data/gage_mon.csv") %>%  
+  mutate(Date = ymd(Date))  
+
+gage_meta <- import("data/gage_meta.csv")
 
 gage_yrs_comp <- gage_mon %>%  
-  filter(Date > "1988-12-15") %>% 
+  filter(Date > "1987-12-15") %>% 
   group_by(sta, waterYear) %>% 
-  summarise(years = n()   
+  summarise(years  = n(), 
+            ecoreg = first(ecoreg)
   ) %>%  
   group_by(sta) %>%  
-  summarise(years = n()  
+  summarise(years  = n(), 
+            ecoreg = first(ecoreg)
   ) %>%  
-  ungroup() %>%  
-  filter(years >= 29)  
+  ungroup() 
+
+gage_meta <- right_join(gage_meta, gage_yrs_comp,  
+                           by = "sta")  
+
+gage_yrs_comp <- gage_yrs_comp %>% 
+  filter(years >= 30)  
   
 gage_mon_full <- semi_join(gage_mon, gage_yrs_comp,  
                            by = "sta")  
   
-#export(gage_mon_full, "data/gage_mon_full.csv")   
-  
-rm(gage_yrs_comp)  
+export(gage_mon_full, "data/gage_mon_full.csv")   
+export(gage_meta, "data/gage_meta.csv")  
+
+rm(gage_meta,  
+   gage_mon,  
+   gage_mon_full,  
+  gage_yrs_comp   
+   )   
   
 ```
 
