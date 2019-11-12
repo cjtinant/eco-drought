@@ -251,10 +251,11 @@ library("scales")            # graphical scales map data to aesthetics,
                              #   for axes and legends  
 library("anomalize")         # detect anomalies using the tidyverse   
 library("dabestr")           # data analysis using bootstrap estimation   
-library("cowplot")  
-#library("flextable")        # construct complex table with 'kable'  
-#library("officer")          # facilitates '.docx' access for table export   
-  
+library("cowplot")           # streamlined theme & annotations for 'ggplot2'   
+library("timetk")            # tool kit for working with time series in R 
+library("tidyquant")         # integrate quant. analysis tools w/ tidyverse
+
+
 # used in time series clustering example--
 #library(gridExtra)           # merge plots  
 #library(ggdendro)            # dendrograms
@@ -268,10 +269,12 @@ library("tidyverse")
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
+conflict_prefer("as.dist", "stats")
   
 # other packages I have thought about ---------------------------------------  
 # library("ggfortify")        # data vis tools for statistical analysis  
-# library("ggpubr")           # some easy ggplot wrappers for publication ready                                #   'ggplot2'- based plots  
+# library("ggpubr")           # some easy ggplot wrappers for publication ready 
+#                             #   'ggplot2'- based plots  
   
 # library("standardize")      # tools for controlling continuous variable   
 #  scaling and factor contrasts for linear models   
@@ -286,7 +289,7 @@ conflict_prefer("select", "dplyr")
 #library("maps")              # Outlines of continents, countries, states &  
 #   counties  
 #library("mapdata")           # higher-resolution outlines  
-#library('ggmap')             # Spatial visualization with ggplot2  
+#library('ggmap')             # Spatial visualization with ggplot2   
 #library("sf")                # Simple features--spatial geometries for R  
 #library("RColorBrewer")      # Provides color schemes for maps -- see  
 #   http://colorbrewer2.org  
@@ -307,7 +310,7 @@ conflict_prefer("select", "dplyr")
 #library("bookdown") #  
 #library(unpivotr) # fix nasty Excel files  
 #library("friendlyeval")  
-#library("mathpix")                # support for 'Mathpix' image to 'LaTeX'   
+#library("mathpix")                # support for 'Mathpix' image to 'LaTeX'    
 #library("grateful") - not yet ready for R 3.5.0  
 #lmomco <- citation("lmomco")  
 #toBibtex(lmomco)  
@@ -351,7 +354,8 @@ sta_meta_orig <- sta_meta_orig %>%
     elevation > 1200 ~ "yes",  
     TRUE ~ "no"
       )                              # n =  46    
-  ) 
+  )  
+  
 # create groups of stations by region====       
 #   Notes: the string "GHCND:" doesn't appear in calls to get Global Historical  
 #   Climatology Network (GHCN) Daily Data  
@@ -554,46 +558,6 @@ rm(sta_miss_yr,
 )     
   
 ```   
-
-
-#sta_meta_fin <- sta_meta_fin %>% 
-#  select(sta) %>% 
-#  mutate(selected = "yes")
-
-#sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin, 
-#                           by = "sta")  
-#export(sta_meta_plus, "data/sta_meta_plus.csv") -?delete? 
-# export(sta_dv_alt, "data/sta_dv_alt.csv")  - delete?  
-#sta_meta_plus <- semi_join(sta_meta_orig, sta_dv_plus,     
-#                           by = "name")   
-#sta_dv_alt <- sta_dv_orig %>%  
-#  filter(sta == "RAP" |  
-#           sta == "COT" |   
-#           sta == "ONI" |   
-#           sta == "OEL" |   
-#           sta == "GOR" |  
-#           sta == "MIS" |   
-#           sta == "DUP" |  
-#           sta == "ELL" |  
-#           sta == "ELM" |  
-#           sta == "HOT" |   
-#           sta == "INT" |  
-#           sta == "KEN" |  
-#           sta == "MIL" |    
-#           sta == "MUL" |  
-#           sta == "ORA" |  
-#           sta == "PIE" |  
-#           sta == "RA4" |  
-#           sta == "VAL" |  
-#           sta == "VNW" |  
-#           sta == "WOO"   
-#  )  
-  
-
-```{r prepare-table}
-
-```
-
 
 ```{r check_prcp_data_quality, eval=FALSE}  
   
@@ -1153,6 +1117,27 @@ rm(sta_dv_alt,
 
 ```  
 
+```{r import_streamflow_data, eval=FALSE}   
+  
+# import full streamflow records----   
+#gage_mon_full <- import("data/gage_mon_full.csv")  
+#gage_meta <-  import("data/gage_meta.csv")  
+  
+#gage_eco <- gage_mon_full %>% 
+#  select(sta, ecoreg) %>% 
+#  distinct()  
+  
+# add ecoregions 
+#lmom_gage_meta <- left_join(gage_meta, gage_eco, 
+#                            by = "sta")  
+
+#lmom_gage_meta <- right_join(gage_meta, gage_eco, 
+#                            by = "sta")  
+  
+#rm(gage_eco)    
+  
+```
+
 # use bootstrapping to check precip differences 
 ```{r bootstrap_precip}  
   
@@ -1464,25 +1449,11 @@ rm(sta_meta_fin,
   
 ```
 
-```{r import_streamflow_data, eval=FALSE}   
+```{r lmoments_streamflow, eval=FALSE} 
   
 # import full streamflow records----   
 gage_mon_full <- import("data/gage_mon_full.csv")  
-lmom_gage_meta <-  import("data/gage_meta.csv")  
-  
-gage_eco <- gage_mon_full %>% 
-  select(sta, ecoreg) %>% 
-  distinct()  
-  
-# add ecoregions   
-lmom_gage_meta <- right_join(lmom_gage_meta, gage_eco, 
-                            by = "sta")  
-  
-rm(gage_eco)    
-  
-```
-
-```{r lmoments_streamflow, eval=FALSE} 
+gage_meta <-  import("data/gage_meta.csv")  
   
 # Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
   
@@ -1552,21 +1523,20 @@ lmom_gage <- lmom_gage %>%
                        digits = 2)  
          ) %>%   
   spread(type, value) %>%  
-  select(sta, L1, L_CV, L_skew, L_kurtosis)
+  select(sta, L1, L_CV, L_skew, L_kurtosis)  
   
-lmom_gage <- full_join(lmom_gage_meta, lmom_gage,    
-                            by = "sta")  
+lmom_gage <- full_join(gage_meta, lmom_gage,    
+                            by = "sta") %>%  
+  drop_na()  
   
 # check stations for discordance & prepare for join====    
-dischord <- lmrdiscord(site = lmom_gage$sta, 
-#                       Dcrit = 2.5, 
+dischord <- lmrdiscord(site = lmom_gage$sta,  
+                       #                       Dcrit = 2.5,  
                        digits = 2,  
                        t2 = lmom_gage$L_CV,  
                        t3 = lmom_gage$L_skew,   
                        t4 = lmom_gage$L_kurtosis  
-)  
-  
-dischord <- dischord %>%  
+) %>%  
   mutate(site = as.character(site)) %>%  
   rename(sta = site) %>%  
   rename(L_CV = t2) %>%  
@@ -1579,91 +1549,96 @@ lmom_gage <- full_join(lmom_gage, dischord,
 export(lmom_gage, "data/gage_meta_lmom.csv")   
   
 # clean up  
-rm(lmom_gage_meta,  
+rm(gage_meta,  
    bad_fpi,  
    lmom_gage_list,  
    lmom_gage_nm,  
    lmom_gage,  
    gage_mon_full,  
-   dischord
+   dischord  
    )  
   
 ```
 
 ```{r Lmoment_diagram_ratios}
 # extract elements from the lmrdia list to plot in ggplot2        
-#   the x-value is the L-skewness and y-value is L-kurtosis   
+#   the x-value is the L-skewness and y-value is L-kurtosis    
   
-# get vals from the lmrdia list  
+# get vals from the lmrdia list   
 # note that as gamma distribution is a 2-parameter dist, it is not shown  
-lmrdia <- lmrdia()  
+lmrdia <- lmrdia()   
   
-# extract L-skew & L-kurtosis values for several distributions  
-#   note:  aep4 <- lmrdia %>% extract2(2) %>% as.tibble()   
+# extract L-skew & L-kurtosis values for several distributions   
+#   note:  aep4 <- lmrdia %>% extract2(2) %>% as.tibble()    
   
 gev <- lmrdia[[5]]  %>%  
   as_tibble() %>%  
-  mutate(distribution = "GEV")  
+  mutate(distribution = "GEV")      
   
-glo <- lmrdia[[6]]  %>%  
-  as_tibble() %>%  
+glo <- lmrdia[[6]]  %>%   
+  as_tibble() %>%          
   mutate(distribution = "GLO")  
   
-gpa <- lmrdia[[7]]  %>%  
-  as_tibble() %>%  
+gpa <- lmrdia[[7]]  %>%   
+  as_tibble() %>%         
   mutate(distribution = "GPA")   
   
-gno <- lmrdia[[9]]  %>%  
-  as_tibble() %>%  
+gno <- lmrdia[[9]]  %>%   
+  as_tibble() %>%      
   mutate(distribution = "GNO")  
   
-gov <- lmrdia[[10]] %>%  
-  as_tibble() %>%  
+gov <- lmrdia[[10]] %>%    
+  as_tibble() %>%     
   mutate(distribution = "GOV")  
   
-pe3 <- lmrdia[[12]] %>%  
-  as_tibble() %>%  
+pe3 <- lmrdia[[12]] %>%   
+  as_tibble() %>%         
   mutate(distribution = "PE3")     
   
-lmom_theo <- bind_rows(gev,  
-                  glo,  
-                  gpa,  
-                  gno,  
-                  gov,  
-                  pe3  
+lmom_theo <- bind_rows(gev,   
+                  glo,   
+                  gpa,   
+                  gno,   
+                  gov,   
+                  pe3   
                   ) %>%  
   rename(L_skew = V1) %>%  
   rename(L_kurtosis = V2)  
   
-rm(gev,  
-   glo,  
-   gpa,  
-   gno,  
-   gov,  
-   pe3,  
-   lmrdia  
-   )  
+rm(gev,   
+   glo,   
+   gpa,   
+   gno,   
+   gov,   
+   pe3,   
+   lmrdia   
+   )   
   
 ```  
 
 # need to improve the plot with adding high discord gages 
-```{r plot-lmoment-diagram}
+```{r plot-lmoment-diagram} 
   
 # prepare station data for plot====  
 lmom_sta <- import("data/sta_meta_lmom.csv") %>%  
-  select(sta, 
+  select(sta,  
          L1,  
          L_CV,  
          L_skew,  
          L_kurtosis  
-  ) %>% 
-  mutate(flow_regime = "precipitation") %>% 
-  mutate(ecoreg = "NA") %>% 
+  ) %>%  
+  mutate(flow_regime = "precipitation") %>%  
+  mutate(ecoreg = "NA") %>%  
   mutate(type = "sta")  
   
 # prepare gage data for plot====       
-# drop discordant stations & calculate ecoregion vals 
-lmom_gage <- import("data/gage_meta_lmom.csv") %>%  
+# drop discordant stations & calculate ecoregion vals  
+lmom_gage <- import("data/gage_meta_lmom.csv") 
+
+discord <- lmom_gage %>% 
+  filter(isD == TRUE)  
+
+lmom_gage <- lmom_gage %>%  
   select(sta,  
          flow_regime,  
          ecoreg,  
@@ -1673,76 +1648,76 @@ lmom_gage <- import("data/gage_meta_lmom.csv") %>%
          L_kurtosis,  
          isD   
   ) %>%  
-  filter(isD == FALSE) %>%  
+  filter(isD == FALSE)  %>% 
   select(-isD) %>%  
   mutate(type = "gage")  
-  
-# calculate ecoregion values 
-lmom_ecoreg <- lmom_gage %>% 
-  group_by(ecoreg) %>% 
+
+# calculate ecoregion values  
+lmom_ecoreg <- lmom_gage %>%  
+  group_by(ecoreg) %>%  
   summarise(L1         = mean(L1),  
             L_CV       = mean(L_CV),  
             L_skew     = mean(L_skew),  
-            L_kurtosis = mean(L_kurtosis), 
+            L_kurtosis = mean(L_kurtosis),  
             n          = n()  
             ) %>%  
-  ungroup() %>% 
+  ungroup() %>%  
   gather(key, val, -ecoreg) %>%  
-  mutate(val           = round(val, digits = 2)) %>% 
-  spread(key, val) %>% 
-  select(ecoreg, L1, L_CV, L_skew, L_kurtosis) %>% 
-  mutate(sta           = NA) %>% 
-  mutate(flow_regime   = "ecoregion mean") %>% 
+  mutate(val           = round(val, digits = 2)) %>%  
+  spread(key, val) %>%  
+  select(ecoreg, L1, L_CV, L_skew, L_kurtosis) %>%  
+  mutate(sta           = NA) %>%  
+  mutate(flow_regime   = "ecoregion mean") %>%  
   mutate(type          = "gage")  
-
-# join station & individual gage data 
+  
+# join station & individual gage data  
 lmom_data <- bind_rows(lmom_gage,  
-                       lmom_sta, 
-                       lmom_ecoreg
+                       lmom_sta,   
+                       lmom_ecoreg  
 )  
   
-  
-# refactor levels and provide label names====  
-lmom_data <- lmom_data %>% 
-  mutate(ecoreg = fct_relevel(ecoreg, 
-                              "NA", 
-                              "Sand Hills", 
-                              "Keya Paha Tablelands", 
-                              "Black Hills Plateau", 
-                              "White River Badlands", 
+
+# refactor levels and provide label names====   
+lmom_data <- lmom_data %>%   
+  mutate(ecoreg = fct_relevel(ecoreg,   
+                              "NA",   
+                              "Sand Hills",   
+                              "Keya Paha Tablelands",  
+                              "Black Hills Plateau",  
+                              "White River Badlands",  
                               "Pine Ridge Escarpment",  
                               "Pierre Shale Plains")    
-  ) %>% 
-  mutate(flow_regime = fct_relevel(flow_regime, 
-                                   "precipitation", 
-                                   "perennial", 
-                                   "intermittent", 
-                                   "ecoregion mean"
+  ) %>%   
+  mutate(flow_regime = fct_relevel(flow_regime,   
+                                   "precipitation",   
+                                   "perennial",   
+                                   "intermittent",   
+                                   "ecoregion mean"  
   ))    
-
-type_labels <- c(
-  gage = "stream gages", 
-  sta = "weather stations & ecoregion means"
+  
+type_labels <- c(  
+  gage = "stream gages",  
+  sta = "weather stations"  
 )  
-
+  
 # plot the theoretical distributions, and sample vals----    
-ggplot(lmom_data,   
+ggplot(lmom_data,    
        aes(x = L_skew,  
            y = L_kurtosis  
        )) +  
   labs(x = "L-skew",  
        y = "L-kurtosis"  
   ) +   
-  xlim(-0.4, 0.5) +  
+  xlim(-0.4, 0.4) +  
   ylim(-0.1, 0.3) +  
   theme_bw() +    
-  theme(legend.title      = element_text(size = 10), 
-        legend.text       = element_text(size = 8), 
+  theme(legend.title      = element_text(size = 10),  
+        legend.text       = element_text(size = 8),  
         legend.key.height = unit(0.3, 'cm'),  
         legend.spacing    = unit(0.1, "cm")) +  
   guides(linetype         = guide_legend(order = 1),  
-         color            = guide_legend(order = 2), 
-         shape            = guide_legend(order = 3)
+         color            = guide_legend(order = 2),   
+         shape            = guide_legend(order = 3)  
   ) +     
   facet_grid(cols     = vars(type),   
              rows     = NULL,  
@@ -1770,11 +1745,11 @@ ggplot(lmom_data,
   scale_shape_discrete(name = "Type") +
   scale_colour_grey(
     breaks = rev(
-      levels(lmom_data$ecoreg)
+      levels(lmom_data$ecoreg)  
     ), 
     guide = "legend", 
     start      = 0.0,    
-    end        = 0.8,    
+    end        = 0.6,    
     na.value   = "red",   
     aesthetics = "colour",  
     name       = 'Ecoregion'  
@@ -1899,16 +1874,16 @@ sci.fun <- function(sta, time_scale) fitSCI( x = sta,
 
 ```{r prepare_calculate_SPI, eval=FALSE}
   
-# prepare sci function vector inputs (1989-01 to 2017-01)----    
+# prepare sci function vector inputs (1989-01 to 2017-01)----     
 # north-west (NW)   
 sta_rap <- sta_pres %>%   
-  arrange(date) %>%  
+  arrange(date) %>%   
   filter(sta == "RAP")   
   
 rap <- as.double(sta_rap$prcp)   
   
 # north-central (NC)  
-sta_cot <- sta_pres %>%  
+sta_cot <- sta_pres %>%   
   arrange(date) %>%  
   filter(sta == "COT")   
   
@@ -1916,12 +1891,12 @@ cot <- as.double(sta_cot$prcp)
   
 # north-east (NE)  
 sta_oni <- sta_pres %>%  
-  arrange(date) %>%  
+  arrange(date) %>%   
   filter(sta == "ONI")    
   
 oni <- as.double(sta_oni$prcp)   
   
-# south-west (SW)  
+# south-west (SW)   
 sta_oel <- sta_pres %>%  
   arrange(date) %>%  
   filter(sta == "OEL")   
@@ -1965,7 +1940,7 @@ sci_2mo  <- transformSCI(sta,
   enframe(name                     = NULL)  
   
 sci_3mo  <- transformSCI(sta,  
-                         first.mon = first_mon,   
+                         first.mon = first_mon,    
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
   
@@ -2398,7 +2373,7 @@ rm(sci_1mo,
    )   
 rm(sta_mis, mis)      
   
-# join sci data----  
+# join sci data----   
 sci_sta <- bind_rows(  
   sci_rap,  
   sci_cot,  
@@ -4456,29 +4431,29 @@ decomp_fun <- function(df) {
 
 ```{r deconvolute_spi}  
   
-# deconvolute the grouped prcp into trend, seasonal & random components----  
+# deconvolute the grouped prcp into trend, seasonal & random components----   
   
-# import working data####       
+# import working data====         
 #spi_sta <- import("data/spi_sta.csv") %>%    
 # mutate(date = ymd(date))   
   
-sta_meta_fin <- import("data/sta_meta_fin.csv")     
+sta_meta_fin <- import("data/sta_meta_fin.csv")      
   
-# prepare for deconvoluting the grouped precip====   
+# prepare for deconvoluting the grouped precip====    
 spi_sta <- spi_sta %>%   
-  mutate(prcp = as.numeric(prcp)) %>%   
+  mutate(prcp = as.numeric(prcp)) %>%    
   arrange(date) %>%   
-  as_tibble() %>%  
+  as_tibble() %>%   
   # make groups  
   mutate(group = case_when(  
-    sta == "RAP" ~ "NW",   
+    sta == "RAP" ~ "NW",    
     sta == "COT" ~ "NC",     
     sta == "OEL" ~ "NE",     
-    sta == "GOR" ~ "SW",  
+    sta == "GOR" ~ "SW",   
     sta == "ONI" ~ "SC",  
-    sta == "MIS" ~ "SE"  
+    sta == "MIS" ~ "SE"   
   )   
-  ) 
+  )  
   
 # identify frequency of seasonality -- should be 12 months====      
 #   the level is group rather than station - so need to combine stations  
@@ -4534,7 +4509,7 @@ rm(freq,
 # check for anomonies====     
 spi_anom <- spi_seas %>%   
   filter(anomaly == "Yes") 
-
+  
 sri_anom <- sri_seas %>%   
   filter(anomaly == "Yes") 
   
@@ -4943,11 +4918,11 @@ rm(spi_obs,
  
 ```  
 
-# TO DO Monthly plot PRCP_MON  
-```{r plot-annual}
-# plot annual precips
-sta_mon_plus %>% 
-  ggplot(aes(year, depth_mm, group = year)) + 
+# TO DO Monthly plot PRCP_MON - check code   
+```{r plot-annual-prcp}  
+# plot annual precips  
+sta_mon_plus %>%  
+  ggplot(aes(year, depth_mm, group = year)) +  
   facet_grid(rows =vars(group)) +  
   #  geom_quasirandom(size = 0.2,  
   #                position = position_beeswarm()) +  
@@ -4957,44 +4932,154 @@ sta_mon_plus %>%
        subtitle = "1990-2017") +  
   xlab("") +  
   ylab("mm")  
+  
 ```
 
 ```{r ggplot_monthly, eval=FALSE} 
-#sta_mon <- import(file = "data/stations_monthly.csv") %>% 
-#  mutate(date = ymd(date))
-
-#sta_mon %>% 
-#  group_by(sta) %>% 
-#  summarize(count = n())
-
+#sta_mon <- import(file = "data/stations_monthly.csv") %>%   
+#  mutate(date = ymd(date))  
+  
+#sta_mon %>%   
+#  group_by(sta) %>%   
+#  summarize(count = n())  
+  
 sta_mon_plus$group <- factor(sta_mon_plus$group,  
                              levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
-
+  
 # plot monthly precips  
 sta_mon_plus %>%   
   ggplot(aes(month, depth_mm, group = month)) +  
   facet_grid(rows = vars(group)) +   
-  geom_quasirandom(size = 0.2, 
+  geom_quasirandom(size = 0.2,  
                    position = position_beeswarm()  
   ) + 
-  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", 
-                              "7", "8", "9", "10", "11", "12"),   
-                   labels = c("J", "F", "M", "A", "M", "J", 
-                              "J", "A", "S", "O", "N", "D")  
-  ) + 
+  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6",  
+                              "7", "8", "9", "10", "11", "12"),    
+                   labels = c("J", "F", "M", "A", "M", "J",  
+                              "J", "A", "S", "O", "N", "D")   
+  ) +  
   theme_bw() +  
   #  labs(title = "Monthly precipitation depths",  
   #       subtitle = "Southwestern South Dakota for 1990-2017") +   
   xlab("") +  
   ylab("mm")  
-
-
-ggplot2::ggsave(path = "figure/", filename = "precip_mon.png", 
-                width = 6, height = 6, units = "in")
-
+  
+ggplot2::ggsave(path = "figure/", filename = "precip_mon.png",   
+                width = 6, height = 6, units = "in")  
+  
 ````  
 
+```{r precip-EDA, include=FALSE, eval=FALSE}
+# Purpose: EDA of precipitation data.
+# Outcome: Differences among stations 1971-2018 are small.  
+#          less than +/-5 mm on average.  
+ 
+# the anomolously wet month series is dominated by May & June events.  
+# what drives precip during this time?   
+#   In May & June the area recieves low-level moisture from the Gulf   
+#   of Mexico, strong cold fronts, and active upper-level pattern  
+#   leading to greater chance for convection.  
+```
 
+```{r coerse-timeseries_using_timetk}
+
+# Coercion issues w/ ts() - see vignette: Time Series Coercion Using timetk----     
+# The ts object class for time series data is used by packages including  
+#   'forecast()'.  The ts data structure is difficult to coerce back and  
+#   forth because by default it does not contain a time-based index -- rather  
+#   it uses a regularized index computed using start and frequency arguments.  
+# Coercion to ts using the ts() function from the stats library results in  
+#    various problems -- 1. only numeric columns get coerced, and if the user  
+#    forgets to add the [,"pct"] to drop the “date” column, ts() returns  
+#    dates in numeric format which is not what the user wants.  
+# Calling the specific column desired presents a new issue -- the date index  
+#    is lost, and a #different “regularized” index is built using the start  
+#    and frequency attributes.  
+# We can get the index using the index() function from the zoo package -- the  
+#    index retained is a regular sequence of numeric values, but the  
+#    regularized values cannot be coerced back to the original time-base  
+#    because the date and date time data may contain year-month-day,  
+#    hour-minute-second, and timezone attributes, may not be on a regularized  
+#    interval (frequency).  
+
+# Solution -- he timetk package contains a new function, tk_ts(), that  
+#   enables maintaining the original date index as an attribute. When we   
+#   repeat the tbl to ts coercion process using the new function, tk_ts():      
+#  
+# 1. only numeric columns get coerced, which prevents unintended consequences  
+#   due to R coercion rules (e.g. dates getting unintentionally converted  
+#   or characters causing the homogeneous data structure converting all  
+#   numeric values to character).  
+#  
+# 2. the data returned has additional attributes --  
+#   a numeric attribute, “index” containing orig. date information as a number  
+#   along with the time zone and class.  
+#   
+# 3. the tk_tbl() function has an argument timetk_idx  which can be used to  
+#    select which index to return.  
+#    Note: ts() returns a “regularized” (numeric) index rather than a   
+#    time-based index.  
+
+# get data & coerce to time series====  
+spi_sta <- import("data/spi_sta.csv") %>% 
+  mutate(date = ymd(date))   
+  
+sta_meta_fin <- import("data/sta_meta_fin.csv")      
+
+# starting small to look at ARIMA
+spi01_cot_ts <- spi_sta %>%  
+  select(sta, date, spi_1mo) %>%  
+  filter(sta == "COT") %>%  
+  spread(sta, spi_1mo) %>%  
+  tk_ts( 
+    start  = 1989, 
+    freq   = 12,
+    silent = FALSE)  
+
+# The original time-based index can be retrieved using 
+spi01_cot_ts %>% 
+tk_index(timetk_idx = TRUE) %>%
+    str()
+  
+
+```
+
+```{r forecast-example}
+
+install.packages("remotes")
+remotes::install_github("robjhyndman/expsmooth")
+data(usnetelec)
+print(usnetelec) 
+spi_sta <- import("data/spi_sta.csv") 
+
+spi_sta_mon <- spi_sta %>% 
+    mutate(date = ymd(date)) %>% 
+    mutate(month = month(date, label = TRUE),
+           year  = year(date)) %>%
+    group_by(year, month) %>% 
+  select(date, year, month, everything(), -prcp, prcp, -yr) %>% 
+  ungroup()  
+
+test <- wineind 
+
+library(ggplot2)
+ggAcf(wineind)
+wineind %>% Acf(plot=FALSE) %>% autoplot
+
+ggAcf(spi_sta_mon)
+## Not run: 
+wineind %>% taperedacf(plot=FALSE) %>% autoplot
+ggtaperedacf(wineind)
+ggtaperedpacf(wineind)
+## End(Not run)
+ggCcf(mdeaths, fdeaths)
+
+ggAcf(spi_sta_mon %>% convert()) + 
+  theme_light() + 
+  labs(title = "ACF plot of Seattle Bikes Series")
+```
+
+# forcasting with TSIBLE 
 ```{r things-tsible}  
 
 spi_all2 %>% 
@@ -5036,18 +5121,6 @@ spi_1mot %>%
 spi_1mot %>%
   autoplot(spi_1mo)
 
-```
-
-```{r precip-EDA, include=FALSE, eval=FALSE}
-# Purpose: EDA of precipitation data.
-# Outcome: Differences among stations 1971-2018 are small.  
-#          less than +/-5 mm on average.  
- 
-# the anomolously wet month series is dominated by May & June events.  
-# what drives precip during this time?   
-#   In May & June the area recieves low-level moisture from the Gulf   
-#   of Mexico, strong cold fronts, and active upper-level pattern  
-#   leading to greater chance for convection.  
 ```
 
 ```{r spi-correlation-analysis}
@@ -5190,169 +5263,611 @@ rm(spi_corr_aug, spi_corr_gath, spi_lm ,spi_lm_fit)
 rm(spi_corr, spi_lm_tidy)
 ```
 
+```{r sweep-example}
+#One of the most powerful benefits of sweep is that it helps forecasting at scale within the “tidyverse”. There are two common situations:
+
+#    Applying a model to groups of time series
+#    Applying multiple models to a time series
+
+#In this vignette we’ll review how sweep can help the first situation: 
+#Applying a model to groups of time series.
+#Prerequisites
+
+#Before we get started, load the following packages.
+
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+library(sweep)
+library(forecast)
+
+#Bike Sales
+
+#We’ll use the bike sales data set, bike_sales, provided with the sweep package #for this tutorial. The bike_sales data set is a fictional daily order history #that spans 2011 through 2015. It simulates a sales database that is typical of a #business. The customers are the “bike shops” and the products are the “models”.
+
+bike_sales
+spi_sta <- import("data/spi_sta.csv") 
+
+#We’ll analyse the monthly sales trends for the bicycle manufacturer. Let’s #transform the data set by aggregating by month.
+
+bike_sales_monthly <- bike_sales %>%
+    mutate(month = month(order.date, label = TRUE),
+           year  = year(order.date)) %>%
+    group_by(year, month) %>%
+    summarise(total.qty = sum(quantity)) 
+
+spi_sta_monthly <- spi_sta %>% 
+    mutate(date = ymd(date)) %>% 
+    mutate(month = month(date, label = TRUE),
+           year  = year(date)) %>%
+    group_by(year, month) %>% 
+  select(date, year, month, everything(), -prcp, prcp, -yr) %>% 
+  ungroup()  
+
+#We can visualize package with a month plot using the ggplot2 .
+
+bike_sales_monthly %>%
+    ggplot(aes(x = month, y = total.qty, group = year)) +
+    geom_area(aes(fill = year), position = "stack") +
+    labs(title = "Quantity Sold: Month Plot", x = "", y = "Sales",
+         subtitle = "March through July tend to be most active") +
+    scale_y_continuous() +
+    theme_tq()
+
+#Suppose Manufacturing wants a more granular forecast because the bike components #are related to the secondary category. In the next section we discuss how sweep #can help to perform a forecast on each sub-category.
+
+#Performing Forecasts on Groups
+
+#First, we need to get the data organized into groups by month of the year. We’ll #create a new “order.month” date using zoo::as.yearmon() that captures the year #and month information from the “order.date” and then passing this to lubridate::as_date() to convert to date format.
+
+monthly_qty_by_cat2 <- bike_sales %>%
+    mutate(order.month = as_date(as.yearmon(order.date))) %>%
+    group_by(category.secondary, order.month) %>%
+    summarise(total.qty = sum(quantity))
+
+monthly_spi1mo <- spi_sta_monthly %>% 
+  select(sta, date, spi_1mo)  
+  
+#Next, we use the nest() function from the tidyr package to consolidate each time series by group. The newly created list-column, “data.tbl”, contains the “order.month” and “total.qty” columns by group from the previous step. The nest() function just bundles the data together which is very useful for iterative functional programming.
+
+monthly_qty_by_cat2_nest <- monthly_qty_by_cat2 %>%
+    group_by(category.secondary) %>%
+    nest() 
+
+monthly_spi1mo_nest <- monthly_spi1mo %>% 
+  group_by(sta) %>% 
+  nest()  
+
+## # A tibble: 9 x 2
+## # Groups:   category.secondary [9]
+##   category.secondary           data
+##   <chr>              <list<df[,2]>>
+## 1 Cross Country Race       [60 × 2]
+## 2 Cyclocross               [60 × 2]
+## 3 Elite Road               [60 × 2]
+## 4 Endurance Road           [60 × 2]
+## 5 Fat Bike                 [58 × 2]
+## 6 Over Mountain            [60 × 2]
+## 7 Sport                    [60 × 2]
+## 8 Trail                    [60 × 2]
+## 9 Triathalon               [60 × 2]
+
+#Forecasting Workflow
+
+#The forecasting workflow involves a few basic steps:
+
+#    Step 1: Coerce to a ts object class.
+#    Step 2: Apply a model (or set of models)
+#    Step 3: Forecast the models (similar to predict)
+#    Step 4: Tidy the forecast
+
+#Step 1: Coerce to a ts object class
+
+#In this step we map the tk_ts() function into a new column “data.ts”. The procedure is performed using the combination of dplyr::mutate() and purrr::map(), which works really well for the data science workflow where analyses are built progressively. As a result, this combination will be used in many of the subsequent steps in this vignette as we build the analysis.
+#mutate and map
+
+#The mutate() function adds a column, and the map() function maps the contents of a list-column (.x) to a function (.f). In our case, .x = data.tbl and .f = tk_ts. The arguments select = -order.month, start = 2011, and freq = 12 are passed to the ... parameters in map, which are passed through to the function. The select statement is used to drop the “order.month” from the final output so we don’t get a bunch of warning messages. We specify start = 2011 and freq = 12 to return a monthly frequency.
+
+monthly_qty_by_cat2_ts <- monthly_qty_by_cat2_nest %>%
+    mutate(data.ts = map(.x       = data, 
+                         .f       = tk_ts, 
+                         select   = -order.month, 
+                         start    = 2011,
+                         freq     = 12))  
+
+monthly_spi1mo_ts <- monthly_spi1mo_nest %>%
+    mutate(data.ts = map(.x       = data, 
+                         .f       = tk_ts, 
+                         select   = -date, 
+                         start    = 1989,
+                         freq     = 12))
+
+#Step 2: Modeling a time series
+
+#Next, we map the Exponential Smoothing ETS (Error, Trend, Seasonal) model function, ets, from the forecast package. Use the combination of mutate to add a column and map to interatively apply a function rowwise to a list-column. In this instance, the function to map the ets function and the list-column is “data.ts”. We rename the resultant column “fit.ets” indicating an ETS model was fit to the time series data.
+
+monthly_qty_by_cat2_fit <- monthly_qty_by_cat2_ts %>%
+    mutate(fit.ets = map(data.ts, ets))
+
+monthly_spi1mo_fit <- monthly_spi1mo_ts %>%
+    mutate(fit.ets = map(data.ts, ets))
 
 
+#At this point, we can do some model inspection with the sweep tidiers.
+#sw_tidy
 
+#To get the model parameters for each nested list, we can combine sw_tidy within the mutate and map combo. The only real difference is now we unnest the generated column (named “tidy”). Last, because it’s easier to compare the model parameters side by side, we add one additional call to spread() from the tidyr package.
 
+monthly_qty_by_cat2_fit %>%
+    mutate(tidy = map(fit.ets, sw_tidy)) %>%
+    unnest(tidy) %>%
+    spread(key = category.secondary, value = estimate)
 
+test <- monthly_spi1mo_fit %>%
+    mutate(tidy = map(fit.ets, sw_tidy)) %>%
+    unnest(tidy) %>%
+    spread(key = sta, value = estimate)
 
+## # A tibble: 128 x 13
+##        data data.ts fit.ets term  `Cross Country … Cyclocross `Elite Road`
+##    <list<d> <list>  <list>  <chr>            <dbl>      <dbl>        <dbl>
+##  1 [60 × 2] <ts>    <ets>   alpha         0.0398           NA           NA
+##  2 [60 × 2] <ts>    <ets>   gamma         0.000101         NA           NA
+##  3 [60 × 2] <ts>    <ets>   l           321.               NA           NA
+##  4 [60 × 2] <ts>    <ets>   s0            0.503            NA           NA
+##  5 [60 × 2] <ts>    <ets>   s1            1.10             NA           NA
+##  6 [60 × 2] <ts>    <ets>   s10           0.643            NA           NA
+##  7 [60 × 2] <ts>    <ets>   s2            0.375            NA           NA
+##  8 [60 × 2] <ts>    <ets>   s3            1.12             NA           NA
+##  9 [60 × 2] <ts>    <ets>   s4            0.630            NA           NA
+## 10 [60 × 2] <ts>    <ets>   s5            2.06             NA           NA
+## # … with 118 more rows, and 6 more variables: `Endurance Road` <dbl>, `Fat
+## #   Bike` <dbl>, `Over Mountain` <dbl>, Sport <dbl>, Trail <dbl>,
+## #   Triathalon <dbl>
 
+sw_glance
 
+#We can view the model accuracies also by mapping sw_glance within the mutate and map combo.
 
+monthly_qty_by_cat2_fit %>%
+    mutate(glance = map(fit.ets, sw_glance)) %>%
+    unnest(glance)
 
+## # A tibble: 9 x 16
+## # Groups:   category.secondary [9]
+##   category.second…     data data.ts fit.ets model.desc sigma logLik   AIC
+##   <chr>            <list<d> <list>  <list>  <chr>      <dbl>  <dbl> <dbl>
+## 1 Cross Country R… [60 × 2] <ts>    <ets>   ETS(M,N,M) 1.06   -464.  957.
+## 2 Cyclocross       [60 × 2] <ts>    <ets>   ETS(M,N,M) 1.12   -409.  848.
+## 3 Elite Road       [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.895  -471.  972.
+## 4 Endurance Road   [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.759  -439.  909.
+## 5 Fat Bike         [58 × 2] <ts>    <ets>   ETS(M,N,M) 2.73   -343.  715.
+## 6 Over Mountain    [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.910  -423.  877.
+## 7 Sport            [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.872  -427.  884.
+## 8 Trail            [60 × 2] <ts>    <ets>   ETS(M,A,M) 0.741  -411.  855.
+## 9 Triathalon       [60 × 2] <ts>    <ets>   ETS(M,N,M) 1.52   -410.  850.
+## # … with 8 more variables: BIC <dbl>, ME <dbl>, RMSE <dbl>, MAE <dbl>,
+## #   MPE <dbl>, MAPE <dbl>, MASE <dbl>, ACF1 <dbl>
 
+#sw_augment
 
+#The augmented fitted and residual values can be achieved in much the same manner. This returns nine groups data. Note that we pass timetk_idx = TRUE to return the date format times as opposed to the regular (yearmon or numeric) time series.
 
+augment_fit_ets <- monthly_qty_by_cat2_fit %>%
+    mutate(augment = map(fit.ets, sw_augment, timetk_idx = TRUE, rename_index = "date")) %>%
+    unnest(augment)
 
+augment_fit_ets
+
+## # A tibble: 538 x 8
+## # Groups:   category.secondary [9]
+##    category.second…     data data.ts fit.ets date       .actual .fitted
+##    <chr>            <list<d> <list>  <list>  <date>       <dbl>   <dbl>
+##  1 Cross Country R… [60 × 2] <ts>    <ets>   2011-01-01     122    373.
+##  2 Cross Country R… [60 × 2] <ts>    <ets>   2011-02-01     489    201.
+##  3 Cross Country R… [60 × 2] <ts>    <ets>   2011-03-01     505    465.
+##  4 Cross Country R… [60 × 2] <ts>    <ets>   2011-04-01     343    161.
+##  5 Cross Country R… [60 × 2] <ts>    <ets>   2011-05-01     263    567.
+##  6 Cross Country R… [60 × 2] <ts>    <ets>   2011-06-01     735    296.
+##  7 Cross Country R… [60 × 2] <ts>    <ets>   2011-07-01     183    741.
+##  8 Cross Country R… [60 × 2] <ts>    <ets>   2011-08-01      66    220.
+##  9 Cross Country R… [60 × 2] <ts>    <ets>   2011-09-01      97    381.
+## 10 Cross Country R… [60 × 2] <ts>    <ets>   2011-10-01     189    123.
+## # … with 528 more rows, and 1 more variable: .resid <dbl>
+
+#We can plot the residuals for the nine categories like so. Unfortunately we do see some very high residuals (especially with “Fat Bike”). This is often the case with realworld data.
+
+augment_fit_ets %>%
+    ggplot(aes(x = date, y = .resid, group = category.secondary)) +
+    geom_hline(yintercept = 0, color = "grey40") +
+    geom_line(color = palette_light()[[2]]) +
+    geom_smooth(method = "loess") +
+    labs(title = "Bike Quantity Sold By Secondary Category",
+         subtitle = "ETS Model Residuals", x = "") + 
+    theme_tq() +
+    facet_wrap(~ category.secondary, scale = "free_y", ncol = 3) +
+    scale_x_date(date_labels = "%Y")
+
+#sw_tidy_decomp
+
+#We can create decompositions using the same procedure with sw_tidy_decomp() and the mutate and map combo.
+
+monthly_qty_by_cat2_fit %>%
+    mutate(decomp = map(fit.ets, sw_tidy_decomp, timetk_idx = TRUE, rename_index = "date")) %>%
+    unnest(decomp)
+
+## # A tibble: 538 x 9
+## # Groups:   category.secondary [9]
+##    category.second…     data data.ts fit.ets date       observed level
+##    <chr>            <list<d> <list>  <list>  <date>        <dbl> <dbl>
+##  1 Cross Country R… [60 × 2] <ts>    <ets>   2011-01-01      122  313.
+##  2 Cross Country R… [60 × 2] <ts>    <ets>   2011-02-01      489  331.
+##  3 Cross Country R… [60 × 2] <ts>    <ets>   2011-03-01      505  332.
+##  4 Cross Country R… [60 × 2] <ts>    <ets>   2011-04-01      343  347.
+##  5 Cross Country R… [60 × 2] <ts>    <ets>   2011-05-01      263  339.
+##  6 Cross Country R… [60 × 2] <ts>    <ets>   2011-06-01      735  359.
+##  7 Cross Country R… [60 × 2] <ts>    <ets>   2011-07-01      183  348.
+##  8 Cross Country R… [60 × 2] <ts>    <ets>   2011-08-01       66  339.
+##  9 Cross Country R… [60 × 2] <ts>    <ets>   2011-09-01       97  329.
+## 10 Cross Country R… [60 × 2] <ts>    <ets>   2011-10-01      189  336.
+## # … with 528 more rows, and 2 more variables: season <dbl>, slope <dbl>
+
+#Step 3: Forecasting the model
+
+#We can also forecast the multiple models again using a very similar approach with the forecast function. We want a 12 month forecast so we add the argument for the h = 12 (refer to ?forecast for all of the parameters you can add, there’s quite a few).
+
+monthly_qty_by_cat2_fcast <- monthly_qty_by_cat2_fit %>%
+    mutate(fcast.ets = map(fit.ets, forecast, h = 12))
+monthly_qty_by_cat2_fcast
+
+## # A tibble: 9 x 5
+## # Groups:   category.secondary [9]
+##   category.secondary           data data.ts fit.ets fcast.ets 
+##   <chr>              <list<df[,2]>> <list>  <list>  <list>    
+## 1 Cross Country Race       [60 × 2] <ts>    <ets>   <forecast>
+## 2 Cyclocross               [60 × 2] <ts>    <ets>   <forecast>
+## 3 Elite Road               [60 × 2] <ts>    <ets>   <forecast>
+## 4 Endurance Road           [60 × 2] <ts>    <ets>   <forecast>
+## 5 Fat Bike                 [58 × 2] <ts>    <ets>   <forecast>
+## 6 Over Mountain            [60 × 2] <ts>    <ets>   <forecast>
+## 7 Sport                    [60 × 2] <ts>    <ets>   <forecast>
+## 8 Trail                    [60 × 2] <ts>    <ets>   <forecast>
+## 9 Triathalon               [60 × 2] <ts>    <ets>   <forecast>
+
+#Step 4: Tidy the forecast
+
+#Next, we can apply sw_sweep to get the forecast in a nice “tidy” data frame. We use the argument fitted = FALSE to remove the fitted values from the forecast (leave off if fitted values are desired). We set timetk_idx = TRUE to use dates instead of numeric values for the index. We’ll use unnest() to drop the left over list-columns and return an unnested data frame.
+
+monthly_qty_by_cat2_fcast_tidy <- monthly_qty_by_cat2_fcast %>%
+    mutate(sweep = map(fcast.ets, sw_sweep, fitted = FALSE, timetk_idx = TRUE)) %>%
+    unnest(sweep)
+monthly_qty_by_cat2_fcast_tidy
+
+## # A tibble: 646 x 12
+## # Groups:   category.secondary [9]
+##    category.second…     data data.ts fit.ets fcast.ets index      key  
+##    <chr>            <list<d> <list>  <list>  <list>    <date>     <chr>
+##  1 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-01-01 actu…
+##  2 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-02-01 actu…
+##  3 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-03-01 actu…
+##  4 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-04-01 actu…
+##  5 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-05-01 actu…
+##  6 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-06-01 actu…
+##  7 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-07-01 actu…
+##  8 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-08-01 actu…
+##  9 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-09-01 actu…
+## 10 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-10-01 actu…
+## # … with 636 more rows, and 5 more variables: total.qty <dbl>,
+## #   lo.80 <dbl>, lo.95 <dbl>, hi.80 <dbl>, hi.95 <dbl>
+
+#Visualization is just one final step.
+
+monthly_qty_by_cat2_fcast_tidy %>%
+    ggplot(aes(x = index, y = total.qty, color = key, group = category.secondary)) +
+    geom_ribbon(aes(ymin = lo.95, ymax = hi.95), 
+                fill = "#D5DBFF", color = NA, size = 0) +
+    geom_ribbon(aes(ymin = lo.80, ymax = hi.80, fill = key), 
+                fill = "#596DD5", color = NA, size = 0, alpha = 0.8) +
+    geom_line() +
+    labs(title = "Bike Quantity Sold By Secondary Category",
+         subtitle = "ETS Model Forecasts",
+         x = "", y = "Units") +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    scale_color_tq() +
+    scale_fill_tq() +
+    facet_wrap(~ category.secondary, scales = "free_y", ncol = 3) +
+    theme_tq() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Recap
+
+#The sweep package has a several tools to analyze grouped time series. In the next vignette we will review how to apply multiple models to a time series.
+
+```
 
 ```{r}
 
+
+data(AirPassengers)
+ > class(AirPassengers)
+ [1] "ts"
+
+#This tells you that the data series is in a time series format
+ > start(AirPassengers)
+ [1] 1949 1
+
+#This is the start of the time series
+
+> end(AirPassengers)
+ [1] 1960 12
+
+#This is the end of the time series
+
+> frequency(AirPassengers)
+ [1] 12
+
+#The cycle of this time series is 12months in a year
+ > summary(AirPassengers)
+ Min. 1st Qu. Median Mean 3rd Qu. Max.
+ 104.0 180.0 265.5 280.3 360.5 622.0
+
+ 
+Detailed Metrics
+
+#The number of passengers are distributed across the spectrum
+
+> plot(AirPassengers)
+
+#This will plot the time series
+
+>abline(reg=lm(AirPassengers~time(AirPassengers)))
+
+# This will fit in a line
+
+time series r, r, plot_AP
+
+Here are a few more operations you can do:
+
+> cycle(AirPassengers)
+
+#This will print the cycle across years.
+
+>plot(aggregate(AirPassengers,FUN=mean))
+
+#This will aggregate the cycles and display a year on year trend
+
+> boxplot(AirPassengers~cycle(AirPassengers))
+
+#Box plot across months will give us a sense on seasonal effect
+
+r, plot_aggregate
+
+r, plot_month_wise
+Important Inferences
+
+    The year on year trend clearly shows that the #passengers have been increasing without fail.
+    The variance and the mean value in July and August is much higher than rest of the months.
+    Even though the mean value of each month is quite different their variance is small. Hence, we have strong seasonal effect with a cycle of 12 months or less.
+
+Exploring data becomes most important in a time series model – without this exploration, you will not know whether a series is stationary or not. As in this case we already know many details about the kind of model we are looking out for.
+
+Let’s now take up a few time series models and their characteristics. We will also take this problem forward and make a few predictions.
+
+ 
+3. Introduction to ARMA Time Series Modeling
+
+ARMA models are commonly used in time series modeling. In ARMA model, AR stands for auto-regression and MA stands for moving average. If these words sound intimidating to you, worry not – I’ll simplify these concepts in next few minutes for you!
+
+We will now develop a knack for these terms and understand the characteristics associated with these models. But before we start, you should remember, AR or MA are not applicable on non-stationary series.
+
+In case you get a non stationary series, you first need to stationarize the series (by taking difference / transformation) and then choose from the available time series models.
+
+First, I’ll explain each of these two models (AR & MA) individually. Next, we will look at the characteristics of these models.
+
+ 
+Auto-Regressive Time Series Model
+
+Let’s understanding AR models using the case below:
+
+The current GDP of a country say x(t) is dependent on the last year’s GDP i.e. x(t – 1). The hypothesis being that the total cost of production of products & services in a country in a fiscal year (known as GDP) is dependent on the set up of manufacturing plants / services in the previous year and the newly set up industries / plants / services in the current year. But the primary component of the GDP is the former one.
+
+Hence, we can formally write the equation of GDP as:
+
+x(t) = alpha *  x(t – 1) + error (t)
+
+This equation is known as AR(1) formulation. The numeral one (1) denotes that the next instance is solely dependent on the previous instance.  The alpha is a coefficient which we seek so as to minimize the error function. Notice that x(t- 1) is indeed linked to x(t-2) in the same fashion. Hence, any shock to x(t) will gradually fade off in future.
+
+For instance, let’s say x(t) is the number of juice bottles sold in a city on a particular day. During winters, very few vendors purchased juice bottles. Suddenly, on a particular day, the temperature rose and the demand of juice bottles soared to 1000. However, after a few days, the climate became cold again. But, knowing that the people got used to drinking juice during the hot days, there were 50% of the people still drinking juice during the cold days. In following days, the proportion went down to 25% (50% of 50%) and then gradually to a small number after significant number of days. The following graph explains the inertia property of AR series:
+
+time series, ar1 model
+
+ 
+Moving Average Time Series Model
+
+Let’s take another case to understand Moving average time series model.
+
+A manufacturer produces a certain type of bag, which was readily available in the market. Being a competitive market, the sale of the bag stood at zero for many days. So, one day he did some experiment with the design and produced a different type of bag. This type of bag was not available anywhere in the market. Thus, he was able to sell the entire stock of 1000 bags (lets call this as x(t) ). The demand got so high that the bag ran out of stock. As a result, some 100 odd customers couldn’t purchase this bag. Lets call this gap as the error at that time point. With time, the bag had lost its woo factor. But still few customers were left who went empty handed the previous day. Following is a simple formulation to depict the scenario :
+
+x(t) = beta *  error(t-1) + error (t)
+
+If we try plotting this graph, it will look something like this :
+
+time series, ma1 model
+
+Did you notice the difference between MA and AR model? In MA model, noise / shock quickly vanishes with time. The AR model has a much lasting effect of the shock.
+
+ 
+Difference between AR and MA models
+
+The primary difference between an AR and MA model is based on the correlation between time series objects at different time points. The correlation between x(t) and x(t-n) for n > order of MA is always zero. This directly flows from the fact that covariance between x(t) and x(t-n) is zero for MA models (something which we refer from the example taken in the previous section). However, the correlation of x(t) and x(t-n) gradually declines with n becoming larger in the AR model. This difference gets exploited irrespective of having the AR model or MA model. The correlation plot can give us the order of MA model.
+
+ 
+Exploiting ACF and PACF plots
+
+Once we have got the stationary time series, we must answer two primary questions:
+
+Q1. Is it an AR or MA process?
+
+Q2. What order of AR or MA process do we need to use?
+
+The trick to solve these questions is available in the previous section. Didn’t you notice?
+
+The first question can be answered using Total Correlation Chart (also known as Auto – correlation Function / ACF). ACF is a plot of total correlation between different lag functions. For instance, in GDP problem, the GDP at time point t is x(t). We are interested in the correlation of x(t) with x(t-1) , x(t-2) and so on. Now let’s reflect on what we have learnt above.
+
+In a moving average series of lag n, we will not get any correlation between x(t) and x(t – n -1) . Hence, the total correlation chart cuts off at nth lag. So it becomes simple to find the lag for a MA series. For an AR series this correlation will gradually go down without any cut off value. So what do we do if it is an AR series?
+
+Here is the second trick. If we find out the partial correlation of each lag, it will cut off after the degree of AR series. For instance,if we have a AR(1) series,  if we exclude the effect of 1st lag (x (t-1) ), our 2nd lag (x (t-2) ) is independent of x(t). Hence, the partial correlation function (PACF) will drop sharply after the 1st lag. Following are the examples which will clarify any doubts you have on this concept :
+
+                            ACF                                                                      PACF
+
+acf, gradual declinepacf, cut off
+
+ 
+
+The blue line above shows significantly different values than zero. Clearly, the graph above has a cut off on PACF curve after 2nd lag which means this is mostly an AR(2) process.
+
+                                      ACF                                                                 PACF
+
+acf, cut offpacf, gradual decline
+
+Clearly, the graph above has a cut off on ACF curve after 2nd lag which means this is mostly a MA(2) process.
+
+Till now, we have covered on how to identify the type of stationary series using ACF & PACF plots. Now, I’ll introduce you to a comprehensive framework to build a time series model.  In addition, we’ll also discuss about the practical applications of time series modelling.
+
+ 
+4. Framework and Application of ARIMA Time Series Modeling
+
+A quick revision, Till here we’ve learnt basics of time series modeling, time series in R and ARMA modeling. Now is the time to join these pieces and make an interesting story.
+
+ 
+Overview of the Framework
+
+This framework(shown below) specifies the step by step approach on ‘How to do a Time Series Analysis‘:
+
+time series analysis, arima, flowchart
+
+As you would be aware, the first three steps have already been discussed above. Nevertheless, the same has been delineated briefly below:
+
+ 
+Step 1: Visualize the Time Series
+
+It is essential to analyze the trends prior to building any kind of time series model. The details we are interested in pertains to any kind of trend, seasonality or random behaviour in the series. We have covered this part in the second part of this series.
+
+ 
+Step 2: Stationarize the Series
+
+Once we know the patterns, trends, cycles and seasonality , we can check if the series is stationary or not. Dickey – Fuller is one of the popular test to check the same. We have covered this test in the first part of this article series. This doesn’t ends here! What if the series is found to be non-stationary?
+
+There are three commonly used technique to make a time series stationary:
+
+1.  Detrending : Here, we simply remove the trend component from the time series. For instance, the equation of my time series is:
+
+x(t) = (mean + trend * t) + error
+
+We’ll simply remove the part in the parentheses and build model for the rest.
+
+ 
+
+2. Differencing : This is the commonly used technique to remove non-stationarity. Here we try to model the differences of the terms and not the actual term. For instance,
+
+x(t) – x(t-1) = ARMA (p ,  q)
+
+This differencing is called as the Integration part in AR(I)MA. Now, we have three parameters
+
+p : AR
+
+d : I
+
+q : MA
+
+ 
+
+3. Seasonality : Seasonality can easily be incorporated in the ARIMA model directly. More on this has been discussed in the applications part below.
+
+ 
+Step 3: Find Optimal Parameters
+
+The parameters p,d,q can be found using  ACF and PACF plots. An addition to this approach is can be, if both ACF and PACF decreases gradually, it indicates that we need to make the time series stationary and introduce a value to “d”.
+
+ 
+Step 4: Build ARIMA Model
+
+With the parameters in hand, we can now try to build ARIMA model. The value found in the previous section might be an approximate estimate and we need to explore more (p,d,q) combinations. The one with the lowest BIC and AIC should be our choice. We can also try some models with a seasonal component. Just in case, we notice any seasonality in ACF/PACF plots.
+
+ 
+Step 5: Make Predictions
+
+Once we have the final ARIMA model, we are now ready to make predictions on the future time points. We can also visualize the trends to cross validate if the model works fine.
+
+ 
+Applications of Time Series Model
+
+Now, we’ll use the same example that we have used above. Then, using time series, we’ll make future predictions. We recommend you to check out the example before proceeding further.
+
+ 
+Where did we start ?
+
+Following is the plot of the number of passengers with years. Try and make observations on this plot before moving further in the article.
+
+time series r, plot_ap
+
+Here are my observations :
+
+1. There is a trend component which grows the passenger year by year.
+
+2. There looks to be a seasonal component which has a cycle less than 12 months.
+
+3. The variance in the data keeps on increasing with time.
+
+We know that we need to address two issues before we test stationary series. One, we need to remove unequal variances. We do this using log of the series. Two, we need to address the trend component. We do this by taking difference of the series. Now, let’s test the resultant series.
+
+adf.test(diff(log(AirPassengers)), alternative="stationary", k=0)
+
+Augmented Dickey-Fuller Test
+
+data: diff(log(AirPassengers))
+ Dickey-Fuller = -9.6003, Lag order = 0,
+ p-value = 0.01
+ alternative hypothesis: stationary
+
+We see that the series is stationary enough to do any kind of time series modelling.
+
+Next step is to find the right parameters to be used in the ARIMA model. We already know that the ‘d’ component is 1 as we need 1 difference to make the series stationary. We do this using the Correlation plots. Following are the ACF plots for the series :
+
+#ACF Plots
+
+acf(log(AirPassengers))
+
+time series r, acf
+
+ 
+What do you see in the chart shown above?
+
+Clearly, the decay of ACF chart is very slow, which means that the population is not stationary. We have already discussed above that we now intend to regress on the difference of logs rather than log directly. Let’s see how ACF and PACF curve come out after regressing on the difference.
+[stextbox id="grey"]
+
+acf(diff(log(AirPassengers)))
+
+time series r, acf diff
+
+pacf(diff(log(AirPassengers)))
+
+time series r, pacf, diff
+
+Clearly, ACF plot cuts off after the first lag. Hence, we understood that value of p should be 0 as the ACF is the curve getting a cut off. While value of q should be 1 or 2. After a few iterations, we found that (0,1,1) as (p,d,q) comes out to be the combination with least AIC and BIC.
+
+Let’s fit an ARIMA model and predict the future 10 years. Also, we will try fitting in a seasonal component in the ARIMA formulation. Then, we will visualize the prediction along with the training data. You can use the following code to do the same :
+
+(fit <- arima(log(AirPassengers), c(0, 1, 1),seasonal = list(order = c(0, 1, 1), period = 12)))
+
+pred <- predict(fit, n.ahead = 10*12)
+
+ts.plot(AirPassengers,2.718^pred$pred, log = "y", lty = c(1,3))
 ```
 
 
 
-Many solutions for clustering time series are available with R:
-NoThomas Girke’s blog post, 
-NoRafael Irizarry and Michael Love’s book, 
-Time-series Andrew B. Collier’s blog post, 
-Peter Laurinec’s blog post, 
-Dylan Glotzer’s lecture 
-Ana Rita Marques’s module.
 
-Dynamic Time Warping (DTW) is one of these solutions. The main advantage of DTW is the possibility to group time series according their patterns or shapes even if these patterns are not synchronized (lag).
-
-Data simulation
-
-Let’s imagine two people running a marathon, one had a classic run with a pace increasing with the time and the other had a very bad experience (e.g. “hitting the wall”) with a jump in the pace which indicates a significant slow down in the second part of the run. The best is to have real data to analyse but it can be very useful to simulate these pattern in order to assess the clustering efficiency.
-
-A simple way to simulate these time series is to use the sine function and to add a random noise in order to make it more credible.
-```{r}
-# classic run
-noise <- runif(420) # random noise
-x <- seq(1,420) # 42km with a measure every 100m
-pace_min <- 5 # min/km (corresponds to fast run)
-
-ts_sim_classic_run <- (sin(x/10)+x/100+noise+pace_min) %>%
-  as.ts(.)
-
-ts.plot(ts_sim_classic_run, 
-        xlab = "Distance [x100m]", 
-        ylab = "Differential pace [min/km]", 
-        main = "Example of classic run", 
-        ylim=c(0,25)
-        )
-
-# wall run
-noise <- runif(210) # random noise
-x <- seq(1,210) # 21km with a measure every 100m 
-pace_min <- 5 # min/km (corresponds to fast run)
-pace_wall <- 20 # min/km (corresponds to very slow run) 
-ts_sim_part1 <- sin(x/5)+x/50+noise+pace_min
-ts_sim_part2 <- sin(x/5)+noise+pace_wall
-
-ts_sim_wall_run <- c(ts_sim_part1,ts_sim_part2) %>%
-  as.ts(.)
-
-ts.plot(ts_sim_wall_run,  
-        xlab = "Distance [x100m]", 
-        ylab = "Differential pace [min/km]", 
-        main = "Example of wall run", ylim=c(0,25) 
-        )
-```
-
-A much nicer way would be to use ARIMA with an auto regressive model (AR).
-
-```{r}
-pace_min <- 5 # min/km (corresponds to fast run)
-pace_wall <- 20 # min/km (corresponds to very slow run) 
-
-# classic run
-ts_sim_classic_run <- abs(arima.sim(n = 420, 
-                                    mean = 0.001, 
-                                    model = 
-                                      list(order = c(1, 0, 0), 
-                                           ar = 0.9))) + 
-  pace_min  
-
-ts.plot(ts_sim_classic_run, 
-        xlab = "Distance [x100m]", 
-        ylab = "Differential pace [min/km]", 
-        main = "Example of classic run", 
-        ylim=c(0, 25) 
-        )  
-
-# wall run
-ts_sim_part1 <- abs(arima.sim(n = 210, 
-                              model = 
-                                list(order = c(1, 0, 0), 
-                                     ar = 0.9))) 
-+ pace_min    
-
-ts_sim_part2 <- ts(arima.sim(n = 210, 
-                             model = 
-                               list(order = c(1, 0, 0), 
-                                    ar = 0.9)) + 
-                     pace_wall, 
-                   start = 211, 
-                   end =420)
-
-ts_sim_wall_run <- ts.union(ts_sim_part1,ts_sim_part2)
-ts_sim_wall_run<- pmin(ts_sim_wall_run[,1], 
-                       ts_sim_wall_run[,2], 
-                       na.rm = TRUE)
-
-ts.plot(ts_sim_wall_run, 
-        xlab = "Distance [x100m]", 
-        ylab = "Differential pace [min/km]", 
-        main = "Example of wall run", 
-        ylim=c(0, 25) 
-        )  
-```
-
-Bootstrap
-
-Now we have two different runs, let’s bootstrap them (i.e. replicate with small differences) in order to have two groups of 5 individuals for each run type.  
-
-```{r}
-ts_sim_boot_classic <- ts_sim_classic_run %>%
-  tseries::tsbootstrap(., 
-                       nb=5, 
-                       b=200, 
-                       type = "block") %>%
-  as.data.frame(.) %>%
-  dplyr::rename_all(funs(c(paste0("classic_",.))))
-
-ts_sim_boot_wall <- ts_sim_wall_run %>%
-  tseries::tsbootstrap(., nb=5, 
-                       b=350, 
-                       type = "block") %>%
-  as.data.frame(.) %>%
-  dplyr::rename_all(funs(c(paste0("wall_",.))))
-
-ts_sim_df <- cbind(ts_sim_boot_classic,ts_sim_boot_wall)
-```
-
-Heatmap cluster
-
-Even if I’m a big fan of ggplot2 possibilities, some packages offer efficient ways to compute and plot data. For heatmaps I’m using the gplots package which displays time series with dendrograms is a single function. An overlook of all the heatmap possibilities can be found here
-
-```{r}
-dtw_dist <- function(x){proxy::dist(x, method="DTW")}
-
-ts_clust <- ts_sim_df %>%
-  dtwclust::as.matrix() #%>%  
-
-ts_clust <- tibble(ts_clust)
-  gplots::heatmap.2 (
-    # dendrogram control
-    distfun = dtw_dist,
-    hclustfun = hclust,
-    dendrogram = "column",
-    Rowv = FALSE,
-    labRow = FALSE
-  )  
-
-```
 
 ```{r calculate_SRI_prelim-test-DELETE, eval=FALSE}
 # SCI prelim - bha_bat -- set up the station for sci & make sci list vars====  
