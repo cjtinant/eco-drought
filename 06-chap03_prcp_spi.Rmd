@@ -251,10 +251,10 @@ library("scales")            # graphical scales map data to aesthetics,
                              #   for axes and legends  
 library("anomalize")         # detect anomalies using the tidyverse   
 library("dabestr")           # data analysis using bootstrap estimation   
-library("cowplot")           # streamlined theme & annotations for 'ggplot2'   
+library("cowplot")           # multiple plots with plot_grid()
 library("timetk")            # tool kit for working with time series in R 
 library("tidyquant")         # integrate quant. analysis tools w/ tidyverse
-
+library("corrr")             # Tidy correlation tables and correlation plotting
 
 # used in time series clustering example--
 #library(gridExtra)           # merge plots  
@@ -5198,19 +5198,16 @@ autoplot(forecast(  auto.aapl, h=90))
 #   functions to visualize trends and volatility and to expose relationships 
 #   between statistical measures.
 
-library(tidyquant)  # Loads tidyverse, tidquant, financial pkgs, xts/zoo
-library(cranlogs)   # For inspecting package downloads over time  
-library(corrr)      # Tidy correlation tables and correlation plotting
-library(cowplot)    # Multiple plots with plot_grid()
 
-# Various tidyverse packages corresponding to my stickers :)
+
+# get data for various tidyverse packages - count of downloads====  
+
 pkgs <- c(
     "tidyr", "lubridate", "dplyr", 
     "broom", "tidyquant", "ggplot2", "purrr", 
     "stringr", "knitr"
     )
 
-# Get the downloads for the individual packages
 tidyverse_downloads <- cran_downloads(
     packages = pkgs, 
     from     = "2017-01-01", 
@@ -5218,7 +5215,7 @@ tidyverse_downloads <- cran_downloads(
     tibble::as_tibble() %>%
     group_by(package)
   
-# Visualize the package downloads
+# Visualize the package downloads====  
 tidyverse_downloads %>%
     ggplot(aes(x = date, y = count, color = package)) +
     geom_point() +
@@ -5228,19 +5225,18 @@ tidyverse_downloads %>%
     theme_tq() +
     theme(legend.position="none")
 
-# "apply" functions from xts
+# Applying functions by period====     
+# "apply" functions from xts    
 tq_transmute_fun_options()$xts %>%
     stringr::str_subset("^apply")
 
-# Applying Functions By Period
-# To perform the weekly aggregation, we will use tq_transmute() 
-# which applies the non-tidy functions in a “tidy” way. 
-# The function we want to use is apply.weekly(), 
-# which takes the argument FUN (the function to be applied weekly) and 
-# ... (additional args that get passed to the FUN function). 
-# We’ll set FUN = mean to apply mean() on a weekly interval. 
-# Last, we’ll pass the argument na.rm = TRUE to remove NA values during the 
-# calculation.
+# To perform weekly aggregation, we will use tq_transmute(), which applies  
+#   the non-tidy functions in a “tidy” way. 
+# The function we want to use is apply.weekly(), which takes the argument  
+#   FUN (the function to be applied weekly) and 
+#   ... (additional args that get passed to the FUN function). 
+# Set FUN = mean to apply mean() on a weekly interval,and pass the argument 
+#   na.rm = TRUE to remove NA values during the calculation.  
 
 mean_tidyverse_downloads_w <- tidyverse_downloads %>%
     tq_transmute(
@@ -5263,7 +5259,7 @@ mean_tidyverse_downloads_w %>%
     theme_tq() +
     theme(legend.position="none")
 
-# Custom function to return mean, sd, quantiles
+# Custom function to return mean, sd, quantiles====  
 custom_stat_fun <- function(x, na.rm = TRUE, ...) {
     # x     = numeric vector
     # na.rm = boolean, whether or not to remove NA's
@@ -5280,44 +5276,47 @@ nums  <- c(10 + 1.5*rnorm(10), NA)
 probs <- c(0, 0.025, 0.25, 0.5, 0.75, 0.975, 1)
 custom_stat_fun(nums, na.rm = TRUE, probs = probs)
 
-# Applying the custom function by week -- tidy 
-stats_tidyverse_downloads_w <- tidyverse_downloads %>%
-    tq_transmute(
-        select = count,
-        mutate_fun = apply.weekly, 
-        FUN = custom_stat_fun,
-        na.rm = TRUE,
-        probs = probs
-    )
-stats_tidyverse_downloads_w
+# Apply the custom function by week -- tidy & visualize====   
+stats_tidyverse_downloads_w <- tidyverse_downloads %>%  
+    tq_transmute(  
+        select = count,  
+        mutate_fun = apply.weekly,  
+        FUN = custom_stat_fun,  
+        na.rm = TRUE,  
+        probs = probs  
+    )  
 
-stats_tidyverse_downloads_w %>%
-    ggplot(aes(x = date, y = `50%`, color = package)) +
-    # Ribbon
-    geom_ribbon(aes(ymin = `25%`, ymax = `75%`), 
-                color = palette_light()[[1]], fill = palette_light()[[1]], alpha = 0.5) +
-    # Points
-    geom_point() +
-    geom_smooth(method = "loess", se = FALSE) + 
-    # Aesthetics
-    labs(title = "tidyverse packages: Median daily downloads by week", x = "",
-         subtitle = "Range of 1st and 3rd quartile to show volatility",
-         y = "Median Daily Downloads By Week") +
-    facet_wrap(~ package, ncol = 3, scale = "free_y") +
-    expand_limits(y = 0) + 
-    scale_color_tq(theme = "dark") +
-    theme_tq() +
-    theme(legend.position="none")
-
-stats_tidyverse_downloads_w %>%
-    ggplot(aes(x = stdev, y = mean, color = package)) +
-    geom_point() +
-    geom_smooth(method = "lm") + 
-    labs(title = "tidyverse packages: Mean vs standard deviation of daily downloads by week") +
-    facet_wrap(~ package, ncol = 3, scale = "free") +
-    scale_color_tq() +
-    theme_tq() +
+stats_tidyverse_downloads_w %>%   
+    ggplot(aes(x = date, y = `50%`, color = package)) +  
+    # Ribbon  
+    geom_ribbon(aes(ymin = `25%`, ymax = `75%`),  
+                color = palette_light()[[1]],  
+                fill = palette_light()[[1]],  
+                alpha = 0.5) +  
+    # Points  
+    geom_point() +  
+    geom_smooth(method = "loess", se = FALSE) +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Median daily downloads by week",  
+         x = "",  
+         subtitle = "Range of 1st and 3rd quartile to show volatility",  
+         y = "Median Daily Downloads By Week") +  
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +  
+    expand_limits(y = 0) +  
+    scale_color_tq(theme = "dark") +  
+    theme_tq() +  
     theme(legend.position="none")  
+
+stats_tidyverse_downloads_w %>%  
+    ggplot(aes(x = stdev, y = mean, color = package)) +  
+    geom_point() +  
+    geom_smooth(method = "lm") +  
+    labs(  
+      title = "tidyverse packages: Mean vs SD of daily downloads by week") +  
+    facet_wrap(~ package, ncol = 3, scale = "free") +  
+    scale_color_tq() +  
+    theme_tq() +  
+    theme(legend.position="none")   
 
 # Rolling Window Calculations====  
 # The rollapply functions from zoo and TTR can be used to apply rolling  
@@ -5326,169 +5325,169 @@ stats_tidyverse_downloads_w %>%
 #   the rollapply functions to visualize averages and standard deviations on  
 #   a rolling basis, which gave us a better perspective of the dynamic trends.  
 #   Using custom functions, we are unlimited to the statistics we can apply to  
-#   rolling windows. 
+#   rolling windows.  
 #  
 #   What are rolling window calculations, and why do we care? In time series  
 #   analysis, nothing is static. A correlation may exist for a subset of time  
 #   or an average may vary from one day to the next. Rolling calculations  
 #   simply apply functions to a fixed width subset of the data (aka a window),  
 #   indexing one observation each calculation.  
-
+  
 #   There are a few common reasons you may want to use a rolling calculation  
-#   in time series analysis:
-#
-#    Measuring the central tendency over time (mean, median)
-#    Measuring the volatility over time (sd, var)
-#    Detecting changes in trend (fast vs slow moving averages)
-#    Measuring a relationship between two time series over time (cor, cov)
+#   in time series analysis:  
+#  
+#    Measuring the central tendency over time (mean, median)  
+#    Measuring the volatility over time (sd, var)  
+#    Detecting changes in trend (fast vs slow moving averages)  
+#    Measuring a relationship between two time series over time (cor, cov)  
 
-# Sample Moving Average Calculation
+# Sample Moving Average Calculation  
 # Combining a rolling mean with a rolling standard deviation can help detect  
-# regions of abnormal volatility and consolidation. This is the concept behind  
+# regions of abnormal volatility and consolidation. This is the concept behind   
 # Bollinger Bands in the financial industry. The bands can be useful in  
-# detecting breakouts in trend for many time series, not just financial.  
+# detecting breakouts in trend.    
 
-# Time Series Functions  
-# "roll" functions from zoo
-tq_mutate_fun_options()$zoo %>%
-    stringr::str_subset("^roll")
+# Time Series Functions for rolling window====  
+# "roll" functions from zoo  
+tq_mutate_fun_options()$zoo %>%  
+    stringr::str_subset("^roll")  
 
-##  [1] "rollapply"          "rollapplyr"         "rollmax"           
+##  [1] "rollapply"          "rollapplyr"         "rollmax"            
 ##  [4] "rollmax.default"    "rollmaxr"           "rollmean"          
 ##  [7] "rollmean.default"   "rollmeanr"          "rollmedian"        
 ## [10] "rollmedian.default" "rollmedianr"        "rollsum"           
-## [13] "rollsum.default"    "rollsumr"
+## [13] "rollsum.default"    "rollsumr"  
 
-# "run" functions from TTR
-tq_mutate_fun_options()$TTR %>%
-    stringr::str_subset("^run")
+# "run" functions from TTR  
+tq_mutate_fun_options()$TTR %>%  
+    stringr::str_subset("^run")  
   
 ##  [1] "runCor"         "runCov"         "runMAD"        
 ##  [4] "runMax"         "runMean"        "runMedian"     
 ##  [7] "runMin"         "runPercentRank" "runSD"         
-## [10] "runSum"         "runVar"
+## [10] "runSum"         "runVar"  
   
-# Tidy Implementation of Time Series Functions  
-# Condensed function options... lot's of 'em
-tq_mutate_fun_options() %>%
-    str()
+# Tidy Implementation of Time Series Functions====    
+# Condensed function options====    
+tq_mutate_fun_options() %>%  
+    str()  
 
-## List of 5
-##  $ zoo: chr [1:14] "rollapply" "rollapplyr" "rollmax" "rollmax.default" ...
-##  $ xts: chr [1:27] "apply.daily" "apply.monthly" "apply.quarterly" 
-##      "apply.weekly" ...
-##  $ quantmod: chr [1:25] "allReturns" "annualReturn" "ClCl" "dailyReturn" ...
-##  $ TTR: chr [1:61] "adjRatios" "ADX" "ALMA" "aroon" ...
-##  $ PerformanceAnalytics: chr [1:7] "Return.annualized" "
-##      Return.annualized.excess" "Return.clean" "Return.cumulative" ...
+## List of 5  
+##  $ zoo: chr [1:14] "rollapply" "rollapplyr" "rollmax" "rollmax.default" ...  
+##  $ xts: chr [1:27] "apply.daily" "apply.monthly" "apply.quarterly"   
+##      "apply.weekly" ...  
+##  $ quantmod: chr [1:25] "allReturns" "annualReturn" "ClCl" "dailyReturn" ...  
+##  $ TTR: chr [1:61] "adjRatios" "ADX" "ALMA" "aroon" ...  
+##  $ PerformanceAnalytics: chr [1:7] "Return.annualized" "  
+##      Return.annualized.excess" "Return.clean" "Return.cumulative" ...  
 
-# Tidy Application of Rolling Functions
-# Rolling Mean: Inspecting Fast and Slow Moving Averages
+# Tidy Application of Rolling Functions====  
+# Rolling Mean: Inspecting Fast and Slow Moving Averages  
 #  Investigate if significant changes in trend are taking place such that  
 #   future downloads are likely to continue to increase, decrease or stay the  
-#   same. One way to do this is to use moving averages. Rather than try to  
-#   sift through the noise, we can use a combination of a fast and slow moving  
-#   average to detect momentum.
+#   same. One way to do this is to use moving averages.  
+# Rather than try to sift through the noise, we can use a combination of a  
+#   fast and slow moving average to detect momentum.  
 
 # We’ll create a fast moving average with width = 28 days (just enough to  
 #   detrend the data) and a slow moving average with width = 84 days  
 #   (slow window = 3X fast window). To do this we apply two calls to  
-#   tq_mutate(), the first for the 28 day (fast) and the second for the 
-#   84 day (slow) moving average. There are three groups of arguments we  
+#   tq_mutate(), the first for the 28 day (fast) and the second for the  
+#   84 day (slow) moving average. There are three groups of arguments we   
 #   need to supply:  
 # tq_mutate args -- These select the column to apply the mutation to “count”  
-#   & the mutation function (mutate_fun) to apply (rollapply from zoo).
-# rollapply args: These set the width, align = "right" 
-#   (aligns with end of data frame), and 
-#   the FUN we wish to apply (mean in this case).
-# FUN args: These are arguments that get passed to the function. In this case  
-#   we want to set na.rm = TRUE so NA values are skipped if present.
-# Also add an optional tq_mutate arg, col_rename, at the end to rename the 
-#   column. 
+#   & the mutation function (mutate_fun) to apply (rollapply from zoo).  
+# rollapply args: These set the width, align = "right"  
+#   (aligns with end of data frame), and  
+#   the FUN we wish to apply (mean in this case).  
+# FUN args: These are arguments that get passed to the function.  
+#   In this case we want to set na.rm = TRUE so NA values are skipped.  
+# Also add an optional tq_mutate arg, col_rename, at the end to rename the  
+#   column.   
 
-# Rolling mean example  
-tidyverse_downloads_rollmean <- tidyverse_downloads %>%
-    tq_mutate(
-        # tq_mutate args
-        select     = count,
-        mutate_fun = rollapply, 
-        # rollapply args
-        width      = 28,
-        align      = "right",
-        FUN        = mean,
-        # mean args
-        na.rm      = TRUE,
-        # tq_mutate args
-        col_rename = "mean_28"
-    ) %>%
-    tq_mutate(
-        # tq_mutate args
-        select     = count,
-        mutate_fun = rollapply,
-        # rollapply args
-        width      = 84,
-        align      = "right",
-        FUN        = mean,
-        # mean args
-        na.rm      = TRUE,
-        # tq_mutate args
-        col_rename = "mean_84"
-    )
+# Rolling mean example====    
+tidyverse_downloads_rollmean <- tidyverse_downloads %>%  
+    tq_mutate(  
+        # tq_mutate args  
+        select     = count,  
+        mutate_fun = rollapply,  
+        # rollapply args  
+        width      = 28,  
+        align      = "right",  
+        FUN        = mean,  
+        # mean args  
+        na.rm      = TRUE,  
+        # tq_mutate args  
+        col_rename = "mean_28"  
+    ) %>%  
+    tq_mutate(  
+        # tq_mutate args  
+        select     = count,  
+        mutate_fun = rollapply,  
+        # rollapply args  
+        width      = 84,  
+        align      = "right",  
+        FUN        = mean,  
+        # mean args  
+        na.rm      = TRUE,  
+        # tq_mutate args  
+        col_rename = "mean_84"  
+    )  
 
 # ggplot results====  
-tidyverse_downloads_rollmean %>%
-    ggplot(aes(x = date, y = count, color = package)) +
-    # Data
-    geom_point(alpha = 0.1) +
-    geom_line(aes(y = mean_28), color = palette_light()[[1]], size = 1) +
-    geom_line(aes(y = mean_84), color = palette_light()[[2]], size = 1) +
-    facet_wrap(~ package, ncol = 3, scale = "free_y") +
-    # Aesthetics
-    labs(title = "tidyverse packages: Daily Downloads", x = "",
-         subtitle = "28 and 84 Day Moving Average") +
-    scale_color_tq() +
-    theme_tq() +
-    theme(legend.position="none")
-
-# Drop the “count” data from the plots and inspect just the moving averages to 
-#   identify points where the fast trend is above (has momentum) 
+tidyverse_downloads_rollmean %>%  
+    ggplot(aes(x = date, y = count, color = package)) +  
+    # Data  
+    geom_point(alpha = 0.1) +  
+    geom_line(aes(y = mean_28), color = palette_light()[[1]], size = 1) +  
+    geom_line(aes(y = mean_84), color = palette_light()[[2]], size = 1) +  
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Daily Downloads", x = "",  
+         subtitle = "28 and 84 Day Moving Average") +  
+    scale_color_tq() +  
+    theme_tq() +  
+    theme(legend.position="none")  
+  
+# Drop the “count” data from the plots and inspect just the moving averages to  
+#   identify points where the fast trend is above (has momentum)  
 #   or below (is slowing) the slow trend, & inspect for cross-over,  
-#   which indicates shifts in trend.
-
-tidyverse_downloads_rollmean %>%
-    ggplot(aes(x = date, color = package)) +
-    # Data
-    # geom_point(alpha = 0.5) +  # Drop "count" from plots
-    geom_line(aes(y = mean_28), 
-              color = palette_light()[[1]], 
-              linetype = 1, 
-              size = 1) +
-    geom_line(aes(y = mean_84), 
-              color = palette_light()[[2]], 
-              linetype = 1, 
-              size = 1) +
-    facet_wrap(~ package, 
-               ncol = 3, 
-               scale = "free_y") +
-    # Aesthetics
-    labs(title = "tidyverse packages: Daily downloads", x = "", y = "",
-         subtitle = "Zoomed In: 28 and 84 Day Moving Average") +
-    scale_color_tq() +
-    theme_tq() +
-    theme(legend.position="none")
+#   which indicates shifts in trend.  
+  
+tidyverse_downloads_rollmean %>%  
+    ggplot(aes(x = date, color = package)) +  
+    # Data  
+    # geom_point(alpha = 0.5) +  # Drop "count" from plots  
+    geom_line(aes(y = mean_28),  
+              color = palette_light()[[1]],  
+              linetype = 1,  
+              size = 1) +  
+    geom_line(aes(y = mean_84),  
+              color = palette_light()[[2]],   
+              linetype = 1,  
+              size = 1) +  
+    facet_wrap(~ package,  
+               ncol = 3,  
+               scale = "free_y") +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Daily downloads", x = "", y = "",  
+         subtitle = "Zoomed In: 28 and 84 Day Moving Average") +  
+    scale_color_tq() +  
+    theme_tq() +  
+    theme(legend.position="none")  
 
 # The plot shows 'purrr' and 'lubridate' have strong upward momentum,   
 #   'dplyr', 'knitr' and 'tidyr' seem to be cycling in a range, &   
-#   'ggplot2' and 'stringr' have short term downward trends -- keep in mind 
+#   'ggplot2' and 'stringr' have short term downward trends -- keep in mind  
 #   these packages are getting the most downloads of the bunch.  
+  
+# Rolling Custom Functions: Useful for multiple statistics  
+#   Create a custom function, custom_stat_fun_2(), that returns statistics:   
+#    mean  
+#    standard deviation  
+#    95% confidence interval (mean +/- 2SD)  
 
-# Rolling Custom Functions: Useful for multiple statistics
-#   Create a custom function, custom_stat_fun_2(), that returns statistics:  
-#    mean
-#    standard deviation
-#    95% confidence interval (mean +/- 2SD)
-
-# Custom function to return mean, sd, 95% conf interval  
+# Custom function to return mean, sd, 95% conf interval====    
 custom_stat_fun_2 <- function(x, na.rm = TRUE) {  
   # x     = numeric vector  
   # na.rm = boolean, whether or not to remove NA's  
@@ -5499,15 +5498,16 @@ custom_stat_fun_2 <- function(x, na.rm = TRUE) {
   ret <- c(mean = m, stdev = s, hi.95 = hi, lo.95 = lo)   
   return(ret)  
 }  
-
-# Apply the custom_stat_fun_2() to groups using tq_mutate() and the 
-#   rolling function rollapply() -- The output returned is a “tidy” data frame  
+  
+# Apply the custom_stat_fun_2() to groups====  
+#   using tq_mutate() and the rolling function rollapply()  
+#   The output returned is a “tidy” data frame 
 #   with each statistic in its own column.
 # The process is almost identical to the process of applying mean() with  
 #   the main exception that we need to set by.column = FALSE to prevent a  
 #   “length of dimnames [2]” error. 
   
-# Roll apply using custom stat function
+# Roll apply using custom stat function====  
 tidyverse_downloads_rollstats <- tidyverse_downloads %>%
     tq_mutate(
         select     = count,
@@ -5528,70 +5528,37 @@ tidyverse_downloads_rollstats <- tidyverse_downloads %>%
 # Many high variability periods are when the package downloads are rapidly  
 #   increasing -- 'lubridate', 'purrr' and 'tidyquant' had spikes in  
 #   downloads causing the 95% Confidence Interval (CI) bands to widen.
-
-tidyverse_downloads_rollstats %>%
-    ggplot(aes(x = date, color = package)) +
-    # Data
-    geom_point(aes(y = count), color = "grey40", alpha = 0.5) +
-    geom_ribbon(aes(ymin = lo.95, ymax = hi.95), alpha = 0.4) +
-    geom_point(aes(y = mean), size = 1, alpha = 0.5) +
-    facet_wrap(~ package, ncol = 3, scale = "free_y") +
-    # Aesthetics
-    labs(title = "tidyverse packages: Volatility and Trend", x = "",
-         subtitle = "28-Day Moving Average with 95% Confidence Interval Bands (+/-2 Standard Deviations)") +
-    scale_color_tq(theme = "light") +
-    theme_tq() +
-    theme(legend.position="none")
+  
+# plot results of roll-apply====      
+tidyverse_downloads_rollstats %>%  
+    ggplot(aes(x = date, color = package)) +  
+    # Data  
+    geom_point(aes(y = count), color = "grey40", alpha = 0.5) +  
+    geom_ribbon(aes(ymin = lo.95, ymax = hi.95), alpha = 0.4) +  
+    geom_point(aes(y = mean), size = 1, alpha = 0.5) +  
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Volatility and Trend", x = "",  
+         subtitle = "28-Day Moving Average with 95% CI Bands (+/-2 SD)") +  
+    scale_color_tq(theme = "light") +  
+    theme_tq() +  
+    theme(legend.position="none")  
   
 # The Rolling Correlation====  
 #   tidyquant::tq_mutate_xy() enables “tidy” application of TTR::runCor()  
 #   and other functions with x and y arguments. The corrr package is useful  
 #   for computing the correlations and visualizing relationships, and it fits  
-#   nicely into the “tidy” framework. 
+#   nicely into the “tidy” framework.  
 #   The cowplot package helps with arranging multiple ggplots.  
-
-
-
-CRAN tidyverse Downloads
-
-We’ll be using the same “tidyverse” dataset as the last two posts. The script below gets the package downloads for the first half of 2017.
-
-# tidyverse packages (see my laptop stickers from first post) ;)
-pkgs <- c(
-    "tidyr", "lubridate", "dplyr", 
-    "broom", "tidyquant", "ggplot2", "purrr", 
-    "stringr", "knitr"
-)
-
-# Get the downloads for the individual packages
-tidyverse_downloads <- cran_downloads(
-    packages = pkgs, 
-    from     = "2017-01-01", 
-    to       = "2017-06-30") %>%
-    tibble::as_tibble() %>%
-    group_by(package)
-
-# Visualize the package downloads
-tidyverse_downloads %>%
-    ggplot(aes(x = date, y = count, color = package)) +
-    # Data
-    geom_point(alpha = 0.5) +
-    facet_wrap(~ package, ncol = 3, scale = "free_y") +
-    # Aesthetics
-    labs(title = "tidyverse packages: Daily downloads", x = "",
-         subtitle = "2017-01-01 through 2017-06-30",
-         caption = "Downloads data courtesy of cranlogs package") +
-    scale_color_tq() +
-    theme_tq() +
-    theme(legend.position="none")
-
-plot of chunk unnamed-chunk-2
-
-We’ll also investigate correlations to the “broader market” meaning the total CRAN dowloads over time. To do this, we need to get the total downloads using cran_downloads() and leaving the package argument NULL, which is the default.
-
-# Get data for total CRAN downloads
-all_downloads <- cran_downloads(from = "2017-01-01", to = "2017-06-30") %>%
-    tibble::as_tibble()
+  
+# Investigate correlations to the “broader market”====  
+# get the total downloads using cran_downloads() leaving the package argument  
+#  "NULL", which is the default.  
+  
+# Get data for total CRAN downloads and visualize====  
+all_downloads <- cran_downloads(from = "2017-01-01",  
+                                to = "2017-06-30") %>%  
+    tibble::as_tibble()  
 
 # Visualize the downloads
 all_downloads %>%
@@ -5606,105 +5573,121 @@ all_downloads %>%
     theme_tq() +
     theme(legend.position="none")
 
-plot of chunk unnamed-chunk-3
-Rolling Correlations
+# Rolling Correlations====  
+# Correlations in time series are very useful because if a relationship   
+#   exists, you can actually model/predict/forecast using the correlation.  
+# However -- a correlation is NOT static because it changes over time.  
+#   Even the best models become useless during periods when correlation is low.  
 
-Correlations in time series are very useful because if a relationship exists, you can actually model/predict/forecast using the correlation. However, there’s one issue: a correlation is NOT static! It changes over time. Even the best models can be rendered useless during periods when correlation is low.
+# One of the most important calculations in time series analysis is the  
+#   rolling correlation. Rolling correlations are simply applying a  
+#   correlation between two time series (say sales of product x and product y)  
+#   as a rolling window calculation.  
+  
+# Rolling Correlation Example====   
+# One benefit of a rolling correlation is that we can visualize the change in   
+#   correlation over time. Consider if there’s a relatively high correlation   
+#   between Sales of Product X and Y until a big shift in December.   
+#   The question becomes, “What happened in December?”   
+  
+# In addition to visualizations, the rolling correlation can signal:    
+#   1. events that have occurred causing two correlated time series to   
+#     deviate from each other.   
+#   2. when modeling, timespans of low correlation can help in determining   
+#     whether or not to trust a forecast model.  
+#   3. Detect shifts in trend as time series become more or less correlated  
+#     over time.  
 
-One of the most important calculations in time series analysis is the rolling correlation. Rolling correlations are simply applying a correlation between two time series (say sales of product x and product y) as a rolling window calculation.
-
-Rolling Correlation Example
-
-One major benefit of a rolling correlation is that we can visualize the change in correlation over time. The sample data (above) is charted (below). As shown, there’s a relatively high correlation between Sales of Product X and Y until a big shift in December. The question is, “What happened in December?” Just being able to ask this question can be critical to an organization.
-
-plot of chunk unnamed-chunk-4
-
-In addition to visualizations, the rolling correlation is great for a number of reasons. First, changes in correlation can signal events that have occurred causing two correlated time series to deviate from each other. Second, when modeling, timespans of low correlation can help in determining whether or not to trust a forecast model. Third, you can detect shifts in trend as time series become more or less correlated over time.
-Time Series Functions
-
-The xts, zoo, and TTR packages have some great functions that enable working with time series. Today, we’ll take a look at the runCor() function from the TTR package. You can see which TTR functions are integrated into tidyquant package below:
-
-# "run" functions from TTR
-tq_mutate_fun_options()$TTR %>%
-    stringr::str_subset("^run")
-
+# Time Series Functions====   
+# "run" functions from TTR   
+tq_mutate_fun_options()$TTR %>%  
+    stringr::str_subset("^run")  
+  
 ##  [1] "runCor"         "runCov"         "runMAD"        
 ##  [4] "runMax"         "runMean"        "runMedian"     
 ##  [7] "runMin"         "runPercentRank" "runSD"         
-## [10] "runSum"         "runVar"
+## [10] "runSum"         "runVar"   
 
-Tidy Implementation of Time Series Functions
+# Tidy Implementation of Time Series Functions====  
+# Use the tq_mutate_xy() funct. to apply time series functions in a “tidy” way.   
+#   Similar to tq_mutate(), the tq_mutate_xy() function is used for tasks   
+#   that result in column-wise dimension changes (not row-wise such as  
+#   periodicity changes, use tq_transmute for those!).  
+# tq_mutate_xy() adds columns to the existing data frame rather than   
+#   returning a new data frame like tq_transmute()).  
+  
+# Most running statistic functions only take one data argument, x.  
+#   In these cases you can use tq_mutate(), which has an argument, select.  
+#   See how runSD only takes x.  
+# If first arg is x (and no y) --> use tq_mutate()     
+args(runSD)  
+  
+## function (x, n = 10, sample = TRUE, cumulative = FALSE)  
+## NULL   
+  
+# Functions like runCor and runCov are setup to take in two data arguments,  
+#   x and y. In these cases, use tq_mutate_xy(), which takes two arguments,  
+#   x and y (as opposed to select from tq_mutate()). This makes it well suited   
+#   for functions that have the first two arguments being x and y.  
+#   See how runCor has two arguments x and y.  
+# If first two arguments are x and y --> use tq_mutate_xy()  
+args(runCor)  
 
-We’ll use the tq_mutate_xy() function to apply time series functions in a “tidy” way. Similar to tq_mutate() used in the last post, the tq_mutate_xy() function always adds columns to the existing data frame (rather than returning a new data frame like tq_transmute()). It’s well suited for tasks that result in column-wise dimension changes (not row-wise such as periodicity changes, use tq_transmute for those!).
+## function (x, y, n = 10, use = "all.obs", sample = TRUE, cumulative = FALSE)  
+## NULL  
 
-Most running statistic functions only take one data argument, x. In these cases you can use tq_mutate(), which has an argument, select. See how runSD only takes x.
+# Static Correlations====  
+# Before we jump into rolling correlations, let’s examine the static    
+#   correlations of our package downloads. This gives us an idea of how in  
+#   sync the various packages are with each other over the entire timespan.  
+  
+# Use the correlate() and shave() functions from the corrr package to output   
+#   a tidy correlation table. We’ll hone in on the last column “all_cran”,   
+#   which measures the correlation between individual packages and the   
+#   broader market (i.e. total CRAN downloads).  
 
-# If first arg is x (and no y) --> us tq_mutate()
-args(runSD)
-
-## function (x, n = 10, sample = TRUE, cumulative = FALSE) 
-## NULL
-
-However, functions like runCor and runCov are setup to take in two data arguments, x and y. In these cases, use tq_mutate_xy(), which takes two arguments, x and y (as opposed to select from tq_mutate()). This makes it well suited for functions that have the first two arguments being x and y. See how runCor has two arguments x and y.
-
-# If first two arguments are x and y --> use tq_mutate_xy()
-args(runCor)
-
-## function (x, y, n = 10, use = "all.obs", sample = TRUE, cumulative = FALSE) 
-## NULL
-
-Static Correlations
-
-Before we jump into rolling correlations, let’s examine the static correlations of our package downloads. This gives us an idea of how in sync the various packages are with each other over the entire timespan.
-
-We’ll use the correlate() and shave() functions from the corrr package to output a tidy correlation table. We’ll hone in on the last column “all_cran”, which measures the correlation between individual packages and the broader market (i.e. total CRAN downloads).
-
-# Correlation table
-tidyverse_static_correlations <- tidyverse_downloads %>%
-    # Data wrangling
-    spread(key = package, value = count) %>%
-    left_join(all_downloads, by = "date") %>%
-    rename(all_cran = count) %>%
-    select(-date) %>%
-    # Correlation and formating
-    correlate() 
+# Correlation table -- tidy====  
+tidyverse_static_correlations <- tidyverse_downloads %>%  
+    # Data wrangling  
+    spread(key = package, value = count) %>%  
+    left_join(all_downloads, by = "date") %>%  
+    rename(all_cran = count) %>%  
+    select(-date) %>%  
+    # Correlation and formating  
+    correlate()  
 
 # Pretty printing
 tidyverse_static_correlations %>%
     shave(upper = F)
 
-rowname 	broom 	dplyr 	ggplot2 	knitr 	lubridate 	purrr 	stringr 	tidyquant 	tidyr 	all_cran
-broom 	  	0.63 	0.78 	0.67 	0.52 	0.40 	0.81 	0.17 	0.53 	0.74
-dplyr 	  	  	0.73 	0.71 	0.59 	0.58 	0.71 	0.14 	0.64 	0.76
-ggplot2 	  	  	  	0.91 	0.82 	0.67 	0.91 	0.20 	0.82 	0.94
-knitr 	  	  	  	  	0.72 	0.74 	0.88 	0.21 	0.89 	0.92
-lubridate 	  	  	  	  	  	0.79 	0.72 	0.29 	0.73 	0.82
-purrr 	  	  	  	  	  	  	0.66 	0.35 	0.82 	0.80
-stringr 	  	  	  	  	  	  	  	0.23 	0.81 	0.91
-tidyquant 	  	  	  	  	  	  	  	  	0.26 	0.31
-tidyr 	  	  	  	  	  	  	  	  	  	0.87
-all_cran 	  	  	  	  	  	  	  	  	  	 
+# The corrr package has a nice visualization called a network_plot() --   
+#   to identify strength of correlation. Similar to a “kmeans” analysis,  
+#   we are looking for association by distance (or in this case by correlation).  
+# The network plot shows us how well the data correlate with each other -- 
+#   akin to how associated they are with each other.  
+  
+# Network plot of correlations====  
+# Below, 'tidyquant' has a very low correlation to “all_cran” and the rest  
+#   of the “tidyverse” packages -- this would lead us to believe that  
+#   tidyquant is trending abnormally with respect to the rest, and thus is  
+#   possibly not as associated as we think.  
+# Is this really the case?  
 
-The correlation table is nice, but the outliers don’t exactly jump out. For instance, it’s difficult to see that tidyquant is low compared to the other packages withing the “all_cran” column.
-
-Fortunately, the corrr package has a nice visualization called a network_plot(). It helps to identify strength of correlation. Similar to a “kmeans” analysis, we are looking for association by distance (or in this case by correlation). How well the packages correlate with each other is akin to how associated they are with each other. The network plot shows us exactly this association!
-
-# Network plot
-gg_all <- tidyverse_static_correlations %>%
-    network_plot(colours = c(palette_light()[[2]], "white", palette_light()[[4]]), legend = TRUE) +
-    labs(
-        title = "Correlations of tidyverse Package Downloads to Total CRAN Downloads",
-        subtitle = "Looking at January through June, tidyquant is a clear outlier"
-        ) +
-    expand_limits(x = c(-0.75, 0.25), y = c(-0.4, 0.4)) +
-    theme_tq() +
-    theme(legend.position = "bottom")
-gg_all
-
-plot of chunk unnamed-chunk-10
-
-We can see that tidyquant has a very low correlation to “all_cran” and the rest of the “tidyverse” packages. This would lead us to believe that tidyquant is trending abnormally with respect to the rest, and thus is possibly not as associated as we think. Is this really the case?
-Rolling Correlations
+gg_all <- tidyverse_static_correlations %>%  
+    network_plot(colours = c(palette_light()[[2]],  
+                             "white",   
+                             palette_light()[[4]]),  
+                 legend = TRUE) +  
+    labs(  
+        title = "Correlations of tidyverse downloads to total CRAN downloads",  
+        subtitle = "January through June, tidyquant is a clear outlier"  
+        ) +  
+    expand_limits(x = c(-0.75, 0.25), y = c(-0.4, 0.4)) +  
+    theme_tq() +  
+    theme(legend.position = "bottom")  
+gg_all  
+  
+#Rolling Correlations====  
 
 Let’s see what happens when we incorporate time using a rolling correlation. The script below uses the runCor function from the TTR package. We apply it using tq_mutate_xy(), which is useful for applying functions such has runCor that have both an x and y input.
 
