@@ -255,6 +255,13 @@ library("cowplot")           # multiple plots with plot_grid()
 library("timetk")            # tool kit for working with time series in R 
 library("tidyquant")         # integrate quant. analysis tools w/ tidyverse
 library("corrr")             # Tidy correlation tables and correlation plotting
+library("cranlogs")          # For inspecting package downloads over time
+library("tidyverse")  
+  
+# resolve conflicted packages----  
+conflict_prefer("filter", "dplyr")  
+conflict_prefer("select", "dplyr")  
+conflict_prefer("as.dist", "stats")
 
 # used in time series clustering example--
 #library(gridExtra)           # merge plots  
@@ -262,15 +269,7 @@ library("corrr")             # Tidy correlation tables and correlation plotting
 #library(gplots)              # heatmap
 #library(tseries)             # bootstrap
 #library(TSclust)             # cluster time series
-#library(dtwclust)            # cluster time series with dynamic time warping  
-
-library("tidyverse")  
-
-# resolve conflicted packages----  
-conflict_prefer("filter", "dplyr")  
-conflict_prefer("select", "dplyr")  
-conflict_prefer("as.dist", "stats")
-  
+#library(dtwclust)            # cluster time series with dynamic time warping    
 # other packages I have thought about ---------------------------------------  
 # library("ggfortify")        # data vis tools for statistical analysis  
 # library("ggpubr")           # some easy ggplot wrappers for publication ready 
@@ -281,7 +280,6 @@ conflict_prefer("as.dist", "stats")
 # library("pdftools")         # utilities for extracting text, fonts,  
 #   attachments and metadata from a pdf file.  
   
-# Packages to consider----  
 # Spatial data====  
 #library("biogeo")            # Functions for error detection & correction  
 #   in point-data datasets; includes functions   
@@ -303,7 +301,6 @@ conflict_prefer("as.dist", "stats")
 #library("jsonlite")          # Convert between JSON data and R objects  
 #library("curl")              # Drop-in replacement for base url  
 #library("listviewer")        # htmlwidget for interactive views of R lists  
-  
 #library("forecast")         # for BoxCox.lambda   
 #library("magrittr") # provides aliases for easier reading  
 #library("workflowr") # creates a research website  
@@ -5189,7 +5186,8 @@ autoplot(forecast(  auto.aapl, h=90))
 ```
 
 ```{r tidy_time-series-1} 
-#https://www.business-science.io/timeseries-analysis/2017/07/02/tidy-timeseries-analysis.html 
+# overview of tidy time series----  
+# https://www.business-science.io/timeseries-analysis/2017/07/02/tidy-timeseries-analysis.html 
 
 # The period apply functions from xts can be used to apply aggregations using  
 #   common time series intervals such as weekly, monthly, quarterly, and  
@@ -5197,8 +5195,6 @@ autoplot(forecast(  auto.aapl, h=90))
 #   “tidy” application of the functions. We were able to use the period apply  
 #   functions to visualize trends and volatility and to expose relationships 
 #   between statistical measures.
-
-
 
 # get data for various tidyverse packages - count of downloads====  
 
@@ -5688,99 +5684,374 @@ gg_all <- tidyverse_static_correlations %>%
 gg_all  
   
 #Rolling Correlations====  
+# Incorporate time using a rolling correlation. The script below uses the 
+#   runCor function from the TTR package. We apply it using tq_mutate_xy(),  
+#   which is useful for applying functions such has runCor that have both an  
+#   x and y input.
 
-Let’s see what happens when we incorporate time using a rolling correlation. The script below uses the runCor function from the TTR package. We apply it using tq_mutate_xy(), which is useful for applying functions such has runCor that have both an x and y input.
+# Get rolling correlations  
+tidyverse_rolling_corr <- tidyverse_downloads %>%  
+    # Data wrangling  
+    left_join(all_downloads, by = "date") %>%  
+    select(date, package, count.x, count.y) %>%  
+    # Mutation  
+    tq_mutate_xy(  
+        x          = count.x,  
+        y          = count.y,  
+        mutate_fun = runCor,  
+        # runCor args  
+        n          = 30,  
+        use        = "pairwise.complete.obs",  
+        # tq_mutate args  
+        col_rename = "rolling_corr"  
+    )  
+  
+# Join static correlations with rolling correlations====    
+tidyverse_static_correlations <- tidyverse_static_correlations %>%  
+    select(rowname, all_cran) %>%  
+    rename(package = rowname)  
+  
+tidyverse_rolling_corr <- tidyverse_rolling_corr %>%  
+    left_join(tidyverse_static_correlations, by = "package") %>%  
+    rename(static_corr = all_cran)  
+  
+# Plot combined static and rolling correlations    
+tidyverse_rolling_corr %>%  
+    ggplot(aes(x = date, color = package)) +  
+    # Data  
+    geom_line(aes(y = static_corr), color = "red") +  
+    geom_point(aes(y = rolling_corr), alpha = 0.5) +  
+    facet_wrap(~ package, ncol = 3, scales = "free_y") +  
+    # Aesthetics  
+    scale_color_tq() +  
+    labs(  
+        title = "tidyverse: 30-Day Rolling Download Correlations, Package vs Total CRAN",  
+        subtitle = "Relationships are dynamic vs static correlation (red line)",  
+        x = "", y = "Correlation"  
+    ) +  
+    theme_tq() +  
+    theme(legend.position="none")  
 
-# Get rolling correlations
-tidyverse_rolling_corr <- tidyverse_downloads %>%
-    # Data wrangling
-    left_join(all_downloads, by = "date") %>%
-    select(date, package, count.x, count.y) %>%
-    # Mutation
-    tq_mutate_xy(
-        x          = count.x,
-        y          = count.y,
-        mutate_fun = runCor, 
-        # runCor args
-        n          = 30,
-        use        = "pairwise.complete.obs",
-        # tq_mutate args
-        col_rename = "rolling_corr"
+# The rolling correlation shows the dynamic nature of the relationship.  
+#   If we just went by the static correlation over the full timespan (red line),  
+#   we’d be misled about the dynamic nature of these time series. Further, we  
+#   can see that most packages are highly correlated with the broader market  
+#   (total CRAN downloads) with the exception of various periods where the  
+#   correlations dropped. The drops could indicate events or changes in user  
+#   behavior that resulted in shocks to the download patterns.  
+# Focusing on the main outlier tidyquant, we can see that once April hit   
+#   tidyquant is trending closer to a 0.60 correlation meaning that the 0.31  
+#   relationship (red line) is likely too low going forward.  
+
+# Last, we can redraw the network plot from April through June to investigate  
+#   the shift in relationship. We can use the cowplot package to plot two  
+#   ggplots (or corrr network plots) side-by-side.
+
+# Redrawing Network Plot from April through June====    
+gg_subset <- tidyverse_downloads %>%  
+  # Filter by date >= April 1, 2017  
+  filter(date >= ymd("2017-04-01")) %>%  
+  # Data wrangling  
+  spread(key = package, value = count) %>%  
+  left_join(all_downloads, by = "date") %>%  
+  rename(all_cran = count) %>%  
+  select(-date) %>%  
+  # Correlation and formating  
+  correlate() %>%  
+  # Network Plot  
+  network_plot(colours = c(palette_light()[[2]], 
+                           "white",  
+                           palette_light()[[4]]), 
+               legend = TRUE) +  
+  labs(  
+    title = "April through June (Last 3 Months)",  
+    subtitle = "tidyquant correlation is increasing"  
+  ) +  
+  expand_limits(x = c(-0.75, 0.25), y = c(-0.4, 0.4)) +  
+  theme_tq() +  
+  theme(legend.position = "bottom")  
+
+# Modify the January through June network plot (previous plot)  
+gg_all <- gg_all +  
+  labs(  
+    title = "January through June (Last 6 months)",  
+    subtitle = "tidyquant is an outlier"  
+  )  
+  
+# Format cowplot  
+cow_net_plots <- plot_grid(gg_all, gg_subset, ncol = 2)  
+title <- ggdraw() +  
+  draw_label(label = 'tidyquant is getting "tidy"-er',  
+             fontface = 'bold', size = 18)  
+cow_out <- plot_grid(title, cow_net_plots,  
+                     ncol=1,  
+                     rel_heights=c(0.1, 1))  
+cow_out  
+  
+# Lags (Lag Operator) overview====  
+# Calculate lags and analyze autocorrelation.  
+# The lag operator (also known as backshift operator) is a function that  
+#   shifts (offsets) a time series such that the “lagged” values are aligned   
+#   with the actual time series. The lags can be shifted any number of units,  
+#     which simply controls the length of the backshift.  
+  
+# Lags are useful in time series analysis because of a phenomenon called   
+#   autocorrelation, which is a tendency for the values within a time series   
+#   to be correlated with previous copies of itself. One benefit to   
+#   autocorrelation is that we can identify patterns within the time series,    
+#   which helps in determining seasonality, the tendency for patterns to   
+#   repeat at periodic frequencies. 
+  
+# Lags and autocorrelation are central to forecasting models that incorporate  
+#   autoregression, regressing a time series using previous values of itself.   
+# Autoregression is the basis for one of the most widely used forecasting  
+#   techniques, the autoregressive integrated moving average model or ARIMA  
+# for short. The forecast package by Rob Hyndman, implements ARIMA and a  
+# number of other forecast modeling techniques. 
+# Note -- Autoregression and ARIMA not discussed below.  
+  
+# tidyquant Integrated functions====  
+tq_mutate_fun_options() %>%  
+    glimpse()  
+  
+## List of 5  
+##  $ zoo: chr [1:14] "rollapply" "rollapplyr" "rollmax" "rollmax.default" ...  
+##  $ xts: chr [1:27] "apply.daily" "apply.monthly" "apply.quarterly"  
+##    "apply.weekly" ...  
+##  $ quantmod: chr [1:25] "allReturns" "annualReturn" "ClCl" "dailyReturn" ...  
+##  $ TTR: chr [1:62] "adjRatios" "ADX" "ALMA" "aroon" ...  
+##  $ PerformanceAnalytics: chr [1:7] "Return.annualized"  
+##    "Return.annualized.excess" "Return.clean" "Return.cumulative" ...
+
+# lag.xts() -- tidy====  
+# The lag.xts() function from the xts package, has a great function for getting  
+#   multiple lags.  
+# The lag.xts() function generates a sequence of lags (t-1, t-2, t-3, …, t-k)  
+#   using the argument k. However, it only works on xts or other matrix,  
+#   vector-based objects). In other words, it fails on our “tidy” tibble.  
+#   And, we get an “unsupported type” error.   
+  
+# Consider a time series of ten values beginning in 2017.  
+set.seed(1)  
+my_time_series_tbl <- tibble(  
+    date   = seq.Date(ymd("2017-01-01"),  
+                      length.out = 10,  
+                      by = "day"),  
+    value  = 1:10 + rnorm(10)  
+)  
+
+# Bummer, man! -- I ran into this...   
+my_time_series_tbl %>%           
+        lag.xts(k = 1:5)  
+
+## <simpleError in FUN(X[[i]], ...): unsupported type>
+
+# The timetk package is a toolkit for working with time series. It has  
+#   functions that simplify and make consistent the process of coercion --  
+#   converting to and from different time series classes. In addition,  
+#   it has functions to aid the process of time series machine learning and  
+#   data mining. 
+
+# Convert to an xts object -- use tk_xts() from the timetk package  
+#   to coerce from a time-based tibble -- tibble with a date or time component 
+#   and xts object.
+
+# Success! Got our lags 1 through 5. One problem: no original values
+my_time_series_tbl %>%
+    tk_xts(silent = TRUE) %>%
+    lag.xts(k = 1:5)
+
+# We still need our original values so we can analyze the counts against  
+#   the lags. 
+# If we want to get the original values too, we can do something like this.
+
+# Convert to xts  
+my_time_series_xts <- my_time_series_tbl %>%  
+    tk_xts(silent = TRUE)  
+  
+# Get original values and lags in xts  
+my_lagged_time_series_xts <-   
+    merge.xts(my_time_series_xts, lag.xts(my_time_series_xts, k = 1:5))  
+
+# Convert back to tbl  
+my_lagged_time_series_xts %>%  
+    tk_tbl()  
+  
+# That’s a lot of work for a simple operation.  
+# Fortunately we have tq_mutate() to the rescue!  
+  
+#  tq_mutate()====  
+# The tq_mutate() function from tidyquant enables “tidy” application of the  
+#   xts-based functions. The tq_mutate() function works similarly to mutate()  
+#   from dplyr in the sense that it adds columns to the data frame.
+ 
+# The tidyquant package enables a “tidy” implementation of the xts-based  
+#   functions from packages such as xts, zoo, quantmod, TTR and  
+# PerformanceAnalytics. 
+
+# Quick example -- use the select = value to send the “value” column to the  
+#   mutation function. In this case our mutate_fun = lag.xts. We supply k = 5  
+#   as an additional argument.  
+# That’s much easier -- we get the value column returned in addition to the  
+#   lags, which is the benefit of using tq_mutate(). If you use tq_transmute()  
+#   instead, the result would be the lags only, which is what lag.xts() returns.  
+  
+# This is nice, we didn't need to coerce to xts and it merged for us  
+my_time_series_tbl %>%  
+    tq_mutate(  
+        select     = value,  
+        mutate_fun = lag.xts,  
+        k          = 1:5  
+    )  
+  
+# Analyzing tidyverse Downloads: Lag and Autocorrelation Analysis----  
+# Scaling the Lag and Autocorrelation Calculation  
+# Get lags 1 through 28 (4 weeks of lags):  
+#   Take the tidyverse_downloads data frame, which is grouped by package,  
+#     and apply tq_mutate() using the lag.xts function.  
+#   We can provide column names for the new columns by prefixing “lag_” to   
+#   the lag numbers, k, which the sequence from 1 to 28.   
+# The output is all of the lags for each package.  
+
+# Use tq_mutate() to get lags 1:28 using lag.xts()====  
+k <- 1:28  
+col_names <- paste0("lag_", k)  
+  
+tidyverse_lags <- tidyverse_downloads %>%  
+    tq_mutate(  
+        select     = count,  
+        mutate_fun = lag.xts,  
+        k          = 1:28,  
+        col_rename = col_names  
+    )  
+
+# Next steps with lag.xts====   
+# The goal is to get count and each lag side-by-side so we can do a correlation. 
+# Correlating each of the lags to the “count” column involves steps  
+#   strung together in a dplyr pipe (%>%):  
+# 1. Use gather() to pivot each lagged column into a “tidy” long-format df,   
+#     and exclude columns: “package”, “date” and “count” columns from the pivot.   
+# 2. Convert the new “lag” column from a character string (e.g. “lag_1”)  
+#     to numeric (e.g. 1) using mutate() to make ordering the lags easier.  
+# 3. group the long data frame by package and lag to calculate subsets of  
+#     package and lag.  
+# 4. apply the correlation to each group of lags. The summarize() function   
+#     can be used to implement cor(), which takes x = count and y = lag_value.   
+#   Make sure to pass use = "pairwise.complete.obs", which is almost always   
+#   desired.  
+# 5. The 95% upper and lower cutoff can be approximated by: cutoff=±2 / N^0.5  
+#     Where:  
+#       N = number of observations.  
+
+# Calculate the autocorrelations and 95% cutoffs  
+tidyverse_count_autocorrelations <- tidyverse_lags %>%  
+    gather(key = "lag",  
+           value = "lag_value",  
+           -c(package, date, count)) %>%  
+    mutate(lag = str_sub(lag, start = 5) %>% as.numeric) %>%  
+    group_by(package, lag) %>%  
+    summarize(  
+        cor = cor(x = count,  
+                  y = lag_value,  
+                  use = "pairwise.complete.obs"),  
+        cutoff_upper = 2/(n())^0.5,  
+        cutoff_lower = -2/(n())^0.5  
+        )  
+
+#Visualizing Autocorrelation: ACF Plot====
+# Now correlations are calculated by package and lag number in a “tidy” format,  
+#   we can visualize the autocorrelations with ggplot to check for patterns.  
+# The plot shown below is known as an ACF plot, which is simply the  
+#   autocorrelations at various lags. Initial examination of the ACF plots  
+# indicate a weekly frequency.
+
+# Visualize the autocorrelations
+tidyverse_count_autocorrelations %>%
+    ggplot(aes(x = lag, y = cor, color = package, group = package)) +
+    # Add horizontal line a y=0
+    geom_hline(yintercept = 0) +
+    # Plot autocorrelations
+    geom_point(size = 2) +
+    geom_segment(aes(xend = lag, yend = 0), size = 1) +
+    # Add cutoffs
+    geom_line(aes(y = cutoff_upper), color = "blue", linetype = 2) +
+    geom_line(aes(y = cutoff_lower), color = "blue", linetype = 2) +
+    # Add facets
+    facet_wrap(~ package, ncol = 3) +
+    # Aesthetics
+    expand_limits(y = c(-1, 1)) +
+    scale_color_tq() +
+    theme_tq() +
+    labs(
+        title = paste0("Tidyverse ACF Plot: Lags ", rlang::expr_text(k)),
+        subtitle = "Appears to be a weekly pattern",
+        x = "Lags"
+    ) +
+    theme(
+        legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)
     )
 
-# Join static correlations with rolling correlations
-tidyverse_static_correlations <- tidyverse_static_correlations %>%
-    select(rowname, all_cran) %>%
-    rename(package = rowname)
+# We see that there appears to be a weekly pattern, but we want to be sure.   
+  
+# Get the absolute autocorrelations====  
+# Verify the weekly pattern assessment by reviewing the absolute value of the  
+#   correlations independent of package. We take the absolute autocorrelation   
+#   because we use the magnitude as a proxy for how much explanatory value the  
+#   lag provides.  
+# Use dplyr functions to manipulate the data for visualization:  
+# 1. drop the package group constraint using ungroup(),    
+# 2. calculate the absolute correlation using mutate(),  
+# 3. convert the lag to a factor, which helps with reordering the plot.  
+# 4. Select() only the “lag” and “cor_abs” columns,    
+# 5.  group by “lag” to lump all of the lags together -- to determine the trend  
+#      independent of package.
+  
+tidyverse_absolute_autocorrelations <- tidyverse_count_autocorrelations %>%
+    ungroup() %>%
+    mutate(
+        lag = as_factor(as.character(lag)),
+        cor_abs = abs(cor)
+        ) %>%
+    select(lag, cor_abs) %>%
+    group_by(lag) 
 
-tidyverse_rolling_corr <- tidyverse_rolling_corr %>%
-    left_join(tidyverse_static_correlations, by = "package") %>%
-    rename(static_corr = all_cran)
 
-# Plot
-tidyverse_rolling_corr %>%
-    ggplot(aes(x = date, color = package)) +
-    # Data
-    geom_line(aes(y = static_corr), color = "red") +
-    geom_point(aes(y = rolling_corr), alpha = 0.5) +
-    facet_wrap(~ package, ncol = 3, scales = "free_y") +
+We can now visualize the absolute correlations using a box plot that lumps each of the lags together. We can add a line to indicate the presence of outliers at values above 1.5IQR
+
+. If the values are consistently above this limit, the lag can be considered an outlier. Note that we use the fct_reorder() function from forcats to organize the boxplot in order of decending magnitude.
+
+# Visualize boxplot of absolute autocorrelations
+break_point <- 1.5*IQR(tidyverse_absolute_autocorrelations$cor_abs) %>% signif(3)
+tidyverse_absolute_autocorrelations %>%    
+    ggplot(aes(x = fct_reorder(lag, cor_abs, .desc = TRUE) , y = cor_abs)) +
+    # Add boxplot
+    geom_boxplot(color = palette_light()[[1]]) +
+    # Add horizontal line at outlier break point
+    geom_hline(yintercept = break_point, color = "red") +
+    annotate("text", label = paste0("Outlier Break Point = ", break_point), 
+             x = 24.5, y = break_point + .03, color = "red") +
     # Aesthetics
-    scale_color_tq() +
+    expand_limits(y = c(0, 1)) +
+    theme_tq() +
     labs(
-        title = "tidyverse: 30-Day Rolling Download Correlations, Package vs Total CRAN",
-        subtitle = "Relationships are dynamic vs static correlation (red line)",
-        x = "", y = "Correlation"
+        title = paste0("Absolute Autocorrelations: Lags ", rlang::expr_text(k)),
+        subtitle = "Weekly pattern is consistently above outlier break point",
+        x = "Lags"
     ) +
-    theme_tq() +
-    theme(legend.position="none")
+    theme(
+        legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)
+    )
 
-plot of chunk unnamed-chunk-11
+plot of chunk unnamed-chunk-15
 
-The rolling correlation shows the dynamic nature of the relationship. If we just went by the static correlation over the full timespan (red line), we’d be misled about the dynamic nature of these time series. Further, we can see that most packages are highly correlated with the broader market (total CRAN downloads) with the exception of various periods where the correlations dropped. The drops could indicate events or changes in user behavior that resulted in shocks to the download patterns.
+Lags in multiples of seven have the highest autocorrelation and are consistently above the outlier break point indicating the presence of a strong weekly pattern. The autocorrelation with the seven-day lag is the highest, with a median of approximately 0.75. Lags 14, 21, and 28 are also outliers with median autocorrelations in excess of our outlier break point of 0.471.
 
-Focusing on the main outlier tidyquant, we can see that once April hit tidyquant is trending closer to a 0.60 correlation meaning that the 0.31 relationship (red line) is likely too low going forward.
-
-Last, we can redraw the network plot from April through June to investigate the shift in relationship. We can use the cowplot package to plot two ggplots (or corrr network plots) side-by-side.
-
-# Redrawing Network Plot from April through June
-gg_subset <- tidyverse_downloads %>%
-    # Filter by date >= April 1, 2017
-    filter(date >= ymd("2017-04-01")) %>%
-    # Data wrangling
-    spread(key = package, value = count) %>%
-    left_join(all_downloads, by = "date") %>%
-    rename(all_cran = count) %>%
-    select(-date) %>%
-    # Correlation and formating
-    correlate() %>%
-    # Network Plot
-    network_plot(colours = c(palette_light()[[2]], "white", palette_light()[[4]]), legend = TRUE) +
-    labs(
-        title = "April through June (Last 3 Months)",
-        subtitle = "tidyquant correlation is increasing"
-        ) +
-    expand_limits(x = c(-0.75, 0.25), y = c(-0.4, 0.4)) +
-    theme_tq() +
-    theme(legend.position = "bottom")
-
-# Modify the January through June network plot (previous plot)
-gg_all <- gg_all +
-    labs(
-        title = "January through June (Last 6 months)",
-        subtitle = "tidyquant is an outlier"
-        )
-
-# Format cowplot
-cow_net_plots <- plot_grid(gg_all, gg_subset, ncol = 2)
-title <- ggdraw() + 
-    draw_label(label = 'tidyquant is getting "tidy"-er',
-               fontface = 'bold', size = 18)
-cow_out <- plot_grid(title, cow_net_plots, ncol=1, rel_heights=c(0.1, 1))
-cow_out
-
-plot of chunk unnamed-chunk-12
+Note that the median of Lag 1 is essentially at the break point indicating that half of the packages have a presence of “abnormal” autocorrelation. However, this is not part of a seasonal pattern since a periodic frequency is not present.
 Conclusions
 
+Lag and autocorrelation analysis is a good way to detect seasonality. We used the autocorrelation of the lagged values to detect “abnormal” seasonal patterns. In this case, the tidyverse packages exhibit a strong weekly pattern. We saw how the tq_mutate() function was used to apply lag.xts() to the daily download counts to efficiently get lags 1 through 28. Once the lags were retrieved, we used other dplyr functions such as gather() to pivot the data and summarize() to calculate the autocorrelations. Finally, we saw the power of visual analysis of the autocorrelations. We created an ACF plot that showed a visual trend. Then we used a boxplot to detect which lags had consistent outliers. Ultimately a weekly pattern was confirmed.
 
 ```
 
