@@ -1,0 +1,2235 @@
+---
+title: "16-chap03-time_series_examples"
+author: "CJ Tinant"
+date: "11/12/2019"
+output: html_document
+---
+
+
+```{r coerse-timeseries_using_timetk}
+
+# Coercion issues w/ ts() - see vignette: Time Series Coercion Using timetk----     
+# The ts object class for time series data is used by packages including  
+#   'forecast()'.  The ts data structure is difficult to coerce back and  
+#   forth because by default it does not contain a time-based index -- rather  
+#   it uses a regularized index computed using start and frequency arguments.  
+# Coercion to ts using the ts() function from the stats library results in  
+#    various problems -- 1. only numeric columns get coerced, and if the user  
+#    forgets to add the [,"pct"] to drop the “date” column, ts() returns  
+#    dates in numeric format which is not what the user wants.  
+# Calling the specific column desired presents a new issue -- the date index  
+#    is lost, and a #different “regularized” index is built using the start  
+#    and frequency attributes.  
+# We can get the index using the index() function from the zoo package -- the  
+#    index retained is a regular sequence of numeric values, but the  
+#    regularized values cannot be coerced back to the original time-base  
+#    because the date and date time data may contain year-month-day,  
+#    hour-minute-second, and timezone attributes, may not be on a regularized  
+#    interval (frequency).  
+
+# Solution -- he timetk package contains a new function, tk_ts(), that  
+#   enables maintaining the original date index as an attribute. When we   
+#   repeat the tbl to ts coercion process using the new function, tk_ts():      
+#  
+# 1. only numeric columns get coerced, which prevents unintended consequences  
+#   due to R coercion rules (e.g. dates getting unintentionally converted  
+#   or characters causing the homogeneous data structure converting all  
+#   numeric values to character).  
+#  
+# 2. the data returned has additional attributes --  
+#   a numeric attribute, “index” containing orig. date information as a number  
+#   along with the time zone and class.  
+#   
+# 3. the tk_tbl() function has an argument timetk_idx  which can be used to  
+#    select which index to return.  
+#    Note: ts() returns a “regularized” (numeric) index rather than a   
+#    time-based index.  
+
+# get data & coerce to time series====  
+spi_sta <- import("data/spi_sta.csv") %>% 
+  mutate(date = ymd(date))   
+  
+sta_meta_fin <- import("data/sta_meta_fin.csv")      
+
+# starting small to look at ARIMA
+spi01_cot_ts <- spi_sta %>%  
+  select(sta, date, spi_1mo) %>%  
+  filter(sta == "COT") %>%  
+  spread(sta, spi_1mo) %>%  
+  tk_ts( 
+    start  = 1989, 
+    freq   = 12,
+    silent = FALSE)  
+
+# The original time-based index can be retrieved using 
+spi01_cot_ts %>% 
+tk_index(timetk_idx = TRUE) %>%
+    str()
+  
+
+```
+
+```{r forecast-example}
+
+# example uses data from remotes::install_github("robjhyndman/expsmooth")
+data(usnetelec)
+print(usnetelec) 
+
+
+library(ggplot2)
+ggAcf(wineind)
+wineind %>% Acf(plot=FALSE) %>% autoplot
+
+ggAcf(spi_sta_mon)
+## Not run: 
+wineind %>% taperedacf(plot=FALSE) %>% autoplot
+ggtaperedacf(wineind)
+ggtaperedpacf(wineind)
+## End(Not run)
+ggCcf(mdeaths, fdeaths)
+
+ggAcf(spi_sta_mon %>% convert()) + 
+  theme_light() + 
+  labs(title = "ACF plot of Seattle Bikes Series")
+```
+
+```{r}
+# https://tyleransom.github.io/teaching/MetricsLabs/lab15.html 
+# Practice with time series forecasting. 
+library(tidyverse)
+library(wooldridge)
+library(broom)
+library(magrittr)
+library(stargazer)
+library(zoo)
+library(dynlm)
+library(pdfetch)
+library(tseries)   # You may need to install this package
+library(lubridate) # You may need to install this package
+library(forecast)  # You will likely have to install this one
+
+# Load the data
+# 1. look at the return on a 3-month treasury bill over the period of:  
+#    1960q1–1990q4; 2. read in Google’s and Apple’s stock price data from 
+#    January 3, 2005 until October 31, 2018.
+
+df1 <- as_tibble(intqrt)
+df1 %<>% mutate(quarter = seq(yq('1960:Q1'), 
+                              yq('1990:Q4'), 
+                              by = 'quarters')) # create quarters
+
+df1 %<>% select(r3,quarter)
+df2 <- pdfetch_YAHOO(c("goog","aapl"), 
+                     fields = c("adjclose"), 
+                     from = as.Date("2005-01-01"),
+                     to = as.Date("2018-11-01"),
+                     interval = "1d") %>% 
+  tk_tbl() %>% 
+  rename(date = index)  
+
+#df2 %<>% mutate(date=rownames(df2), 
+#                date=ymd(date)) # create date variable -- gets a warning...
+
+#Declare as time series objects
+df1.ts <- df1 %>% 
+  select(r3) %>% 
+  zoo(order.by=df1$quarter)  
+
+df2.ts <- df2 %>% 
+  select(goog,aapl) %>% 
+  zoo(order.by=df2$date)
+
+# Autoplot time series data
+autoplot(df1.ts) + 
+  xlab("Year") + 
+  ylab("T-bill return")
+
+autoplot(df2.ts) + 
+  xlab("Year") + 
+  ylab("Price")
+
+# Testing for a unit root
+#   Test for a unit root in each of the time series by the 
+#   Augmented Dickey-Fuller (ADF) test, which is available as adf.test()  
+#   in the tseries package.
+# The function tests \(H_0: \text{Unit Root}, H_a: \text{Stationary}\).
+
+adf.test(df1.ts$r3, k=1)
+adf.test(df2.ts$goog, k=1)
+adf.test(df2.ts$aapl, k=1)
+
+# Which of these time series has a unit root, according to the ADF test? 
+# Explain what the consequences are of analyzing a time series  
+#   that contains a unit root.
+
+#Estimating AR(1) models  
+# To alternatively examine the unit root, 
+#   we can estimate AR(1) models for each series:
+
+est.tbill <- dynlm(r3 ~ L(r3,1), data=df1.ts)
+stargazer(est.tbill,type="text")
+
+est.goog  <- dynlm(goog ~ L(goog,1), data=df2.ts)
+stargazer(est.goog,type="text")
+
+est.aapl  <- dynlm(aapl ~ L(aapl,1), data=df2.ts)
+stargazer(est.aapl,type="text")
+
+# Are the \(R^2\) values from these estimates meaningful?
+
+# Forecasting
+# Now let’s use our time series data to forecast future stock prices. 
+# First, we should create a shortened version of the time series 
+# so we can compare our forecast to actual data:
+
+df2.short    <- df2 %>% filter(date<as.Date("2018-10-01"))
+df2.ts.short <- df2.short %>% select(goog,aapl) %>%
+                zoo(order.by=df2.short$date)
+
+#Estimating simple AR models
+# We can use the Arima function to estimate basic AR(1) models on the 
+# differenced stock prices.
+
+simple.goog <- Arima(df2.ts.short$goog,order=c(1,1,0))
+simple.aapl <- Arima(df2.ts.short$aapl,order=c(1,1,0))
+
+# This is the same thing as estimating 
+#$\[ \Delta goog_t = \rho \Delta goog_{t-1} + u_t \]$#
+  
+#Estimating ARIMA models
+# We can also use the auto.arima function to allow the computer to 
+# choose the best ARIMA model:
+
+auto.goog <- auto.arima(df2.ts.short$goog)
+auto.aapl <- auto.arima(df2.ts.short$aapl)
+
+#Plotting forecasts
+# We can compare the 90-day-ahead forecasts of each model by 
+# looking at their plots:
+
+autoplot(forecast(simple.goog, h=90))
+autoplot(forecast(  auto.goog, h=90))
+autoplot(forecast(simple.aapl, h=90))
+autoplot(forecast(  auto.aapl, h=90))
+```
+
+```{r tidy_time-series} 
+# overview of tidy time series----  
+# https://www.business-science.io/timeseries-analysis/2017/07/02/tidy-timeseries-analysis.html 
+
+# The period apply functions from xts can be used to apply aggregations using  
+#   common time series intervals such as weekly, monthly, quarterly, and  
+#   yearly. The tq_transmute() function from tidyquant enables efficient and  
+#   “tidy” application of the functions. We were able to use the period apply  
+#   functions to visualize trends and volatility and to expose relationships 
+#   between statistical measures.
+
+# get data for various tidyverse packages - count of downloads====  
+
+pkgs <- c(
+    "tidyr", "lubridate", "dplyr", 
+    "broom", "tidyquant", "ggplot2", "purrr", 
+    "stringr", "knitr"
+    )
+
+tidyverse_downloads <- cran_downloads(
+    packages = pkgs, 
+    from     = "2017-01-01", 
+    to       = "2017-06-30") %>%
+    tibble::as_tibble() %>%
+    group_by(package)
+  
+# Visualize the package downloads====  
+tidyverse_downloads %>%
+    ggplot(aes(x = date, y = count, color = package)) +
+    geom_point() +
+    labs(title = "tidyverse packages: Daily downloads", x = "") +
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +
+    scale_color_tq() +
+    theme_tq() +
+    theme(legend.position="none")
+
+# Applying functions by period====     
+# "apply" functions from xts    
+tq_transmute_fun_options()$xts %>%
+    stringr::str_subset("^apply")
+
+# To perform weekly aggregation, we will use tq_transmute(), which applies  
+#   the non-tidy functions in a “tidy” way. 
+# The function we want to use is apply.weekly(), which takes the argument  
+#   FUN (the function to be applied weekly) and 
+#   ... (additional args that get passed to the FUN function). 
+# Set FUN = mean to apply mean() on a weekly interval,and pass the argument 
+#   na.rm = TRUE to remove NA values during the calculation.  
+
+mean_tidyverse_downloads_w <- tidyverse_downloads %>%
+    tq_transmute(
+        select     = count,
+        mutate_fun = apply.weekly, 
+        FUN        = mean,
+        na.rm      = TRUE,
+        col_rename = "mean_count"
+    )
+
+mean_tidyverse_downloads_w %>%
+    ggplot(aes(x = date, y = mean_count, color = package)) +
+    geom_point() +
+    geom_smooth(method = "loess") + 
+    labs(title = "tidyverse packages: Average daily downloads by week", x = "", 
+         y = "Mean Daily Downloads by Week") +
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +
+    expand_limits(y = 0) + 
+    scale_color_tq() +
+    theme_tq() +
+    theme(legend.position="none")
+
+# Custom function to return mean, sd, quantiles====  
+custom_stat_fun <- function(x, na.rm = TRUE, ...) {
+    # x     = numeric vector
+    # na.rm = boolean, whether or not to remove NA's
+    # ...   = additional args passed to quantile
+    c(mean    = mean(x, na.rm = na.rm),
+      stdev   = sd(x, na.rm = na.rm),
+      quantile(x, na.rm = na.rm, ...)) 
+}
+
+# Testing custom_stat_fun
+options(digits = 4)
+set.seed(3366)
+nums  <- c(10 + 1.5*rnorm(10), NA)
+probs <- c(0, 0.025, 0.25, 0.5, 0.75, 0.975, 1)
+custom_stat_fun(nums, na.rm = TRUE, probs = probs)
+
+# Apply the custom function by week -- tidy & visualize====   
+stats_tidyverse_downloads_w <- tidyverse_downloads %>%  
+    tq_transmute(  
+        select = count,  
+        mutate_fun = apply.weekly,  
+        FUN = custom_stat_fun,  
+        na.rm = TRUE,  
+        probs = probs  
+    )  
+
+stats_tidyverse_downloads_w %>%   
+    ggplot(aes(x = date, y = `50%`, color = package)) +  
+    # Ribbon  
+    geom_ribbon(aes(ymin = `25%`, ymax = `75%`),  
+                color = palette_light()[[1]],  
+                fill = palette_light()[[1]],  
+                alpha = 0.5) +  
+    # Points  
+    geom_point() +  
+    geom_smooth(method = "loess", se = FALSE) +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Median daily downloads by week",  
+         x = "",  
+         subtitle = "Range of 1st and 3rd quartile to show volatility",  
+         y = "Median Daily Downloads By Week") +  
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +  
+    expand_limits(y = 0) +  
+    scale_color_tq(theme = "dark") +  
+    theme_tq() +  
+    theme(legend.position="none")  
+
+stats_tidyverse_downloads_w %>%  
+    ggplot(aes(x = stdev, y = mean, color = package)) +  
+    geom_point() +  
+    geom_smooth(method = "lm") +  
+    labs(  
+      title = "tidyverse packages: Mean vs SD of daily downloads by week") +  
+    facet_wrap(~ package, ncol = 3, scale = "free") +  
+    scale_color_tq() +  
+    theme_tq() +  
+    theme(legend.position="none")   
+
+# Rolling Window Calculations====  
+# The rollapply functions from zoo and TTR can be used to apply rolling  
+#   window calculations. The tq_mutate() function from tidyquant enables  
+#   efficient and “tidy” application of the functions. We were able to use  
+#   the rollapply functions to visualize averages and standard deviations on  
+#   a rolling basis, which gave us a better perspective of the dynamic trends.  
+#   Using custom functions, we are unlimited to the statistics we can apply to  
+#   rolling windows.  
+#  
+#   What are rolling window calculations, and why do we care? In time series  
+#   analysis, nothing is static. A correlation may exist for a subset of time  
+#   or an average may vary from one day to the next. Rolling calculations  
+#   simply apply functions to a fixed width subset of the data (aka a window),  
+#   indexing one observation each calculation.  
+  
+#   There are a few common reasons you may want to use a rolling calculation  
+#   in time series analysis:  
+#  
+#    Measuring the central tendency over time (mean, median)  
+#    Measuring the volatility over time (sd, var)  
+#    Detecting changes in trend (fast vs slow moving averages)  
+#    Measuring a relationship between two time series over time (cor, cov)  
+
+# Sample Moving Average Calculation  
+# Combining a rolling mean with a rolling standard deviation can help detect  
+# regions of abnormal volatility and consolidation. This is the concept behind   
+# Bollinger Bands in the financial industry. The bands can be useful in  
+# detecting breakouts in trend.    
+
+# Time Series Functions for rolling window====  
+# "roll" functions from zoo  
+tq_mutate_fun_options()$zoo %>%  
+    stringr::str_subset("^roll")  
+
+##  [1] "rollapply"          "rollapplyr"         "rollmax"            
+##  [4] "rollmax.default"    "rollmaxr"           "rollmean"          
+##  [7] "rollmean.default"   "rollmeanr"          "rollmedian"        
+## [10] "rollmedian.default" "rollmedianr"        "rollsum"           
+## [13] "rollsum.default"    "rollsumr"  
+
+# "run" functions from TTR  
+tq_mutate_fun_options()$TTR %>%  
+    stringr::str_subset("^run")  
+  
+##  [1] "runCor"         "runCov"         "runMAD"        
+##  [4] "runMax"         "runMean"        "runMedian"     
+##  [7] "runMin"         "runPercentRank" "runSD"         
+## [10] "runSum"         "runVar"  
+  
+# Tidy Implementation of Time Series Functions====    
+# Condensed function options====    
+tq_mutate_fun_options() %>%  
+    str()  
+
+## List of 5  
+##  $ zoo: chr [1:14] "rollapply" "rollapplyr" "rollmax" "rollmax.default" ...  
+##  $ xts: chr [1:27] "apply.daily" "apply.monthly" "apply.quarterly"   
+##      "apply.weekly" ...  
+##  $ quantmod: chr [1:25] "allReturns" "annualReturn" "ClCl" "dailyReturn" ...  
+##  $ TTR: chr [1:61] "adjRatios" "ADX" "ALMA" "aroon" ...  
+##  $ PerformanceAnalytics: chr [1:7] "Return.annualized" "  
+##      Return.annualized.excess" "Return.clean" "Return.cumulative" ...  
+
+# Tidy Application of Rolling Functions====  
+# Rolling Mean: Inspecting Fast and Slow Moving Averages  
+#  Investigate if significant changes in trend are taking place such that  
+#   future downloads are likely to continue to increase, decrease or stay the  
+#   same. One way to do this is to use moving averages.  
+# Rather than try to sift through the noise, we can use a combination of a  
+#   fast and slow moving average to detect momentum.  
+
+# We’ll create a fast moving average with width = 28 days (just enough to  
+#   detrend the data) and a slow moving average with width = 84 days  
+#   (slow window = 3X fast window). To do this we apply two calls to  
+#   tq_mutate(), the first for the 28 day (fast) and the second for the  
+#   84 day (slow) moving average. There are three groups of arguments we   
+#   need to supply:  
+# tq_mutate args -- These select the column to apply the mutation to “count”  
+#   & the mutation function (mutate_fun) to apply (rollapply from zoo).  
+# rollapply args: These set the width, align = "right"  
+#   (aligns with end of data frame), and  
+#   the FUN we wish to apply (mean in this case).  
+# FUN args: These are arguments that get passed to the function.  
+#   In this case we want to set na.rm = TRUE so NA values are skipped.  
+# Also add an optional tq_mutate arg, col_rename, at the end to rename the  
+#   column.   
+
+# Rolling mean example====    
+tidyverse_downloads_rollmean <- tidyverse_downloads %>%  
+    tq_mutate(  
+        # tq_mutate args  
+        select     = count,  
+        mutate_fun = rollapply,  
+        # rollapply args  
+        width      = 28,  
+        align      = "right",  
+        FUN        = mean,  
+        # mean args  
+        na.rm      = TRUE,  
+        # tq_mutate args  
+        col_rename = "mean_28"  
+    ) %>%  
+    tq_mutate(  
+        # tq_mutate args  
+        select     = count,  
+        mutate_fun = rollapply,  
+        # rollapply args  
+        width      = 84,  
+        align      = "right",  
+        FUN        = mean,  
+        # mean args  
+        na.rm      = TRUE,  
+        # tq_mutate args  
+        col_rename = "mean_84"  
+    )  
+
+# ggplot results====  
+tidyverse_downloads_rollmean %>%  
+    ggplot(aes(x = date, y = count, color = package)) +  
+    # Data  
+    geom_point(alpha = 0.1) +  
+    geom_line(aes(y = mean_28), color = palette_light()[[1]], size = 1) +  
+    geom_line(aes(y = mean_84), color = palette_light()[[2]], size = 1) +  
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Daily Downloads", x = "",  
+         subtitle = "28 and 84 Day Moving Average") +  
+    scale_color_tq() +  
+    theme_tq() +  
+    theme(legend.position="none")  
+  
+# Drop the “count” data from the plots and inspect just the moving averages to  
+#   identify points where the fast trend is above (has momentum)  
+#   or below (is slowing) the slow trend, & inspect for cross-over,  
+#   which indicates shifts in trend.  
+  
+tidyverse_downloads_rollmean %>%  
+    ggplot(aes(x = date, color = package)) +  
+    # Data  
+    # geom_point(alpha = 0.5) +  # Drop "count" from plots  
+    geom_line(aes(y = mean_28),  
+              color = palette_light()[[1]],  
+              linetype = 1,  
+              size = 1) +  
+    geom_line(aes(y = mean_84),  
+              color = palette_light()[[2]],   
+              linetype = 1,  
+              size = 1) +  
+    facet_wrap(~ package,  
+               ncol = 3,  
+               scale = "free_y") +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Daily downloads", x = "", y = "",  
+         subtitle = "Zoomed In: 28 and 84 Day Moving Average") +  
+    scale_color_tq() +  
+    theme_tq() +  
+    theme(legend.position="none")  
+
+# The plot shows 'purrr' and 'lubridate' have strong upward momentum,   
+#   'dplyr', 'knitr' and 'tidyr' seem to be cycling in a range, &   
+#   'ggplot2' and 'stringr' have short term downward trends -- keep in mind  
+#   these packages are getting the most downloads of the bunch.  
+  
+# Rolling Custom Functions: Useful for multiple statistics  
+#   Create a custom function, custom_stat_fun_2(), that returns statistics:   
+#    mean  
+#    standard deviation  
+#    95% confidence interval (mean +/- 2SD)  
+
+# Custom function to return mean, sd, 95% conf interval====    
+custom_stat_fun_2 <- function(x, na.rm = TRUE) {  
+  # x     = numeric vector  
+  # na.rm = boolean, whether or not to remove NA's  
+  m  <- mean(x, na.rm = na.rm)  
+  s  <- sd(x, na.rm = na.rm)  
+  hi <- m + 2*s  
+  lo <- m - 2*s  
+  ret <- c(mean = m, stdev = s, hi.95 = hi, lo.95 = lo)   
+  return(ret)  
+}  
+  
+# Apply the custom_stat_fun_2() to groups====  
+#   using tq_mutate() and the rolling function rollapply()  
+#   The output returned is a “tidy” data frame 
+#   with each statistic in its own column.
+# The process is almost identical to the process of applying mean() with  
+#   the main exception that we need to set by.column = FALSE to prevent a  
+#   “length of dimnames [2]” error. 
+  
+# Roll apply using custom stat function====  
+tidyverse_downloads_rollstats <- tidyverse_downloads %>%
+    tq_mutate(
+        select     = count,
+        mutate_fun = rollapply, 
+        # rollapply args
+        width      = 28,
+        align      = "right",
+        by.column  = FALSE,
+        FUN        = custom_stat_fun_2,
+        # FUN args
+        na.rm      = TRUE
+    )
+  
+# We now have the data needed to visualize the rolling average (trend) and  
+#   the 95% confidence bands (volatility) -- this is the concept of the  
+#   Bollinger Bands to identify periods of consolidation and periods of high  
+#   variability. 
+# Many high variability periods are when the package downloads are rapidly  
+#   increasing -- 'lubridate', 'purrr' and 'tidyquant' had spikes in  
+#   downloads causing the 95% Confidence Interval (CI) bands to widen.
+  
+# plot results of roll-apply====      
+tidyverse_downloads_rollstats %>%  
+    ggplot(aes(x = date, color = package)) +  
+    # Data  
+    geom_point(aes(y = count), color = "grey40", alpha = 0.5) +  
+    geom_ribbon(aes(ymin = lo.95, ymax = hi.95), alpha = 0.4) +  
+    geom_point(aes(y = mean), size = 1, alpha = 0.5) +  
+    facet_wrap(~ package, ncol = 3, scale = "free_y") +  
+    # Aesthetics  
+    labs(title = "tidyverse packages: Volatility and Trend", x = "",  
+         subtitle = "28-Day Moving Average with 95% CI Bands (+/-2 SD)") +  
+    scale_color_tq(theme = "light") +  
+    theme_tq() +  
+    theme(legend.position="none")  
+  
+# The Rolling Correlation====  
+#   tidyquant::tq_mutate_xy() enables “tidy” application of TTR::runCor()  
+#   and other functions with x and y arguments. The corrr package is useful  
+#   for computing the correlations and visualizing relationships, and it fits  
+#   nicely into the “tidy” framework.  
+#   The cowplot package helps with arranging multiple ggplots.  
+  
+# Investigate correlations to the “broader market”====  
+# get the total downloads using cran_downloads() leaving the package argument  
+#  "NULL", which is the default.  
+  
+# Get data for total CRAN downloads and visualize====  
+all_downloads <- cran_downloads(from = "2017-01-01",  
+                                to = "2017-06-30") %>%  
+    tibble::as_tibble()  
+
+# Visualize the downloads
+all_downloads %>%
+    ggplot(aes(x = date, y = count)) +
+    # Data
+    geom_point(alpha = 0.5, color = palette_light()[[1]], size = 2) +
+    # Aesthetics
+    labs(title = "Total CRAN Packages: Daily downloads", x = "",
+         subtitle = "2017-01-01 through 2017-06-30",
+         caption = "Downloads data courtesy of cranlogs package") +
+    scale_y_continuous(labels = scales::comma) +
+    theme_tq() +
+    theme(legend.position="none")
+
+# Rolling Correlations====  
+# Correlations in time series are very useful because if a relationship   
+#   exists, you can actually model/predict/forecast using the correlation.  
+# However -- a correlation is NOT static because it changes over time.  
+#   Even the best models become useless during periods when correlation is low.  
+
+# One of the most important calculations in time series analysis is the  
+#   rolling correlation. Rolling correlations are simply applying a  
+#   correlation between two time series (say sales of product x and product y)  
+#   as a rolling window calculation.  
+  
+# Rolling Correlation Example====   
+# One benefit of a rolling correlation is that we can visualize the change in   
+#   correlation over time. Consider if there’s a relatively high correlation   
+#   between Sales of Product X and Y until a big shift in December.   
+#   The question becomes, “What happened in December?”   
+  
+# In addition to visualizations, the rolling correlation can signal:    
+#   1. events that have occurred causing two correlated time series to   
+#     deviate from each other.   
+#   2. when modeling, timespans of low correlation can help in determining   
+#     whether or not to trust a forecast model.  
+#   3. Detect shifts in trend as time series become more or less correlated  
+#     over time.  
+
+# Time Series Functions====   
+# "run" functions from TTR   
+tq_mutate_fun_options()$TTR %>%  
+    stringr::str_subset("^run")  
+  
+##  [1] "runCor"         "runCov"         "runMAD"        
+##  [4] "runMax"         "runMean"        "runMedian"     
+##  [7] "runMin"         "runPercentRank" "runSD"         
+## [10] "runSum"         "runVar"   
+
+# Tidy Implementation of Time Series Functions====  
+# Use the tq_mutate_xy() funct. to apply time series functions in a “tidy” way.   
+#   Similar to tq_mutate(), the tq_mutate_xy() function is used for tasks   
+#   that result in column-wise dimension changes (not row-wise such as  
+#   periodicity changes, use tq_transmute for those!).  
+# tq_mutate_xy() adds columns to the existing data frame rather than   
+#   returning a new data frame like tq_transmute()).  
+  
+# Most running statistic functions only take one data argument, x.  
+#   In these cases you can use tq_mutate(), which has an argument, select.  
+#   See how runSD only takes x.  
+# If first arg is x (and no y) --> use tq_mutate()     
+args(runSD)  
+  
+## function (x, n = 10, sample = TRUE, cumulative = FALSE)  
+## NULL   
+  
+# Functions like runCor and runCov are setup to take in two data arguments,  
+#   x and y. In these cases, use tq_mutate_xy(), which takes two arguments,  
+#   x and y (as opposed to select from tq_mutate()). This makes it well suited   
+#   for functions that have the first two arguments being x and y.  
+#   See how runCor has two arguments x and y.  
+# If first two arguments are x and y --> use tq_mutate_xy()  
+args(runCor)  
+
+## function (x, y, n = 10, use = "all.obs", sample = TRUE, cumulative = FALSE)  
+## NULL  
+
+# Static Correlations====  
+# Before we jump into rolling correlations, let’s examine the static    
+#   correlations of our package downloads. This gives us an idea of how in  
+#   sync the various packages are with each other over the entire timespan.  
+  
+# Use the correlate() and shave() functions from the corrr package to output   
+#   a tidy correlation table. We’ll hone in on the last column “all_cran”,   
+#   which measures the correlation between individual packages and the   
+#   broader market (i.e. total CRAN downloads).  
+
+# Correlation table -- tidy====  
+tidyverse_static_correlations <- tidyverse_downloads %>%  
+    # Data wrangling  
+    spread(key = package, value = count) %>%  
+    left_join(all_downloads, by = "date") %>%  
+    rename(all_cran = count) %>%  
+    select(-date) %>%  
+    # Correlation and formating  
+    correlate()  
+
+# Pretty printing
+tidyverse_static_correlations %>%
+    shave(upper = F)
+
+# The corrr package has a nice visualization called a network_plot() --   
+#   to identify strength of correlation. Similar to a “kmeans” analysis,  
+#   we are looking for association by distance (or in this case by correlation).  
+# The network plot shows us how well the data correlate with each other -- 
+#   akin to how associated they are with each other.  
+  
+# Network plot of correlations====  
+# Below, 'tidyquant' has a very low correlation to “all_cran” and the rest  
+#   of the “tidyverse” packages -- this would lead us to believe that  
+#   tidyquant is trending abnormally with respect to the rest, and thus is  
+#   possibly not as associated as we think.  
+# Is this really the case?  
+
+gg_all <- tidyverse_static_correlations %>%  
+    network_plot(colours = c(palette_light()[[2]],  
+                             "white",   
+                             palette_light()[[4]]),  
+                 legend = TRUE) +  
+    labs(  
+        title = "Correlations of tidyverse downloads to total CRAN downloads",  
+        subtitle = "January through June, tidyquant is a clear outlier"  
+        ) +  
+    expand_limits(x = c(-0.75, 0.25), y = c(-0.4, 0.4)) +  
+    theme_tq() +  
+    theme(legend.position = "bottom")  
+gg_all  
+  
+#Rolling Correlations====  
+# Incorporate time using a rolling correlation. The script below uses the 
+#   runCor function from the TTR package. We apply it using tq_mutate_xy(),  
+#   which is useful for applying functions such has runCor that have both an  
+#   x and y input.
+
+# Get rolling correlations  
+tidyverse_rolling_corr <- tidyverse_downloads %>%  
+    # Data wrangling  
+    left_join(all_downloads, by = "date") %>%  
+    select(date, package, count.x, count.y) %>%  
+    # Mutation  
+    tq_mutate_xy(  
+        x          = count.x,  
+        y          = count.y,  
+        mutate_fun = runCor,  
+        # runCor args  
+        n          = 30,  
+        use        = "pairwise.complete.obs",  
+        # tq_mutate args  
+        col_rename = "rolling_corr"  
+    )  
+  
+# Join static correlations with rolling correlations====    
+tidyverse_static_correlations <- tidyverse_static_correlations %>%  
+    select(rowname, all_cran) %>%  
+    rename(package = rowname)  
+  
+tidyverse_rolling_corr <- tidyverse_rolling_corr %>%  
+    left_join(tidyverse_static_correlations, by = "package") %>%  
+    rename(static_corr = all_cran)  
+  
+# Plot combined static and rolling correlations    
+tidyverse_rolling_corr %>%  
+    ggplot(aes(x = date, color = package)) +  
+    # Data  
+    geom_line(aes(y = static_corr), color = "red") +  
+    geom_point(aes(y = rolling_corr), alpha = 0.5) +  
+    facet_wrap(~ package, ncol = 3, scales = "free_y") +  
+    # Aesthetics  
+    scale_color_tq() +  
+    labs(  
+        title = "tidyverse: 30-Day Rolling Download Correlations, Package vs Total CRAN",  
+        subtitle = "Relationships are dynamic vs static correlation (red line)",  
+        x = "", y = "Correlation"  
+    ) +  
+    theme_tq() +  
+    theme(legend.position="none")  
+
+# The rolling correlation shows the dynamic nature of the relationship.  
+#   If we just went by the static correlation over the full timespan (red line),  
+#   we’d be misled about the dynamic nature of these time series. Further, we  
+#   can see that most packages are highly correlated with the broader market  
+#   (total CRAN downloads) with the exception of various periods where the  
+#   correlations dropped. The drops could indicate events or changes in user  
+#   behavior that resulted in shocks to the download patterns.  
+# Focusing on the main outlier tidyquant, we can see that once April hit   
+#   tidyquant is trending closer to a 0.60 correlation meaning that the 0.31  
+#   relationship (red line) is likely too low going forward.  
+
+# Last, we can redraw the network plot from April through June to investigate  
+#   the shift in relationship. We can use the cowplot package to plot two  
+#   ggplots (or corrr network plots) side-by-side.
+
+# Redrawing Network Plot from April through June====    
+gg_subset <- tidyverse_downloads %>%  
+  # Filter by date >= April 1, 2017  
+  filter(date >= ymd("2017-04-01")) %>%  
+  # Data wrangling  
+  spread(key = package, value = count) %>%  
+  left_join(all_downloads, by = "date") %>%  
+  rename(all_cran = count) %>%  
+  select(-date) %>%  
+  # Correlation and formating  
+  correlate() %>%  
+  # Network Plot  
+  network_plot(colours = c(palette_light()[[2]], 
+                           "white",  
+                           palette_light()[[4]]), 
+               legend = TRUE) +  
+  labs(  
+    title = "April through June (Last 3 Months)",  
+    subtitle = "tidyquant correlation is increasing"  
+  ) +  
+  expand_limits(x = c(-0.75, 0.25), y = c(-0.4, 0.4)) +  
+  theme_tq() +  
+  theme(legend.position = "bottom")  
+
+# Modify the January through June network plot (previous plot)  
+gg_all <- gg_all +  
+  labs(  
+    title = "January through June (Last 6 months)",  
+    subtitle = "tidyquant is an outlier"  
+  )  
+  
+# Format cowplot  
+cow_net_plots <- plot_grid(gg_all, gg_subset, ncol = 2)  
+title <- ggdraw() +  
+  draw_label(label = 'tidyquant is getting "tidy"-er',  
+             fontface = 'bold', size = 18)  
+cow_out <- plot_grid(title, cow_net_plots,  
+                     ncol=1,  
+                     rel_heights=c(0.1, 1))  
+cow_out  
+  
+# Lags (Lag Operator) overview====  
+# Calculate lags and analyze autocorrelation.  
+# The lag operator (also known as backshift operator) is a function that  
+#   shifts (offsets) a time series such that the “lagged” values are aligned   
+#   with the actual time series. The lags can be shifted any number of units,  
+#     which simply controls the length of the backshift.  
+  
+# Lags are useful in time series analysis because of a phenomenon called   
+#   autocorrelation, which is a tendency for the values within a time series   
+#   to be correlated with previous copies of itself. One benefit to   
+#   autocorrelation is that we can identify patterns within the time series,    
+#   which helps in determining seasonality, the tendency for patterns to   
+#   repeat at periodic frequencies. 
+  
+# Lags and autocorrelation are central to forecasting models that incorporate  
+#   autoregression, regressing a time series using previous values of itself.   
+# Autoregression is the basis for one of the most widely used forecasting  
+#   techniques, the autoregressive integrated moving average model or ARIMA  
+# for short. The forecast package by Rob Hyndman, implements ARIMA and a  
+# number of other forecast modeling techniques. 
+# Note -- Autoregression and ARIMA not discussed below.  
+
+# Lag and autocorrelation analysis is a good way to detect seasonality. 
+#   The autocorrelation of the lagged values can be used to detect “abnormal”  
+#   seasonal patterns. 
+# The tq_mutate() function was used to apply lag.xts() to the daily download  
+#   counts to efficiently get lags 1 through 28. Once the lags were retrieved,  
+#   we use other dplyr functions such as gather() to pivot the data and  
+#   summarize() to calculate the autocorrelations. Finally, we saw the power  
+#   of visual analysis of the autocorrelations -- created an ACF plot that  
+#   showed a visual trend. Then we used a boxplot to detect which lags had  
+#   consistent outliers. Ultimately a weekly pattern was confirmed.   
+  
+# tidyquant Integrated functions====  
+tq_mutate_fun_options() %>%  
+    glimpse()  
+  
+## List of 5  
+##  $ zoo: chr [1:14] "rollapply" "rollapplyr" "rollmax" "rollmax.default" ...  
+##  $ xts: chr [1:27] "apply.daily" "apply.monthly" "apply.quarterly"  
+##    "apply.weekly" ...  
+##  $ quantmod: chr [1:25] "allReturns" "annualReturn" "ClCl" "dailyReturn" ...  
+##  $ TTR: chr [1:62] "adjRatios" "ADX" "ALMA" "aroon" ...  
+##  $ PerformanceAnalytics: chr [1:7] "Return.annualized"  
+##    "Return.annualized.excess" "Return.clean" "Return.cumulative" ...
+
+# lag.xts() -- tidy====  
+# The lag.xts() function from the xts package, has a great function for getting  
+#   multiple lags.  
+# The lag.xts() function generates a sequence of lags (t-1, t-2, t-3, …, t-k)  
+#   using the argument k. However, it only works on xts or other matrix,  
+#   vector-based objects). In other words, it fails on our “tidy” tibble.  
+#   And, we get an “unsupported type” error.   
+  
+# Consider a time series of ten values beginning in 2017.  
+set.seed(1)  
+my_time_series_tbl <- tibble(  
+    date   = seq.Date(ymd("2017-01-01"),  
+                      length.out = 10,  
+                      by = "day"),  
+    value  = 1:10 + rnorm(10)  
+)  
+
+# Bummer, man! -- I ran into this...   
+my_time_series_tbl %>%           
+        lag.xts(k = 1:5)  
+
+## <simpleError in FUN(X[[i]], ...): unsupported type>
+
+# The timetk package is a toolkit for working with time series. It has  
+#   functions that simplify and make consistent the process of coercion --  
+#   converting to and from different time series classes. In addition,  
+#   it has functions to aid the process of time series machine learning and  
+#   data mining. 
+
+# Convert to an xts object -- use tk_xts() from the timetk package  
+#   to coerce from a time-based tibble -- tibble with a date or time component 
+#   and xts object.
+
+# Success! Got our lags 1 through 5. One problem: no original values
+my_time_series_tbl %>%
+    tk_xts(silent = TRUE) %>%
+    lag.xts(k = 1:5)
+
+# We still need our original values so we can analyze the counts against  
+#   the lags. 
+# If we want to get the original values too, we can do something like this.
+
+# Convert to xts  
+my_time_series_xts <- my_time_series_tbl %>%  
+    tk_xts(silent = TRUE)  
+  
+# Get original values and lags in xts  
+my_lagged_time_series_xts <-   
+    merge.xts(my_time_series_xts, lag.xts(my_time_series_xts, k = 1:5))  
+
+# Convert back to tbl  
+my_lagged_time_series_xts %>%  
+    tk_tbl()  
+  
+# That’s a lot of work for a simple operation.  
+# Fortunately we have tq_mutate() to the rescue!  
+  
+#  tq_mutate()====  
+# The tq_mutate() function from tidyquant enables “tidy” application of the  
+#   xts-based functions. The tq_mutate() function works similarly to mutate()  
+#   from dplyr in the sense that it adds columns to the data frame.
+ 
+# The tidyquant package enables a “tidy” implementation of the xts-based  
+#   functions from packages such as xts, zoo, quantmod, TTR and  
+# PerformanceAnalytics. 
+
+# Quick example -- use the select = value to send the “value” column to the  
+#   mutation function. In this case our mutate_fun = lag.xts. We supply k = 5  
+#   as an additional argument.  
+# That’s much easier -- we get the value column returned in addition to the  
+#   lags, which is the benefit of using tq_mutate(). If you use tq_transmute()  
+#   instead, the result would be the lags only, which is what lag.xts() returns.  
+  
+# This is nice, we didn't need to coerce to xts and it merged for us  
+my_time_series_tbl %>%  
+    tq_mutate(  
+        select     = value,  
+        mutate_fun = lag.xts,  
+        k          = 1:5  
+    )  
+  
+# Analyzing tidyverse Downloads: Lag and Autocorrelation Analysis----  
+# Scaling the Lag and Autocorrelation Calculation  
+# Get lags 1 through 28 (4 weeks of lags):  
+#   Take the tidyverse_downloads data frame, which is grouped by package,  
+#     and apply tq_mutate() using the lag.xts function.  
+#   We can provide column names for the new columns by prefixing “lag_” to   
+#   the lag numbers, k, which the sequence from 1 to 28.   
+# The output is all of the lags for each package.  
+
+# Use tq_mutate() to get lags 1:28 using lag.xts()====  
+k <- 1:28  
+col_names <- paste0("lag_", k)  
+  
+tidyverse_lags <- tidyverse_downloads %>%  
+    tq_mutate(  
+        select     = count,  
+        mutate_fun = lag.xts,  
+        k          = 1:28,  
+        col_rename = col_names  
+    )  
+
+# Next steps with lag.xts====   
+# The goal is to get count and each lag side-by-side so we can do a correlation. 
+# Correlating each of the lags to the “count” column involves steps  
+#   strung together in a dplyr pipe (%>%):  
+# 1. Use gather() to pivot each lagged column into a “tidy” long-format df,   
+#     and exclude columns: “package”, “date” and “count” columns from the pivot.   
+# 2. Convert the new “lag” column from a character string (e.g. “lag_1”)  
+#     to numeric (e.g. 1) using mutate() to make ordering the lags easier.  
+# 3. group the long data frame by package and lag to calculate subsets of  
+#     package and lag.  
+# 4. apply the correlation to each group of lags. The summarize() function   
+#     can be used to implement cor(), which takes x = count and y = lag_value.   
+#   Make sure to pass use = "pairwise.complete.obs", which is almost always   
+#   desired.  
+# 5. The 95% upper and lower cutoff can be approximated by: cutoff=±2 / N^0.5  
+#     Where:  
+#       N = number of observations.  
+
+# Calculate the autocorrelations and 95% cutoffs  
+tidyverse_count_autocorrelations <- tidyverse_lags %>%  
+    gather(key = "lag",  
+           value = "lag_value",  
+           -c(package, date, count)) %>%  
+    mutate(lag = str_sub(lag, start = 5) %>% as.numeric) %>%  
+    group_by(package, lag) %>%  
+    summarize(  
+        cor = cor(x = count,  
+                  y = lag_value,  
+                  use = "pairwise.complete.obs"),  
+        cutoff_upper = 2/(n())^0.5,  
+        cutoff_lower = -2/(n())^0.5  
+        )  
+
+#Visualizing Autocorrelation: ACF Plot====
+# Now correlations are calculated by package and lag number in a “tidy” format,  
+#   we can visualize the autocorrelations with ggplot to check for patterns.  
+# The plot shown below is known as an ACF plot, which is simply the  
+#   autocorrelations at various lags. Initial examination of the ACF plots  
+# indicate a weekly frequency.
+
+# Visualize the autocorrelations
+tidyverse_count_autocorrelations %>%
+    ggplot(aes(x = lag, y = cor, color = package, group = package)) +
+    # Add horizontal line a y=0
+    geom_hline(yintercept = 0) +
+    # Plot autocorrelations
+    geom_point(size = 2) +
+    geom_segment(aes(xend = lag, yend = 0), size = 1) +
+    # Add cutoffs
+    geom_line(aes(y = cutoff_upper), color = "blue", linetype = 2) +
+    geom_line(aes(y = cutoff_lower), color = "blue", linetype = 2) +
+    # Add facets
+    facet_wrap(~ package, ncol = 3) +
+    # Aesthetics
+    expand_limits(y = c(-1, 1)) +
+    scale_color_tq() +
+    theme_tq() +
+    labs(
+        title = paste0("Tidyverse ACF Plot: Lags ", rlang::expr_text(k)),
+        subtitle = "Appears to be a weekly pattern",
+        x = "Lags"
+    ) +
+    theme(
+        legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+
+# We see that there appears to be a weekly pattern, but we want to be sure.   
+  
+# Get the absolute autocorrelations====  
+# Verify the weekly pattern assessment by reviewing the absolute value of the  
+#   correlations independent of package. We take the absolute autocorrelation   
+#   because we use the magnitude as a proxy for how much explanatory value the   
+#   lag provides.   
+# Use dplyr functions to manipulate the data for visualization:  
+# 1. drop the package group constraint using ungroup(),    
+# 2. calculate the absolute correlation using mutate(),  
+# 3. convert the lag to a factor, which helps with reordering the plot.  
+# 4. Select() only the “lag” and “cor_abs” columns,    
+# 5.  group by “lag” to lump all of the lags together -- to determine the  
+#       trend independent of package.  
+  
+tidyverse_absolute_autocorrelations <- tidyverse_count_autocorrelations %>%  
+    ungroup() %>%  
+    mutate(  
+        lag = as_factor(as.character(lag)),  
+        cor_abs = abs(cor)  
+        ) %>%  
+    select(lag, cor_abs) %>%  
+    group_by(lag)   
+  
+# Visualize the absolute correlations====  
+# 1. Use a box plot that lumps each of the lags together. 
+# 2. Add a line to indicate the presence of outliers at values above 1.5IQR  
+#     If the values are consistently above the 1.5IQR limit, the lag can be  
+#     considered an outlier. Note that we use the fct_reorder() function from  
+#     forcats to organize the boxplot in order of decending magnitude.  
+
+# Visualize boxplot of absolute autocorrelations   
+break_point <- 1.5 * IQR(tidyverse_absolute_autocorrelations$cor_abs) %>%  
+  signif(3)  
+
+tidyverse_absolute_autocorrelations %>%    
+    ggplot(aes(x = fct_reorder(lag, cor_abs, .desc = TRUE),  
+               y = cor_abs)) +  
+    # Add boxplot   
+    geom_boxplot(color = palette_light()[[1]]) +  
+    # Add horizontal line at outlier break point  
+    geom_hline(yintercept = break_point, color = "red") +  
+    annotate("text", label = paste0("Outlier Break Point = ", break_point),  
+             x = 24.5, y = break_point + .03, color = "red") +  
+    # Aesthetics  
+    expand_limits(y = c(0, 1)) +  
+    theme_tq() +  
+    labs(  
+        title = paste0("Absolute Autocorrelations: Lags ", 
+                       rlang::expr_text(k)),  
+        subtitle = "Weekly pattern is consistently above outlier break point",  
+        x = "Lags"  
+    ) +  
+    theme(  
+        legend.position = "none",  
+        axis.text.x = element_text(angle = 45, hjust = 1)  
+    )  
+  
+# outcome -- lags in multiples of seven have the highest autocorrelation  
+#   and are consistently above the outlier break point indicating the presence  
+#   of a strong weekly pattern. The autocorrelation with the seven-day lag is  
+#   the highest, with a median of approximately 0.75. Lags 14, 21, and 28 are  
+#   also outliers with median autocorrelations in excess of our outlier break  
+#   point of 0.471.
+
+# Note -- the median of Lag 1 is essentially at the break point indicating  
+#   that half of the packages have a presence of “abnormal” autocorrelation. 
+#   However, this is not part of a seasonal pattern since a periodic frequency  
+#   is not present.
+# In the case above, the tidyverse packages exhibit a strong weekly pattern. 
+
+```
+
+# forcasting with TSIBLE 
+```{r things-tsible}  
+
+spi_all2 %>% 
+  ggplot(aes(date, spi_1mo)) + 
+  facet_grid(rows = vars(sta)) + 
+  geom_line() 
+
+
+
+
+spi_1mo %>% 
+  ggplot(aes(ONI, MIS)) + 
+  #  facet_grid(rows = vars(sta)) + 
+  geom_point() 
+# time series arima 
+library(tsibble)  
+library(feasts) 
+
+spi_1mo <- spi_all2 %>% 
+  select(sta, date, spi_1mo) %>% 
+  as_tibble()  
+
+spi_1mot <- spi_1mo %>% 
+  as_tsibble(key = spi_1mo)
+
+
+
+tourism_melb <- tourism %>%
+  filter(Region == "Melbourne")
+tourism_melb %>%
+  group_by(Purpose) %>%
+  slice(1)
+
+spi_1mot %>% 
+  group_by(sta) %>%
+  slice(1)
+
+
+spi_1mot %>%
+  autoplot(spi_1mo)
+
+```
+
+```{r spi-correlation-analysis}
+# visually check results
+#spi_index_plot <- spi_index %>% 
+#  filter(spi_length == 12)
+
+#ggplot(spi_index_plot, aes(date, spi_index)) + 
+#  geom_line() +
+#  facet_wrap(vars(sta)) + 
+#  theme_classic() +
+#  geom_hline(yintercept = 0, aes)
+
+#ggplot2::ggsave(path = "figure/", filename = "spi_1mo.png", 
+#                width = 6, height = 6, units = "in")  
+
+# create correlation matrix inputs
+spi_M <- spi_index %>% 
+  select(-date) %>% 
+  group_by(sta, spi_length) %>% 
+  mutate(grouped_id = row_number()) %>% 
+  spread(key = sta, value = spi_index) %>% 
+  drop_na() %>% 
+  ungroup() %>% 
+  select(-grouped_id) %>% 
+  select(spi_length, cot, int, oel, ora, rap) # ensure vars order 
+
+# create correlation matrix names from the correlation matrix vars
+spi_M_names <- spi_M %>% 
+  filter(spi_length == 1) %>% 
+  cor() %>% 
+  as.tibble() %>% 
+  names() %>% 
+  as.tibble() %>% 
+  slice(-1) %>% 
+  mutate(value2 = value) %>% 
+  mutate(value3 = value) %>%  
+  mutate(value4 = value) %>%
+  mutate(value5 = value) %>% 
+  gather(key, sta2) %>% 
+  select(-key) %>% 
+  rownames_to_column() 
+
+# create second station names column 
+spi_M_names2 <- spi_M_names %>% 
+  arrange(sta2) %>% 
+  rename(sta1 = sta2) %>% 
+  select(-rowname)
+
+# bind the names columns
+spi_M_names <- bind_cols(spi_M_names, spi_M_names2)  
+rm(spi_M_names2)
+
+# create a correlation matrix from SPI vals
+spi_M <- spi_M %>% 
+  split(.$spi_length) %>% 
+  purrr::map_dfr(~ cor(.)) %>% 
+  drop_na() %>% 
+  slice(-1) %>% 
+  rownames_to_column() 
+
+# bind names to the correlation matrix 
+spi_M <- full_join(spi_M_names, spi_M, by = "rowname")
+spi_M <- spi_M %>% 
+  select(sta1, sta2, everything()) %>%
+  select(-rowname)
+
+# prepare lookup table of lat-lons
+sta_loc <- sta_meta %>% 
+  arrange(name) %>%
+  mutate(sta = c("cot", "int", "oel", "ora", "rap")) %>% 
+  select(sta, lat, lon, dur_year)
+
+# join the 'from' lat lons
+spi_corr <- full_join(spi_M, sta_loc, by = c("sta1" = "sta")) %>% 
+  rename(lat1 = lat) %>% 
+  rename(lon1 = lon) 
+
+# join the 'to' lat lons
+spi_corr <- full_join(spi_corr, sta_loc, by = c("sta2" = "sta")) %>% 
+  rename(lat2 = lat) %>% 
+  rename(lon2 = lon) %>% 
+  mutate(year_dif = abs(dur_year.x - dur_year.y))
+
+
+# convert the 'to' and 'from' lat-lons to northings & eastings & distance
+lat_to_km <- 111.03 # 1 degree lat to km @ lat 40-degrees 
+lon_to_km <- 85.39  # 1 degree lon to km @ lat 40-degrees 
+
+spi_corr <- spi_corr %>% 
+  mutate(northing = abs((lat1 - lat2)) * lat_to_km) %>% 
+  mutate(easting = abs((lon1 - lon2)) * lat_to_km) %>% 
+  mutate(distance = sqrt(northing^2 + easting^2)) %>% 
+  select(year_dif, everything()) %>%
+  select(-(lat1:easting)) %>% 
+  mutate(stations = paste(sta1, sta2, sep = "_")) %>% 
+  gather(key = spi_length, value = pears_r, -distance, 
+         -stations, -sta1, -sta2, -year_dif) %>% 
+  filter(distance > 0) %>% 
+  mutate(spi_length = as.double(spi_length))
+
+
+# clean up the global environment 
+rm(spi_M, spi_M_names, sta_loc, lat_to_km, lon_to_km)
+
+# model effect of averaging time & distance on correlation----
+# fit a linear model
+spi_lm <- lm(pears_r ~ distance + spi_length + year_dif, 
+             data = spi_corr)
+
+# augment & gather the original data
+spi_corr_aug <- augment(spi_lm, spi_corr) 
+
+spi_corr_gath <- spi_corr_aug %>% 
+  select(-(sta1:sta2)) %>%
+  select(year_dif:.fitted) %>% 
+  gather(key = factor, val, -stations, -pears_r) %>% 
+  mutate(val = as.double(val))  
+
+# plot the original data and fitted model for SPI----  
+ggplot(spi_corr_gath, aes(val, pears_r)) + 
+  geom_point(aes(color = factor(stations))) +
+  facet_wrap(ncol = 1, vars(factor), scales = "free") +
+  geom_smooth(method = lm) + 
+  theme_classic()
+
+spi_lm_fit <- glance(spi_lm) 
+
+spi_lm_tidy <- tidy(spi_lm) %>% 
+  mutate(
+    low = estimate - std.error,
+    high = estimate + std.error
+  )
+
+# clean-up Global Environment----
+spi_corr <- spi_corr_aug 
+rm(spi_corr_aug, spi_corr_gath, spi_lm ,spi_lm_fit)
+
+
+rm(spi_corr, spi_lm_tidy)
+```
+
+```{r sweep-example}
+#One of the most powerful benefits of sweep is that it helps forecasting at scale within the “tidyverse”. There are two common situations:
+
+#    Applying a model to groups of time series
+#    Applying multiple models to a time series
+
+#In this vignette we’ll review how sweep can help the first situation: 
+#Applying a model to groups of time series.
+#Prerequisites
+
+#Before we get started, load the following packages.
+
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+library(sweep)
+library(forecast)
+
+#Bike Sales
+
+#We’ll use the bike sales data set, bike_sales, provided with the sweep package #for this tutorial. The bike_sales data set is a fictional daily order history #that spans 2011 through 2015. It simulates a sales database that is typical of a #business. The customers are the “bike shops” and the products are the “models”.
+
+bike_sales
+spi_sta <- import("data/spi_sta.csv") 
+
+#We’ll analyse the monthly sales trends for the bicycle manufacturer. Let’s #transform the data set by aggregating by month.
+
+bike_sales_monthly <- bike_sales %>%
+    mutate(month = month(order.date, label = TRUE),
+           year  = year(order.date)) %>%
+    group_by(year, month) %>%
+    summarise(total.qty = sum(quantity)) 
+
+spi_sta_monthly <- spi_sta %>% 
+    mutate(date = ymd(date)) %>% 
+    mutate(month = month(date, label = TRUE),
+           year  = year(date)) %>%
+    group_by(year, month) %>% 
+  select(date, year, month, everything(), -prcp, prcp, -yr) %>% 
+  ungroup()  
+
+#We can visualize package with a month plot using the ggplot2 .
+
+bike_sales_monthly %>%
+    ggplot(aes(x = month, y = total.qty, group = year)) +
+    geom_area(aes(fill = year), position = "stack") +
+    labs(title = "Quantity Sold: Month Plot", x = "", y = "Sales",
+         subtitle = "March through July tend to be most active") +
+    scale_y_continuous() +
+    theme_tq()
+
+#Suppose Manufacturing wants a more granular forecast because the bike components #are related to the secondary category. In the next section we discuss how sweep #can help to perform a forecast on each sub-category.
+
+#Performing Forecasts on Groups
+
+#First, we need to get the data organized into groups by month of the year. We’ll #create a new “order.month” date using zoo::as.yearmon() that captures the year #and month information from the “order.date” and then passing this to lubridate::as_date() to convert to date format.
+
+monthly_qty_by_cat2 <- bike_sales %>%
+    mutate(order.month = as_date(as.yearmon(order.date))) %>%
+    group_by(category.secondary, order.month) %>%
+    summarise(total.qty = sum(quantity))
+
+monthly_spi1mo <- spi_sta_monthly %>% 
+  select(sta, date, spi_1mo)  
+  
+#Next, we use the nest() function from the tidyr package to consolidate each time series by group. The newly created list-column, “data.tbl”, contains the “order.month” and “total.qty” columns by group from the previous step. The nest() function just bundles the data together which is very useful for iterative functional programming.
+
+monthly_qty_by_cat2_nest <- monthly_qty_by_cat2 %>%
+    group_by(category.secondary) %>%
+    nest() 
+
+monthly_spi1mo_nest <- monthly_spi1mo %>% 
+  group_by(sta) %>% 
+  nest()  
+
+## # A tibble: 9 x 2
+## # Groups:   category.secondary [9]
+##   category.secondary           data
+##   <chr>              <list<df[,2]>>
+## 1 Cross Country Race       [60 × 2]
+## 2 Cyclocross               [60 × 2]
+## 3 Elite Road               [60 × 2]
+## 4 Endurance Road           [60 × 2]
+## 5 Fat Bike                 [58 × 2]
+## 6 Over Mountain            [60 × 2]
+## 7 Sport                    [60 × 2]
+## 8 Trail                    [60 × 2]
+## 9 Triathalon               [60 × 2]
+
+#Forecasting Workflow
+
+#The forecasting workflow involves a few basic steps:
+
+#    Step 1: Coerce to a ts object class.
+#    Step 2: Apply a model (or set of models)
+#    Step 3: Forecast the models (similar to predict)
+#    Step 4: Tidy the forecast
+
+#Step 1: Coerce to a ts object class
+
+#In this step we map the tk_ts() function into a new column “data.ts”. The procedure is performed using the combination of dplyr::mutate() and purrr::map(), which works really well for the data science workflow where analyses are built progressively. As a result, this combination will be used in many of the subsequent steps in this vignette as we build the analysis.
+#mutate and map
+
+#The mutate() function adds a column, and the map() function maps the contents of a list-column (.x) to a function (.f). In our case, .x = data.tbl and .f = tk_ts. The arguments select = -order.month, start = 2011, and freq = 12 are passed to the ... parameters in map, which are passed through to the function. The select statement is used to drop the “order.month” from the final output so we don’t get a bunch of warning messages. We specify start = 2011 and freq = 12 to return a monthly frequency.
+
+monthly_qty_by_cat2_ts <- monthly_qty_by_cat2_nest %>%
+    mutate(data.ts = map(.x       = data, 
+                         .f       = tk_ts, 
+                         select   = -order.month, 
+                         start    = 2011,
+                         freq     = 12))  
+
+monthly_spi1mo_ts <- monthly_spi1mo_nest %>%
+    mutate(data.ts = map(.x       = data, 
+                         .f       = tk_ts, 
+                         select   = -date, 
+                         start    = 1989,
+                         freq     = 12))
+
+#Step 2: Modeling a time series
+
+#Next, we map the Exponential Smoothing ETS (Error, Trend, Seasonal) model function, ets, from the forecast package. Use the combination of mutate to add a column and map to interatively apply a function rowwise to a list-column. In this instance, the function to map the ets function and the list-column is “data.ts”. We rename the resultant column “fit.ets” indicating an ETS model was fit to the time series data.
+
+monthly_qty_by_cat2_fit <- monthly_qty_by_cat2_ts %>%
+    mutate(fit.ets = map(data.ts, ets))
+
+monthly_spi1mo_fit <- monthly_spi1mo_ts %>%
+    mutate(fit.ets = map(data.ts, ets))
+
+
+#At this point, we can do some model inspection with the sweep tidiers.
+#sw_tidy
+
+#To get the model parameters for each nested list, we can combine sw_tidy within the mutate and map combo. The only real difference is now we unnest the generated column (named “tidy”). Last, because it’s easier to compare the model parameters side by side, we add one additional call to spread() from the tidyr package.
+
+monthly_qty_by_cat2_fit %>%
+    mutate(tidy = map(fit.ets, sw_tidy)) %>%
+    unnest(tidy) %>%
+    spread(key = category.secondary, value = estimate)
+
+test <- monthly_spi1mo_fit %>%
+    mutate(tidy = map(fit.ets, sw_tidy)) %>%
+    unnest(tidy) %>%
+    spread(key = sta, value = estimate)
+
+## # A tibble: 128 x 13
+##        data data.ts fit.ets term  `Cross Country … Cyclocross `Elite Road`
+##    <list<d> <list>  <list>  <chr>            <dbl>      <dbl>        <dbl>
+##  1 [60 × 2] <ts>    <ets>   alpha         0.0398           NA           NA
+##  2 [60 × 2] <ts>    <ets>   gamma         0.000101         NA           NA
+##  3 [60 × 2] <ts>    <ets>   l           321.               NA           NA
+##  4 [60 × 2] <ts>    <ets>   s0            0.503            NA           NA
+##  5 [60 × 2] <ts>    <ets>   s1            1.10             NA           NA
+##  6 [60 × 2] <ts>    <ets>   s10           0.643            NA           NA
+##  7 [60 × 2] <ts>    <ets>   s2            0.375            NA           NA
+##  8 [60 × 2] <ts>    <ets>   s3            1.12             NA           NA
+##  9 [60 × 2] <ts>    <ets>   s4            0.630            NA           NA
+## 10 [60 × 2] <ts>    <ets>   s5            2.06             NA           NA
+## # … with 118 more rows, and 6 more variables: `Endurance Road` <dbl>, `Fat
+## #   Bike` <dbl>, `Over Mountain` <dbl>, Sport <dbl>, Trail <dbl>,
+## #   Triathalon <dbl>
+
+sw_glance
+
+#We can view the model accuracies also by mapping sw_glance within the mutate and map combo.
+
+monthly_qty_by_cat2_fit %>%
+    mutate(glance = map(fit.ets, sw_glance)) %>%
+    unnest(glance)
+
+## # A tibble: 9 x 16
+## # Groups:   category.secondary [9]
+##   category.second…     data data.ts fit.ets model.desc sigma logLik   AIC
+##   <chr>            <list<d> <list>  <list>  <chr>      <dbl>  <dbl> <dbl>
+## 1 Cross Country R… [60 × 2] <ts>    <ets>   ETS(M,N,M) 1.06   -464.  957.
+## 2 Cyclocross       [60 × 2] <ts>    <ets>   ETS(M,N,M) 1.12   -409.  848.
+## 3 Elite Road       [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.895  -471.  972.
+## 4 Endurance Road   [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.759  -439.  909.
+## 5 Fat Bike         [58 × 2] <ts>    <ets>   ETS(M,N,M) 2.73   -343.  715.
+## 6 Over Mountain    [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.910  -423.  877.
+## 7 Sport            [60 × 2] <ts>    <ets>   ETS(M,N,M) 0.872  -427.  884.
+## 8 Trail            [60 × 2] <ts>    <ets>   ETS(M,A,M) 0.741  -411.  855.
+## 9 Triathalon       [60 × 2] <ts>    <ets>   ETS(M,N,M) 1.52   -410.  850.
+## # … with 8 more variables: BIC <dbl>, ME <dbl>, RMSE <dbl>, MAE <dbl>,
+## #   MPE <dbl>, MAPE <dbl>, MASE <dbl>, ACF1 <dbl>
+
+#sw_augment
+
+#The augmented fitted and residual values can be achieved in much the same manner. This returns nine groups data. Note that we pass timetk_idx = TRUE to return the date format times as opposed to the regular (yearmon or numeric) time series.
+
+augment_fit_ets <- monthly_qty_by_cat2_fit %>%
+    mutate(augment = map(fit.ets, sw_augment, timetk_idx = TRUE, rename_index = "date")) %>%
+    unnest(augment)
+
+augment_fit_ets
+
+## # A tibble: 538 x 8
+## # Groups:   category.secondary [9]
+##    category.second…     data data.ts fit.ets date       .actual .fitted
+##    <chr>            <list<d> <list>  <list>  <date>       <dbl>   <dbl>
+##  1 Cross Country R… [60 × 2] <ts>    <ets>   2011-01-01     122    373.
+##  2 Cross Country R… [60 × 2] <ts>    <ets>   2011-02-01     489    201.
+##  3 Cross Country R… [60 × 2] <ts>    <ets>   2011-03-01     505    465.
+##  4 Cross Country R… [60 × 2] <ts>    <ets>   2011-04-01     343    161.
+##  5 Cross Country R… [60 × 2] <ts>    <ets>   2011-05-01     263    567.
+##  6 Cross Country R… [60 × 2] <ts>    <ets>   2011-06-01     735    296.
+##  7 Cross Country R… [60 × 2] <ts>    <ets>   2011-07-01     183    741.
+##  8 Cross Country R… [60 × 2] <ts>    <ets>   2011-08-01      66    220.
+##  9 Cross Country R… [60 × 2] <ts>    <ets>   2011-09-01      97    381.
+## 10 Cross Country R… [60 × 2] <ts>    <ets>   2011-10-01     189    123.
+## # … with 528 more rows, and 1 more variable: .resid <dbl>
+
+#We can plot the residuals for the nine categories like so. Unfortunately we do see some very high residuals (especially with “Fat Bike”). This is often the case with realworld data.
+
+augment_fit_ets %>%
+    ggplot(aes(x = date, y = .resid, group = category.secondary)) +
+    geom_hline(yintercept = 0, color = "grey40") +
+    geom_line(color = palette_light()[[2]]) +
+    geom_smooth(method = "loess") +
+    labs(title = "Bike Quantity Sold By Secondary Category",
+         subtitle = "ETS Model Residuals", x = "") + 
+    theme_tq() +
+    facet_wrap(~ category.secondary, scale = "free_y", ncol = 3) +
+    scale_x_date(date_labels = "%Y")
+
+#sw_tidy_decomp
+
+#We can create decompositions using the same procedure with sw_tidy_decomp() and the mutate and map combo.
+
+monthly_qty_by_cat2_fit %>%
+    mutate(decomp = map(fit.ets, sw_tidy_decomp, timetk_idx = TRUE, rename_index = "date")) %>%
+    unnest(decomp)
+
+## # A tibble: 538 x 9
+## # Groups:   category.secondary [9]
+##    category.second…     data data.ts fit.ets date       observed level
+##    <chr>            <list<d> <list>  <list>  <date>        <dbl> <dbl>
+##  1 Cross Country R… [60 × 2] <ts>    <ets>   2011-01-01      122  313.
+##  2 Cross Country R… [60 × 2] <ts>    <ets>   2011-02-01      489  331.
+##  3 Cross Country R… [60 × 2] <ts>    <ets>   2011-03-01      505  332.
+##  4 Cross Country R… [60 × 2] <ts>    <ets>   2011-04-01      343  347.
+##  5 Cross Country R… [60 × 2] <ts>    <ets>   2011-05-01      263  339.
+##  6 Cross Country R… [60 × 2] <ts>    <ets>   2011-06-01      735  359.
+##  7 Cross Country R… [60 × 2] <ts>    <ets>   2011-07-01      183  348.
+##  8 Cross Country R… [60 × 2] <ts>    <ets>   2011-08-01       66  339.
+##  9 Cross Country R… [60 × 2] <ts>    <ets>   2011-09-01       97  329.
+## 10 Cross Country R… [60 × 2] <ts>    <ets>   2011-10-01      189  336.
+## # … with 528 more rows, and 2 more variables: season <dbl>, slope <dbl>
+
+#Step 3: Forecasting the model
+
+#We can also forecast the multiple models again using a very similar approach with the forecast function. We want a 12 month forecast so we add the argument for the h = 12 (refer to ?forecast for all of the parameters you can add, there’s quite a few).
+
+monthly_qty_by_cat2_fcast <- monthly_qty_by_cat2_fit %>%
+    mutate(fcast.ets = map(fit.ets, forecast, h = 12))
+monthly_qty_by_cat2_fcast
+
+## # A tibble: 9 x 5
+## # Groups:   category.secondary [9]
+##   category.secondary           data data.ts fit.ets fcast.ets 
+##   <chr>              <list<df[,2]>> <list>  <list>  <list>    
+## 1 Cross Country Race       [60 × 2] <ts>    <ets>   <forecast>
+## 2 Cyclocross               [60 × 2] <ts>    <ets>   <forecast>
+## 3 Elite Road               [60 × 2] <ts>    <ets>   <forecast>
+## 4 Endurance Road           [60 × 2] <ts>    <ets>   <forecast>
+## 5 Fat Bike                 [58 × 2] <ts>    <ets>   <forecast>
+## 6 Over Mountain            [60 × 2] <ts>    <ets>   <forecast>
+## 7 Sport                    [60 × 2] <ts>    <ets>   <forecast>
+## 8 Trail                    [60 × 2] <ts>    <ets>   <forecast>
+## 9 Triathalon               [60 × 2] <ts>    <ets>   <forecast>
+
+#Step 4: Tidy the forecast
+
+#Next, we can apply sw_sweep to get the forecast in a nice “tidy” data frame. We use the argument fitted = FALSE to remove the fitted values from the forecast (leave off if fitted values are desired). We set timetk_idx = TRUE to use dates instead of numeric values for the index. We’ll use unnest() to drop the left over list-columns and return an unnested data frame.
+
+monthly_qty_by_cat2_fcast_tidy <- monthly_qty_by_cat2_fcast %>%
+    mutate(sweep = map(fcast.ets, sw_sweep, fitted = FALSE, timetk_idx = TRUE)) %>%
+    unnest(sweep)
+monthly_qty_by_cat2_fcast_tidy
+
+## # A tibble: 646 x 12
+## # Groups:   category.secondary [9]
+##    category.second…     data data.ts fit.ets fcast.ets index      key  
+##    <chr>            <list<d> <list>  <list>  <list>    <date>     <chr>
+##  1 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-01-01 actu…
+##  2 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-02-01 actu…
+##  3 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-03-01 actu…
+##  4 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-04-01 actu…
+##  5 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-05-01 actu…
+##  6 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-06-01 actu…
+##  7 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-07-01 actu…
+##  8 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-08-01 actu…
+##  9 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-09-01 actu…
+## 10 Cross Country R… [60 × 2] <ts>    <ets>   <forecas… 2011-10-01 actu…
+## # … with 636 more rows, and 5 more variables: total.qty <dbl>,
+## #   lo.80 <dbl>, lo.95 <dbl>, hi.80 <dbl>, hi.95 <dbl>
+
+#Visualization is just one final step.
+
+monthly_qty_by_cat2_fcast_tidy %>%
+    ggplot(aes(x = index, y = total.qty, color = key, group = category.secondary)) +
+    geom_ribbon(aes(ymin = lo.95, ymax = hi.95), 
+                fill = "#D5DBFF", color = NA, size = 0) +
+    geom_ribbon(aes(ymin = lo.80, ymax = hi.80, fill = key), 
+                fill = "#596DD5", color = NA, size = 0, alpha = 0.8) +
+    geom_line() +
+    labs(title = "Bike Quantity Sold By Secondary Category",
+         subtitle = "ETS Model Forecasts",
+         x = "", y = "Units") +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    scale_color_tq() +
+    scale_fill_tq() +
+    facet_wrap(~ category.secondary, scales = "free_y", ncol = 3) +
+    theme_tq() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Recap
+
+#The sweep package has a several tools to analyze grouped time series. In the next vignette we will review how to apply multiple models to a time series.
+
+```
+
+```{r}
+
+
+data(AirPassengers)
+ > class(AirPassengers)
+ [1] "ts"
+
+#This tells you that the data series is in a time series format
+ > start(AirPassengers)
+ [1] 1949 1
+
+#This is the start of the time series
+
+> end(AirPassengers)
+ [1] 1960 12
+
+#This is the end of the time series
+
+> frequency(AirPassengers)
+ [1] 12
+
+#The cycle of this time series is 12months in a year
+ > summary(AirPassengers)
+ Min. 1st Qu. Median Mean 3rd Qu. Max.
+ 104.0 180.0 265.5 280.3 360.5 622.0
+
+ 
+Detailed Metrics
+
+#The number of passengers are distributed across the spectrum
+
+> plot(AirPassengers)
+
+#This will plot the time series
+
+>abline(reg=lm(AirPassengers~time(AirPassengers)))
+
+# This will fit in a line
+
+time series r, r, plot_AP
+
+Here are a few more operations you can do:
+
+> cycle(AirPassengers)
+
+#This will print the cycle across years.
+
+>plot(aggregate(AirPassengers,FUN=mean))
+
+#This will aggregate the cycles and display a year on year trend
+
+> boxplot(AirPassengers~cycle(AirPassengers))
+
+#Box plot across months will give us a sense on seasonal effect
+
+r, plot_aggregate
+
+r, plot_month_wise
+Important Inferences
+
+    The year on year trend clearly shows that the #passengers have been increasing without fail.
+    The variance and the mean value in July and August is much higher than rest of the months.
+    Even though the mean value of each month is quite different their variance is small. Hence, we have strong seasonal effect with a cycle of 12 months or less.
+
+Exploring data becomes most important in a time series model – without this exploration, you will not know whether a series is stationary or not. As in this case we already know many details about the kind of model we are looking out for.
+
+Let’s now take up a few time series models and their characteristics. We will also take this problem forward and make a few predictions.
+
+ 
+3. Introduction to ARMA Time Series Modeling
+
+ARMA models are commonly used in time series modeling. In ARMA model, AR stands for auto-regression and MA stands for moving average. If these words sound intimidating to you, worry not – I’ll simplify these concepts in next few minutes for you!
+
+We will now develop a knack for these terms and understand the characteristics associated with these models. But before we start, you should remember, AR or MA are not applicable on non-stationary series.
+
+In case you get a non stationary series, you first need to stationarize the series (by taking difference / transformation) and then choose from the available time series models.
+
+First, I’ll explain each of these two models (AR & MA) individually. Next, we will look at the characteristics of these models.
+
+ 
+Auto-Regressive Time Series Model
+
+Let’s understanding AR models using the case below:
+
+The current GDP of a country say x(t) is dependent on the last year’s GDP i.e. x(t – 1). The hypothesis being that the total cost of production of products & services in a country in a fiscal year (known as GDP) is dependent on the set up of manufacturing plants / services in the previous year and the newly set up industries / plants / services in the current year. But the primary component of the GDP is the former one.
+
+Hence, we can formally write the equation of GDP as:
+
+x(t) = alpha *  x(t – 1) + error (t)
+
+This equation is known as AR(1) formulation. The numeral one (1) denotes that the next instance is solely dependent on the previous instance.  The alpha is a coefficient which we seek so as to minimize the error function. Notice that x(t- 1) is indeed linked to x(t-2) in the same fashion. Hence, any shock to x(t) will gradually fade off in future.
+
+For instance, let’s say x(t) is the number of juice bottles sold in a city on a particular day. During winters, very few vendors purchased juice bottles. Suddenly, on a particular day, the temperature rose and the demand of juice bottles soared to 1000. However, after a few days, the climate became cold again. But, knowing that the people got used to drinking juice during the hot days, there were 50% of the people still drinking juice during the cold days. In following days, the proportion went down to 25% (50% of 50%) and then gradually to a small number after significant number of days. The following graph explains the inertia property of AR series:
+
+time series, ar1 model
+
+ 
+Moving Average Time Series Model
+
+Let’s take another case to understand Moving average time series model.
+
+A manufacturer produces a certain type of bag, which was readily available in the market. Being a competitive market, the sale of the bag stood at zero for many days. So, one day he did some experiment with the design and produced a different type of bag. This type of bag was not available anywhere in the market. Thus, he was able to sell the entire stock of 1000 bags (lets call this as x(t) ). The demand got so high that the bag ran out of stock. As a result, some 100 odd customers couldn’t purchase this bag. Lets call this gap as the error at that time point. With time, the bag had lost its woo factor. But still few customers were left who went empty handed the previous day. Following is a simple formulation to depict the scenario :
+
+x(t) = beta *  error(t-1) + error (t)
+
+If we try plotting this graph, it will look something like this :
+
+time series, ma1 model
+
+Did you notice the difference between MA and AR model? In MA model, noise / shock quickly vanishes with time. The AR model has a much lasting effect of the shock.
+
+ 
+Difference between AR and MA models
+
+The primary difference between an AR and MA model is based on the correlation between time series objects at different time points. The correlation between x(t) and x(t-n) for n > order of MA is always zero. This directly flows from the fact that covariance between x(t) and x(t-n) is zero for MA models (something which we refer from the example taken in the previous section). However, the correlation of x(t) and x(t-n) gradually declines with n becoming larger in the AR model. This difference gets exploited irrespective of having the AR model or MA model. The correlation plot can give us the order of MA model.
+
+ 
+Exploiting ACF and PACF plots
+
+Once we have got the stationary time series, we must answer two primary questions:
+
+Q1. Is it an AR or MA process?
+
+Q2. What order of AR or MA process do we need to use?
+
+The trick to solve these questions is available in the previous section. Didn’t you notice?
+
+The first question can be answered using Total Correlation Chart (also known as Auto – correlation Function / ACF). ACF is a plot of total correlation between different lag functions. For instance, in GDP problem, the GDP at time point t is x(t). We are interested in the correlation of x(t) with x(t-1) , x(t-2) and so on. Now let’s reflect on what we have learnt above.
+
+In a moving average series of lag n, we will not get any correlation between x(t) and x(t – n -1) . Hence, the total correlation chart cuts off at nth lag. So it becomes simple to find the lag for a MA series. For an AR series this correlation will gradually go down without any cut off value. So what do we do if it is an AR series?
+
+Here is the second trick. If we find out the partial correlation of each lag, it will cut off after the degree of AR series. For instance,if we have a AR(1) series,  if we exclude the effect of 1st lag (x (t-1) ), our 2nd lag (x (t-2) ) is independent of x(t). Hence, the partial correlation function (PACF) will drop sharply after the 1st lag. Following are the examples which will clarify any doubts you have on this concept :
+
+                            ACF                                                                      PACF
+
+acf, gradual declinepacf, cut off
+
+ 
+
+The blue line above shows significantly different values than zero. Clearly, the graph above has a cut off on PACF curve after 2nd lag which means this is mostly an AR(2) process.
+
+                                      ACF                                                                 PACF
+
+acf, cut offpacf, gradual decline
+
+Clearly, the graph above has a cut off on ACF curve after 2nd lag which means this is mostly a MA(2) process.
+
+Till now, we have covered on how to identify the type of stationary series using ACF & PACF plots. Now, I’ll introduce you to a comprehensive framework to build a time series model.  In addition, we’ll also discuss about the practical applications of time series modelling.
+
+ 
+4. Framework and Application of ARIMA Time Series Modeling
+
+A quick revision, Till here we’ve learnt basics of time series modeling, time series in R and ARMA modeling. Now is the time to join these pieces and make an interesting story.
+
+ 
+Overview of the Framework
+
+This framework(shown below) specifies the step by step approach on ‘How to do a Time Series Analysis‘:
+
+time series analysis, arima, flowchart
+
+As you would be aware, the first three steps have already been discussed above. Nevertheless, the same has been delineated briefly below:
+
+ 
+Step 1: Visualize the Time Series
+
+It is essential to analyze the trends prior to building any kind of time series model. The details we are interested in pertains to any kind of trend, seasonality or random behaviour in the series. We have covered this part in the second part of this series.
+
+ 
+Step 2: Stationarize the Series
+
+Once we know the patterns, trends, cycles and seasonality , we can check if the series is stationary or not. Dickey – Fuller is one of the popular test to check the same. We have covered this test in the first part of this article series. This doesn’t ends here! What if the series is found to be non-stationary?
+
+There are three commonly used technique to make a time series stationary:
+
+1.  Detrending : Here, we simply remove the trend component from the time series. For instance, the equation of my time series is:
+
+x(t) = (mean + trend * t) + error
+
+We’ll simply remove the part in the parentheses and build model for the rest.
+
+ 
+
+2. Differencing : This is the commonly used technique to remove non-stationarity. Here we try to model the differences of the terms and not the actual term. For instance,
+
+x(t) – x(t-1) = ARMA (p ,  q)
+
+This differencing is called as the Integration part in AR(I)MA. Now, we have three parameters
+
+p : AR
+
+d : I
+
+q : MA
+
+ 
+
+3. Seasonality : Seasonality can easily be incorporated in the ARIMA model directly. More on this has been discussed in the applications part below.
+
+ 
+Step 3: Find Optimal Parameters
+
+The parameters p,d,q can be found using  ACF and PACF plots. An addition to this approach is can be, if both ACF and PACF decreases gradually, it indicates that we need to make the time series stationary and introduce a value to “d”.
+
+ 
+Step 4: Build ARIMA Model
+
+With the parameters in hand, we can now try to build ARIMA model. The value found in the previous section might be an approximate estimate and we need to explore more (p,d,q) combinations. The one with the lowest BIC and AIC should be our choice. We can also try some models with a seasonal component. Just in case, we notice any seasonality in ACF/PACF plots.
+
+ 
+Step 5: Make Predictions
+
+Once we have the final ARIMA model, we are now ready to make predictions on the future time points. We can also visualize the trends to cross validate if the model works fine.
+
+ 
+Applications of Time Series Model
+
+Now, we’ll use the same example that we have used above. Then, using time series, we’ll make future predictions. We recommend you to check out the example before proceeding further.
+
+ 
+Where did we start ?
+
+Following is the plot of the number of passengers with years. Try and make observations on this plot before moving further in the article.
+
+time series r, plot_ap
+
+Here are my observations :
+
+1. There is a trend component which grows the passenger year by year.
+
+2. There looks to be a seasonal component which has a cycle less than 12 months.
+
+3. The variance in the data keeps on increasing with time.
+
+We know that we need to address two issues before we test stationary series. One, we need to remove unequal variances. We do this using log of the series. Two, we need to address the trend component. We do this by taking difference of the series. Now, let’s test the resultant series.
+
+adf.test(diff(log(AirPassengers)), alternative="stationary", k=0)
+
+Augmented Dickey-Fuller Test
+
+data: diff(log(AirPassengers))
+ Dickey-Fuller = -9.6003, Lag order = 0,
+ p-value = 0.01
+ alternative hypothesis: stationary
+
+We see that the series is stationary enough to do any kind of time series modelling.
+
+Next step is to find the right parameters to be used in the ARIMA model. We already know that the ‘d’ component is 1 as we need 1 difference to make the series stationary. We do this using the Correlation plots. Following are the ACF plots for the series :
+
+#ACF Plots
+
+acf(log(AirPassengers))
+
+time series r, acf
+
+ 
+What do you see in the chart shown above?
+
+Clearly, the decay of ACF chart is very slow, which means that the population is not stationary. We have already discussed above that we now intend to regress on the difference of logs rather than log directly. Let’s see how ACF and PACF curve come out after regressing on the difference.
+[stextbox id="grey"]
+
+acf(diff(log(AirPassengers)))
+
+time series r, acf diff
+
+pacf(diff(log(AirPassengers)))
+
+time series r, pacf, diff
+
+Clearly, ACF plot cuts off after the first lag. Hence, we understood that value of p should be 0 as the ACF is the curve getting a cut off. While value of q should be 1 or 2. After a few iterations, we found that (0,1,1) as (p,d,q) comes out to be the combination with least AIC and BIC.
+
+Let’s fit an ARIMA model and predict the future 10 years. Also, we will try fitting in a seasonal component in the ARIMA formulation. Then, we will visualize the prediction along with the training data. You can use the following code to do the same :
+
+(fit <- arima(log(AirPassengers), c(0, 1, 1),seasonal = list(order = c(0, 1, 1), period = 12)))
+
+pred <- predict(fit, n.ahead = 10*12)
+
+ts.plot(AirPassengers,2.718^pred$pred, log = "y", lty = c(1,3))
+```
+
+```{r calculate_SRI_prelim-test-DELETE, eval=FALSE}
+# SCI prelim - bha_bat -- set up the station for sci & make sci list vars====  
+sta      <- bhp_bat_v   
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)                             
+sci_3mo  <- sci.fun(sta, 3)                             
+sci_4mo  <- sci.fun(sta, 4)    
+sci_6mo  <- sci.fun(sta, 6)    # month 12 fail
+sci_9mo  <- sci.fun(sta, 9)    
+sci_12mo <- sci.fun(sta, 12)   
+  
+# SCI prelim - bhp_bev -- set up the station for sci & make sci list vars====    
+sta      <- bhp_bev_v  
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)                             
+sci_3mo  <- sci.fun(sta, 3)                             
+sci_4mo  <- sci.fun(sta, 4)    
+sci_6mo  <- sci.fun(sta, 6)    
+sci_9mo  <- sci.fun(sta, 9)    
+sci_12mo <- sci.fun(sta, 12)   
+  
+# SCI prelim - bha_fal -- set up the station for sci & make sci list vars====    
+sta      <- bhp_fal_v   
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 4                      
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail for month 1-, 5-        
+sci_4mo  <- sci.fun(sta, 4)    
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 6-  
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 7-, 8-  
+sci_12mo <- sci.fun(sta, 12)   # MLE fail for month 8-, 9-  
+  
+# SCI prelim - bha_frn -- set up the station for sci & make sci list vars====  
+sta      <- bhp_frn_v   
+sci_1mo  <- sci.fun(sta, 1)                             
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 8-, 11-                 
+sci_3mo  <- sci.fun(sta, 3)           
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail for month 1- 
+sci_6mo  <- sci.fun(sta, 6)     
+sci_9mo  <- sci.fun(sta, 9)     
+sci_12mo <- sci.fun(sta, 12)   
+    
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_frn <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_frn")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_fal <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_fal")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_bev <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_bev")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# get distribution parameters====  
+dist_01 <- sci_1mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "1")  
+
+dist_02 <- sci_2mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "2")   
+
+dist_03 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "3")   
+
+dist_04 <- sci_3mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "4")   
+
+dist_06 <- sci_6mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "6")   
+
+dist_09 <- sci_9mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "9")   
+
+dist_12 <- sci_12mo[["dist.para"]] %>% 
+  t() %>%  
+  as.data.frame() %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(duration = "12")   
+
+dist_bhp_bat <- bind_rows(dist_01,  
+                          dist_02,  
+                          dist_03,  
+                          dist_04,  
+                          dist_06,  
+                          dist_09,  
+                          dist_12  
+                          ) %>% 
+  mutate(sta = "bhp_bat")  
+
+rm(dist_01,  
+   dist_02,  
+   dist_03,  
+   dist_04,  
+   dist_06,  
+   dist_09,  
+   dist_12  
+)  
+  
+# get the stations & months with MLE non-convergence  
+fail_bhp <- dist_bhp %>% 
+  filter(is.na(shape)) %>% 
+  select(sta, duration, month)  
+
+# get group means 
+dist_bhp_g <- dist_bhp %>%   
+  filter(!is.na(shape)) %>%  
+  group_by(duration, month) %>%   
+  summarize(shape       = mean(shape),   
+            scale       = mean(scale),  
+            location    = mean(location)   
+            ) %>% 
+  ungroup()  
+
+# create final group means for non-converging stations  
+dist_bhp_g <- semi_join(dist_bhp_g, fail_bhp,  
+                      by = c("month", "duration")) 
+
+dist_bhp_g <- full_join(fail_bhp, dist_bhp_g, 
+                      by = c("month", "duration")
+                      )  
+
+dist_bhp_fill <- dist_bhp %>% 
+  select(month, duration, P0, N.P0, N) %>% 
+  filter(!is.na(P0)) %>%  
+  group_by(month, duration) %>% 
+  summarise(P0 = mean(P0),  
+            N.P0 = mean(P0),  
+            N = mean(N)) %>% 
+  ungroup()  
+
+dist_bhp_g <- left_join(dist_bhp_g, dist_bhp_fill, 
+                         by = c("duration", "month")
+                         )   
+
+M12_06 <- dist_bhp_g %>% 
+  select(-c(1:3)) %>% 
+  slice(1) %>% 
+  as.double()
+
+rm(fail_bhp,  
+   dist_bhp_bat,  
+   dist_bhp_bev,  
+   dist_bhp_fal,  
+   dist_bhp_frn  
+   )    
+# join distribution parameters -- blp====  
+dist_bhp <- bind_rows(dist_bhp_bat,  
+                      dist_bhp_bev,  
+                      dist_bhp_fal,  
+                      dist_bhp_frn  
+                      )  
+```
