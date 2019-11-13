@@ -332,7 +332,7 @@ why_to_write()
   
 # The geographical extent given as SElat, SElon, NWlat, NWlon  
 sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),  
-                               limit = 1000) %>%      # n = 777  
+                               limit = 1000) %>%      # n = 777   
   # get possible stations into a dataframe  
   pluck("data") %>%  
   # turn min & max date into lubridates  
@@ -1117,21 +1117,20 @@ rm(sta_dv_alt,
 ```{r import_streamflow_data, eval=FALSE}   
   
 # import full streamflow records----   
-#gage_mon_full <- import("data/gage_mon_full.csv")  
-#gage_meta <-  import("data/gage_meta.csv")  
+gage_mon_full <- import("data/gage_mon_full.csv")   
+gage_meta <-  import("data/gage_meta.csv")   
   
-#gage_eco <- gage_mon_full %>% 
-#  select(sta, ecoreg) %>% 
-#  distinct()  
+gage_eco <- gage_mon_full %>%  
+  select(sta, ecoreg) %>%  
+  distinct()  
   
-# add ecoregions 
-#lmom_gage_meta <- left_join(gage_meta, gage_eco, 
-#                            by = "sta")  
-
-#lmom_gage_meta <- right_join(gage_meta, gage_eco, 
-#                            by = "sta")  
+# add ecoregions & reduce set to full-gages  
+lmom_gage_meta <- right_join(gage_meta, gage_eco,  
+                            by = "sta")  
   
-#rm(gage_eco)    
+rm(gage_eco,  
+   gage_meta 
+   )      
   
 ```
 
@@ -1279,12 +1278,12 @@ prcp_table <- prcp_table %>%
 
 
 ci_table2 <- read_docx() %>% 
-  body_add_flextable(value = ci_table)  
-
+  body_add_flextable(value = ci_table)   
+  
 print(ci_table2, target = "output/ci_table.docx") 
-
+  
 rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table) 
-
+  
 ```  
 -->
 
@@ -1355,6 +1354,7 @@ rm(nw,
 rm(sta_mon)  
   
 ```
+
 
 # L-moments 
 ```{r lmoments_prcp, eval=FALSE}
@@ -1448,10 +1448,6 @@ rm(sta_meta_fin,
 
 ```{r lmoments_streamflow, eval=FALSE} 
   
-# import full streamflow records----   
-gage_mon_full <- import("data/gage_mon_full.csv")  
-gage_meta <-  import("data/gage_meta.csv")  
-  
 # Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
   
 # Calculate L-moment ratios   
@@ -1522,9 +1518,8 @@ lmom_gage <- lmom_gage %>%
   spread(type, value) %>%  
   select(sta, L1, L_CV, L_skew, L_kurtosis)  
   
-lmom_gage <- full_join(gage_meta, lmom_gage,    
-                            by = "sta") %>%  
-  drop_na()  
+lmom_gage <- full_join(lmom_gage_meta, lmom_gage,    
+                            by = "sta") 
   
 # check stations for discordance & prepare for join====    
 dischord <- lmrdiscord(site = lmom_gage$sta,  
@@ -1546,23 +1541,23 @@ lmom_gage <- full_join(lmom_gage, dischord,
 export(lmom_gage, "data/gage_meta_lmom.csv")   
   
 # clean up  
-rm(gage_meta,  
-   bad_fpi,  
+rm(bad_fpi,  
    lmom_gage_list,  
    lmom_gage_nm,  
    lmom_gage,  
    gage_mon_full,  
-   dischord  
+   dischord, 
+   lmom_gage_meta  
    )  
   
 ```
 
 ```{r Lmoment_diagram_ratios}
-# extract elements from the lmrdia list to plot in ggplot2        
+# extract elements from the lmrdia list to plot in ggplot2         
 #   the x-value is the L-skewness and y-value is L-kurtosis    
   
 # get vals from the lmrdia list   
-# note that as gamma distribution is a 2-parameter dist, it is not shown  
+# note that as gamma distribution is a 2-parameter dist, it is not shown   
 lmrdia <- lmrdia()   
   
 # extract L-skew & L-kurtosis values for several distributions   
@@ -1613,10 +1608,9 @@ rm(gev,
   
 ```  
 
-# need to improve the plot with adding high discord gages 
 ```{r plot-lmoment-diagram} 
   
-# prepare station data for plot====  
+# prepare station data for plot====   
 lmom_sta <- import("data/sta_meta_lmom.csv") %>%  
   select(sta,  
          L1,  
@@ -1630,7 +1624,7 @@ lmom_sta <- import("data/sta_meta_lmom.csv") %>%
   
 # prepare gage data for plot====       
 # drop discordant stations & calculate ecoregion vals  
-lmom_gage <- import("data/gage_meta_lmom.csv") 
+lmom_gage <- import("data/gage_meta_lmom.csv")  
 
 discord <- lmom_gage %>% 
   filter(isD == TRUE)  
@@ -1673,7 +1667,6 @@ lmom_data <- bind_rows(lmom_gage,
                        lmom_ecoreg  
 )  
   
-
 # refactor levels and provide label names====   
 lmom_data <- lmom_data %>%   
   mutate(ecoreg = fct_relevel(ecoreg,   
@@ -1758,8 +1751,9 @@ ggplot2::ggsave(filename = "figure/lmom_plot.png",
   
 export(lmom_data, "data/lmom_table.csv")  
   
-# clean-up====   
-rm(lmom_theo,   
+# clean-up====     
+rm(discord,  
+   lmom_theo,   
    lmom_gage,   
    lmom_ecoreg,    
    lmom_sta,   
@@ -1770,7 +1764,7 @@ rm(lmom_theo,
 )        
   
 ```  
-
+-> START HERE
 # calculate SCI  
 ```{r identify_representive_gages} 
   
@@ -4428,17 +4422,17 @@ decomp_fun <- function(df) {
 
 ```{r deconvolute_spi}  
   
-# deconvolute the grouped prcp into trend, seasonal & random components----   
+# deconvolute the grouped prcp into trend, seasonal & random components----    
   
-# import working data====         
+# import working data====          
 #spi_sta <- import("data/spi_sta.csv") %>%    
 # mutate(date = ymd(date))   
   
-sta_meta_fin <- import("data/sta_meta_fin.csv")      
+sta_meta_fin <- import("data/sta_meta_fin.csv")       
   
 # prepare for deconvoluting the grouped precip====    
 spi_sta <- spi_sta %>%   
-  mutate(prcp = as.numeric(prcp)) %>%    
+  mutate(prcp = as.numeric(prcp)) %>%     
   arrange(date) %>%   
   as_tibble() %>%   
   # make groups  
@@ -4976,6 +4970,105 @@ ggplot2::ggsave(path = "figure/", filename = "precip_mon.png",
 #   In May & June the area recieves low-level moisture from the Gulf   
 #   of Mexico, strong cold fronts, and active upper-level pattern  
 #   leading to greater chance for convection.  
+```
+
+```{r prepare-time-series}  
+
+#start: 1979-10-15
+#end: 2017-09-15 
+
+# check these----
+#bat_bhr - ?? started in 1988!
+#brsf_co -- ?? started in 1988!
+#lon_riv -- should work now -- accidently dropped  - need to rerun calcs  
+#nio_spa -- should work now -- accidently dropped  - need to rerun calcs  
+# hor_oel -- discordant - dropped
+# bad_fpi -- Discordant - dropped
+
+# import working data and metadata====    
+sci_sta <- import("data/spi_sta.csv") %>%     
+ mutate(date = ymd(date)) %>%  
+ mutate(prcp = as.numeric(prcp))# %>%  
+ select(-yr)  
+
+sci_gage <- import("data/sci_gage.csv") %>%    
+ mutate(date = ymd(date)) %>%  
+ rename(gage = sta)  
+
+sta_meta  <- import("data/sta_meta_fin.csv") 
+gage_meta <- import("data/gage_meta_lmom.csv") %>% 
+ rename(gage = sta)    
+
+sci_ts <- anti_join(sci_gage, gage_meta) %>% 
+  distinct(gage)
+  
+# check years
+yr_ck_s <- sci_sta %>% 
+  distinct() %>% 
+  group_by(yr) %>% 
+  summarize(count = n()) %>% 
+  group_by(count) %>% 
+  summarise(yrs = n()) 
+
+yr_ck_g <- sci_gage %>% 
+  distinct() %>% 
+  mutate(yr = year(date)) %>% 
+  group_by(yr) %>% 
+  summarize(count = n()) %>% 
+  group_by(count) %>% 
+  summarise(yrs = n()) 
+  
+
+
+sta_meta  <- import("data/sta_meta_fin.csv")  
+gage_meta <- import("data/gage_meta_lmom.csv")   
+
+
+
+
+# apply groups & ecoregions====   
+# create groups of stations by region  
+sta_meta_ts <- sta_meta %>%  
+  select(sta, group)  
+
+gage_meta_ts <- gage_meta %>%  
+  rename(gage = sta) %>%  
+  select(gage, dec_lat_va, dec_long_va, ecoreg) %>%   
+  mutate(north_group = case_when(   
+    dec_lat_va > 43.5 ~ "N",   
+    TRUE ~ "S")   
+  ) %>%   
+  mutate(east_group = case_when(  
+    dec_long_va  > -100.67 ~ "E",  
+    dec_long_va  > -102.33 ~ "C",    
+    TRUE ~ "W")  
+  ) %>%  
+  mutate(group = str_c(north_group, east_group, sep = "")) %>%  
+  dplyr::select(-c(north_group, east_group, dec_lat_va, dec_long_va)) %>%  
+  arrange(group)    
+
+gage_ts <- semi_join(gage_meta_ts, sci_gage) 
+
+test <- sci_gage %>% 
+  distinct() %>% 
+  group_by(gage) %>% 
+  summarize(count = n()) #%>% 
+  group_by(count) %>% 
+  summarise(yrs = n())  
+meta_ts <- full_join(sta_meta_ts, gage_meta_ts,  
+                     by = "group") %>%  
+  select(group, everything()) 
+
+rm(sta_meta_ts, gage_meta_ts)
+
+sci_sta <- full_join(meta_ts, sci_sta, 
+                     by = "sta")  
+
+sci_gage <- full_join(meta_ts, sci_gage,  
+                      by = c("gage", "ecoreg"))   
+
+sci_ts <- full_join(sci_sta, sci_gage, 
+                    by = c("group", "sta", "gage", "ecoreg", "date"))  
 ```
 
 ```{r tidy_time-series} 
@@ -5867,4 +5960,10 @@ tidyverse_absolute_autocorrelations %>%
 #   is not present.
 # In the case above, the tidyverse packages exhibit a strong weekly pattern. 
   
-```  
+``` 
+
+
+
+
+
+

@@ -86,6 +86,8 @@ library("tidyverse")
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
+conflict_prefer("first", "dplyr")  
+conflict_prefer("last", "dplyr")  
   
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 why_to_write <- function()   
@@ -780,8 +782,13 @@ gage_mon <- import("data/gage_mon.csv") %>%
 
 gage_meta <- import("data/gage_meta.csv")
 
-gage_yrs_comp <- gage_mon %>%  
-  filter(Date > "1987-12-15") %>% 
+gage_date_check <- gage_mon %>% 
+  group_by(sta) %>% 
+  summarize(start = min(Date), 
+         end = max(Date))  
+
+gage_yrs_comp_full <- gage_mon %>%  
+  filter(Date > "1987-09-15") %>% 
   group_by(sta, waterYear) %>% 
   summarise(years  = n(), 
             ecoreg = first(ecoreg)
@@ -792,14 +799,17 @@ gage_yrs_comp <- gage_mon %>%
   ) %>%  
   ungroup() 
 
-gage_meta <- right_join(gage_meta, gage_yrs_comp,  
+gage_meta <- right_join(gage_meta, gage_yrs_comp_full,  
                            by = "sta")  
 
-gage_yrs_comp <- gage_yrs_comp %>% 
+gage_yrs_comp <- gage_yrs_comp_full %>% 
   filter(years >= 30)  
   
 gage_mon_full <- semi_join(gage_mon, gage_yrs_comp,  
                            by = "sta")  
+
+gage_mon_name_ck <- gage_mon_full %>% 
+  distinct(sta)
   
 export(gage_mon_full, "data/gage_mon_full.csv")   
 export(gage_meta, "data/gage_meta.csv")  
