@@ -40,8 +40,6 @@ https://leanpub.com/exdata
 4.0   Try the easy solution first to answer question
 5.0   Challenge your solution 
 6.0  Follow up questions 
-
-
 -->  
 
 <!-- 
@@ -65,10 +63,6 @@ Analysis steps
         data: states, counties, USA map-grob
 
 4.0)  check data flags  
-
-
-
-
 -- identified & filled NA
 2.0)  convert daily precip to monthly precip  
 2.1)  Updated unit vals - originally in tenths of mm; now in mm 
@@ -205,7 +199,6 @@ snd_         Sand Hills
 whi_         White River Badlands  
   _kad       White River at Kadoka
     _v       as a double vector  
-
 
 gage          USGS streamgage station  
 
@@ -1355,7 +1348,6 @@ rm(sta_mon)
   
 ```
 
-
 # L-moments 
 ```{r lmoments_prcp, eval=FALSE}
 
@@ -1766,7 +1758,7 @@ rm(discord,
 ```  
 -> START HERE
 # calculate SCI  
-```{r identify_representive_gages} 
+```{r identify_representive_gages}  
   
 # import streamflow records & metadata----     
 gage_mon <- import("data/gage_mon_full.csv")  
@@ -1778,9 +1770,8 @@ gage_meta <- import("data/gage_meta_lmom.csv") %>%
   
 gage_mon <- semi_join(gage_mon, gage_meta,  
                       by = c("sta", "ecoreg"))  
-
-
-# get mean L-statistic values from discord calculations  
+  
+# get mean L-statistic values from discord calculations====  
 gage_mean <-  import("data/lmom_table.csv") %>%  
   filter(sta == "") %>%  
   select(ecoreg, L_CV, L_skew, L_kurtosis) %>%  
@@ -1815,23 +1806,23 @@ gage_meta <- left_join(gage_meta, gage_mean,
 #                        by = "sta") %>%  
   
 # create a 30-year record for input  
-sri_input <- gage_mon %>% 
-  mutate(yr = year(Date)) %>%  
-  filter(yr > 1988)     
+sri_input <- gage_mon %>%  
+  mutate(year = year(Date)) %>%  
+  filter(year > 1988)     
   
 # export selection and clean-up  
 export(sri_input, "data/sri_input.csv")  
   
+gage_sri_meta <- semi_join(gage_meta, sri_input)
 rm(sri_input,  
    gage_mean,  
    gage_meta,  
-#   gage_pick,    
-   gage_mon
+   gage_mon  
   )   
   
 ```
 
-```{r SCI_function, eval=FALSE} 
+```{r SCI_function, eval=FALSE}  
   
 # fitSCI identifies Standardized Climate Index (SCI) parameters----       
 #   some notes about the SCI package:      
@@ -2409,39 +2400,25 @@ rm(distrib,
   
 ```  
 
-```{r prepare_SRI, eval=FALSE} 
+```{r prepare_SRI, eval=FALSE}  
   
-# import and check gage data (1989-01 to 2017-01)----    
+# import and check gage data (1989-01 to 2017-09-15)----    
 sri_input <- import("data/sri_input.csv") %>%    
   rename(date = Date) %>%   
+  mutate(date = ymd(date)) %>%  
   arrange(date) %>%  
   select(  
     sta,  
     ecoreg,  
     date,  
-    log_q1_mon,  
-    yr  
+    log_q1_mon
   )  
   
 sri_check <- sri_input %>%  
   group_by(sta) %>%  
-  summarise(min_yr = min(yr), 
-            max_yr = max(yr)  
+  summarise(min = min(date), 
+            max = max(date)  
   )  
-  
-sri_check <- sri_input %>%  
-  filter(yr == "1989") %>%  
-  mutate(mon = month(date)) %>%   
-  arrange(date) %>%              
-  group_by(sta, ecoreg) %>%  
-  summarise(min_mon = min(mon), 
-            max_mon = max(mon)  
-  ) %>%  
-  ungroup() %>%  
-  arrange(ecoreg)  
-  
-sri_input <- sri_input %>%  
-  select(-yr)  
   
 # prepare vector inputs as double for SCI fun----   
 # Black Hills Plateau (bhp) gages====    
@@ -2483,12 +2460,6 @@ pre_ogl_v <- as.double(pre_ogl$log_q1_mon)
 pre_sta_v <- as.double(pre_sta$log_q1_mon)   
   
 # Pierre Shale Plains (psp) gages====     
-psp_bat <- sri_input %>%  
-  filter(sta == "bat_bhr")    
-  
-psp_brs <- sri_input %>%  
-  filter(sta == "brsf_co")    
-  
 psp_che <- sri_input %>%  
   filter(sta == "che_was")    
   
@@ -2501,8 +2472,6 @@ psp_hat <- sri_input %>%
 psp_whi <- sri_input %>%  
   filter(sta == "whi_oac")    
   
-psp_bat_v <- as.double(psp_bat$log_q1_mon)   
-psp_brs_v <- as.double(psp_brs$log_q1_mon)   
 psp_che_v <- as.double(psp_che$log_q1_mon)   
 psp_elk_v <- as.double(psp_elk$log_q1_mon)   
 psp_hat_v <- as.double(psp_hat$log_q1_mon)   
@@ -2552,7 +2521,7 @@ rm(sri_check,
 ```  
 
 ```{r calculate_SRI}
-
+  
 # calculate SCI_blp----  
 # SCI calcs - bha_bat -- set up the station for sci & make sci list vars====  
 sta      <- bhp_bat_v   
@@ -2653,7 +2622,6 @@ sci_6mo  <- sci.fun(sta, 6)
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)   
   
-
 # bha_bev -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
@@ -2729,7 +2697,6 @@ sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 6-
 sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 7-, 8-  
 sci_12mo <- sci.fun(sta, 12)   # MLE fail for month 8-, 9-  
   
-
 # bha_fal -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,   
@@ -3171,157 +3138,6 @@ rm(sci_1mo,
    sci_12mo  
    )      
 rm(pre_sta, pre_sta_v)  
-  
-# calculate SCI_psp---- 
-# SCI calcs - psp_bat -- set up the station for sci & make sci list vars====   
-sta      <- psp_bat_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 10-                    
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 10-, 11-                      
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail month 9-, 11-              
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail month 8-, 11-            
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 10-, 11-              
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail month 1-            
-sci_12mo <- sci.fun(sta, 12)   
-  
-# psp_bat -- apply the transformation identified by fitSCI function====      
-sci_1mo  <- transformSCI(sta,    
-                         first.mon = first_mon,  
-                         obj       = sci_1mo) %>%  
-  enframe(name                     = NULL)   
-  
-sci_2mo  <- transformSCI(sta,   
-                         first.mon = first_mon,  
-                         obj       = sci_2mo) %>%   
-  enframe(name                     = NULL)  
-  
-sci_3mo  <- transformSCI(sta,  
-                         first.mon = first_mon,   
-                         obj       = sci_3mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_4mo  <- transformSCI(sta,    
-                         first.mon = first_mon,   
-                         obj       = sci_4mo) %>%  
-  enframe(name                     = NULL)    
-  
-sci_6mo  <- transformSCI(sta,   
-                         first.mon = first_mon,  
-                         obj       = sci_6mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_9mo  <- transformSCI(sta,  
-                         first.mon = first_mon,   
-                         obj       = sci_9mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_12mo <- transformSCI(sta,  
-                         first.mon = first_mon,  
-                         obj       = sci_12mo) %>%   
-  enframe(name                     = NULL)   
-
-# psp_bat -- bind and rename the sci vals====       
-sci_psp_bat <- bind_cols(psp_bat,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
-) %>%                             
-  rename(sci_1mo = value)   %>%  
-  rename(sci_2mo = value1)  %>%   
-  rename(sci_3mo = value2)  %>%  
-  rename(sci_4mo = value3)  %>%   
-  rename(sci_6mo = value4)  %>%   
-  rename(sci_9mo = value5)  %>%  
-  rename(sci_12mo = value6)  
-  
-# psp_bat -- clean up global environment====   
-rm(sci_1mo,   
-   sci_2mo,  
-   sci_3mo,  
-   sci_4mo,   
-   sci_6mo,  
-   sci_9mo,  
-   sci_12mo  
-   )      
-rm(psp_bat, psp_bat_v)  
-  
-# SCI calcs - psp_brs -- set up the station for sci & make sci list vars====   
-sta      <- psp_brs_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 4-, 6-, 12-                    
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 4-, 7-                      
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail month 1-, 2-               
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail month 3-, 8-            
-sci_6mo  <- sci.fun(sta, 6)                   
-sci_9mo  <- sci.fun(sta, 9)                
-sci_12mo <- sci.fun(sta, 12)   # MLE fail month 1-, 11-   
-  
-# psp_brs -- apply the transformation identified by fitSCI function====      
-sci_1mo  <- transformSCI(sta,    
-                         first.mon = first_mon,  
-                         obj       = sci_1mo) %>%  
-  enframe(name                     = NULL)   
-  
-sci_2mo  <- transformSCI(sta,   
-                         first.mon = first_mon,  
-                         obj       = sci_2mo) %>%   
-  enframe(name                     = NULL)  
-  
-sci_3mo  <- transformSCI(sta,  
-                         first.mon = first_mon,   
-                         obj       = sci_3mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_4mo  <- transformSCI(sta,    
-                         first.mon = first_mon,   
-                         obj       = sci_4mo) %>%  
-  enframe(name                     = NULL)    
-  
-sci_6mo  <- transformSCI(sta,   
-                         first.mon = first_mon,  
-                         obj       = sci_6mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_9mo  <- transformSCI(sta,  
-                         first.mon = first_mon,   
-                         obj       = sci_9mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_12mo <- transformSCI(sta,  
-                         first.mon = first_mon,  
-                         obj       = sci_12mo) %>%   
-  enframe(name                     = NULL)   
-
-# psp_brs -- bind and rename the sci vals====       
-sci_psp_brs <- bind_cols(psp_brs,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
-) %>%                             
-  rename(sci_1mo = value)   %>%  
-  rename(sci_2mo = value1)  %>%   
-  rename(sci_3mo = value2)  %>%  
-  rename(sci_4mo = value3)  %>%   
-  rename(sci_6mo = value4)  %>%   
-  rename(sci_9mo = value5)  %>%  
-  rename(sci_12mo = value6)  
-  
-# psp_brs -- clean up global environment====   
-rm(sci_1mo,   
-   sci_2mo,  
-   sci_3mo,  
-   sci_4mo,   
-   sci_6mo,  
-   sci_9mo,  
-   sci_12mo  
-   )      
-rm(psp_brs, psp_brs_v)  
   
 # SCI calcs - psp_che -- set up the station for sci & make sci list vars====   
 sta      <- psp_che_v  
@@ -4248,7 +4064,7 @@ sci_bhp <- bind_rows(sci_bhp_bat,
                      sci_bhp_fal,  
                      sci_bhp_frn    
   )  
-
+  
 sci_bhp <- sci_bhp %>%    
   # truncate sci vals to [-3, 3]    
   gather(key = type, val = value, -c(sta, date, ecoreg, log_q1_mon)) %>%  
@@ -4264,7 +4080,7 @@ sci_bhp <- sci_bhp %>%
 sci_kpt <- bind_rows(sci_kpt_key,  
                      sci_kpt_wew  
   )  
-
+  
 sci_kpt <- sci_kpt %>%    
   # truncate sci vals to [-3, 3]    
   gather(key = type, val = value, -c(sta, date, ecoreg, log_q1_mon)) %>%  
@@ -4293,8 +4109,7 @@ sci_pre <- sci_pre %>%
   select(-sci_12mo, sci_12mo)    
   
 # join pierre shale plains SCI vals====  
-sci_psp <- bind_rows(sci_psp_bat,  
-                     sci_psp_brs,  
+sci_psp <- bind_rows(
                      sci_psp_che,  
                      sci_psp_elk,  
                      sci_psp_hat,  
@@ -4346,7 +4161,7 @@ sci_bad <- sci_bad %>%
   spread(type, value) %>%    
   # move the longer sci-values to the end of the df    
   select(-sci_12mo, sci_12mo)    
-
+  
 # export sci data====    
 sci_gage <- bind_rows(sci_bhp,  
                       sci_kpt,  
@@ -4367,8 +4182,6 @@ rm(sci_bhp_bat,
    sci_kpt_wew,  
    sci_pre_ogl,  
    sci_pre_sta,  
-   sci_psp_bat,  
-   sci_psp_brs,  
    sci_psp_che,  
    sci_psp_elk,  
    sci_psp_hat,  
@@ -4499,10 +4312,7 @@ rm(freq,
   
 # check for anomonies====     
 spi_anom <- spi_seas %>%   
-  filter(anomaly == "Yes") 
-  
-sri_anom <- sri_seas %>%   
-  filter(anomaly == "Yes") 
+  filter(anomaly == "Yes")  
   
 # vars for plotting====    
 sta_size   <- 0.2  
@@ -4579,22 +4389,21 @@ cowplot::ggsave2("figure/spi_deconv.png",
                  height = 9)  
 ```  
 
-```{r deconvolute_sri}  
+```{r deconvolute_sri}   
   
-# deconvolute the grouped prcp into trend, seasonal & random components----   
-
-# import working data####    
-gage_meta <-  import("data/gage_meta.csv")   
-
+# deconvolute streamflow into trend, seasonal & random components----   
+# import streamflow data====    
 sci_gage <- import("data/sci_gage.csv") %>%    
-  mutate(date = ymd(date))   
-  
-# prepare for deconvoluting the grouped precip====  
-# the target for decomp_fun is 'group' -- RUN THIS FOR 'sci_gage' 
-sci_gage <- sci_gage %>%   
-    arrange(date) %>%   
+  mutate(date = ymd(date)) %>%   
+  arrange(date) %>%   
   as_tibble() %>%  
-  mutate(group = sta)   
+  mutate(group = sta)  # group is for decomp_fun  
+
+gage_meta <-  import("data/gage_meta_lmom.csv") 
+  
+# removes discordant stations from metadata  
+gage_meta <- semi_join(gage_meta, sci_gage,  
+                       by = c("sta", "ecoreg"))  
   
 # identify frequency of seasonality -- should be 12 months====      
 freq <- sci_gage  %>%    
@@ -4628,19 +4437,9 @@ trend <- sci_gage  %>%
 FREQ   <- "12 months"   
 TREND  <- "60 months"    
 TARGET <- "sci_1mo"   
-   
+  
 sri_seas <- sci_gage %>%   
   decomp_fun()   
-  
-# clean up global environment====     
-rm(freq,  
-   trend,       
-   FREQ,  
-   TARGET,  
-   TREND,  
-   decomp_fun, 
-   sci_gage
-   )    
   
 # identify seasonally intermittant streams  
 sri_intermit <- sri_seas %>%  
@@ -4649,30 +4448,40 @@ sri_intermit <- sri_seas %>%
   ) %>% 
   ungroup() %>%  
   arrange(desc(season_max))  
+  
 
+# START HERE  
 gage_meta <- full_join(gage_meta, sri_intermit, 
-                       by = "sta") 
-gage_meta <- gage_meta %>% 
+                       by = "sta") %>%  
+# gage_meta <- gage_meta %>% 
   mutate(flow_regime = case_when(  
     season_max > 1.5 ~ "strongly intermittent", 
     TRUE ~ flow_regime
     ))   
-
+  
 sri_intermit <- sri_intermit %>% 
   filter(season_max < 1.5)  
 
 sri_seas <- semi_join(sri_seas, sri_intermit, 
                        by = "sta")
-
+  
 export(gage_meta, "data/gage_meta_seas.csv")  
 export(sri_seas, "data/sri_seas.csv")  
   
+
+# clean up global environment====     
+rm(freq,  
+   trend,  
+   FREQ,   
+   TARGET,  
+   TREND,  
+   decomp_fun,   
+   sci_gage   
+   )    
 ```  
   
 ```{r prep_season_plot_sri}
   
-
-
 # calculate group mean & sd====   
 # note elk_elm has really high seasonality and is removed from future calcs
 sri_1mo_mean <- sri_seas %>%  
@@ -4978,17 +4787,17 @@ ggplot2::ggsave(path = "figure/", filename = "precip_mon.png",
 #end: 2017-09-15 
 
 # check these----
-#bat_bhr - ?? started in 1988!
-#brsf_co -- ?? started in 1988!
-#lon_riv -- should work now -- accidently dropped  - need to rerun calcs  
-#nio_spa -- should work now -- accidently dropped  - need to rerun calcs  
+#bat_bhr - ?? started in 1988!  -- should not show up!  
+#brsf_co -- ?? started in 1988! -- should not show up!  
+#lon_riv -- should work now -- accidently dropped  - need to rerun calcs  -- ok  
+#nio_spa -- should work now -- accidently dropped  - need to rerun calcs  -- ok  
 # hor_oel -- discordant - dropped
 # bad_fpi -- Discordant - dropped
 
 # import working data and metadata====    
 sci_sta <- import("data/spi_sta.csv") %>%     
  mutate(date = ymd(date)) %>%  
- mutate(prcp = as.numeric(prcp))# %>%  
+ mutate(prcp = as.numeric(prcp)) %>%  
  select(-yr)  
 
 sci_gage <- import("data/sci_gage.csv") %>%    
@@ -4996,8 +4805,13 @@ sci_gage <- import("data/sci_gage.csv") %>%
  rename(gage = sta)  
 
 sta_meta  <- import("data/sta_meta_fin.csv") 
-gage_meta <- import("data/gage_meta_lmom.csv") %>% 
- rename(gage = sta)    
+
+gage_meta <- import("data/gage_meta_lmom.csv") %>%  
+ rename(gage = sta) %>%      # NEED TO FIX DUPLICATE COLS   
+  rename(years = years.x) %>%   
+  select(-c(ecoreg.x, years.y, ecoreg.y)) %>%  
+  filter(isD == FALSE)  
+
 
 sci_ts <- anti_join(sci_gage, gage_meta) %>% 
   distinct(gage)
