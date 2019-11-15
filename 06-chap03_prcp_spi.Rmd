@@ -4392,16 +4392,21 @@ cowplot::ggsave2("figure/spi_deconv.png",
 ```{r deconvolute_sri}   
   
 # deconvolute streamflow into trend, seasonal & random components----   
-# import streamflow data====    
+# import streamflow data and metadata====    
 sci_gage <- import("data/sci_gage.csv") %>%    
   mutate(date = ymd(date)) %>%   
   arrange(date) %>%   
   as_tibble() %>%  
   mutate(group = sta)  # group is for decomp_fun  
 
-gage_meta <-  import("data/gage_meta_lmom.csv") 
-  
-# removes discordant stations from metadata  
+# clean metadata  
+gage_meta <-  import("data/gage_meta_lmom.csv") %>% 
+  select(-c(ecoreg.x, years.y, ecoreg.y)) %>% 
+  rename(years = years.x)  
+
+export(gage_meta, "gage_meta_lmom.csv") 
+ 
+# remove discordant stations from metadata====    
 gage_meta <- semi_join(gage_meta, sci_gage,  
                        by = c("sta", "ecoreg"))  
   
@@ -4449,26 +4454,19 @@ sri_intermit <- sri_seas %>%
   ungroup() %>%  
   arrange(desc(season_max))  
   
-
-# START HERE  
 gage_meta <- full_join(gage_meta, sri_intermit, 
-                       by = "sta") %>%  
-# gage_meta <- gage_meta %>% 
+                       by = "sta") 
+  
+gage_meta <- gage_meta %>% 
   mutate(flow_regime = case_when(  
-    season_max > 1.5 ~ "strongly intermittent", 
+    season_max > 0.8 ~ "strongly intermittent",  
+    season_max > 0.4 ~ "moderately intermittent", 
     TRUE ~ flow_regime
     ))   
-  
-sri_intermit <- sri_intermit %>% 
-  filter(season_max < 1.5)  
-
-sri_seas <- semi_join(sri_seas, sri_intermit, 
-                       by = "sta")
   
 export(gage_meta, "data/gage_meta_seas.csv")  
 export(sri_seas, "data/sri_seas.csv")  
   
-
 # clean up global environment====     
 rm(freq,  
    trend,  
@@ -4476,84 +4474,128 @@ rm(freq,
    TARGET,  
    TREND,  
    decomp_fun,   
-   sci_gage   
+   sci_gage, 
+   sri_intermit  
    )    
+  
 ```  
   
 ```{r prep_season_plot_sri}
   
-# calculate group mean & sd====   
+# calculate group median & MAD====   
 # note elk_elm has really high seasonality and is removed from future calcs
-sri_1mo_mean <- sri_seas %>%  
+sri_seas_ecoreg <- sri_seas %>%  
   group_by(ecoreg, date) %>% 
-  summarise(sci_1mo_sd = sd(sci_1mo),
-            sci_1mo    = mean(sci_1mo) 
-  ) %>%  
-  ungroup() %>% 
-  mutate(sci_1mo_hi = sci_1mo + sci_1mo_sd) %>% 
-  mutate(sci_1mo_lo = sci_1mo - sci_1mo_sd) %>% 
-  select(-c(sci_1mo_sd)) %>% 
-  gather(key = sci_type, value = sci_hi_lo, 
-         -c(ecoreg, date, sci_1mo)
-         )    
+  summarise(sci_1mo_mad    = mad(sci_1mo),   
+            sci_1mo_med    = median(sci_1mo),   
+            sci_seas_mad   = mad(season),   
+            sci_seas_med   = median(season),  
+            sci_trend_mad  = mad(trend),   
+            sci_trend_med  = median(trend),   
+            sci_remain_mad = mad(remainder),   
+            sci_remain_med = median(remainder)
+            ) %>%  
+  ungroup() %>%  
+  mutate(sci_1mo_hi    = sci_1mo_med + sci_1mo_mad) %>%  
+  mutate(sci_1mo_lo    = sci_1mo_med - sci_1mo_mad) %>%  
+  mutate(sci_seas_hi   = sci_seas_med + sci_seas_mad) %>%  
+  mutate(sci_seas_lo   = sci_seas_med - sci_seas_mad) %>%  
+  mutate(sci_trend_hi  = sci_trend_med + sci_trend_mad) %>%  
+  mutate(sci_trend_lo  = sci_trend_med - sci_trend_mad) %>%  
+  mutate(sci_remain_hi = sci_remain_med + sci_remain_mad) %>%  
+  mutate(sci_remain_lo = sci_remain_med - sci_remain_mad) 
 
-sri_seas_mean <- sri_seas %>%  
-  group_by(ecoreg, date) %>% 
-  summarise(season_sd = sd(season),
-            season    = mean(season) 
-  ) %>%  
-  ungroup() %>% 
-  mutate(season_hi = season + season_sd) %>% 
-  mutate(season_lo = season - season_sd) %>% 
-  select(-c(season_sd)) %>% 
-  gather(key = season_type, value = seas_hi_lo, 
-         -c(ecoreg, date, season) 
+# prepare for plotting -- split out data types====  
+sri_1mo_mad <- sri_seas_ecoreg %>%  
+  select(ecoreg,  
+         date,  
+         sci_1mo_med, 
+         sci_1mo_hi,  
+         sci_1mo_lo  
+         )  %>%   
+  gather(key = var, value = val,  
+         -c(ecoreg, date, sci_1mo_med)  
          )   
 
-sri_trend_mean <- sri_seas %>%  
-  group_by(ecoreg, date) %>% 
-  summarise(trend_sd = sd(trend),
-            trend    = mean(trend) 
-  ) %>%  
-  ungroup() %>% 
-  mutate(trend_hi = trend + trend_sd) %>% 
-  mutate(trend_lo = trend - trend_sd) %>% 
-  select(-c(trend_sd)) %>% 
-  gather(key = trend_type, value = trend_hi_lo, 
-         -c(ecoreg, date, trend)
-  )  
+sri_seas_mad <- sri_seas_ecoreg %>%  
+  select(ecoreg,  
+         date,  
+         sci_seas_med, 
+         sci_seas_hi,  
+         sci_seas_lo  
+         )  %>%   
+  gather(key = var, value = val,  
+         -c(ecoreg, date, sci_seas_med)  
+         )   
+
+sri_trend_mad <- sri_seas_ecoreg %>%  
+  select(ecoreg,  
+         date,  
+         sci_trend_med, 
+         sci_trend_hi,  
+         sci_trend_lo  
+         )  %>%   
+  gather(key = var, value = val,  
+         -c(ecoreg, date, sci_trend_med)  
+         )   
   
-sri_remain_mean <- sri_seas %>%  
-  group_by(ecoreg, date) %>% 
-  summarise(remain_sd = sd(remainder),
-            remain    = mean(remainder) 
-  ) %>%  
-  ungroup() %>% 
-  mutate(remain_hi = remain + remain_sd) %>% 
-  mutate(remain_lo = remain - remain_sd) %>% 
-  select(-c(remain_sd)) %>% 
-  gather(key = remain_type, value = remain_hi_lo, 
-         -c(ecoreg, date, remain)
-  )  
+sri_remain_mad <- sri_seas_ecoreg %>%  
+  select(ecoreg,  
+         date,  
+         sci_remain_med, 
+         sci_remain_hi,  
+         sci_remain_lo  
+         )  %>%   
+  gather(key = var, value = val,  
+         -c(ecoreg, date, sci_remain_med)  
+         )   
+# , 
+#         -c(ecoreg, date, trend)
+
+#sri_trend_ecoreg <- sri_seas %>%  
+#  group_by(ecoreg, date) %>% 
+#  summarise(trend_mad = mad(trend),
+#            trend_med    = med(trend) 
+##  ) %>%  
+#  ungroup() %>% 
+#  mutate(trend_hi = trend + trend_sd) %>% 
+#  mutate(trend_lo = trend - trend_sd) 
+#%>% 
+#  select(-c(trend_sd)) %>% 
+#  gather(key = trend_type, value = trend_hi_lo, 
+#         -c(ecoreg, date, trend)
+#  )  
+  
+#sri_remain_mean <- sri_seas %>%  
+#  group_by(ecoreg, date) %>% 
+#  summarise(remain_sd = sd(remainder),
+#            remain    = mean(remainder) 
+#  ) %>%  
+#  ungroup() %>% 
+#  mutate(remain_hi = remain + remain_sd) %>% 
+#  mutate(remain_lo = remain - remain_sd) %>% 
+#  select(-c(remain_sd)) %>% 
+#  gather(key = remain_type, value = remain_hi_lo, 
+#         -c(ecoreg, date, remain)
+#  )  
 
 
-sri_means <- full_join(sri_1mo_mean, sri_seas_mean, 
-                       by = c("ecoreg", "date")  
-                       )      
-sri_means <- full_join(sri_means, sri_trend_mean, 
-                       by = c("ecoreg", "date")  
-                       ) 
-sri_means <- full_join(sri_means, sri_remain_mean, 
-                       by = c("ecoreg", "date")  
-                       ) 
+#sri_means <- full_join(sri_1mo_mean, sri_seas_mean, 
+#                       by = c("ecoreg", "date")  
+#                       )      
+#sri_means <- full_join(sri_means, sri_trend_mean, 
+#                       by = c("ecoreg", "date")  
+#                       ) 
+#sri_means <- full_join(sri_means, sri_remain_mean, 
+#                       by = c("ecoreg", "date")  
+#                       ) 
  
-rm(sri_1mo_mean, sri_seas_mean, sri_trend_mean, sri_intermit)
+#rm(sri_1mo_mean, sri_seas_mean, sri_trend_mean, sri_intermit)
 ```
 
 ```{r plot_seasonality_sri}
 
 sri_anom <- sri_seas %>% 
-  filter(sta != "elk_elm") %>%   
   filter(anomaly == "Yes") 
 
 # set plotting position====     
@@ -4565,17 +4607,17 @@ sri_seas <- sri_seas %>%
                               "Black Hills Plateau", 
                               "Keya Paha Tablelands", 
                               "Sand Hills")     
-  ) 
-
-sri_means <- sri_means %>% 
-  mutate(ecoreg = fct_relevel(ecoreg,
-                              "Pierre Shale Plains", 
-                              "Pine Ridge Escarpment", 
-                              "White River Badlands", 
-                              "Black Hills Plateau", 
+  )  
+  
+sri_seas_ecoreg <- sri_seas_ecoreg %>%  
+  mutate(ecoreg = fct_relevel(ecoreg, 
+                              "Pierre Shale Plains",  
+                              "Pine Ridge Escarpment",  
+                              "White River Badlands",  
+                              "Black Hills Plateau",  
                               "Keya Paha Tablelands", 
                               "Sand Hills")     
-  ) 
+  )  
   
 # streamflow observations plot====  
 sri_obs <- sri_seas %>%   
@@ -4585,111 +4627,113 @@ sri_obs <- sri_seas %>%
   ylab("SRI 1-month") +   
   scale_y_continuous(limits = c(-3, 3)) +  
   facet_wrap(vars(ecoreg),   
-             nrow = 2 
+             nrow = 2  
   ) +   
   # plot all station vals  
   geom_line(size            = 1,  
             colour          = "gray80"  
-  )  + 
-# plot mean +/- 1 SD 
-  geom_line(data = sri_means,  
-            aes(date, sci_hi_lo), 
+  )  +  
+# plot median +/- 1 MAD  
+  geom_line(data = sri_1mo_mad,  
+            aes(date, val),  
             size            = 0.6,  
-            colour          = "gray60"  
-  )   +  
-# plot mean 
-  geom_line(data = sri_means,  
+            colour          = "gray50"  
+  ) +  
+# plot median  
+  geom_line(data = sri_1mo_mad,  
+            aes(date, sci_1mo_med),  
             size            = 0.3,  
             colour          = "black"  
-  )  
-
-# streamflow seasons plot====   
-sri_seas_plot <- 
-sri_seas %>% 
+  )   
+  
+# streamflow seasons plot====  
+sri_seas_plot <- sri_seas %>%   
   ggplot(aes(date, season)) +     
   theme_bw() +  
   xlab("") +  
   ylab("SRI 1-month") +   
-  scale_y_continuous(limits = c(-3, 3)) +   
-  facet_wrap(vars(ecoreg),  
-             nrow = 2) +   
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(ecoreg),   
+             nrow = 2  
+  ) +   
   # plot all station vals  
   geom_line(size            = 1,  
             colour          = "gray80"  
-  )  + 
-# plot mean +/- 1 SD 
-  geom_line(data = sri_means,  
-            aes(date, seas_hi_lo), 
-            size            = 0.3,  
-            colour          = "gray60"  
-  )   +  
-# plot mean 
-  geom_line(data = sri_means,  
-            aes(date, season), 
+  )  +  
+# plot median +/- 1 MAD  
+  geom_line(data = sri_seas_mad,  
+            aes(date, val),  
+            size            = 0.6,  
+            colour          = "gray50"  
+  ) +  
+# plot median  
+  geom_line(data = sri_seas_mad,  
+            aes(date, sci_seas_med),  
             size            = 0.3,  
             colour          = "black"  
   )  
   
-# streamflow trend plot====   
-sri_trend <- sri_seas %>% 
+# streamflow trend plot====  
+sri_trend_plot <- sri_seas %>%   
   ggplot(aes(date, trend)) +     
   theme_bw() +  
   xlab("") +  
   ylab("SRI 1-month") +   
-  scale_y_continuous(limits = c(-3, 3)) +   
-  facet_wrap(vars(ecoreg),  
-             nrow = 2) +   
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(ecoreg),   
+             nrow = 2  
+  ) +   
   # plot all station vals  
   geom_line(size            = 1,  
             colour          = "gray80"  
-  )  + 
-# plot mean +/- 1 SD 
-  geom_line(data = sri_means,  
-            aes(date, trend_hi_lo), 
-            size            = 0.3,  
-            colour          = "gray60"  
-  )   +  
-# plot mean 
-  geom_line(data = sri_means,  
-            aes(date, trend), 
+  )  +  
+# plot median +/- 1 MAD  
+  geom_line(data = sri_trend_mad,  
+            aes(date, val),  
+            size            = 0.6,  
+            colour          = "gray50"  
+  ) +  
+# plot median  
+  geom_line(data = sri_trend_mad,  
+            aes(date, sci_trend_med),  
             size            = 0.3,  
             colour          = "black"  
   )  
 
-# streamflow remainder plot====   
-#sri_remain <- 
-sri_seas %>% 
+# streamflow remain plot====  
+sri_remain_plot <- sri_seas %>%   
   ggplot(aes(date, remainder)) +     
   theme_bw() +  
   xlab("") +  
   ylab("SRI 1-month") +   
-  scale_y_continuous(limits = c(-3, 3)) +   
-  facet_wrap(vars(ecoreg),  
-             nrow = 2) +   
+  scale_y_continuous(limits = c(-3, 3)) +  
+  facet_wrap(vars(ecoreg),   
+             nrow = 2  
+  ) +   
   # plot all station vals  
   geom_line(size            = 1,  
             colour          = "gray80"  
-  )  + 
-# plot mean +/- 1 SD 
-  geom_line(data = sri_means,  
-            aes(date, remain_hi_lo), 
-            size            = 0.3,  
-            colour          = "gray60"  
-  )   +  
-# plot mean 
-  geom_line(data = sri_means,  
-            aes(date, remain), 
+  )  +  
+# plot median +/- 1 MAD  
+  geom_line(data = sri_remain_mad,  
+            aes(date, val),  
+            size            = 0.6,  
+            colour          = "gray50"  
+  ) +  
+# plot median  
+  geom_line(data = sri_remain_mad,  
+            aes(date, sci_remain_med),  
             size            = 0.3,  
             colour          = "black"  
-  ) + 
-# plot anomolies 
+  ) +  
+# plot anomolies  
   geom_point(data = sri_anom,  
              aes(date, sci_1mo),  
              shape = 8)  
   
 # plot the plots above as a grid & save====  
 cowplot::plot_grid(  
-  sri_obs, sri_seas_plot, sri_trend, sri_remain,  
+  sri_obs, sri_seas_plot, sri_trend_plot, sri_remain_plot,  
   ncol = 1,   
   align = "v"  
 )  
@@ -4700,86 +4744,26 @@ cowplot::ggsave2("figure/sri_deconv.png",
                  height = 9)  
   
 # clean-up====  
-rm(spi_obs,  
-   spi_seas_plot,  
-   spi_trend,  
-   spi_remain,  
-   sri_obs,  
+rm(sri_obs,  
    sri_seas,  
    sri_seas_plot,  
    sri_trend,  
-   sri_remain, 
-   spi_anom,  
-   sta_color,  
-   sta_size   
+   sri_remain,  
+   sri_anom, 
+   sri_1mo_mad,  
+   sri_anom,  
+   sri_remain_mad,  
+   sri_remain_plot,  
+   sri_seas_ecoreg,  
+   sri_seas_mad,  
+   sri_seas_max_min,  
+   sri_trend_mad, 
+   sri_trend_plot
    )         
   
-
- 
 ```  
 
-# TO DO Monthly plot PRCP_MON - check code   
-```{r plot-annual-prcp}  
-# plot annual precips  
-sta_mon_plus %>%  
-  ggplot(aes(year, depth_mm, group = year)) +  
-  facet_grid(rows =vars(group)) +  
-  #  geom_quasirandom(size = 0.2,  
-  #                position = position_beeswarm()) +  
-  geom_boxplot() +  
-  theme_bw() +   
-  labs(title = "Annual precipitation depths",  
-       subtitle = "1990-2017") +  
-  xlab("") +  
-  ylab("mm")  
-  
-```
 
-```{r ggplot_monthly, eval=FALSE} 
-#sta_mon <- import(file = "data/stations_monthly.csv") %>%   
-#  mutate(date = ymd(date))  
-  
-#sta_mon %>%   
-#  group_by(sta) %>%   
-#  summarize(count = n())  
-  
-sta_mon_plus$group <- factor(sta_mon_plus$group,  
-                             levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
-  
-# plot monthly precips  
-sta_mon_plus %>%   
-  ggplot(aes(month, depth_mm, group = month)) +  
-  facet_grid(rows = vars(group)) +   
-  geom_quasirandom(size = 0.2,  
-                   position = position_beeswarm()  
-  ) + 
-  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6",  
-                              "7", "8", "9", "10", "11", "12"),    
-                   labels = c("J", "F", "M", "A", "M", "J",  
-                              "J", "A", "S", "O", "N", "D")   
-  ) +  
-  theme_bw() +  
-  #  labs(title = "Monthly precipitation depths",  
-  #       subtitle = "Southwestern South Dakota for 1990-2017") +   
-  xlab("") +  
-  ylab("mm")  
-  
-ggplot2::ggsave(path = "figure/", filename = "precip_mon.png",   
-                width = 6, height = 6, units = "in")  
-  
-````  
-
-```{r precip-EDA, include=FALSE, eval=FALSE}
-# Purpose: EDA of precipitation data.
-# Outcome: Differences among stations 1971-2018 are small.  
-#          less than +/-5 mm on average.  
- 
-# the anomolously wet month series is dominated by May & June events.  
-# what drives precip during this time?   
-#   In May & June the area recieves low-level moisture from the Gulf   
-#   of Mexico, strong cold fronts, and active upper-level pattern  
-#   leading to greater chance for convection.  
-```
 
 ```{r prepare-time-series}  
 
@@ -5777,7 +5761,68 @@ tidyverse_absolute_autocorrelations %>%
 ``` 
 
 
+# TO DO Monthly plot PRCP_MON - check code   
+```{r plot-annual-prcp}  
+# plot annual precips  
+sta_mon_plus %>%  
+  ggplot(aes(year, depth_mm, group = year)) +  
+  facet_grid(rows =vars(group)) +  
+  #  geom_quasirandom(size = 0.2,  
+  #                position = position_beeswarm()) +  
+  geom_boxplot() +  
+  theme_bw() +   
+  labs(title = "Annual precipitation depths",  
+       subtitle = "1990-2017") +  
+  xlab("") +  
+  ylab("mm")  
+  
+```
 
+```{r ggplot_monthly, eval=FALSE} 
+#sta_mon <- import(file = "data/stations_monthly.csv") %>%   
+#  mutate(date = ymd(date))  
+  
+#sta_mon %>%   
+#  group_by(sta) %>%   
+#  summarize(count = n())  
+  
+sta_mon_plus$group <- factor(sta_mon_plus$group,  
+                             levels = c("NW", "NC", "NE", "SW", "SC", "SE"))  
+  
+# plot monthly precips  
+sta_mon_plus %>%   
+  ggplot(aes(month, depth_mm, group = month)) +  
+  facet_grid(rows = vars(group)) +   
+  geom_quasirandom(size = 0.2,  
+                   position = position_beeswarm()  
+  ) + 
+  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6",  
+                              "7", "8", "9", "10", "11", "12"),    
+                   labels = c("J", "F", "M", "A", "M", "J",  
+                              "J", "A", "S", "O", "N", "D")   
+  ) +  
+  theme_bw() +  
+  #  labs(title = "Monthly precipitation depths",  
+  #       subtitle = "Southwestern South Dakota for 1990-2017") +   
+  xlab("") +  
+  ylab("mm")  
+  
+ggplot2::ggsave(path = "figure/", filename = "precip_mon.png",   
+                width = 6, height = 6, units = "in")  
+  
+````  
+
+```{r precip-EDA, include=FALSE, eval=FALSE}
+# Purpose: EDA of precipitation data.
+# Outcome: Differences among stations 1971-2018 are small.  
+#          less than +/-5 mm on average.  
+ 
+# the anomolously wet month series is dominated by May & June events.  
+# what drives precip during this time?   
+#   In May & June the area recieves low-level moisture from the Gulf   
+#   of Mexico, strong cold fronts, and active upper-level pattern  
+#   leading to greater chance for convection.  
+```
 
 
 
