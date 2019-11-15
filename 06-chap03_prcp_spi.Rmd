@@ -215,13 +215,13 @@ What is the underlying distribution of precipitation data?
 3. Describe the precipitation seasonality
 -->  
 
-```{r setup_&_library, message=FALSE}   
+```{r setup_&_library, message=FALSE}    
   
 knitr::opts_chunk$set(echo = FALSE)      
 options(tibble.print_max = 70) # sets tibble output for printing         
   
 # increase memory allocation for dabest()   
-# usethis::edit_r_environ("project")  
+# usethis::edit_r_environ("project")   
   
 # Get API key (aka, token) for downloading precip data at   http://www.ncdc.noaa.gov/cdo-web/token  
 # token for NOAA API tied to jtinant@olc.edu -- see 'rnoaa' for details  
@@ -241,21 +241,22 @@ library("broom")             # tidies linear models
 library("ggbeeswarm")        # plot 1D data as a violin / beeswarm plot  
 library("scales")            # graphical scales map data to aesthetics,  
                              #   & methods for determining breaks and labels  
-                             #   for axes and legends  
+                             #   for axes and legends   
 library("anomalize")         # detect anomalies using the tidyverse   
-library("dabestr")           # data analysis using bootstrap estimation   
-library("cowplot")           # multiple plots with plot_grid()
-library("timetk")            # tool kit for working with time series in R 
-library("tidyquant")         # integrate quant. analysis tools w/ tidyverse
-library("corrr")             # Tidy correlation tables and correlation plotting
-library("cranlogs")          # For inspecting package downloads over time
+library("dabestr")           # data analysis using bootstrap estimation    
+library("cowplot")           # multiple plots with plot_grid()  
+library("timetk")            # tool kit for working with time series in R   
+library("tidyquant")         # integrate quant. analysis tools w/ tidyverse  
+library("corrr")             # Tidy correlation tables and correlation plotting  
+library("cranlogs")          # For inspecting package downloads over time  
 library("tidyverse")  
   
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
-conflict_prefer("as.dist", "stats")
-
+conflict_prefer("as.dist", "stats")  
+conflict_prefer("first", "dplyr")  
+  
 # used in time series clustering example--
 #library(gridExtra)           # merge plots  
 #library(ggdendro)            # dendrograms
@@ -317,10 +318,10 @@ why_to_write()
   
 ```  
 
-```{r download_prcp_data, eval=FALSE} 
+```{r download_prcp_data, eval=FALSE}  
   
-# Get possible station metadata----    
-# It's also possible to check station id with the mapping tool at:    
+# Get possible station metadata----     
+# It's also possible to check station id with the mapping tool at:     
 # https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
   
 # The geographical extent given as SElat, SElon, NWlat, NWlon  
@@ -339,10 +340,10 @@ sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),
   filter(str_detect(id, "^GHCND"))  %>%                 # n =  60      
   filter(!str_detect(name, "^MAGPIE"))                  # n =  59  
   
-sta_meta_orig <- sta_meta_orig %>% 
+sta_meta_orig <- sta_meta_orig %>%  
   mutate(elev_flag = case_when(  
     elevation > 1200 ~ "yes",  
-    TRUE ~ "no"
+    TRUE ~ "no"  
       )                              # n =  46    
   )  
   
@@ -466,23 +467,23 @@ sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,
   
 # check for missing years====            
 sta_miss_yr <- sta_dv_orig  %>%   
-  filter(year > 1988)       %>% 
+  filter(year > 1988)       %>%  
   mutate(year = year(date)) %>%  
   group_by(name, year)      %>%   
   summarise(num_day = n())  %>%   
   filter(num_day < 345)     %>%   
   ungroup() %>%  
   group_by(name) %>%  
-  summarise(num_year = n()) 
-
+  summarise(num_year = n())  
+  
 sta_miss_zero <- anti_join(sta_meta_orig, sta_miss_yr,  
-                           by = "name") %>% 
+                           by = "name") %>%  
   filter(elev_flag == "no") %>%  
   mutate(num_year = 0) %>%  
   select(name, num_year)  
-
+  
 sta_miss_yr <- bind_rows(sta_miss_yr, sta_miss_zero)  
-
+  
 # add missing year flag to table====    
 sta_meta_orig <- left_join(sta_meta_orig, sta_miss_yr,  
                            by = "name")  
@@ -492,21 +493,21 @@ sta_meta_orig <- sta_meta_orig %>%
     num_year <= 3 ~ "no",  
     num_year >  3 ~ "yes"  
     )) %>%  
-  select(-num_year) 
+  select(-num_year)  
   
 # remove stations with 3 years of > 95% completeness====      
-sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig, 
-                          by = c("sta", 
-                                 "name", 
-                                 "longitude", 
-                                 "latitude", 
-                                 "elevation", 
-                                 "group", 
-                                 "mindate", 
-                                 "maxdate", 
-                                 "datacoverage", 
-                                 "type", 
-                                 "elevationUnit", 
+sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
+                          by = c("sta",  
+                                 "name",  
+                                 "longitude",  
+                                 "latitude",  
+                                 "elevation",  
+                                 "group",  
+                                 "mindate",  
+                                 "maxdate",  
+                                 "datacoverage",  
+                                 "type",  
+                                 "elevationUnit",  
                                  "elev_flag")) %>%  
   select(-c(sta_id, type))  
   
@@ -529,27 +530,27 @@ sta_dv_fin <- semi_join(sta_dv_orig, sta_meta_fin,
 # export files and prepare for table below====    
 export(sta_meta_fin, "data/sta_meta_fin.csv")    
   
-sta_meta_fin <- sta_meta_fin %>% 
-  select(sta) %>% 
-  mutate(selected = "yes")
-
-sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin, 
+sta_meta_fin <- sta_meta_fin %>%  
+  select(sta) %>%   
+  mutate(selected = "yes")  
+  
+sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin,  
                            by = "sta")  
-
+  
 export(sta_meta_orig, "data/sta_meta_orig.csv")   
-
+  
 # clean up global environment==== 
 rm(sta_miss_yr,   
    dateMin,  
    dateMax,  
-   sta_meta_fin, 
+   sta_meta_fin,  
    sta_miss_zero,  
    sta_dv_orig    
 )     
   
 ```   
 
-```{r check_prcp_data_quality, eval=FALSE}  
+```{r check_prcp_data_quality, eval=FALSE}   
   
 # Table of Measurement Flag/Attributes -- mflag----     
 # Blank = no measurement information applicable            
@@ -580,7 +581,7 @@ rm(sta_miss_yr,
 # W     = temperature too warm for snow            
 # X     = failed bounds check           
 # Z     = flagged as a result of an official Datzilla investigation  
-
+  
 # Table Source Flag/Attributes----     
 # Blank = No source (i.e., data value missing)  
 # 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
@@ -618,10 +619,10 @@ rm(sta_miss_yr,
   
 sta_check <- sta_dv_orig %>%  
   group_by(sta, mflag_prcp) %>%  
-  summarise(mflag = n()) %>% 
+  summarise(mflag = n()) %>%  
   filter(mflag_prcp != " ") %>%  
   group_by(mflag_prcp) %>%    
-  summarise(mflag = n()) %>% 
+  summarise(mflag = n()) %>%  
   ungroup()    
   
 # Measurement flags are T & P flags  
@@ -630,10 +631,10 @@ sta_check <- sta_dv_orig %>%
   
 sta_check <- sta_dv_orig %>%  
   group_by(sta, qflag_prcp) %>%  
-  summarise(qflag = n()) %>% 
+  summarise(qflag = n()) %>%  
   filter(qflag_prcp != " ") %>%  
   group_by(qflag_prcp) %>%    
-  summarise(qflag = n()) %>% 
+  summarise(qflag = n()) %>%  
   ungroup()    
   
 # quality flags are D, I, K, L, O flags  
@@ -645,10 +646,10 @@ sta_check <- sta_dv_orig %>%
   
 sta_check <- sta_dv_orig %>%  
   group_by(sta, sflag_prcp) %>%  
-  summarise(sflag = n()) %>% 
+  summarise(sflag = n()) %>%  
   filter(sflag_prcp != " ") %>%  
   group_by(sflag_prcp) %>%    
-  summarise(sflag = n()) %>% 
+  summarise(sflag = n()) %>%  
   ungroup()    
   
 # flags are 0, 7, B, H, K, W, X, Z  
@@ -666,18 +667,18 @@ rm(sta_check)
   
 ```  
 
-```{r fill-prcp-na, eval=FALSE}
+```{r fill-prcp-na, eval=FALSE}  
   
-# create a df of monthly precipitation values-NW-RAP---- 
+# create a df of monthly precipitation values-NW-RAP----  
 station <- "RAP"  
 sta_fil <- sta_dv_alt %>%  
   filter(sta == station)  
-
+  
 # fill missing data & check for missing days     
 sta_fil <- sta_dv_alt   %>%   
   filter(sta == station) %>%   
   filter(!is.na(prcp))                                     
-
+  
 sta_miss_day <- sta_fil        %>%     
   group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
@@ -731,342 +732,342 @@ rm(sta_alt,
   
 # create a df of monthly precipitation values-NC-COT----  
 station <- "COT"  
-sta_fil <- sta_dv_alt %>% 
+sta_fil <- sta_dv_alt %>%  
   filter(sta == station)  
-
+  
 # fill missing data & check for missing days     
 sta_fil <- sta_fil       %>%   
   filter(sta == station) %>%   
-  filter(!is.na(prcp))                                     
-
+  filter(!is.na(prcp))           
+  
 sta_miss_day <- sta_fil        %>%     
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)     
-
+  
 sta_short_name <- sta_fil %>%   
   slice(1) %>%  
   select(sta, id)   
-
+  
 # get alternate site data & check if sta_mis_day = 0      
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^MILES")) %>%        
   filter(!is.na(prcp))    
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)    
-
+  
 # get alternate site data & check if sta_mis_day = 0        
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^INTERIOR")) %>%        
   filter(!is.na(prcp))                             
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)   
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # get alternate site data & check if sta_mis_day = 0  
-# Phillip & Plainview were big zeros
+# Phillip & Plainview were big zeros  
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^DUPREE")) %>%        
   filter(!is.na(prcp))  
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)  
-
+  
 sta_miss_day <- sta_fil        %>%   
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)   
-
+  
 # make a filled prcp df & clean up      
 sta_cot <- sta_fil  
-
+  
 rm(sta_alt,  
    sta_fil,  
    sta_miss_day,  
    sta_short_name  
-   )     
-
-# create a df of monthly precipitation values-NE-ONI---- 
+   )                 
+  
+# create a df of monthly precipitation values-NE-ONI----  
 station <- "ONI"  
-sta_fil <- sta_dv_alt %>% 
+sta_fil <- sta_dv_alt %>%  
   filter(sta == station)  
-
+  
 # fill missing data & check for missing days     
 sta_fil <- sta_fil       %>%   
   filter(sta == station) %>%   
-  filter(!is.na(prcp))                                     
-
+  filter(!is.na(prcp))          
+  
 sta_miss_day <- sta_fil        %>%     
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)     
-
+  
 sta_short_name <- sta_fil %>%   
   slice(1) %>%  
   select(sta, id)   
-
+  
 # get alternate site data & check if sta_mis_day = 0      
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^KENNE")) %>%        
   filter(!is.na(prcp))    
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)    
-
+  
 # get alternate site data & check if sta_mis_day = 0        
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^PIERRE")) %>%        
   filter(!is.na(prcp))                             
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)   
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # make a summary & monthly prcp df & clean up       
 sta_oni <- sta_fil  
-
+  
 rm(sta_alt,  
    sta_fil,  
    sta_miss_day,  
    sta_short_name  
    )     
-
+  
 # create a df of monthly precipitation values-SW-OEL----   
 station <- "OEL"  
-sta_fil <- sta_dv_alt %>% 
+sta_fil <- sta_dv_alt %>%  
   filter(sta == station)  
-
+  
 # fill missing data & check for missing days     
 sta_fil <- sta_fil       %>%   
   filter(sta == station) %>%   
   filter(!is.na(prcp))                                     
-
+  
 sta_miss_day <- sta_fil        %>%     
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)     
-
+  
 sta_short_name <- sta_fil %>%   
   slice(1) %>%  
   select(sta, id)   
-
+  
 # get alternate site data & check if sta_mis_day = 0      
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^ORAL")) %>%        
   filter(!is.na(prcp))    
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)    
-
+  
 # get alternate site data & check if sta_mis_day = 0        
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^HOT SPRINGS")) %>%        
   filter(!is.na(prcp))                             
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)   
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # make a filled prcp df & clean up     
 sta_oel <- sta_fil  
-
+  
 rm(sta_alt,  
    sta_fil,  
    sta_miss_day,  
    sta_short_name  
    )     
-
+  
 # create a df of monthly precipitation values-SC-GOR----  
 station <- "GOR"  
-sta_fil <- sta_dv_alt %>% 
+sta_fil <- sta_dv_alt %>%  
   filter(sta == station)  
-
+  
 # fill missing data & check for missing days     
 sta_fil <- sta_fil       %>%   
   filter(sta == station) %>%   
   filter(!is.na(prcp))                                     
-
+  
 sta_miss_day <- sta_fil        %>%     
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)     
-
+  
 sta_short_name <- sta_fil %>%   
   slice(1) %>%  
   select(sta, id)   
-
+  
 # get alternate site data & check if sta_mis_day = 0      
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^VALENTINE NWR")) %>%        
   filter(!is.na(prcp))    
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)    
-
+  
 # get alternate site data & check if sta_mis_day = 0        
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^MULLEN")) %>%        
   filter(!is.na(prcp))                             
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)   
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # get alternate site data & check if sta_mis_day = 0        
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^ELLSWORTH")) %>%        
   filter(!is.na(prcp))                             
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)   
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # make a filled prcp df & clean up     
 sta_gor <- sta_fil  
-
+  
 rm(sta_alt,  
    sta_fil,  
    sta_miss_day,  
    sta_short_name  
    )     
-
+  
 # create a df of monthly precipitation values-SW-MIS----  
 station <- "MIS"  
-sta_fil <- sta_dv_alt %>% 
+sta_fil <- sta_dv_alt %>%  
   filter(sta == station)  
-
+  
 # fill missing data & check for missing days     
 sta_fil <- sta_fil       %>%   
   filter(sta == station) %>%   
   filter(!is.na(prcp))                                     
-
+  
 sta_miss_day <- sta_fil        %>%     
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)     
-
+  
 sta_short_name <- sta_fil %>%   
   slice(1) %>%  
   select(sta, id)   
-
+  
 # get alternate site data & check if sta_mis_day = 0      
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^WOOD")) %>%        
   filter(!is.na(prcp))    
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)  
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%    
   summarise(num_day = n())     %>%  
   ungroup()                    %>%  
   filter(num_day < 365)    
-
+  
 # get alternate site data & check if sta_mis_day = 0        
 sta_alt <- sta_dv_alt %>%   
   filter(str_detect(name, "^VALENTINE MILLER")) %>%        
   filter(!is.na(prcp))                             
-
+  
 sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
   mutate(sta = sta_short_name$sta)   
-
+  
 sta_fil <- bind_rows(sta_alt, sta_fil)   
-
+  
 sta_miss_day <- sta_fil        %>%    
   group_by(sta, year)          %>%   
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
-
+  
 # make a filled prcp df & clean up     
 sta_mis <- sta_fil  
-
+  
 rm(sta_alt,  
    sta_fil,  
    sta_miss_day,  
    sta_short_name  
    )     
-
+  
 # join the filled data & clean up----  
 sta_dv_fill <- bind_rows(sta_rap,  
                          sta_cot,  
@@ -1075,62 +1076,42 @@ sta_dv_fill <- bind_rows(sta_rap,
                          sta_gor,  
                          sta_mis  
                          )  
-
+  
 rm(sta_rap,  
    sta_cot,  
    sta_oni,  
    sta_oel,  
    sta_gor,  
-   sta_mis, 
+   sta_mis,  
    station  
 )  
-
+  
 # create monthly data from the daily data----    
 sta_mon <- sta_dv_fill          %>%  
   arrange(date)                 %>%  
   group_by(sta, month, year)    %>%  
   summarize(prcp = sum(prcp))   %>%  
-  ungroup()                     %>% 
+  ungroup()                     %>%  
   mutate(day     = 15)          %>%  
   mutate(date    = make_date(year   = year,  
                               month = month,  
                               day   = day)  
   ) %>%           
-  select(sta, date, prcp) 
-
-# export and clean-up data 
+  select(sta, date, prcp)   
+  
+# export and clean-up data  
 export(sta_dv_fill, "data/sta_dv_fill.csv")    
 export(sta_mon, "data/sta_mon.csv")  
-
+  
 rm(sta_dv_alt,  
-   sta_dv_fill)
-
+   sta_dv_fill)  
+  
 ```  
 
-```{r import_streamflow_data, eval=FALSE}   
-  
-# import full streamflow records----   
-gage_mon_full <- import("data/gage_mon_full.csv")   
-gage_meta <-  import("data/gage_meta.csv")   
-  
-gage_eco <- gage_mon_full %>%  
-  select(sta, ecoreg) %>%  
-  distinct()  
-  
-# add ecoregions & reduce set to full-gages  
-lmom_gage_meta <- right_join(gage_meta, gage_eco,  
-                            by = "sta")  
-  
-rm(gage_eco,  
-   gage_meta 
-   )      
-  
-```
-
 # use bootstrapping to check precip differences 
-```{r bootstrap_precip}  
+```{r bootstrap_precip}   
   
-# Construct bootstrap confidence intervals of precipitation----   
+# Construct bootstrap confidence intervals of precipitation----    
 #   to identify differences in means   
 # Monthly precipitation data is from 1954 to 2018 = 65 years  
 #   Split data into two groups of 30 years & test for differences  
@@ -1180,7 +1161,7 @@ prcp_dabest <- sta_mon %>%
                       "GOR>1989",  
                       "ONI>1989",  
                       "MIS>1989")  
-         ),  
+         ),                   
          paired    = TRUE,  
          reps      = 20000,  
          id.column = group   
@@ -1201,7 +1182,9 @@ ggplot2::ggsave(filename = "figure/prcp_dif.png",
                 width = 6.5, height = 4.5, units = "in")  
   
 rm(prcp_dabest)    
+  
 ```
+
 
 <!--
 need to finish this 
@@ -1281,12 +1264,12 @@ rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)
 -->
 
 ```{r compare_precip_locations}  
-   
-# the bootstrapping showed there is some difference between past & present   
-sta_pres <- sta_mon %>%   
-  filter(yr > 1988)   
   
-export(sta_pres, "data/sta_pres.csv")  
+# the bootstrapping showed there is some difference between past & present   
+sta_pres <- sta_mon %>%    
+filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
+  
+export(sta_pres, "data/sta_pres.csv")   
   
 # comparison of locations----   
 # split out northwest & southeast to prepare for plot    
@@ -1341,19 +1324,18 @@ ggplot2::ggsave(filename = "figure/prcp_loc_dif.png",
 
 rm(nw,  
    se,  
-   prcp_compare  
+   prcp_compare, 
+   sta_mon  
    )  
-
-rm(sta_mon)  
   
 ```
 
 # L-moments 
 ```{r lmoments_prcp, eval=FALSE}
-
+  
 sta_pres     <- import("data/sta_pres.csv")  
 sta_meta_fin <- import("data/sta_meta_fin.csv")
-
+  
 # Note that we might consider Weiss 1964 bias value of 1.018 for L1   
   
 # Calculate L-moment ratios   
@@ -1428,13 +1410,38 @@ lmom_sta <- full_join(lmom_sta_nm, lmom_sta,
 # join the lmoments to the metadata   
 sta_meta_lmom <- full_join(sta_meta_fin, lmom_sta,   
                            by = "sta")   
-
+  
 export(sta_meta_lmom, "data/sta_meta_lmom.csv")    
-   
+  
 rm(sta_meta_fin,   
    lmom_sta_nm,  
    sta_pres  
    )   
+  
+```
+
+```{r import_streamflow_data, eval=FALSE}    
+  
+# import full streamflow records----   
+gage_mon_pres <- import("data/gage_mon_full.csv") %>%  
+  mutate(Date = ymd(Date)) %>%  
+  filter(between(Date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
+  
+gage_meta <-  import("data/gage_meta.csv")   
+  
+gage_eco <- gage_mon_pres %>%  
+  select(sta, ecoreg) %>%  
+  distinct()  
+  
+# add ecoregions & reduce set to full-gages  
+lmom_gage_meta <- right_join(gage_meta, gage_eco,  
+                            by = "sta")  
+  
+rm(gage_eco,  
+   gage_meta  
+   )      
+  
+export(gage_mon_pres, "data/gage_mon_pres.csv")  
   
 ```
 
@@ -1443,7 +1450,7 @@ rm(sta_meta_fin,
 # Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
   
 # Calculate L-moment ratios   
-lmom_gage <- gage_mon_full %>%  
+lmom_gage <- gage_mon_pres %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$log_q1_mon)) %>%    
   transpose() %>%  
@@ -1478,7 +1485,7 @@ lmom_gage <- gage_mon_full %>%
   )  
   
 # get station names from the list  
-lmom_gage_list <- gage_mon_full %>%  
+lmom_gage_list <- gage_mon_pres %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$log_q1_mon)) %>%  
   transpose()  
@@ -1537,15 +1544,15 @@ rm(bad_fpi,
    lmom_gage_list,  
    lmom_gage_nm,  
    lmom_gage,  
-   gage_mon_full,  
+   gage_mon_pres,  
    dischord, 
    lmom_gage_meta  
    )  
   
 ```
 
-```{r Lmoment_diagram_ratios}
-# extract elements from the lmrdia list to plot in ggplot2         
+```{r Lmoment_diagram_ratios}  
+# extract elements from the lmrdia list to plot in ggplot2          
 #   the x-value is the L-skewness and y-value is L-kurtosis    
   
 # get vals from the lmrdia list   
@@ -1584,7 +1591,7 @@ lmom_theo <- bind_rows(gev,
                   gpa,   
                   gno,   
                   gov,   
-                  pe3   
+                  pe3    
                   ) %>%  
   rename(L_skew = V1) %>%  
   rename(L_kurtosis = V2)  
@@ -1600,7 +1607,7 @@ rm(gev,
   
 ```  
 
-```{r plot-lmoment-diagram} 
+```{r plot-lmoment-diagram}  
   
 # prepare station data for plot====   
 lmom_sta <- import("data/sta_meta_lmom.csv") %>%  
@@ -1617,10 +1624,10 @@ lmom_sta <- import("data/sta_meta_lmom.csv") %>%
 # prepare gage data for plot====       
 # drop discordant stations & calculate ecoregion vals  
 lmom_gage <- import("data/gage_meta_lmom.csv")  
-
-discord <- lmom_gage %>% 
+  
+discord <- lmom_gage %>%  
   filter(isD == TRUE)  
-
+  
 lmom_gage <- lmom_gage %>%  
   select(sta,  
          flow_regime,  
@@ -1631,10 +1638,10 @@ lmom_gage <- lmom_gage %>%
          L_kurtosis,  
          isD   
   ) %>%  
-  filter(isD == FALSE)  %>% 
+  filter(isD == FALSE)  %>%  
   select(-isD) %>%  
   mutate(type = "gage")  
-
+  
 # calculate ecoregion values  
 lmom_ecoreg <- lmom_gage %>%  
   group_by(ecoreg) %>%  
@@ -1708,27 +1715,27 @@ ggplot(lmom_data,
                type     = type_labels  
              )  
   ) +  
-  # add l-moments 
+  # add l-moments  
   geom_line(data = lmom_theo,  
-            size = 0.5, 
-            color = "gray30", 
+            size = 0.5,  
+            color = "gray30",  
             aes(L_skew,  
                 L_kurtosis,  
                 group = distribution,  
-                linetype = distribution
-            )) + 
-  scale_linetype_discrete(name = "Distribution") + 
-  # add individual station data 
-  geom_point(
-    size = 2, 
+                linetype = distribution  
+            )) +   
+  scale_linetype_discrete(name = "Distribution") +  
+  # add individual station data  
+  geom_point(  
+    size = 2,  
     aes(shape = flow_regime,   
-        color = ecoreg
-    )) + 
-  scale_shape_discrete(name = "Type") +
-  scale_colour_grey(
-    breaks = rev(
+        color = ecoreg  
+    )) +  
+  scale_shape_discrete(name = "Type") +  
+  scale_colour_grey(  
+    breaks = rev(  
       levels(lmom_data$ecoreg)  
-    ), 
+    ),  
     guide = "legend", 
     start      = 0.0,    
     end        = 0.6,    
@@ -1756,12 +1763,12 @@ rm(discord,
 )        
   
 ```  
--> START HERE
+
 # calculate SCI  
 ```{r identify_representive_gages}  
   
 # import streamflow records & metadata----     
-gage_mon <- import("data/gage_mon_full.csv")  
+gage_mon <- import("data/gage_mon_pres.csv")  
   
 # remove discordant stations & discord calcs  
 gage_meta <- import("data/gage_meta_lmom.csv") %>%  
@@ -1806,14 +1813,15 @@ gage_meta <- left_join(gage_meta, gage_mean,
 #                        by = "sta") %>%  
   
 # create a 30-year record for input  
-sri_input <- gage_mon %>%  
-  mutate(year = year(Date)) %>%  
-  filter(year > 1988)     
-  
+sri_input <- gage_mon  
+
 # export selection and clean-up  
-export(sri_input, "data/sri_input.csv")  
+# export(sri_input, "data/sri_input.csv")  - delete this??
   
-gage_sri_meta <- semi_join(gage_meta, sri_input)
+gage_sri_meta <- semi_join(gage_meta, sri_input,   
+                           by = c("sta", "ecoreg")  
+                           )  
+
 rm(sri_input,  
    gage_mean,  
    gage_meta,  
@@ -1854,7 +1862,10 @@ sci.fun <- function(sta, time_scale) fitSCI( x = sta,
   
 ```  
 
-```{r prepare_calculate_SPI, eval=FALSE}
+```{r prepare_calculate_SPI, eval=FALSE} 
+  
+sta_pres <- import("data/sta_pres.csv") %>%  
+  mutate(date = ymd(date))  
   
 # prepare sci function vector inputs (1989-01 to 2017-01)----     
 # north-west (NW)   
@@ -1894,7 +1905,7 @@ gor <- as.double(sta_gor$prcp)
   
 # south-east (SE)  
 sta_mis <- sta_pres %>%  
-  arrange(date) %>% 
+  arrange(date) %>%  
   filter(sta == "MIS")   
   
 mis <- as.double(sta_mis$prcp)   
@@ -1962,7 +1973,7 @@ sci_rap <- bind_cols(sta_rap,
   rename(sci_4mo = value3)  %>%   
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
-  rename(sci_12mo = value6)  
+  rename(sci_12mo = value6)      
   
 # clean up global environment====  
 rm(sci_1mo,  
@@ -2038,7 +2049,7 @@ sci_cot <- bind_cols(sta_cot,
   rename(sci_4mo = value3)  %>%  
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%   
-  rename(sci_12mo = value6)  
+  rename(sci_12mo = value6)       
   
 # clean up global environment  
 rm(sci_1mo,  
@@ -2048,7 +2059,7 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )     
+   )           
 rm(sta_cot, cot)  
   
 # calculate SCI-oni----   
@@ -2114,7 +2125,7 @@ sci_oni <- bind_cols(sta_oni,
   rename(sci_4mo = value3)  %>%  
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%  
-  rename(sci_12mo = value6)  
+  rename(sci_12mo = value6)      
   
 # clean up global environment  
 rm(sci_1mo,  
@@ -2124,7 +2135,7 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )    
+   )         
 rm(sta_oni, oni)  
   
 # calculate SCI-oel----  
@@ -2200,7 +2211,7 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )    
+   )         
 rm(sta_oel, oel)    
   
 # calculate SCI-gor----  
@@ -2342,7 +2353,7 @@ sci_mis <- bind_cols(sta_mis,
   rename(sci_4mo = value3)  %>%  
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%  
-  rename(sci_12mo = value6) 
+  rename(sci_12mo = value6)      
   
 # clean up global environment  
 rm(sci_1mo,  
@@ -2378,18 +2389,8 @@ sci_sta <- bind_rows(
 # export sci data        
 export(sci_sta, "data/sci_sta.csv")  
   
-# clean up workspace    
-rm(distrib,  
-   first_mon,   
-   p_zero,   
-   p_zero_cm,   
-   scale,   
-   sci.limit,   
-   sta,   
-   time_scale,   
-   warn_me,  
-   sci.fun,  
-   sci_cot,  
+# clean up workspace     
+rm(sci_cot,  
    sci_gor,  
    sci_mis,  
    sci_oel,  
@@ -2398,12 +2399,22 @@ rm(distrib,
    sta_pres  
    )         
   
+#distrib,  
+#   first_mon,   
+#   p_zero,   
+#   p_zero_cm,   
+#   scale,   
+#   sci.limit,   
+#   sta,   
+#   time_scale,   
+#   warn_me,  
+#   sci.fun,  
 ```  
 
 ```{r prepare_SRI, eval=FALSE}  
   
 # import and check gage data (1989-01 to 2017-09-15)----    
-sri_input <- import("data/sri_input.csv") %>%    
+sri_input <- import("data/sri_input.csv") %>%     
   rename(date = Date) %>%   
   mutate(date = ymd(date)) %>%  
   arrange(date) %>%  
@@ -2520,7 +2531,7 @@ rm(sri_check,
   
 ```  
 
-```{r calculate_SRI}
+```{r calculate_SRI} 
   
 # calculate SCI_blp----  
 # SCI calcs - bha_bat -- set up the station for sci & make sci list vars====  
@@ -4058,7 +4069,7 @@ rm(
 
 ```{r join_SRI}
 # join sci data----  
-# join black hills plateau SCI vals====  
+# join black hills plateau SCI vals====   
 sci_bhp <- bind_rows(sci_bhp_bat,  
                      sci_bhp_bev,  
                      sci_bhp_fal,  
@@ -4233,7 +4244,7 @@ decomp_fun <- function(df) {
   
 ```
 
-```{r deconvolute_spi}  
+```{r deconvolute_spi}   
   
 # deconvolute the grouped prcp into trend, seasonal & random components----    
   
@@ -4244,7 +4255,7 @@ decomp_fun <- function(df) {
 sta_meta_fin <- import("data/sta_meta_fin.csv")       
   
 # prepare for deconvoluting the grouped precip====    
-spi_sta <- spi_sta %>%   
+sci_sta <- sci_sta %>%   
   mutate(prcp = as.numeric(prcp)) %>%     
   arrange(date) %>%   
   as_tibble() %>%   
@@ -4261,7 +4272,7 @@ spi_sta <- spi_sta %>%
   
 # identify frequency of seasonality -- should be 12 months====      
 #   the level is group rather than station - so need to combine stations  
-freq <- spi_sta  %>%     
+freq <- sci_sta  %>%     
   split(.$group) %>%   
   map_dfc(~ anomalize::time_frequency(  
     period       = "auto",  
@@ -4276,7 +4287,7 @@ freq <- spi_sta  %>%
   )   
   
 #   identify trend of periodicity -- should be 60 months====  
-trend <- spi_sta  %>%  
+trend <- sci_sta  %>%  
   split(.$group) %>%   
   map_dfc(~ anomalize::time_trend(  
     period       = "auto", data = .)   
@@ -4291,24 +4302,23 @@ trend <- spi_sta  %>%
 # decompose prcp into seasonal, trend, & remainder====    
 FREQ   <- "12 months"  
 TREND  <- "60 months"   
-TARGET <- "spi_1mo"  
+TARGET <- "sci_1mo"  
   
-spi_seas <- spi_sta %>%   
-  decomp_fun() 
+spi_seas <- sci_sta %>%   
+  decomp_fun()  
   
-# clean up global environment####  
+# clean up global environment====    
 rm(freq,  
    trend,      
    FREQ,  
    TARGET,  
-   TREND,  
-   decomp_fun  
+   TREND  
    )    
   
 ```  
 
 ```{r plot_seasonality_spi} 
-# this code chunk is set up for both spi & sri seasonality plotting 
+# this code chunk is set up for both spi & sri seasonality plotting  
   
 # check for anomonies====     
 spi_anom <- spi_seas %>%   
@@ -4321,7 +4331,7 @@ sta_color  <- "black"
 # prcp observations plot====  
 spi_obs <- 
 spi_seas %>%  
-  ggplot(aes(date, spi_1mo)) +     
+  ggplot(aes(date, sci_1mo)) +     
   theme_bw() +  
   xlab("") +  
   ylab("SPI 1-month") +   
@@ -4484,7 +4494,7 @@ rm(freq,
   
 # calculate group median & MAD====   
 sri_seas_ecoreg <- sri_seas %>%  
-  group_by(ecoreg, date) %>%  
+  group_by(ecoreg, date) %>%   
   summarise(sci_1mo_mad    = mad(sci_1mo),   
             sci_1mo_med    = median(sci_1mo),   
             sci_seas_mad   = mad(season),   
@@ -4552,9 +4562,9 @@ sri_remain_mad <- sri_seas_ecoreg %>%
 ```
 
 ```{r plot_seasonality_sri}
-
+  
 sri_anom <- sri_seas %>% 
-  filter(anomaly == "Yes") 
+  filter(anomaly == "Yes")  
 
 # set plotting position====     
 sri_seas <- sri_seas %>% 
@@ -4592,7 +4602,7 @@ sri_obs <- sri_seas %>%
             colour          = "gray80"  
   )  +  
 # plot median +/- 1 MAD  
-  geom_line(data = sri_1mo_mad,  
+  geom_line(data = sri_1mo_mad,   
             aes(date, val),  
             size            = 0.6,  
             colour          = "gray50"  
@@ -4738,31 +4748,30 @@ sci_gage <- import("data/sci_gage.csv") %>%
 
 sta_meta  <- import("data/sta_meta_fin.csv") 
 
-gage_meta <- import("data/gage_meta_lmom.csv") %>%  
- rename(gage = sta) %>%      # NEED TO FIX DUPLICATE COLS   
-  rename(years = years.x) %>%   
-  select(-c(ecoreg.x, years.y, ecoreg.y)) %>%  
+gage_meta <- import("data/gage_meta_seas.csv") %>%  
+ rename(gage = sta) %>%  
   filter(isD == FALSE)  
-
-
-sci_ts <- anti_join(sci_gage, gage_meta) %>% 
-  distinct(gage)
   
-# check years
-yr_ck_s <- sci_sta %>% 
+# check data====  
+yr_ck_sta <- sci_sta %>%  
+  select(date) %>% 
+  mutate(max = max(date)) %>% 
+  mutate(min = min(date)) %>%  
+  select(-date) %>% 
   distinct() %>% 
-  group_by(yr) %>% 
-  summarize(count = n()) %>% 
-  group_by(count) %>% 
-  summarise(yrs = n()) 
+  mutate(type = "sta")
 
-yr_ck_g <- sci_gage %>% 
+yr_ck_gage <- sci_gage %>%  
+  select(date) %>% 
+  mutate(max = max(date)) %>% 
+  mutate(min = min(date)) %>%  
+  select(-date) %>% 
   distinct() %>% 
-  mutate(yr = year(date)) %>% 
-  group_by(yr) %>% 
-  summarize(count = n()) %>% 
-  group_by(count) %>% 
-  summarise(yrs = n()) 
+  mutate(type = "gage")  
+
+yr_ck <- bind_rows(yr_ck_sta, yr_ck_gage)
+
+
   
 
 
