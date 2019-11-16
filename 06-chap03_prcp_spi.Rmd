@@ -333,12 +333,12 @@ sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),
   mutate(mindate = ymd(mindate)) %>%  
   mutate(maxdate = ymd(maxdate)) %>%                  
   # remove 'young' stations    
-  filter(mindate < "1988-01-01") %>%                    # n = 434  
+  filter(mindate < "1988-09-15") %>%                    # n = 434  
   # remove 'dead' stations    
-  filter(maxdate > "2018-01-01") %>%                    # n =  66    
+  filter(maxdate > "2018-09-15") %>%                    # n =  64    
   # keep only the GHCND stations   
-  filter(str_detect(id, "^GHCND"))  %>%                 # n =  60      
-  filter(!str_detect(name, "^MAGPIE"))                  # n =  59  
+  filter(str_detect(id, "^GHCND"))   %>%                # n =  58      
+  filter(!str_detect(name, "^MAGPIE"))                  # n =  57   
   
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(elev_flag = case_when(  
@@ -528,6 +528,7 @@ sta_dv_fin <- semi_join(sta_dv_orig, sta_meta_fin,
                         by = "sta")  
   
 # export files and prepare for table below====    
+export(sta_dv_fin, "data/sta_dv_fin.csv")  
 export(sta_meta_fin, "data/sta_meta_fin.csv")    
   
 sta_meta_fin <- sta_meta_fin %>%  
@@ -538,21 +539,10 @@ sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin,
                            by = "sta")  
   
 export(sta_meta_orig, "data/sta_meta_orig.csv")   
+export(sta_dv_orig, "data/sta_dv_orig.csv")  
   
-# clean up global environment==== 
-rm(sta_miss_yr,   
-   dateMin,  
-   dateMax,  
-   sta_meta_fin,  
-   sta_miss_zero,  
-   sta_dv_orig    
-)     
-  
-```   
-
-```{r check_prcp_data_quality, eval=FALSE}   
-  
-# Table of Measurement Flag/Attributes -- mflag----     
+# check_prcp_data_quality====  
+# Table of Measurement Flag/Attributes -- mflag      
 # Blank = no measurement information applicable            
 # A     = precip depth is a multi-day total, accumulated since last meas         
 # B     = precipitation total formed from two twelve-hour totals  
@@ -617,7 +607,7 @@ rm(sta_miss_yr,
 # Z  = Datzilla official additions or replacements           
 # z  = Uzbekistan update   
   
-sta_check <- sta_dv_orig %>%  
+sta_check <- sta_dv_fin %>%  
   group_by(sta, mflag_prcp) %>%  
   summarise(mflag = n()) %>%  
   filter(mflag_prcp != " ") %>%  
@@ -629,7 +619,7 @@ sta_check <- sta_dv_orig %>%
 # P     = identified as "missing presumed zero" in DSI 3200 and 3206           
 # T     = trace of precipitation, snowfall, or snow depth   
   
-sta_check <- sta_dv_orig %>%  
+sta_check <- sta_dv_fin %>%  
   group_by(sta, qflag_prcp) %>%  
   summarise(qflag = n()) %>%  
   filter(qflag_prcp != " ") %>%  
@@ -644,7 +634,7 @@ sta_check <- sta_dv_orig %>%
 # L     = failed check on length of multiday period  
 # O     = failed climatological outlier check            
   
-sta_check <- sta_dv_orig %>%  
+sta_check <- sta_dv_fin %>%  
   group_by(sta, sflag_prcp) %>%  
   summarise(sflag = n()) %>%  
   filter(sflag_prcp != " ") %>%  
@@ -662,12 +652,25 @@ sta_check <- sta_dv_orig %>%
 # W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
 # X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
 # Z  = Datzilla official additions or replacements           
-  
-rm(sta_check)   
-  
+
+# clean up global environment==== 
+rm(sta_miss_yr,   
+   dateMin,  
+   dateMax,  
+   sta_meta_fin,  
+   sta_miss_zero,  
+   sta_dv_orig,  
+   sta_check,  
+   sta_dv_fin, 
+   sta_meta_orig,  
+)   
+
 ```  
 
 ```{r fill-prcp-na, eval=FALSE}  
+  
+sta_dv_fil <- import("data/sta_dv_fin.csv")  
+sta_dv_alt <- import("data/sta_dv_orig.csv")  
   
 # create a df of monthly precipitation values-NW-RAP----  
 station <- "RAP"  
@@ -736,7 +739,7 @@ sta_fil <- sta_dv_alt %>%
   filter(sta == station)  
   
 # fill missing data & check for missing days     
-sta_fil <- sta_fil       %>%   
+sta_fil <- sta_dv_fil       %>%   
   filter(sta == station) %>%   
   filter(!is.na(prcp))           
   
@@ -1103,8 +1106,11 @@ sta_mon <- sta_dv_fill          %>%
 export(sta_dv_fill, "data/sta_dv_fill.csv")    
 export(sta_mon, "data/sta_mon.csv")  
   
-rm(sta_dv_alt,  
-   sta_dv_fill)  
+rm(sta_dv_alt,   
+   sta_dv_fill,  
+   sta_dv_fil,  
+   sta_mon  
+   )  
   
 ```  
 
@@ -1122,7 +1128,7 @@ rm(sta_dv_alt,
   
 # import final monthly precip data & prepare for bootstrapping====   
 sta_mon <- import("data/sta_mon.csv") %>%  
-  mutate(date = ymd(date)) %>%  
+  mutate(date = ymd(date)) %>%   
   mutate(yr = year(date)) %>%     
   
   # create an id variable  
@@ -1181,95 +1187,20 @@ plot(prcp_dabest,
 ggplot2::ggsave(filename = "figure/prcp_dif.png",   
                 width = 6.5, height = 4.5, units = "in")  
   
-rm(prcp_dabest)    
+rm(prcp_dabest,  
+   sta_mon  
+   )      
   
 ```
 
-
-<!--
-need to finish this 
-```{r ci_result_table, eval=FALSE}  
-
-# get mean precipitation 
-prcp <- spi_fin %>%  
-  group_by(group) %>%  
-  summarise(prcp = mean(prcp)) %>% 
-  ungroup() 
-
-rap_bef <- prcp %>% 
-  filter(group == "RAP<1989") %>% 
-  select(-group) %>% 
-  as.double()
-
-# pluck results for summary tables & bind====
-prcp_results <- prcp_dabest %>% 
-  pluck("result") %>% 
-  select(-c(func,  
-            paired,  
-            variable,  
-            bootstraps,  
-            nboots,  
-            pct_ci_low,  
-            pct_ci_high  
-  )  
-  )   
-
-prcp_results <- full_join(prcp_results, prcp, 
-                  by = c("test_group" = "group")  
-                  ) %>% 
-  filter(test_group != "RAP<1989") %>% 
-  mutate(control_group = case_when(  
-    is.na(control_group) ~ "RAP<1989",  
-    TRUE ~ control_group  
-    )
-  ) %>%  
-  mutate(difference = case_when(  
-    is.na(difference) ~ prcp - rap_bef,  
-    TRUE ~ difference  
-    )
-  ) %>% 
-  mutate(ci = as.integer(ci))  %>% 
-  mutate_if(is.numeric, round, digits = 0)  
-
-
-# convert tibble to a flextable after fixing vars for presentation==== 
-prcp_table <- prcp_table %>% 
-  flextable() %>% 
-  #  colformat_num(col_keys = col_key_num, 
-  #                big.mark=",", 
-  #                digits = 1, na_str = "N/A") %>% 
-  set_header_labels(control_group = "Control Group", 
-                    test_group = "Test Groups", 
-                    control_size = "Control Size",
-                    test_size = "Test Size", 
-                    func = "Test Statistic", 
-                    variable = "Variable",
-                    difference = "Mean Difference", 
-                    ci = "CI", 
-                    bca_ci_low = "Lower Limit", 
-                    bca_ci_high = "Upper Limit") %>% 
-  autofit() %>% 
-  align(., part = "all", align = "center") %>% 
-  theme_booktabs() 
-
-
-ci_table2 <- read_docx() %>% 
-  body_add_flextable(value = ci_table)   
-  
-print(ci_table2, target = "output/ci_table.docx") 
-  
-rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table) 
-  
-```  
--->
-
 ```{r compare_precip_locations}  
   
+sta_mon <- import("data/sta_mon.csv") %>%    
+  mutate(date = ymd(date))  
+
 # the bootstrapping showed there is some difference between past & present   
-sta_pres <- sta_mon %>%    
+sta_pres <- sta_mon %>%  
 filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
-  
-export(sta_pres, "data/sta_pres.csv")   
   
 # comparison of locations----   
 # split out northwest & southeast to prepare for plot    
@@ -1325,7 +1256,8 @@ ggplot2::ggsave(filename = "figure/prcp_loc_dif.png",
 rm(nw,  
    se,  
    prcp_compare, 
-   sta_mon  
+   sta_mon,  
+   sta_pres  
    )  
   
 ```
@@ -1333,13 +1265,13 @@ rm(nw,
 # L-moments 
 ```{r lmoments_prcp, eval=FALSE}
   
-sta_pres     <- import("data/sta_pres.csv")  
+sta_mon     <- import("data/sta_mon.csv")  
 sta_meta_fin <- import("data/sta_meta_fin.csv")
   
 # Note that we might consider Weiss 1964 bias value of 1.018 for L1   
   
 # Calculate L-moment ratios   
-lmom_sta <- sta_pres %>%  
+lmom_sta <- sta_mon %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$prcp)) %>%    
   transpose() %>%  
@@ -1374,7 +1306,7 @@ lmom_sta <- sta_pres %>%
   )  
   
 # get station names from the list  
-lmom_sta_nm <- sta_pres %>%  
+lmom_sta_nm <- sta_mon %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$prcp)) %>%  
   transpose()  
@@ -1415,7 +1347,9 @@ export(sta_meta_lmom, "data/sta_meta_lmom.csv")
   
 rm(sta_meta_fin,   
    lmom_sta_nm,  
-   sta_pres  
+   sta_mon, 
+   lmom_sta,  
+   sta_meta_lmom  
    )   
   
 ```
@@ -1423,13 +1357,15 @@ rm(sta_meta_fin,
 ```{r import_streamflow_data, eval=FALSE}    
   
 # import full streamflow records----   
-gage_mon_pres <- import("data/gage_mon_full.csv") %>%  
-  mutate(Date = ymd(Date)) %>%  
-  filter(between(Date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
+gage_mon <- import("data/gage_mon_full.csv") %>%  
+  mutate(Date = ymd(Date)) 
+  
+#%>%  
+#  filter(between(Date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
   
 gage_meta <-  import("data/gage_meta.csv")   
   
-gage_eco <- gage_mon_pres %>%  
+gage_eco <- gage_mon %>%  
   select(sta, ecoreg) %>%  
   distinct()  
   
@@ -1441,16 +1377,12 @@ rm(gage_eco,
    gage_meta  
    )      
   
-export(gage_mon_pres, "data/gage_mon_pres.csv")  
-  
-```
-
-```{r lmoments_streamflow, eval=FALSE} 
+export(gage_mon, "data/gage_mon.csv")  
   
 # Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
   
-# Calculate L-moment ratios   
-lmom_gage <- gage_mon_pres %>%  
+# Calculate L-moment ratios====     
+lmom_gage <- gage_mon %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$log_q1_mon)) %>%    
   transpose() %>%  
@@ -1485,7 +1417,7 @@ lmom_gage <- gage_mon_pres %>%
   )  
   
 # get station names from the list  
-lmom_gage_list <- gage_mon_pres %>%  
+lmom_gage_list <- gage_mon %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$log_q1_mon)) %>%  
   transpose()  
@@ -1544,7 +1476,7 @@ rm(bad_fpi,
    lmom_gage_list,  
    lmom_gage_nm,  
    lmom_gage,  
-   gage_mon_pres,  
+   gage_mon,  
    dischord, 
    lmom_gage_meta  
    )  
@@ -1610,7 +1542,7 @@ rm(gev,
 ```{r plot-lmoment-diagram}  
   
 # prepare station data for plot====   
-lmom_sta <- import("data/sta_meta_lmom.csv") %>%  
+lmom_sta <- import("data/sta_meta_lmom.csv") %>%   
   select(sta,  
          L1,  
          L_CV,  
@@ -1768,7 +1700,7 @@ rm(discord,
 ```{r identify_representive_gages}  
   
 # import streamflow records & metadata----     
-gage_mon <- import("data/gage_mon_pres.csv")  
+gage_mon <- import("data/gage_mon.csv")    
   
 # remove discordant stations & discord calcs  
 gage_meta <- import("data/gage_meta_lmom.csv") %>%  
@@ -1798,20 +1730,6 @@ gage_meta <- left_join(gage_meta, gage_mean,
          ) %>%  
   arrange(D2)  
   
-# select gages by ecoreg by distance from centroid====     
-#gage_pick <- gage_meta %>%   
-#  group_by(ecoreg) %>%  
-#  summarise(sta    = first(sta),  
-#            L1     = first(L1),  
-#            L_CV   = first(L_CV),  
-#            L_skew = first(L_skew),  
-#            L_kurt = first(L_kurtosis),  
-#            D      = first(D),  
-#            D2     = first(D2)  
-#  )  
-#gage_pick <- semi_join(gage_mon, gage_pick,  
-#                        by = "sta") %>%  
-  
 # create a 30-year record for input  
 sri_input <- gage_mon  
 
@@ -1821,11 +1739,12 @@ sri_input <- gage_mon
 gage_sri_meta <- semi_join(gage_meta, sri_input,   
                            by = c("sta", "ecoreg")  
                            )  
-
+  
 rm(sri_input,  
    gage_mean,  
    gage_meta,  
-   gage_mon  
+   gage_mon,  
+   gage_sri_meta  
   )   
   
 ```
@@ -1862,49 +1781,49 @@ sci.fun <- function(sta, time_scale) fitSCI( x = sta,
   
 ```  
 
-```{r prepare_calculate_SPI, eval=FALSE} 
+```{r calculate_SPI, eval=FALSE} 
   
-sta_pres <- import("data/sta_pres.csv") %>%  
+sta_mon <- import("data/sta_mon.csv") %>%  
   mutate(date = ymd(date))  
   
 # prepare sci function vector inputs (1989-01 to 2017-01)----     
 # north-west (NW)   
-sta_rap <- sta_pres %>%   
+sta_rap <- sta_mon %>%   
   arrange(date) %>%   
   filter(sta == "RAP")   
   
 rap <- as.double(sta_rap$prcp)   
   
 # north-central (NC)  
-sta_cot <- sta_pres %>%   
+sta_cot <- sta_mon %>%   
   arrange(date) %>%  
   filter(sta == "COT")   
   
 cot <- as.double(sta_cot$prcp)   
   
 # north-east (NE)  
-sta_oni <- sta_pres %>%  
+sta_oni <- sta_mon %>%  
   arrange(date) %>%   
   filter(sta == "ONI")    
   
 oni <- as.double(sta_oni$prcp)   
   
 # south-west (SW)   
-sta_oel <- sta_pres %>%  
+sta_oel <- sta_mon %>%  
   arrange(date) %>%  
   filter(sta == "OEL")   
   
 oel <- as.double(sta_oel$prcp)   
   
 # south-central (SC)  
-sta_gor <- sta_pres %>%  
+sta_gor <- sta_mon %>%  
   arrange(date) %>%  
   filter(sta == "GOR")    
   
 gor <- as.double(sta_gor$prcp)   
   
 # south-east (SE)  
-sta_mis <- sta_pres %>%  
+sta_mis <- sta_mon %>%  
   arrange(date) %>%  
   filter(sta == "MIS")   
   
@@ -2065,7 +1984,7 @@ rm(sta_cot, cot)
 # calculate SCI-oni----   
 # set up the station for sci & make sci list vars     
 sta      <- oni    
-sci_1mo  <- sci.fun(sta, 1)                              
+sci_1mo  <- sci.fun(sta, 1)         # fail at mon = 11                       
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                            
 sci_4mo  <- sci.fun(sta, 4)   
@@ -2293,7 +2212,7 @@ rm(sta_gor, gor)
 # calculate sci-mis----  
 # set up the station for sci & make sci list vars   
 sta      <- mis  
-sci_1mo  <- sci.fun(sta, 1)                              
+sci_1mo  <- sci.fun(sta, 1)         # fail for mon = 4                      
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                            
 sci_4mo  <- sci.fun(sta, 4)    
@@ -2375,9 +2294,8 @@ sci_sta <- bind_rows(
   sci_gor,  
   sci_mis  
 ) %>%  
-  select(-c(Period, group)) %>%  
     # truncate sci vals to [-3, 3]    
-  gather(key = type, val = value, -c(sta, date, yr, prcp)) %>%  
+  gather(key = type, val = value, -c(sta, date, prcp)) %>%  
   mutate(value = case_when(     
     value < -3.0 ~ -3.0,    
     value >  3.0 ~  3.0,  
@@ -2396,7 +2314,7 @@ rm(sci_cot,
    sci_oel,  
    sci_oni,  
    sci_rap,  
-   sta_pres  
+   sta_mon  
    )         
   
 #distrib,  
@@ -2413,8 +2331,8 @@ rm(sci_cot,
 
 ```{r prepare_SRI, eval=FALSE}  
   
-# import and check gage data (1989-01 to 2017-09-15)----    
-sri_input <- import("data/sri_input.csv") %>%     
+# import and check gage data (full period of record)----    
+sri_input <- import("data/gage_mon.csv") %>%     
   rename(date = Date) %>%   
   mutate(date = ymd(date)) %>%  
   arrange(date) %>%  
@@ -2531,23 +2449,23 @@ rm(sri_check,
   
 ```  
 
-```{r calculate_SRI} 
+```{r calculate_SRI}  
   
-# calculate SCI_blp----  
+# calculate SCI_blp----   
 # SCI calcs - bha_bat -- set up the station for sci & make sci list vars====  
 sta      <- bhp_bat_v   
 sci_1mo  <- sci.fun(sta, 1)                             
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                           
 sci_4mo  <- sci.fun(sta, 4)     
-sci_6mo  <- sci.fun(sta, 6)    # month 12 fail  
+sci_6mo  <- sci.fun(sta, 6)    
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)   
   
 # bha_bat -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
-                         obj       = sci_1mo, 
+                         obj       = sci_1mo,  
                          sci.limit = sci.limit  
                          ) %>%  
   enframe(name                     = NULL)    
@@ -2701,12 +2619,12 @@ rm(bhp_bev, bhp_bev_v)
 # SCI calcs - bha_fal -- set up the station for sci & make sci list vars====    
 sta      <- bhp_fal_v   
 sci_1mo  <- sci.fun(sta, 1)                             
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 4                      
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail for month 1-, 5-        
+sci_2mo  <- sci.fun(sta, 2)                         
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail for month 8         
 sci_4mo  <- sci.fun(sta, 4)    
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 6-  
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 7-, 8-  
-sci_12mo <- sci.fun(sta, 12)   # MLE fail for month 8-, 9-  
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 9-  
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 10   
+sci_12mo <- sci.fun(sta, 12)    
   
 # bha_fal -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,     
@@ -2775,10 +2693,10 @@ rm(bhp_fal, bhp_fal_v)
   
 # SCI calcs - bha_frn -- set up the station for sci & make sci list vars====  
 sta      <- bhp_frn_v   
-sci_1mo  <- sci.fun(sta, 1)                             
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 8-, 11-                 
-sci_3mo  <- sci.fun(sta, 3)           
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail for month 1- 
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail for month 8                          
+sci_2mo  <- sci.fun(sta, 2)                  
+sci_3mo  <- sci.fun(sta, 3)     # MLE fail for month 9       
+sci_4mo  <- sci.fun(sta, 4)     
 sci_6mo  <- sci.fun(sta, 6)     
 sci_9mo  <- sci.fun(sta, 9)      
 sci_12mo <- sci.fun(sta, 12)   
@@ -2851,13 +2769,13 @@ rm(bhp_frn, bhp_frn_v)
 # calculate SCI_kpt----  
 # SCI calcs - kpt_key -- set up the station for sci & make sci list vars====   
 sta      <- kpt_key_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLW fail for month 11-                      
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 10-                        
+sci_1mo  <- sci.fun(sta, 1)                     
+sci_2mo  <- sci.fun(sta, 2)                   
 sci_3mo  <- sci.fun(sta, 3)           
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)     
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 2-, 8-       
-sci_12mo <- sci.fun(sta, 12)   # MLE fail for month 8-, 10-     
+sci_9mo  <- sci.fun(sta, 9)         
+sci_12mo <- sci.fun(sta, 12)  
   
 # kpt_key -- apply the transformation identified by fitSCI function====     
 sci_1mo  <- transformSCI(sta,    
@@ -3002,11 +2920,11 @@ rm(kpt_wew, kpt_wew_v)
 # calculate SCI_pre---- 
 # SCI calcs - pre_ogl -- set up the station for sci & make sci list vars====   
 sta      <- pre_ogl_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 9-, 11-                       
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 11-                     
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail month 12-     
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail month 2- 
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 3-, 4-, 5-   
+sci_1mo  <- sci.fun(sta, 1)                         
+sci_2mo  <- sci.fun(sta, 2)              
+sci_3mo  <- sci.fun(sta, 3)    
+sci_4mo  <- sci.fun(sta, 4)    
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 6-  
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
   
@@ -3077,11 +2995,11 @@ rm(pre_ogl, pre_ogl_v)
   
 # SCI calcs - pre_sta -- set up the station for sci & make sci list vars====   
 sta      <- pre_sta_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 9-                    
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 10-                     
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 12-                    
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 1-                     
 sci_3mo  <- sci.fun(sta, 3)             
 sci_4mo  <- sci.fun(sta, 4)          
-sci_6mo  <- sci.fun(sta, 6)            
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 8-       
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
   
@@ -3227,13 +3145,13 @@ rm(psp_che, psp_che_v)
   
 # SCI calcs - psp_elk -- set up the station for sci & make sci list vars====   
 sta      <- psp_elk_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 1-, 2-, 3-, 6-, 7-, 10-, 12-  
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 6-, 8-, 9-, 10-, 11-, 12-  
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail months 4-, 7-, 9-, 11-             
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 1-, 2-, 3-, 4-, 7-, 9-, 11-  
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 1-, 2-, 4-, 6-, 7-, 12-  
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail months 1-, 2-, 3-, 8-, 12-                  
-sci_12mo <- sci.fun(sta, 12)   # MLE fail months 3-, 5-, 6-, 11-        
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 1, 2, 3, 4, 5, 10, 11, 12-  
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 1, 2, 3, 4, 5, 6, 7, 11, 12 
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail months 1, 2, 3, 4, 6, 7, 12         
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 1, 2, 3, 5, 6, 7, 11, 12 
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 2, 3, 4, 6, 7, 8  
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail months 1, 2, 4, 5, 6, 8, 9, 10, 12    
+sci_12mo <- sci.fun(sta, 12)   # MLE fail months 2, 5, 6, 8, 9, 11      
   
 # psp_elk -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
@@ -3302,13 +3220,13 @@ rm(psp_elk, psp_elk_v)
   
 # SCI calcs - psp_hat -- set up the station for sci & make sci list vars====   
 sta      <- psp_hat_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 8-, 9-  
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 10-  
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail months 8-             
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 2-  
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 2-   
-sci_9mo  <- sci.fun(sta, 9)                
-sci_12mo <- sci.fun(sta, 12)   # MLE fail months 3-       
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 6, 9  
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 4, 10  
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail months 10, 11          
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 1, 5  
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 3, 6     
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail months 1, 6    
+sci_12mo <- sci.fun(sta, 12)   # MLE fail months 7      
   
 # psp_hat -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
@@ -3453,13 +3371,13 @@ rm(psp_whi, psp_whi_v)
 # calculate SCI_snd---- 
 # SCI calcs - snd_lcr -- set up the station for sci & make sci list vars====    
 sta      <- snd_lcr_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 5-                  
+sci_1mo  <- sci.fun(sta, 1)                   
 sci_2mo  <- sci.fun(sta, 2)                       
 sci_3mo  <- sci.fun(sta, 3)       
-sci_4mo  <- sci.fun(sta, 4)    
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 5-   
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail month 5-     
-sci_12mo <- sci.fun(sta, 12)   # MLE fail month 5-, 6- 
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail month 7  
+sci_6mo  <- sci.fun(sta, 6)     
+sci_9mo  <- sci.fun(sta, 9)    
+sci_12mo <- sci.fun(sta, 12)    
   
 # snd_lcr -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
@@ -3753,8 +3671,8 @@ rm(snd_nio, snd_nio_v)
   
 # SCI calcs - snd_ros -- set up the station for sci & make sci list vars####  
 sta      <- snd_ros_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 10-                     
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 5-                        
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 1                     
+sci_2mo  <- sci.fun(sta, 2)                    
 sci_3mo  <- sci.fun(sta, 3)       
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
@@ -3830,7 +3748,7 @@ rm(snd_ros, snd_ros_v)
 sta      <- snd_vet_v  
 sci_1mo  <- sci.fun(sta, 1)                      
 sci_2mo  <- sci.fun(sta, 2)                             
-sci_3mo  <- sci.fun(sta, 3)     # MLE fail month 5-   
+sci_3mo  <- sci.fun(sta, 3)     # MLE fail month 8   
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
 sci_9mo  <- sci.fun(sta, 9)         
@@ -3904,7 +3822,7 @@ rm(snd_vet, snd_vet_v)
 # SCI calcs - snd_whi -- set up the station for sci & make sci list vars####  
 sta      <- snd_whi_v  
 sci_1mo  <- sci.fun(sta, 1)                      
-sci_2mo  <- sci.fun(sta, 2)                             
+sci_2mo  <- sci.fun(sta, 2)      # MLE fail mon 11                       
 sci_3mo  <- sci.fun(sta, 3)       
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
@@ -3983,9 +3901,9 @@ sci_1mo  <- sci.fun(sta, 1)
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                            
 sci_4mo  <- sci.fun(sta, 4)    
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 1-   
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail month 6-   
-sci_12mo <- sci.fun(sta, 12)  
+sci_6mo  <- sci.fun(sta, 6)      
+sci_9mo  <- sci.fun(sta, 9)     
+sci_12mo <- sci.fun(sta, 12)   
   
 # bad_whi -- apply the transformation identified by fitSCI function####        
 sci_1mo  <- transformSCI(sta,  
@@ -4050,6 +3968,7 @@ rm(sci_1mo,
    sci_9mo,  
    sci_12mo   
    )   
+
 rm(bad_whi, bad_whi_v)     
   
 # clean up sci.fun vars====  
@@ -4067,14 +3986,14 @@ rm(
   
 ```
 
-```{r join_SRI}
+```{r join_SRI}  
 # join sci data----  
-# join black hills plateau SCI vals====   
+# join black hills plateau SCI vals====    
 sci_bhp <- bind_rows(sci_bhp_bat,  
                      sci_bhp_bev,  
                      sci_bhp_fal,  
                      sci_bhp_frn    
-  )  
+  )   
   
 sci_bhp <- sci_bhp %>%    
   # truncate sci vals to [-3, 3]    
@@ -4082,7 +4001,7 @@ sci_bhp <- sci_bhp %>%
   mutate(value = case_when(     
     value < -3.0 ~ -3.0,    
     value >  3.0 ~  3.0,  
-    TRUE ~ value)) %>%  
+    TRUE ~ value)) %>%   
   spread(type, value) %>%    
   # move the longer sci-values to the end of the df    
   select(-sci_12mo, sci_12mo)    
@@ -4211,7 +4130,10 @@ rm(sci_bhp_bat,
    sci_pre,  
    sci_psp,  
    sci_snd,  
-   sci.fun  
+   sci.fun,  
+   sci_gage,  
+   sci_sta,  
+   sta_mon  
 )  
   
 ```
@@ -4244,13 +4166,14 @@ decomp_fun <- function(df) {
   
 ```
 
-```{r deconvolute_spi}   
+```{r deconvolute_plot_spi}    
   
 # deconvolute the grouped prcp into trend, seasonal & random components----    
   
 # import working data====          
-#spi_sta <- import("data/spi_sta.csv") %>%    
-# mutate(date = ymd(date))   
+sci_sta <- import("data/spi_sta.csv") %>%    
+ mutate(date = ymd(date)) %>%    
+ filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))  
   
 sta_meta_fin <- import("data/sta_meta_fin.csv")       
   
@@ -4302,36 +4225,42 @@ trend <- sci_sta  %>%
 # decompose prcp into seasonal, trend, & remainder====    
 FREQ   <- "12 months"  
 TREND  <- "60 months"   
-TARGET <- "sci_1mo"  
+TARGET <- "spi_1mo"  
   
 spi_seas <- sci_sta %>%   
   decomp_fun()  
   
-# clean up global environment====    
+# save seasonal spi & clean up global environment====    
+export(spi_seas, "data/spi_seas.csv")  
+  
 rm(freq,  
    trend,      
    FREQ,  
    TARGET,  
-   TREND  
+   TREND,  
+   sci_sta,  
+   sta_meta_fin,  
+   spi_seas  
    )    
+
   
 ```  
 
 ```{r plot_seasonality_spi} 
-# this code chunk is set up for both spi & sri seasonality plotting  
+# this code chunk is set up for spi seasonality plotting   
   
 # check for anomonies====     
 spi_anom <- spi_seas %>%   
   filter(anomaly == "Yes")  
   
 # vars for plotting====    
-sta_size   <- 0.2  
+sta_size   <- 0.2   
 sta_color  <- "black"  
   
 # prcp observations plot====  
 spi_obs <- 
 spi_seas %>%  
-  ggplot(aes(date, sci_1mo)) +     
+  ggplot(aes(date, spi_1mo)) +     
   theme_bw() +  
   xlab("") +  
   ylab("SPI 1-month") +   
@@ -4397,14 +4326,27 @@ cowplot::ggsave2("figure/spi_deconv.png",
                  units = "in",  
                  width = 7,  
                  height = 9)  
+  
+rm(sci_sta,  
+   spi_anom,  
+   spi_obs,  
+   spi_remain,  
+   spi_seas,  
+   spi_seas_plot,  
+   spi_trend,  
+   sta_meta_fin,  
+   sta_color,  
+   sta_size  
+   )  
 ```  
 
-```{r deconvolute_sri}   
+```{r deconvolute_plot_sri}   
   
 # deconvolute streamflow into trend, seasonal & random components----   
 # import streamflow data and metadata====    
 sci_gage <- import("data/sci_gage.csv") %>%    
   mutate(date = ymd(date)) %>%   
+  filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))  %>%  
   arrange(date) %>%   
   as_tibble() %>%  
   mutate(group = sta)  # group is for decomp_fun  
@@ -4488,10 +4430,7 @@ rm(freq,
    sri_intermit  
    )    
   
-```  
-  
-```{r prep_season_plot_sri}
-  
+# prep_season_plot_sri----  
 # calculate group median & MAD====   
 sri_seas_ecoreg <- sri_seas %>%  
   group_by(ecoreg, date) %>%   
@@ -4515,6 +4454,16 @@ sri_seas_ecoreg <- sri_seas %>%
   mutate(sci_remain_lo = sci_remain_med - sci_remain_mad)  
   
 # prepare for plotting -- split out data types====  
+sri_seas_ecoreg <- sri_seas_ecoreg %>%  
+  mutate(ecoreg = fct_relevel(ecoreg, 
+                              "Pierre Shale Plains",  
+                              "Pine Ridge Escarpment",  
+                              "White River Badlands",  
+                              "Black Hills Plateau",  
+                              "Keya Paha Tablelands", 
+                              "Sand Hills")     
+  )  
+
 sri_1mo_mad <- sri_seas_ecoreg %>%  
   select(ecoreg,  
          date,  
@@ -4559,11 +4508,8 @@ sri_remain_mad <- sri_seas_ecoreg %>%
          -c(ecoreg, date, sci_remain_med)  
          )   
   
-```
-
-```{r plot_seasonality_sri}
-  
-sri_anom <- sri_seas %>% 
+# plot seasonality----  
+sri_anom <- sri_seas %>%  
   filter(anomaly == "Yes")  
 
 # set plotting position====     
@@ -4573,16 +4519,6 @@ sri_seas <- sri_seas %>%
                               "Pine Ridge Escarpment", 
                               "White River Badlands", 
                               "Black Hills Plateau", 
-                              "Keya Paha Tablelands", 
-                              "Sand Hills")     
-  )  
-  
-sri_seas_ecoreg <- sri_seas_ecoreg %>%  
-  mutate(ecoreg = fct_relevel(ecoreg, 
-                              "Pierre Shale Plains",  
-                              "Pine Ridge Escarpment",  
-                              "White River Badlands",  
-                              "Black Hills Plateau",  
                               "Keya Paha Tablelands", 
                               "Sand Hills")     
   )  
@@ -4619,7 +4555,7 @@ sri_seas_plot <- sri_seas %>%
   ggplot(aes(date, season)) +     
   theme_bw() +  
   xlab("") +  
-  ylab("SRI 1-month") +   
+  ylab("SRI 1-month seasonality") +   
   scale_y_continuous(limits = c(-3, 3)) +  
   facet_wrap(vars(ecoreg),   
              nrow = 2  
@@ -4646,7 +4582,7 @@ sri_trend_plot <- sri_seas %>%
   ggplot(aes(date, trend)) +     
   theme_bw() +  
   xlab("") +  
-  ylab("SRI 1-month") +   
+  ylab("SRI 1-month trend") +   
   scale_y_continuous(limits = c(-3, 3)) +  
   facet_wrap(vars(ecoreg),   
              nrow = 2  
@@ -4673,7 +4609,7 @@ sri_remain_plot <- sri_seas %>%
   ggplot(aes(date, remainder)) +     
   theme_bw() +  
   xlab("") +  
-  ylab("SRI 1-month") +   
+  ylab("SRI 1-month remainder") +   
   scale_y_continuous(limits = c(-3, 3)) +  
   facet_wrap(vars(ecoreg),   
              nrow = 2  
@@ -4715,34 +4651,31 @@ cowplot::ggsave2("figure/sri_deconv.png",
 rm(sri_obs,  
    sri_seas,  
    sri_seas_plot,  
-   sri_trend,  
-   sri_remain,  
-   sri_anom, 
-   sri_1mo_mad,  
    sri_anom,  
+   sri_1mo_mad,  
    sri_remain_mad,  
    sri_remain_plot,  
    sri_seas_ecoreg,  
    sri_seas_mad,  
-   sri_seas_max_min,  
-   sri_trend_mad, 
-   sri_trend_plot
+   sri_trend_mad,  
+   sri_trend_plot,  
+   gage_meta  
    )         
   
 ```  
 
 ```{r prepare-time-series}  
 
-#start: 1979-10-15
-#end: 2017-09-15 
+#start: 1989-10-15  -- need to fix gage  
+#end: 2018-09-15  -- need to fix gage  
 
 # import working data and metadata====    
-sci_sta <- import("data/spi_sta.csv") %>%     
+sci_sta <- import("data/spi_seas.csv") %>%     
  mutate(date = ymd(date)) %>%  
  mutate(prcp = as.numeric(prcp)) %>%  
  select(-yr)  
 
-sci_gage <- import("data/sci_gage.csv") %>%    
+sci_gage <- import("data/sri_seas.csv") %>%    
  mutate(date = ymd(date)) %>%  
  rename(gage = sta)  
 
@@ -5782,4 +5715,80 @@ ggplot2::ggsave(path = "figure/", filename = "precip_mon.png",
 ```
 
 
+<!--
+need to finish this 
+```{r ci_result_table, eval=FALSE}  
+
+# get mean precipitation 
+prcp <- spi_fin %>%  
+  group_by(group) %>%  
+  summarise(prcp = mean(prcp)) %>% 
+  ungroup() 
+
+rap_bef <- prcp %>% 
+  filter(group == "RAP<1989") %>% 
+  select(-group) %>% 
+  as.double()
+
+# pluck results for summary tables & bind====
+prcp_results <- prcp_dabest %>% 
+  pluck("result") %>% 
+  select(-c(func,  
+            paired,  
+            variable,  
+            bootstraps,  
+            nboots,  
+            pct_ci_low,  
+            pct_ci_high  
+  )  
+  )   
+
+prcp_results <- full_join(prcp_results, prcp, 
+                  by = c("test_group" = "group")  
+                  ) %>% 
+  filter(test_group != "RAP<1989") %>% 
+  mutate(control_group = case_when(  
+    is.na(control_group) ~ "RAP<1989",  
+    TRUE ~ control_group  
+    )
+  ) %>%  
+  mutate(difference = case_when(  
+    is.na(difference) ~ prcp - rap_bef,  
+    TRUE ~ difference  
+    )
+  ) %>% 
+  mutate(ci = as.integer(ci))  %>% 
+  mutate_if(is.numeric, round, digits = 0)  
+
+
+# convert tibble to a flextable after fixing vars for presentation==== 
+prcp_table <- prcp_table %>% 
+  flextable() %>% 
+  #  colformat_num(col_keys = col_key_num, 
+  #                big.mark=",", 
+  #                digits = 1, na_str = "N/A") %>% 
+  set_header_labels(control_group = "Control Group", 
+                    test_group = "Test Groups", 
+                    control_size = "Control Size",
+                    test_size = "Test Size", 
+                    func = "Test Statistic", 
+                    variable = "Variable",
+                    difference = "Mean Difference", 
+                    ci = "CI", 
+                    bca_ci_low = "Lower Limit", 
+                    bca_ci_high = "Upper Limit") %>% 
+  autofit() %>% 
+  align(., part = "all", align = "center") %>% 
+  theme_booktabs() 
+
+
+ci_table2 <- read_docx() %>% 
+  body_add_flextable(value = ci_table)   
+  
+print(ci_table2, target = "output/ci_table.docx") 
+  
+rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table) 
+  
+```  
+-->
 
