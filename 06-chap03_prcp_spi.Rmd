@@ -4,8 +4,10 @@ editor_options:
   chunk_output_type: console
 ---
 
+
 <!--  
 These are some useful thoughts:    
+ check into stylr-packag
 
 lmomco <- citation("lmomco") 
 a useful description of commits -- http://r-pkgs.had.co.nz/git.html  
@@ -68,7 +70,6 @@ Analysis steps
 2.1)  Updated unit vals - originally in tenths of mm; now in mm 
 3.0)  Created plots 
 
-
 Data:
 Predominant datasets used are:  
 1) NOAA data from NOAA GHCN database - 60-years (1959-2019)
@@ -77,7 +78,6 @@ Predominant datasets used are:
 
 3)  prepare data for drought index 
 
-
 1. Recreated analysis from the lmomco text ch 12 (author?) in Tidyverse
 2. Imported cleaned precipitation data (see 04_prcp-data_munging)   
 
@@ -85,10 +85,8 @@ Predominant datasets used are:
 6. Calculated L-moments and L-moment ratios 
 7. Calculated SPI for 'cot', 'oel', 'rap', 'int', and 'ora' datasets using Pearson III. 
 
-
 3. Applied sqrt & log10 transform to explore effects on skew 
 4. Explored the data with box plots, violin plot.
-
 
 ####3) Summary data from a QGIS analysis of ungaged watersheds of interest.  
 
@@ -218,15 +216,15 @@ What is the underlying distribution of precipitation data?
 ```{r setup_&_library, message=FALSE}    
   
 knitr::opts_chunk$set(echo = FALSE)      
-options(tibble.print_max = 70) # sets tibble output for printing         
-  
+options(tibble.print_max = 70) # sets tibble output for printing          
+   
 # increase memory allocation for dabest()   
 # usethis::edit_r_environ("project")   
   
 # Get API key (aka, token) for downloading precip data at   http://www.ncdc.noaa.gov/cdo-web/token  
 # token for NOAA API tied to jtinant@olc.edu -- see 'rnoaa' for details  
 options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")  
-  
+   
 # Sets up the library of packages   
 library("conflicted")        # An alternative conflict resolution strategy  
 library("here")              # identifies where to save work  
@@ -249,6 +247,12 @@ library("timetk")            # tool kit for working with time series in R
 library("tidyquant")         # integrate quant. analysis tools w/ tidyverse  
 library("corrr")             # Tidy correlation tables and correlation plotting  
 library("cranlogs")          # For inspecting package downloads over time  
+# for GLMs                    
+library("doMC")             # parallelization for caret  
+library("caret")            # classification and regression training 
+library("glmnet")           # fit a GLM with lasso or elasticnet regularization 
+library("Metrics")          # evaluation metrics for machine learning  
+# for data munging
 library("tidyverse")  
   
 # resolve conflicted packages----  
@@ -318,9 +322,9 @@ why_to_write()
   
 ```  
 
+# download & fill precip data  
 ```{r download_prcp_data, eval=FALSE}  
-  
-# Get possible station metadata----     
+# Get possible station metadata----      
 # It's also possible to check station id with the mapping tool at:     
 # https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
   
@@ -344,8 +348,13 @@ sta_meta_orig <- sta_meta_orig %>%
   mutate(elev_flag = case_when(  
     elevation > 1200 ~ "yes",  
     TRUE ~ "no"  
-      )                              # n =  46    
+      )                               
   )  
+  
+# check number of stations 
+num_check <- sta_meta_orig %>%                          # n =  45   
+  filter(elev_flag == "no")  
+rm(num_check)
   
 # create groups of stations by region====       
 #   Notes: the string "GHCND:" doesn't appear in calls to get Global Historical  
@@ -476,6 +485,7 @@ sta_miss_yr <- sta_dv_orig  %>%
   group_by(name) %>%  
   summarise(num_year = n())  
   
+# add stations with zero missing years
 sta_miss_zero <- anti_join(sta_meta_orig, sta_miss_yr,  
                            by = "name") %>%  
   filter(elev_flag == "no") %>%  
@@ -483,8 +493,9 @@ sta_miss_zero <- anti_join(sta_meta_orig, sta_miss_yr,
   select(name, num_year)  
   
 sta_miss_yr <- bind_rows(sta_miss_yr, sta_miss_zero)  
+rm(sta_miss_zero)
   
-# add missing year flag to table====    
+# add missing year flag to df====    
 sta_meta_orig <- left_join(sta_meta_orig, sta_miss_yr,  
                            by = "name")  
   
@@ -494,8 +505,9 @@ sta_meta_orig <- sta_meta_orig %>%
     num_year >  3 ~ "yes"  
     )) %>%  
   select(-num_year)  
-  
-# remove stations with 3 years of > 95% completeness====      
+
+rm(sta_miss_yr)  
+# prepare to remove stations with 3 years of > 95% completeness====      
 sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
                           by = c("sta",  
                                  "name",  
@@ -539,7 +551,18 @@ sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin,
                            by = "sta")  
   
 export(sta_meta_orig, "data/sta_meta_orig.csv")   
-export(sta_dv_orig, "data/sta_dv_orig.csv")  
+export(sta_dv_orig, "data/sta_dv_orig.csv")
+```
+  
+```{r check_prcp_data, eval=FALSE}  
+
+sta_check <- sta_dv_fin %>%  
+  group_by(sta, mflag_prcp) %>%  
+  summarise(mflag = n()) %>%  
+  filter(mflag_prcp != " ") %>%  
+  group_by(mflag_prcp) %>%    
+  summarise(mflag = n()) %>%  
+  ungroup()    
   
 # check_prcp_data_quality====  
 # Table of Measurement Flag/Attributes -- mflag      
@@ -608,24 +631,16 @@ export(sta_dv_orig, "data/sta_dv_orig.csv")
 # z  = Uzbekistan update   
   
 sta_check <- sta_dv_fin %>%  
-  group_by(sta, mflag_prcp) %>%  
-  summarise(mflag = n()) %>%  
-  filter(mflag_prcp != " ") %>%  
-  group_by(mflag_prcp) %>%    
-  summarise(mflag = n()) %>%  
-  ungroup()    
-  
-# Measurement flags are T & P flags  
-# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
-# T     = trace of precipitation, snowfall, or snow depth   
-  
-sta_check <- sta_dv_fin %>%  
   group_by(sta, qflag_prcp) %>%  
   summarise(qflag = n()) %>%  
   filter(qflag_prcp != " ") %>%  
   group_by(qflag_prcp) %>%    
   summarise(qflag = n()) %>%  
   ungroup()    
+  
+# Measurement flags are T & P flags  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
   
 # quality flags are D, I, K, L, O flags  
 # D     = failed duplicate check           
@@ -647,13 +662,13 @@ sta_check <- sta_dv_fin %>%
 # 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
 # A  = U.S. Automated Surface Observing System (ASOS) real-time data  
 # B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
-# H  = High Plains Regional Climate Center real-time data            
+# H  = High Plains Regional Climate Center real-time data         
 # K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
 # W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
-# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)            
 # Z  = Datzilla official additions or replacements           
-
-# clean up global environment==== 
+  
+# clean up global environment====  
 rm(sta_miss_yr,   
    dateMin,  
    dateMax,  
@@ -661,11 +676,11 @@ rm(sta_miss_yr,
    sta_miss_zero,  
    sta_dv_orig,  
    sta_check,  
-   sta_dv_fin, 
+   sta_dv_fin,  
    sta_meta_orig,  
 )   
-
-```  
+  
+```
 
 ```{r fill-prcp-na, eval=FALSE}  
   
@@ -1114,6 +1129,144 @@ rm(sta_dv_alt,
   
 ```  
 
+#  download and check streamflow 
+## import streamflow data -- 
+  
+<!--
+this needs to be raw data -because the old data missing some dates 
+Also need to drop the Hot Springs creek 
+Fixing the 02_streamflow_cleaning.Rmd
+-->  
+  
+```{r import_streamflow_data, eval=FALSE}    
+  
+# import full streamflow records----   
+gage_mon <- import("data/gage_mon_full.csv") %>%  
+  mutate(Date = ymd(Date)) 
+  
+#%>%  
+#  filter(between(Date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
+  
+gage_meta <-  import("data/gage_meta.csv")   
+  
+gage_eco <- gage_mon %>%  
+  select(sta, ecoreg) %>%  
+  distinct()  
+  
+# add ecoregions & reduce set to full-gages  
+lmom_gage_meta <- right_join(gage_meta, gage_eco,  
+                            by = "sta")  
+  
+rm(gage_eco,  
+   gage_meta  
+   )      
+  
+export(gage_mon, "data/gage_mon.csv")  
+  
+# Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
+  
+# Calculate L-moment ratios====     
+lmom_gage <- gage_mon %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$log_q1_mon)) %>%    
+  transpose() %>%  
+  as_tibble(rownames = sta) %>%  
+  select(lambdas, ratios) %>%  
+  mutate(lambdas = map(lambdas,   
+                       ~as_tibble(t(.x))  
+  )) %>%  
+  mutate(lambdas = map(lambdas,   
+                       ~set_names(.x,  
+                                  c("L1", "L2", "L3", "L4", "L5")  
+                       )  
+  )) %>%  
+  mutate(ratios = map(ratios,  
+                      ~as_tibble(t(.x)   
+                      )   
+  )) %>%  
+  mutate(ratios = map(ratios,  
+                      ~set_names(.x,  
+                                 c("T1", "T2", "T3", "T4", "T5")   
+                      )   
+  )) %>%  
+  unnest(lambdas) %>%  
+  unnest(ratios)  %>%   
+  select(-T1) %>%  
+  rename(L_CV = T2) %>%  
+  rename(L_skew = T3) %>%  
+  rename(L_kurtosis = T4) %>%  
+  select(L1, L_CV, L_skew, L_kurtosis) %>%  
+  mutate(L1 = round(L1,  
+                    digits = 2)  
+  )  
+  
+# get station names from the list  
+lmom_gage_list <- gage_mon %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$log_q1_mon)) %>%  
+  transpose()  
+  
+lmom_gage_nm <- lmom_gage_list %>%  
+  pluck(2) %>%                     # plucks lmom-ratios  
+  enframe()  
+  
+lmom_gage_nm <- lmom_gage_nm %>%  
+  unnest(value) %>%  
+  drop_na() %>%  
+  rename(sta = name) %>%  
+  group_by(sta) %>%  
+  summarize(L_CV = first(value))  
+  
+# join name to lmom vals & to the metadata  
+lmom_gage <- full_join(lmom_gage_nm, lmom_gage,  
+                        by = ("L_CV"))  
+  
+# check value  
+bad_fpi <- tibble(lmom_gage_list[["ratios"]][["bad_fpi"]])  
+  
+# clean up df & join with metadata====  
+lmom_gage <- lmom_gage %>%  
+  gather(type, value, -sta) %>%  
+  mutate(value = round(value,  
+                       digits = 2)  
+         ) %>%   
+  spread(type, value) %>%  
+  select(sta, L1, L_CV, L_skew, L_kurtosis)  
+  
+lmom_gage <- full_join(lmom_gage_meta, lmom_gage,    
+                            by = "sta") 
+  
+# check stations for discordance & prepare for join====    
+dischord <- lmrdiscord(site = lmom_gage$sta,  
+                       #                       Dcrit = 2.5,  
+                       digits = 2,  
+                       t2 = lmom_gage$L_CV,  
+                       t3 = lmom_gage$L_skew,   
+                       t4 = lmom_gage$L_kurtosis  
+) %>%  
+  mutate(site = as.character(site)) %>%  
+  rename(sta = site) %>%  
+  rename(L_CV = t2) %>%  
+  rename(L_skew = t3) %>%  
+  rename(L_kurtosis = t4)  
+  
+lmom_gage <- full_join(lmom_gage, dischord, 
+                  by = c("sta", "L_CV", "L_skew", 'L_kurtosis'))  
+  
+export(lmom_gage, "data/gage_meta_lmom.csv")   
+  
+# clean up  
+rm(bad_fpi,  
+   lmom_gage_list,  
+   lmom_gage_nm,  
+   lmom_gage,  
+   gage_mon,  
+   dischord, 
+   lmom_gage_meta  
+   )  
+  
+```
+
 # use bootstrapping to check precip differences 
 ```{r bootstrap_precip}   
   
@@ -1354,134 +1507,7 @@ rm(sta_meta_fin,
   
 ```
 
-```{r import_streamflow_data, eval=FALSE}    
-  
-# import full streamflow records----   
-gage_mon <- import("data/gage_mon_full.csv") %>%  
-  mutate(Date = ymd(Date)) 
-  
-#%>%  
-#  filter(between(Date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
-  
-gage_meta <-  import("data/gage_meta.csv")   
-  
-gage_eco <- gage_mon %>%  
-  select(sta, ecoreg) %>%  
-  distinct()  
-  
-# add ecoregions & reduce set to full-gages  
-lmom_gage_meta <- right_join(gage_meta, gage_eco,  
-                            by = "sta")  
-  
-rm(gage_eco,  
-   gage_meta  
-   )      
-  
-export(gage_mon, "data/gage_mon.csv")  
-  
-# Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
-  
-# Calculate L-moment ratios====     
-lmom_gage <- gage_mon %>%  
-  split(.$sta) %>%  
-  map(~ lmoms(.$log_q1_mon)) %>%    
-  transpose() %>%  
-  as_tibble(rownames = sta) %>%  
-  select(lambdas, ratios) %>%  
-  mutate(lambdas = map(lambdas,   
-                       ~as_tibble(t(.x))  
-  )) %>%  
-  mutate(lambdas = map(lambdas,   
-                       ~set_names(.x,  
-                                  c("L1", "L2", "L3", "L4", "L5")  
-                       )  
-  )) %>%  
-  mutate(ratios = map(ratios,  
-                      ~as_tibble(t(.x)   
-                      )   
-  )) %>%  
-  mutate(ratios = map(ratios,  
-                      ~set_names(.x,  
-                                 c("T1", "T2", "T3", "T4", "T5")   
-                      )   
-  )) %>%  
-  unnest(lambdas) %>%  
-  unnest(ratios)  %>%   
-  select(-T1) %>%  
-  rename(L_CV = T2) %>%  
-  rename(L_skew = T3) %>%  
-  rename(L_kurtosis = T4) %>%  
-  select(L1, L_CV, L_skew, L_kurtosis) %>%  
-  mutate(L1 = round(L1,  
-                    digits = 2)  
-  )  
-  
-# get station names from the list  
-lmom_gage_list <- gage_mon %>%  
-  split(.$sta) %>%  
-  map(~ lmoms(.$log_q1_mon)) %>%  
-  transpose()  
-  
-lmom_gage_nm <- lmom_gage_list %>%  
-  pluck(2) %>%                     # plucks lmom-ratios  
-  enframe()  
-  
-lmom_gage_nm <- lmom_gage_nm %>%  
-  unnest(value) %>%  
-  drop_na() %>%  
-  rename(sta = name) %>%  
-  group_by(sta) %>%  
-  summarize(L_CV = first(value))  
-  
-# join name to lmom vals & to the metadata  
-lmom_gage <- full_join(lmom_gage_nm, lmom_gage,  
-                        by = ("L_CV"))  
-  
-# check value  
-bad_fpi <- tibble(lmom_gage_list[["ratios"]][["bad_fpi"]])  
-  
-# clean up df & join with metadata====  
-lmom_gage <- lmom_gage %>%  
-  gather(type, value, -sta) %>%  
-  mutate(value = round(value,  
-                       digits = 2)  
-         ) %>%   
-  spread(type, value) %>%  
-  select(sta, L1, L_CV, L_skew, L_kurtosis)  
-  
-lmom_gage <- full_join(lmom_gage_meta, lmom_gage,    
-                            by = "sta") 
-  
-# check stations for discordance & prepare for join====    
-dischord <- lmrdiscord(site = lmom_gage$sta,  
-                       #                       Dcrit = 2.5,  
-                       digits = 2,  
-                       t2 = lmom_gage$L_CV,  
-                       t3 = lmom_gage$L_skew,   
-                       t4 = lmom_gage$L_kurtosis  
-) %>%  
-  mutate(site = as.character(site)) %>%  
-  rename(sta = site) %>%  
-  rename(L_CV = t2) %>%  
-  rename(L_skew = t3) %>%  
-  rename(L_kurtosis = t4)  
-  
-lmom_gage <- full_join(lmom_gage, dischord, 
-                  by = c("sta", "L_CV", "L_skew", 'L_kurtosis'))  
-  
-export(lmom_gage, "data/gage_meta_lmom.csv")   
-  
-# clean up  
-rm(bad_fpi,  
-   lmom_gage_list,  
-   lmom_gage_nm,  
-   lmom_gage,  
-   gage_mon,  
-   dischord, 
-   lmom_gage_meta  
-   )  
-  
-```
+
 
 ```{r Lmoment_diagram_ratios}  
 # extract elements from the lmrdia list to plot in ggplot2          
@@ -4659,27 +4685,16 @@ rm(sri_obs,
   
 ```  
 
+# time series correlation
 ```{r time-series-correlation_prepare_spi}  
-  
-# Lag and Autocorrelation Analysis----  
-# 1.0  group by station;  
-# 2.0  use tq_mutate() to get lags 1:12 using lag.xts();   
-# 2.1  provide column names for the new columns by prefixing “lag_” to   
-#        the lag numbers, k, which the sequence from 1 to 12.   
-# The output is all of the lags for each station.    
-  
-#start: 1989-10-15  -- need to fix gage  
-#end: 2018-09-15  -- need to fix gage  
 
-# Prepare variables for lags 1 through 12 (12 months of lags)====    
-k <- 1:12  
-col_names <- paste0("lag_", k)  
-  
 # import sta -- and standardize vars between dfs====      
 sci_sta <- import("data/spi_seas.csv") %>%     
   mutate(date = ymd(date)) %>%  
   mutate(prcp = as.numeric(prcp)) %>%  
-  select(-c(prcp,  
+#  filter(sta == "ONI") %>% 
+  # drop prcp 
+  select(-c(
             season,  
             trend,  
             remainder,  
@@ -4698,42 +4713,14 @@ sci_sta <- import("data/spi_seas.csv") %>%
             date,   
             sta,   
             min_date_sta,  
-            max_date_sta  
+            max_date_sta, 
+            prcp
             )) %>%  
   ungroup() %>%  
-  drop_na() %>% 
+  drop_na() %>%  
 # prepare for joining by spi_length  
   mutate(spi_length = str_remove_all(spi_length, "mo")) %>%     
   mutate(spi_length = str_sub(spi_length, start = 5) %>% as.numeric)  
-  
-# Use tq_mutate() to get lags 1:12 using lag.xts()====    
-sci_sta_lags <- sci_sta %>%  
-# group_by is a key step!    
-  group_by(sta, spi_length) %>%    
-# run the lag vals by sta & spi_length  
-    tq_mutate(  
-        select     = spi_val,  
-        mutate_fun = lag.xts,  
-        k          = k,  
-        col_rename = col_names  
-    ) %>% 
-  ungroup() %>% 
-# gather the lagged values     
-  rename(lag_0 = spi_val) %>%  
-  gather(key = lag_length, 
-         value = spi_val,  
-         -c(sta,  
-            spi_length,  
-            date,  
-            group,  
-            min_date_sta,  
-            max_date_sta)  
-         )  
-  
-# clean up  
-rm(k,  
-   col_names    
-   )  
   
 ```  
 
@@ -4775,8 +4762,8 @@ sci_gage <- full_join(gage_group, sci_gage,
             remainder_l2,  
             anomaly  
   )) %>%  
-# arrange data from wide to long -- spi_length is used in the join below    
-  gather(key   = spi_length,   
+# arrange data from wide to long -- spi_length is used in the join below
+  gather(key   = sci_length,   
          value = sci_val,   
          -c(group,   
             date,   
@@ -4784,11 +4771,609 @@ sci_gage <- full_join(gage_group, sci_gage,
             ecoreg,   
             min_date_gage,   
             max_date_gage    
-         )) %>%   
-  ungroup() %>%  
+         )) %>%    
+  ungroup() %>%   
 # prepare for joining by spi_length  
-  mutate(spi_length = str_remove_all(spi_length, "mo")) %>%     
-  mutate(spi_length = str_sub(spi_length, start = 5) %>% as.numeric)  
+  mutate(sci_length = str_remove_all(sci_length, "mo")) %>%     
+  mutate(sci_length = str_sub(sci_length, start = 5) %>% as.numeric)  
+  
+rm(gage_group)  
+```  
+
+```{r time-series-correlation_join_sci}    
+#  start by walking ----  
+
+# keep only the 1-mo vals as a response variable -- checking step
+#sci_gage_1mo <- sci_gage %>%  
+ # filter(sci_length == 1)  
+  
+sci <- full_join(sci_gage, sci_sta,  
+                     by = c("group", "date")) %>%  
+  drop_na() %>%   
+#  spread(spi_length, spi_val, sep = "_") %>%  
+#  drop_na() %>%  
+  # reorder factors by ecoreg 
+  mutate(ecoreg = fct_relevel(ecoreg, 
+                              "Pierre Shale Plains", 
+                              "Pine Ridge Escarpment",  
+                              "White River Badlands", 
+                              "Black Hills Plateau", 
+                              "Keya Paha Tablelands", 
+                              "Sand Hills")) %>% 
+  mutate(year = year(date)) %>% 
+  mutate(mon = month(date))
+  
+# check for na values ====  
+# the '2' beelow refers to columns 
+indx <- sci %>%
+  apply(2, 
+        function(x) any(is.na(x) | is.infinite(x))
+        ) %>%   
+enframe()  
+
+rm(indx) 
+
+# make a 'biology' series====  
+# using april = 4, may = 5, june = 6 - idea --
+#sci_1mo_b <- sci_1mo %>% 
+#  filter(mon == 4 | 
+#           mon == 5 | 
+#           mon == 6)  
+  
+```
+
+```{r eda_plot_series} 
+# needs work!
+mon_plot <- sci_1mo %>%  
+  ggplot(aes(x = spi_length_12, y = sci_val)) + 
+  theme_bw() + 
+  facet_wrap(vars(sci_val), 
+             ncol =2) +
+  geom_jitter(size = .1) + 
+  geom_smooth() +
+  geom_abline(slope = 1 , intercept = 0)
+
+mon_plot
+eco_plot <- sci_1mo %>%  
+  ggplot(aes(x = spi_length_12, y = sci_val)) + 
+  theme_bw() + 
+  facet_wrap(vars(ecoreg), 
+             ncol =2) +
+  geom_jitter(size = .1) + 
+  geom_smooth() +
+  geom_abline(slope = 1 , intercept = 0) 
+
+```
+
+```{r create-models}
+# http://environmentalcomputing.net/intro-to-gams/ -- check this!
+# https://multithreaded.stitchfix.com/blog/2015/07/30/gam/ 
+
+# Consider that different months might behave differently!
+# Also consider that different drought lengths might behave differently!
+
+test <- sci %>% 
+  select(sci_length) %>% 
+  distinct() 
+
+# load gam model -- mgcv 
+library(mgcv) 
+
+# walk before you run 
+#sci_1mo_nest <- sci_1mo %>% 
+#  group_by(ecoreg) %>% 
+#  nest()  
+
+sci_1mo_input <- sci %>% 
+  filter(sci_length == 1) %>% 
+  group_by(sta, mon, spi_length) %>% 
+  nest()
+
+#define function for linear model
+sci_1mo_lm <-function(df) {
+  lm(sci_val ~ spi_val, data = df)
+}
+
+#define function for GAM 
+sci_1mo_gam <- function(df) {
+  gam(sci_val ~ s(spi_val), 
+                   method = "REML", 
+                   data = df)
+} 
+  
+# create columns for the models
+sci_models <- sci_1mo_input %>%
+        mutate(model_lm = map(data, sci_1mo_lm),
+               model_gam = map(data,sci_1mo_gam)
+               )
+
+# extract models 
+models_details<-sci_models %>%
+        mutate(
+                glance_lm  = model_lm %>% 
+                  map(glance),  #model summary 
+                AIC_lm     = glance_lm %>% 
+                  map_dbl("AIC"),  #extract AIC   
+                glance_gam = model_gam %>% 
+                  map(broom::glance), #GAM model summary  
+                AIC_gam    = glance_gam %>% 
+                  map_dbl("AIC"), #extract AIC
+                tidy_lm    = model_lm %>% 
+                  map(tidy), #model estimate: coeff...
+                tidy_gam    = model_gam %>% 
+                  map(tidy), #model estimate: coeff...
+                rsq_lm      = glance_lm %>% 
+                  map_dbl("r.squared"),  #extract rsquared 
+                augment_lm = model_lm %>% 
+                  map(augment), #observation stats: resid,hat...
+                res_lm        = augment_lm %>% 
+                  map(".resid") #extract resid
+               ) %>% 
+  mutate(AIC_diff = AIC_lm - AIC_gam) 
+
+test <- sci_models %>% 
+  mutate(R.square = map_dbl(model_gam, ~ summary(.)$r.sq)) %>% 
+  select(R.square)
+
+test2 <- test %>% 
+  group_by(ecoreg, spi_length) %>%  
+  summarize(rsq_mean     = mean(R.square),  
+            rsq_median   = median(R.square), 
+            rsq_75       = quantile(R.square, probs =.75), 
+            rsq_25       = quantile(R.square, probs =.25), 
+            rsq_min      = min(R.square), 
+            rsq_max      = max(R.square)          
+            ) %>% 
+  ungroup()
+  
+
+
+  
+out <- models_details %>% 
+  group_by(ecoreg, spi_length) %>%  
+  summarize(AIC_mean     = mean(AIC_diff),  
+            AIC_median   = median(AIC_diff), 
+            AIC_75       = quantile(AIC_diff, probs =.75), 
+            AIC_25       = quantile(AIC_diff, probs =.25), 
+            AIC_min      = min(AIC_diff), 
+            AIC_max      = max(AIC_diff) , 
+            deviance_gam = median(deviance_gam)           
+            ) %>% 
+  ungroup()
+
+out2 <- out %>% 
+  arrange(desc(deviance_gam)) 
+
+  summarize(deviance = ma)
+```
+
+
+```{r}
+# make a boxplot of the three models   
+
+out2 %>%
+  ggplot() +   
+  theme_bw() + 
+  facet_wrap(vars(spi_length), 
+             ncol = 3, 
+           scale = "free") +   
+#geom_point()
+  geom_boxplot(aes(x = factor(ecoreg),  
+#                   group = ecoreg,  
+                   lower = `AIC_25`,  
+                   upper = `AIC_75`,  
+                   middle = `AIC_median`,  
+                   ymin = `AIC_min`,  
+                   ymax = `AIC_max`),  
+               stat = "identity") 
+
+test2 %>%
+  ggplot() +   
+  theme_bw() + 
+  facet_wrap(vars(ecoreg), 
+             ncol = 3 #, 
+#           scale = "free"
+) +   
+  geom_boxplot(aes(x = factor(spi_length),  
+#                   group = ecoreg,  
+                   lower = `rsq_25`,  
+                   upper = `rsq_75`,  
+                   middle = `rsq_median`,  
+                   ymin = `rsq_min`,  
+                   ymax = `rsq_max`),  
+               stat = "identity") 
+
+
+```
+
+<!--
+probably not best approach 
+```{r build-glm-models_1mo} 
+    
+# set up random seed & parallel processing for glmnet & caret ----------------  
+seed <- 42  
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)   
+registerDoMC(cores)    
+  
+# set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2]  
+# note these values are used below for individual model fits  
+set.seed(seed)   
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5,   
+                          search = "grid", allowParallel = TRUE)   
+  
+lambda <- 10^seq(-2, 2, length = 100)  
+  
+# Split the data into training and test set ----------------------------------  
+# remove unneeded data from the model input 
+sci1mo_input <- sci_1mo %>% 
+  select(sci_val, spi_length_1:spi_length_12, ecoreg, date)
+
+# create a data partition balanced by flow depths   
+set.seed(seed)     
+train_index <- createDataPartition(sci1mo_input$sci_val, p=0.8)[[1]]  
+  
+train   <- sci1mo_input[train_index,] 
+test    <- sci1mo_input[-train_index,] 
+   
+# ridge -- alpha = 0 ---------------------------------------------------------  
+set.seed(seed)             # need to set a seed each time you call a rand num   
+ridge <- train %>%   
+  select(-c(ecoreg, date)) %>% 
+  train(sci_val ~.,         # x = 'sci_val', y = rest of the columns, from  
+        data = .,                #   the dataset 'train.data'   
+        method = "glmnet",       #   using method "glmnet"    
+        preProcess = c("center", "scale"),   
+        trControl = reg.ctrl,     
+        tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values   
+  )    
+  
+# lasso -- alpha = 1 ---------------------------------------------------------   
+set.seed(seed)              # need to set a seed each time you call a rand num   
+lasso <- train %>%   
+  select(-c(ecoreg, date)) %>% 
+  train(sci_val ~.,            
+        data = .,                 #   the dataset 'train.data'    
+        method = "glmnet",        #   using method "glmnet"   
+        preProcess = c("center", "scale"),   
+        trControl = reg.ctrl,    
+        tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values  
+  )   
+  
+# elastic net -- alpha vals [0, 1] by caret ----------------------------------  
+set.seed(seed)   
+elastic <- train %>%  
+  select(-c(ecoreg, date)) %>% 
+  train(sci_val ~.,          
+        data = .,                 #   the dataset 'train.data'     
+        method = "glmnet",        #   using method "glmnet"   
+        preProcess = c("center", "scale"),   
+        trControl = reg.ctrl,   
+        tuneLength = 10          # tune length    
+  )    
+  
+# make a list of the models --------------------------------------------------   
+models <- list(   
+  ridge = ridge,  
+  lasso = lasso,   
+  elastic = elastic)    
+  
+rm(cores, train_index, reg.ctrl)   
+  
+```  
+
+```{r get-glm-coefs}
+ 
+# get & tidy model coefficients for each of the GLMs     
+# get number of parameters for each of the GLMs   
+   
+# ridge coeffs ---------------------------------------------------------------  
+coef_ridge <- coef(  
+  ridge$finalModel,  
+  ridge$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "ridge")  
+  
+# lasso coeffs  --------------------------------------------------------------   
+coef_lasso <- coef(  
+  lasso$finalModel,  
+  lasso$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "lasso")  
+  
+# elastic coeffs  ------------------------------------------------------------  
+coef_elastic <- coef(  
+  elastic$finalModel,  
+  elastic$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "elastic")  
+  
+# join model coeff -----------------------------------------------------------  
+coefs <- bind_rows(coef_ridge, coef_lasso, coef_elastic)   
+  
+coefs <- coefs %>%  
+  rename(value = 2) %>%  
+  mutate(value = round(  
+    value, digits = 3)  
+    ) %>%  
+  spread(type, value)  
+  
+# prepare for export table --------------------------------------------------- 
+# arrange by absolute value of the lasso model  
+coefs <- coefs %>%   
+  mutate(arrange_ridge = abs(ridge)) %>%   # temp terms to arrange coeffs  
+  mutate(arrange_lasso = abs(lasso)) %>%   # temp terms to arrange coeffs  
+  arrange(desc(arrange_ridge)) %>%    
+  arrange(desc(arrange_lasso)) %>%  
+  select(coeff, lasso, ridge, elastic)  
+  
+# rename coefficients to fit the hydrologic coefficient table  
+coefs <- coefs %>%   
+  mutate(coeff = case_when(   
+    coeff == "(Intercept)" ~ "Intercept",  
+    TRUE ~ coeff)) 
+  
+rm(coef_ridge, 
+   coef_lasso, 
+   coef_elastic,  
+   ridge, 
+   lasso, 
+   elastic)     
+```
+
+```{r select-glm-models_dv}
+  
+# evaluate performance of models -- ridge, lasso and elastic net --      
+#   best model is the one that minimizes the prediction error.    
+  
+# pick out the mse from the output lists   
+error_call <- resamples(models) %>%    
+  summary(metric = c("MAE"))     
+  
+# change list to tibble   
+error_vals <- error_call %>%    
+  pluck(., 'statistics') %>%   
+    as.data.frame() %>%   
+  as_tibble(., rownames = "model") %>% 
+  gather(key, val, -c(model))  %>%  
+  mutate(key = str_replace(key, "[.]", "_")) %>%   
+  separate(key, c("statistic", "position"), extra = "drop") %>%  
+  filter(position != "NA") %>%  
+  mutate(val = round(val, digits = 3)) %>% 
+  spread(position, val)   
+  
+rm(error_call)   
+
+```
+
+```{r plot-glm-models_dv} 
+ 
+# prepare for plotting   
+n_train <- train %>%  
+  mutate(n_count = n()) %>%  
+  distinct(n_count)   
+  
+# make a boxplot of the three models   
+error_vals %>%
+  ggplot() +   
+  theme_bw() + 
+  # facet_grid(cols = vars(statistic), 
+  #            scale = "free") +   
+  geom_boxplot(aes(x = factor(model),  
+                   group = model,  
+                   lower = `1st`,  
+                   upper = `3rd`,  
+                   middle = `Median`,  
+                   ymin = `Min`,  
+                   ymax = `Max`),  
+               stat = "identity") +   
+  geom_text(data = n_train,  
+            x = 3, y = 0.63,    
+            aes(label= paste("n =", n_count, sep = " ")),   
+            size = 3,   
+            color = "gray20"  
+  ) + 
+  ylim(0.63, 0.71) +  
+labs(x = "",   
+     y = bquote('Median Absolute Error')
+)      
+  
+# save ggplot above & clean up   
+ggsave("figure/model_fit_sci_all.png", width = 7, height = 3.5, units = "in")   
+  
+rm(n_train)    
+
+# results are -- models look very similiar with slightly lower LASSO error
+  
+``` 
+
+```{r get_glm_observations_and_predictions}  
+  
+# get observations & predictions -- training --------------------------------  
+obs_train   <- tibble(observed = train$sci_val,   
+                             date = train$date, 
+                             ecoreg = train$ecoreg) 
+  
+preds_train <- map_dfc(models, predict, newdata = train)   
+  
+# combine observations & predictions  
+fit_train <- bind_cols(obs_train, preds_train) %>%  
+  mutate(split = "train") %>%  
+  as_tibble() 
+  
+# get observations & predictions -- test ------------------------------------  
+obs_test   <- tibble(observed = test$sci_val, 
+                     date     = test$date, 
+                     ecoreg   = test$ecoreg) 
+
+preds_test <- map_dfc(models, predict, newdata = test)  
+  
+# combine observations & predictions 
+fit_test <- bind_cols(obs_test, preds_test) %>%  
+  mutate(split = "test") %>% 
+  as_tibble()  
+  
+fit_model <-  bind_rows(fit_test, fit_train)  
+ 
+# drop the training data -- find model errors & fit a null model ------------  
+fit_model_test <- fit_model %>% 
+  filter(split == "test") %>%           # only want to see test data 
+  select(-c(split, ridge, elastic)) %>%        # drop non-selected models 
+  group_by(date)  %>%                   # fit a null model to the data by Date  
+  mutate(null_mod = mean(observed)) %>% 
+  ungroup() %>%  
+  gather(model, fitted, -c(observed, date, ecoreg)) %>% 
+  group_by(model) %>% 
+  mutate(MAE = round( 
+    MAE(observed, fitted),              # find the model errors 
+    digits = 3) 
+    ) %>% 
+  ungroup() %>% 
+  mutate(residual = observed - fitted) %>% 
+  mutate(freq = 1- percent_rank(observed)) %>% 
+  mutate(freq = if_else(freq== 1, 0.9999, freq))  
+  
+# clean-up  
+rm(preds_test,  
+   preds_train,  
+   obs_train,  
+   obs_test,  
+   train,  
+   fit_test,  
+   fit_train)    
+ 
+``` 
+
+  
+
+
+```{r build-glm-models-ecoreg}  
+# prepare for modeling at the ecosystem scale --------------------------------  
+# drop unimportant predictors - from lasso above   
+  
+sci1mo_ecoreg <- sci_1mo %>%  
+#  select(-c(gage, group, .fittedPC1, .fittedPC2,  
+#            prcp_sq, crel_sqr, vpdan_sq, t07_sq, TWI_sq)) %>%   
+  mutate(ecoreg2 = case_when(   
+    ecoreg == "Black Hills Plateau"   ~ "bhplat",  
+    ecoreg == "Keya Paha Tablelands"  ~ "kptabl",   
+    ecoreg == "Pierre Shale Plains"   ~ "pshale",   
+    ecoreg == "Pine Ridge Escarpment" ~ "escarp",      
+    ecoreg == "Sand Hills"            ~ "sndhil",    
+    ecoreg == "White River Badlands"  ~ "wrbadl"   
+    )) %>%   
+  select(-c(ecoreg, prcp, sta, gage, group,  
+         min_date_gage, max_date_gage,  
+         min_date_sta, max_date_sta)   
+         )  
+  
+# Split the data into training and test sets by ecoreg -----------------------  
+ecoreg_list <- sci1mo_ecoreg %>%  
+  split(., .$ecoreg2) 
+    
+# create an index of values -- used sci_val   
+ecoreg_index <- lapply(ecoreg_list, function(x) {   
+  return(createDataPartition(x$sci_val, p = .8, list = FALSE))    
+  })    
+   
+# get separate training & test df from the index (used in a code-chunk below) 
+train_bhplat <- (ecoreg_list[[1]])[ecoreg_index[[1]],]  
+train_kptabl <- (ecoreg_list[[2]])[ecoreg_index[[2]],]  
+train_pshale <- (ecoreg_list[[3]])[ecoreg_index[[3]],]  
+train_escarp <- (ecoreg_list[[4]])[ecoreg_index[[4]],]  
+train_sndhil <- (ecoreg_list[[5]])[ecoreg_index[[5]],]  
+train_wrbadl <- (ecoreg_list[[6]])[ecoreg_index[[6]],]  
+   
+test_bhplat <- (ecoreg_list[[1]])[-ecoreg_index[[1]],]  
+test_kptabl <- (ecoreg_list[[2]])[-ecoreg_index[[2]],]  
+test_pshale <- (ecoreg_list[[3]])[-ecoreg_index[[3]],]  
+test_escarp <- (ecoreg_list[[4]])[-ecoreg_index[[4]],]  
+test_sndhil <- (ecoreg_list[[5]])[-ecoreg_index[[5]],]  
+test_wrbadl <- (ecoreg_list[[6]])[-ecoreg_index[[6]],]  
+  
+# drop ecoreg and date from the list  
+ecoreg_list <- lapply(ecoreg_list,  
+                      function(x) select(x, -c(ecoreg2, date))  
+                      )   
+# create a list of models 
+set.seed(seed)  
+model_list <- purrr::map2(ecoreg_list, ecoreg_index,  
+                          function(df, train_index)  {   
+                            train(sci_val ~ ., df[train_index,],  
+                                  method = 'glmnet',  
+                                  trControl = reg.ctrl,  
+                                  preProcess = c('nzv', 'center', 'scale'),  
+                                  tuneGrid = expand.grid(  
+                                    alpha = 1, 
+                                    lambda = lambda)  
+                                  )  
+                            })  
+  
+rm(lambda, seed, reg.ctrl, ecoreg_index, ecoreg_list)   
+  
+``` 
+
+-->
+
+
+
+
+
+
+
+
+
+<!-- might be able to drop these...
+```{r old-tquant-lags-manual}
+
+# Lag and Autocorrelation Analysis----  
+# 1.0  group by station;  
+# 2.0  use tq_mutate() to get lags 1:12 using lag.xts();   
+# 2.1  provide column names for the new columns by prefixing “lag_” to   
+#        the lag numbers, k, which the sequence from 1 to 12.   
+# The output is all of the lags for each station.    
+#start: 1989-10-15  -- need to fix gage  
+#end: 2018-09-15  -- need to fix gage  
+
+# Prepare variables for lags 1 through 12 (12 months of lags)====    
+k <- 1:12  
+col_names <- paste0("lag_", k)  
+  
+
+  
+# Use tq_mutate() to get lags 1:12 using lag.xts()====    
+sci_sta_lags <- sci_sta %>%  
+# group_by is a key step!    
+  group_by(sta, spi_length) %>%    
+# run the lag vals by sta & spi_length  
+    tq_mutate(  
+        select     = spi_val,  
+        mutate_fun = lag.xts,  
+        k          = k,  
+        col_rename = col_names  
+    ) %>% 
+  ungroup() %>% 
+# gather the lagged values     
+  rename(lag_0 = spi_val) %>%  
+  gather(key = lag_length, 
+         value = spi_val,  
+         -c(sta,  
+            spi_length,  
+            date,  
+            group,  
+            min_date_sta,  
+            max_date_sta)  
+         ) %>%  
+# convert lag_length to numeric
+  mutate(lag_length = str_sub(lag_length, start = 5) %>% as.numeric) 
+
+    
+# clean up  
+rm(k,  
+   col_names    
+   )  
   
 ```  
 
@@ -4806,49 +5391,196 @@ sci_gage <- full_join(gage_group, sci_gage,
 #     package and lag.  
   
 # join sta & gage====  
-sci_all <- full_join(sci_sta_lags, sci_gage,  
+sci_all <- full_join(sci_sta, sci_gage,  
                      by = c("date", 
-                            "group",  
-                            "spi_length")) %>%   
-  select(sta,  
-         gage, 
+                            "group"))  %>%   
+# drop unneeded check vars 
+  select(-c(min_date_sta,  
+            max_date_sta,  
+            min_date_gage,  
+            max_date_gage)  
+         )  %>%  
+# organize vars by y, x1, other data  
+  select(sci_val,  
          ecoreg,  
-         group,  
-         date,  
-         spi_length,  
-         lag_length,  
          spi_val,  
-         sci_val, 
-         everything()
+         spi_length,  
+         sci_length,  
+         everything() 
          ) %>%    
-  mutate(lag_length = str_sub(lag_length, start = 5) %>% as.numeric) %>%   
   drop_na()    # short-term solution -- need to get dates coordinated  
 
-rm(sci_sta_lags,  
-   gage_group  
-   )  
+#rm(sci_sta, 
+#   gage_group  
+#   )  
+  
+# check correlations at the station level - external controls ====     
+sci_corr_sta <- sci_all %>%  
+ # sta, gage, group - not need grouping vars
+  group_by(gage, spi_length, sci_length) %>%  
+  summarize(  
+    cor = cor(x = spi_val,  
+              y = sci_val,    
+              use = "pairwise.complete.obs"),  
+    cutoff_upper = 2/(n())^0.5,  
+    cutoff_lower = -2/(n())^0.5  
+  ) %>% 
+  ungroup()  
 
+# quick boxplot -- note the fal_hot gage is an outlier..
+sci_corr_sta %>% 
+  ggplot(aes(x = gage, y = cor)) + 
+  geom_boxplot()  
+
+# remove outlier station & clean up  
+sci_clean <- sci_all %>%  
+  filter(gage != "fal_hot")      # drop the low correlation outlier  
+
+rm(sci_all,  
+   sci_corr_sta,  
+   sci_gage,  
+   sci_sta)  
+
+# quick check 
+sci_plot <- sci_clean %>% 
+  gather(key = type, 
+         value = length, 
+         -c(ecoreg, spi_val, sci_val, sta, date, prcp, group, gage)) %>% 
+  gather(key = sci_type, 
+         value = index_val, 
+         -c(ecoreg, type, length, sta, date, prcp, group, gage)) 
+
+sci_plot %>% 
+  ggplot(aes(x=date, y= index_val)) + 
+  facet_grid(rows = vars(length), 
+             cols = vars(sci_type), 
+             scales = "free") + 
+  geom_point() + 
+  geom_smooth() 
+
+sci_clean %>% 
+ # filter(spi_length == 6) %>% 
+  ggplot(aes(x=date, y=sci_val)) + 
+  facet_wrap(vars(sci_length), 
+             nrow = 2, 
+             scales = "free") + 
+  geom_point() + 
+  geom_smooth() 
 ```   
 
+```{r cross-correlation}
+library(feasts)  
+library(tsibble)
 
-```{r}
-# 4. apply the correlation to each group of lags. The summarize() function   
-#     can be used to implement cor(), which takes x = count and y = lag_value.   
+# make into a tsibble -- the key is 'gage' 
+sci_dups <- sci_clean %>% 
+  duplicates()  
+  
+as_tsibble(key = gage)  
+
+```
+
+```{r quick-try-for-controlling-vars-needs-work}
+# next step is to apply an 80:20 split by spi_length  
+
+# approach for linear mod ----  
+data %>%
+  group_by(dataset) %>% 
+  nest() %>% 
+  mutate(mod = map(data, ~lm(observation ~ estimate, data = .)),
+         aug = map2(mod, data, ~augment_columns(.x, .y))) %>% 
+  unnest(aug)
+
+# apply model to 
+sci_mod <- sci_all %>%
+  group_by(sci_length) %>% 
+  nest() %>% 
+  mutate(mod = map(data, ~lm(sci_val ~ spi_val + spi_length, data = .)),
+         aug = map2(mod, data, ~augment_columns(.x, .y))) %>% 
+  unnest(aug)
+
+```
+
+```{r time_series_correlation} 
+# Apply the correlation ----  
+# 1. apply the correlation to each group of gages & stations by 
+#      lags & spi_lengths.  The summarize() function can be used 
+#      to implement cor(), which takes x = count and y = lag_value.   
 #   Make sure to pass use = "pairwise.complete.obs", which is almost always   
 #   desired.  
-# 5. The 95% upper and lower cutoff can be approximated by: cutoff=±2 / N^0.5  
-#     Where:  
-#       N = number of observations.  
+# 2. The 95% upper and lower cutoff can be approximated by: cutoff=±2 / N^0.5  
+#      Where:  
+#        N = number of observations.  
 
-sci_sta_autocorrelations <- stuff
-    group_by(sta, group, gage, lag) %>%  
-    summarize(  
-        cor = cor(x = sci_1mo,  
-                  y = lag_value,  
-                  use = "pairwise.complete.obs"),  
-        cutoff_upper = 2/(n())^0.5,  
-        cutoff_lower = -2/(n())^0.5  
-        )  
+# check correlations at the station level - external controls ====     
+sci_corr_sta <- sci_all %>%  
+ # sta, gage, group - not need grouping vars
+  group_by(gage, spi_length, sci_length, lag_length) %>%  
+  summarize(  
+    cor = cor(x = spi_val,  
+              y = sci_val,    
+              use = "pairwise.complete.obs"),  
+    cutoff_upper = 2/(n())^0.5,  
+    cutoff_lower = -2/(n())^0.5  
+  ) %>% 
+  ungroup() 
+
+sci_corr_sta %>% 
+  ggplot(aes(x = gage, y = cor)) + 
+  geom_boxplot()  
+
+# note the fal_hot gage is an outlier... 
+  
+# average at the ecoregion scale====     
+sci_corr_ecoreg <- sci_all %>%  
+  filter(gage != "fal_hot") %>%      # drop the low correlation outlier  
+  group_by(ecoreg, spi_length, sci_length, lag_length) %>%   
+  summarize(  
+   cor = cor(x = spi_val,   
+              y = sci_val,     
+              use = "pairwise.complete.obs"),  
+    cutoff_upper = 2/(n())^0.5,  
+    cutoff_lower = -2/(n())^0.5  
+  ) %>% 
+  ungroup() 
+
+sci_corr_ecoreg %>% 
+  ggplot(aes(x = lag_length, y = cor)) + 
+  facet_wrap(vars(ecoreg), 
+             nrow = 2) + 
+  geom_point()  + 
+  geom_smooth()  
+```  
+
+```{r}
+sci_corr_ecoreg %>%  
+  ggplot(aes(x = lag_length, y = cor_mean)) + 
+  facet_grid(cols = vars(ecoreg)) + 
+  geom_point(aes(color = spi_length)) +  
+  geom_smooth()  
+```
+
+```{r}
+
+# pick the top correlations====   
+#sci_corr <- sci_corr_all %>%   
+#  group_by(sta, gage, group, ecoreg, spi_length) %>%  
+#  summarize(  
+#    corr = max(cor)
+#    ) %>% 
+#  ungroup()    
+
+#sci_corr_join <- right_join(sci_corr_all, sci_corr, 
+#                           by = c("cor" = "corr", 
+#                                  "sta",  
+#                                  "gage",  
+#                                  "group", 
+#                                  "ecoreg", 
+#                                  "spi_length"))  
+
+
+
+
   
 # Visualize the cross-correlations (not ready yet!) 
 sci_sta_autocorrelations %>%  
@@ -4949,7 +5681,7 @@ tidyverse_absolute_autocorrelations %>%
 #   is not present.  
 # In the case above, the tidyverse packages exhibit a strong weekly pattern.  
 ```  
-
+-->
 
 # TO DO Monthly plot PRCP_MON - check code   
 ```{r plot-annual-prcp}  
