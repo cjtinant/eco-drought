@@ -6,16 +6,16 @@ output: html_document
 ---
 
 <!--
-This R markdown file refactors prior code for data cleaning 
+This R markdown file is for streamflow data cleaning 
 
 Data:
 Predominant datasets used are:  
 1) USGS daily streamflow and station metadata,  
 2) Summary data from a QGIS analysis of ungaged watersheds of interest.  
-
-Approach: 
+  
+Approach:  
 1) find potential USGS gages by bounding box 
-     bBox = a contiguous range of decimal latitude and longitude, starting 
+     bBox = a contiguous range of decimal latitude and longitude, starting
      with the west longitude, then the south latitude, then the east longitude, 
      and then the north latitude with each value separated by a comma. 
 # https://waterservices.usgs.gov/rest/Site-Service.html#bBox 
@@ -25,11 +25,12 @@ Approach:
      - upstream control, 
      - in crystaline or karst catchments
      - provisional data 
-     - (sigh) overlooked in the first data screening from 1990-2017 
 
 3) clean metadata by removing non-needed variables  
 
-4) obtain USGS gage daily flow data
+4) obtain USGS gage daily flow data for dates:  
+   from: 1979-08-01 (WY 1980 + 2 months)  
+   to:   2018-12-31 (WY 2018 + 3 months )  
 
 5) filter stations based on record length 
     - no data gages for 1980-2018 water years 
@@ -45,6 +46,7 @@ gage                USGS gaging stations
   _meta             metadata for possible gaging stations
   _int1             scratch df for pulling gages with integer fields 
   _int2             scratch df for pulling gages with integer fields 
+  _int3             scratch df for pulling gages with integer fields 
 
 wsd  
   _summary
@@ -53,6 +55,7 @@ names
 endDate             used for calling Egret::readNWISDaily  -- "1979-08-01"
 parameter_cd        used for calling Egret::readNWISDaily  -- "2018-09-30"  
 startDate           used for calling Egret::readNWISDaily  -- "00060" 
+
 
 lon_riv_dv          scratch df for pulling lon_riv 
 gage_most_dv        scratch df for pulling !lon_riv 
@@ -68,7 +71,6 @@ gage_meta           cleaned metadata for USGS gaging stations in the study area
 knitr::opts_chunk$set(echo = FALSE)     
 options(tibble.print_max = 70) # sets tibble output for printing        
   
-
 # Sets up the library of packages   
 library("conflicted")        # An alternative conflict resolution strategy  
 library("here")              # identifies where to save work  
@@ -81,8 +83,7 @@ library("forecast")          # for BoxCox.lambda
 library("stringi")           # character string processing facilities  
 library("broom")             # convert statistical objs into tidy tibbles 
 library("tidyverse")  
-
-
+  
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
@@ -92,7 +93,7 @@ conflict_prefer("last", "dplyr")
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 why_to_write <- function()   
 {today <- today(tzone = "") 
-paper2 <- ymd("2019-11-15")  
+paper2 <- ymd("2019-12-31")  
 until <- paper2 - today  
 print(paste("You have", until, "days until the second paper is due"  
 ))  
@@ -100,7 +101,9 @@ print(paste("You have", until, "days until the second paper is due"
 why_to_write()  
 ```  
 
-```{r import_daily_flow_metadata}  
+```{r import_metadata, eval=FALSE}  
+  
+# updated 2019-12-14  
   
 # get possible stations from NWIS website----  
 gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),    
@@ -143,25 +146,25 @@ rm(gage_meta_int1,
    gage_meta_int3,  
    gage_poss  
 )    
-
-# 4. export metadata to data folder----  
-#export(gage_meta_poss, "data/gage_meta_poss.csv")  
- 
+   
 ``` 
   
-```{r clean_gage_metadata} 
+```{r clean_gage_metadata, eval=FALSE} 
   
-gage_meta_poss <- import("data/gage_meta_poss.csv")       
+# updated on 2019-12-14  
+  
+# gage_meta_poss <- import("data/gage_meta_poss.csv")       
   
 # select final stations for consideration----  
-# 1. remove gages that do not meet standards====    
-gage_meta <- gage_meta_poss %>%    
+# 1. remove gages that do not meet standards====    # should be 88 gages 
+gage_meta_int <- gage_meta_poss %>%    
   mutate(site_no = as.character(site_no)) %>%  
   mutate(site_no = zeroPad(site_no, 8)) %>%              # pad site_no   
-  mutate(reliability_cd = replace_na(reliability_cd, 0))  %>% #  NA <- zero  
-  filter(site_no != "06461150"&  
-           site_no != "06463670"&   
-           site_no != "06461595") %>%  # remove short sites w/ provisional data  
+  mutate(reliability_cd = replace_na(reliability_cd, 0)
+         ) %>% #  NA <- zero  
+    filter(site_no != "06461150"&  
+         site_no != "06463670"&   
+         site_no != "06461595") %>%  # rem. short sites w/ provisional data  
   filter(site_no != "06441000") %>%  # only active 180 days/yr   
   filter(site_no != "06438000") %>%  
   filter(site_no != "06437000") %>%  # remove northern Black Hills stations  
@@ -171,26 +174,21 @@ gage_meta <- gage_meta_poss %>%
   filter(!str_detect(station_nm,  
                      'CUSTER|KEYSTONE|HILL CITY|HAYWARD')) %>%  
   filter(site_no != "06424000") %>%  
-  # crystaline catchments  
+  # 2. Crystaline catchments  
   filter(!str_detect(station_nm,  
                      'LEAD|DEADWOOD|WHITEWOOD')) %>%   
-  # crystaline catchments  
   filter(!str_detect(station_nm, 'CLEGHORN')) %>% # karstic? spring  
   filter(!str_detect(station_nm, 'BOXELDER|LIME')) %>% # karstic  
   filter(!str_detect(station_nm, 'RAPID')) %>%    
-  # Rapid Creek & upper Spring Creek  
-  filter(!str_detect(station_nm, 'MISSOURI'))  
-  
-# 2. remove provisional sites====       
-gage_meta <- gage_meta %>%  
+  # 3. Rapid Creek & upper Spring Creek  
+  filter(!str_detect(station_nm, 'MISSOURI')) %>%  
+# 4. remove provisional sites       
   mutate(site_no = as.character(site_no)) %>%  
   select(-reliability_cd) %>%  
   mutate(length = str_length(site_no)) %>%  
   filter(length <= 8) %>%   # removes two provisional sites  
-  select(-length)  
-  
-# 3. remove codes not needed for this project  
-gage_meta <- gage_meta %>%  
+  select(-length) %>% 
+# 5. remove codes not needed for this project  
   select(-agency_cd) %>%  
   select(-site_tp_cd) %>% # all streams so delete 
   select(-c(lat_va, long_va)) %>% # in DMS so delete  
@@ -204,12 +202,15 @@ gage_meta <- gage_meta %>%
   select(-c(tz_cd, local_time_fg)) %>% # daily data, so NA  
   select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>%  
   select(-c(well_depth_va, hole_depth_va, depth_src_cd))  
-
-rm(gage_meta_poss)  
+  
+gage_drop <- anti_join(gage_meta_poss, gage_meta_int,  
+                       by = "site_no")  
   
 ```  
   
-```{r add_names_to_gage_meta}  
+```{r add_names_to_gage_meta, message=FALSE, eval=FALSE}  
+  
+# updated on 2019-12-14     
   
 # get data from QGIS analysis of gaged & ungaged watersheds of interest====    
 wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
@@ -224,25 +225,26 @@ names <- wsd_summary %>%
   drop_na() %>%  
   mutate(site_no = zeroPad(site_no, 8))  
   
-gage_meta <- full_join(names, gage_meta,   
-                       by ="site_no")  
+gage_meta_poss <- full_join(names, gage_meta_poss,   
+                       by ="site_no") 
   
-gage_meta <- gage_meta %>%  
+gage_meta <- gage_meta_poss %>%   
   filter(sta != " ")  
   
-# export metadata to data folder----   
-#export(gage_meta, "data/gage_meta.csv")  
+gage_drop <- anti_join(gage_meta_poss, gage_meta,  
+                       by = "site_no")  
   
-``` 
+rm(wsd_summary)  
+  
+```   
 
-```{r import_daily_flow_data, message=FALSE} 
+```{r import_daily_flow_data, message=FALSE, eval=FALSE} 
   
-# this is a small amount of code duplication to reduce API calls    
-#   to allow for working remotely -- set above to eval=FALSE   
+# updated on 2019-12-14   
   
 # set parameters for Egret::readNWISDaily     
-startDate    <- "1979-08-01" # pulling two months early to get Q7 & Q30    
-endDate      <- "2018-09-30"    
+startDate    <- "1979-08-01" # pulling early to get Q7 & Q30    
+endDate      <- "2018-12-31"    
 parameter_cd <- "00060"   
   
 # get daily flows----   
@@ -269,17 +271,111 @@ gage_most_dv <- gage_meta %>%
     endDate),  
     .id = "site_no")   
   
-# remove the 1978 data that was needed to calculate Q7 & Q30   
-gage_dv <-bind_rows(gage_most_dv, gage_lonriv_dv) %>%   
-  filter(waterYear > "1979")   
+# join data  
+gage_dv_orig <-bind_rows(gage_most_dv, gage_lonriv_dv) 
 
-rm(gage_lonriv_dv, gage_most_dv)  
-  
+# add names to gage_dv_orig====  
+gage_dv_orig <- full_join(names, gage_dv_orig,   
+                     by ="site_no")  
+
+# clean_up
+rm(gage_lonriv_dv,   
+   gage_most_dv,  
+   startDate,  
+   endDate,  
+   parameter_cd,  
+   gage_drop, 
+   gage_meta_int, 
+   gage_meta_poss,  
+   names  
+   )   
+   
 ```  
 
-```{r filter_short_flow_recs}
+#gage_dv <- import("data/gage_dv.csv") %>% 
+#    mutate(site_no = zeroPad(site_no, 8)) 
+
+#gage_meta <- import("data/gage_meta.csv") %>%  
+#    mutate(site_no = zeroPad(site_no, 8)) 
+
+```{r clean_daily_flow, eval=FALSE} 
   
-# 1. prepare to filter gages with short flow records----     
+# updated on 2019-12-14     
+  
+# 1. remove dates prior to 1979-10-01 and after 2018-10-01
+gage_dv_gtlt_range <- gage_dv_orig   
+  
+gage_dv <- gage_dv_orig %>%  
+                  filter(Date >"1979-09-30" & Date < "2018-10-01")
+  
+gage_dv_gtlt_range <- anti_join(gage_dv_gtlt_range, gage_dv,  
+                          by = c("sta", "Date"))  
+ 
+# check dates 
+min_date <- gage_dv %>% 
+  arrange(Date) %>% 
+  slice(1) 
+
+max_date <- gage_dv %>% 
+  arrange(desc(Date)) %>% 
+  slice(1) 
+
+# 2. filter missing records from Q1, Q7, Q30 
+gage_dv_NA_inc <- gage_dv  
+  
+gage_check <- gage_dv_NA_inc %>% 
+  filter(is.na(Q30) |  
+         is.na(Q7) |  
+         is.na(Q)  
+  ) %>% 
+  mutate(Year = year(Date)) %>%  
+  group_by(sta, Year) %>%  
+  summarise(count = n())
+  
+gage_dv <- gage_dv %>% 
+  filter(!is.na(Q30) & 
+           !is.na(Q7) & 
+           !is.na(Q)  
+  )  
+  
+gage_check <- gage_dv %>% 
+  filter(is.na(Q30) | 
+           is.na(Q7) | 
+           is.na(Q) 
+  )  
+  
+# 3. check provincial data -
+gage_dv_qual <- gage_dv  
+
+gage_dv <- gage_dv %>% 
+  filter(Qualifier == "A"   |  
+           Qualifier == "A:e" |  
+           Qualifier == "A:<" 
+  )   
+
+gage_dv_qual <- anti_join(gage_dv_qual, gage_dv,  
+                          by = c("sta", "Date")) %>%  
+  mutate(Year = year(Date)) %>%   
+  group_by(sta, Month, Year) %>%  
+  summarise(count = n())  
+  
+# 4. check that all na were dropped====
+gage_check <- gage_dv %>%  
+  drop_na() 
+
+rm(gage_dv_gtlt_range, 
+   gage_dv_NA_inc, 
+   gage_dv_orig, 
+   gage_dv_qual, 
+   gage_dv_wy79, 
+   min_date, 
+   max_date  
+   )
+```
+
+```{r check_stations, eval=FALSE}
+
+# 1. check short flow records----     
 # calculate min & max years of record   
 yrs_summary <- gage_dv %>% 
   group_by(site_no) %>%                  
@@ -289,159 +385,52 @@ yrs_summary <- gage_dv %>%
             ) %>%                     
   ungroup() %>%  
   mutate(apparent_yrs = 1 + max_year - min_year) %>% 
-  mutate(yeas_rec = as.numeric(years_rec))   
-  
-gage_meta <- import("data/gage_meta.csv") %>% 
-    mutate(site_no = zeroPad(site_no, 8))  
+  mutate(years_rec = as.numeric(years_rec))   
   
 gage_meta <- full_join(yrs_summary, gage_meta,        
                        by = "site_no")  
-  
 rm(yrs_summary)  
   
-# 2. filter gages with less than 6 years of record----    
+# 2. check for gages with no records ----    
 # filter gages with no records  
 gage_check <- gage_meta %>%  
   filter(is.na(years_rec))  
   
-gage_meta <- gage_meta %>%  
-  filter(!is.na(years_rec))                         
-  
-# drop stations with less than 6 years of record   
+# 3. check for stations with less than 6 years of record   
 gage_check <- gage_meta %>%  
-  filter(years_rec < 6)  
+  filter(years_rec < 7)  
   
-gage_meta <- gage_meta %>%  
-  filter(years_rec >= 6)                        
-  
-# 3. check for incomplete days of record====    
-yr_incomp <- gage_dv %>%                           
-  group_by(site_no, waterYear) %>%                   
+# 3. check for incomplete days of record for short recs ====    
+short_sta_ck <- gage_dv %>%    
+  filter(sta == "plu_hay" |  
+         sta == "wkc_wok" |  
+         sta == "bev_abf" |  
+         sta == "whi_slm"   
+         ) %>% 
+  group_by(sta, waterYear) %>%                   
   summarise(days_yr = n()) %>%                     
   ungroup() %>%  
-  filter(days_yr < 360) %>%  
-  group_by(site_no) %>%    
-  summarise(yrs_incomp = n()) %>%     
-  ungroup()  
+  filter(days_yr < 360) 
   
-gage_meta <- full_join(yr_incomp, gage_meta,   
-                       by = "site_no") %>%  
-  filter(!is.na(years_rec))  
+export(gage_dv, "data/gage_dv.csv")   
+export(gage_meta, "data/gage_meta.csv")   
   
-# 4. remove data with short record between 1990-2015====  
-gage_check <- gage_meta %>%  
-  filter(sta == "")  
-  
-gage_meta <- gage_meta %>%  
-  filter(sta != "")  
-  
-## These didn't make the cut because the original data selection was  
-# for 1990-2015  & it would be extremely difficult to put in post-hoc.  
-# it would be good for the future!  
-# Also - its possible to use these for model testing...  
-  
-# station   min_yr  maxyr  name  
-# 06442000   1980   1990   MEDICINE KNOLL CR NEAR BLUNT SD   
-# 06459175   1982   1995   SNAKE R AT DOUGHBOY, NE  
-# 06459500   1980   1995   SNAKE RIVER NEAR BURGE, NEBR.  
-# 06454100   1980   1992   Niobrara River at Agate, Nebr.  
-# 06461000   1980   1995   MINNECHADUZA CREEK AT VALENTINE, NEBR.  
-# 06462500   1980   1995   PLUM CREEK AT MEADVILLE, NE 
-# 06463720   2012   2018   Niobrara River at Mariaville, Nebr.  
-# 06400497   1980   1995   CASCADE SPRINGS NEAR HOT SPRINGS SD  
-# 06462000   1980   1986   NIOBRARA RIVER NR NORDEN NEBR 
-# 06463080   1980   1991   LONG PINE CREEK NR LONG PINE, NE 
-# 06439300   1980   1994   CHEYENNE RIVER AT CHERRY CREEK,SD 
-# 06442500   1980   1990   MEDICINE CR AT KENNEBEC SD 
-# 06444000   1980   2004   White River at Crawford, Nebr. 
-# 06454500   1980   1994   NIOBRARA RIVER ABOVE BOX BUTTE RESERVOIR, NE 
-# 06455500   1980   1991   NIOBRARA RIVER BELOW BOX BUTTE RESERVOIR NEBR 
-# 06457500   1980   1991   NIOBRARA RIVER NEAR GORDON, NEBR.  
-  
-# sync gage_dv w/ gage_meta & export results as posthoc to avoid interference  
-gage_dv <- full_join(names, gage_dv,   
-                     by ="site_no")    
-  
-gage_dv <- semi_join(gage_dv, gage_meta,   
-                     by = "site_no")     
- 
-#export(gage_meta, "data/gage_meta.csv")   
-#export(gage_dv, "data/gage_dv.csv")   
-  
-# clean up  
-rm(startDate,  
-   endDate,  
-   parameter_cd,  
-   wsd_summary,  
-   names,   
-   gage_check,  
-   yr_incomp  
-   )    
-  
-```  
-
-```{r clean_daily_flow} 
-  
-# this is a small amount of code duplication to reduce API calls     
-  
-gage_dv <- import("data/gage_dv.csv") %>% 
-    mutate(site_no = zeroPad(site_no, 8)) 
-
-gage_meta <- import("data/gage_meta.csv") %>%  
-    mutate(site_no = zeroPad(site_no, 8)) 
-
-# filter missing records from Q1, Q7, Q30 
-gage_check <- gage_dv %>% 
-  filter(is.na(Q30) | 
-           is.na(Q7) | 
-           is.na(Q) 
-  )  
-
-gage_dv <- gage_dv %>% 
-  filter(!is.na(Q30) & 
-           !is.na(Q7) & 
-           !is.na(Q)  
-  )  
-
-gage_check <- gage_dv %>% 
-  filter(is.na(Q30) | 
-           is.na(Q7) | 
-           is.na(Q) 
-  )  
-
-# 4. remove provincial data - we removed WY 2018 in the prior analysis 
-gage_dv <- gage_dv %>% 
-  filter(Qualifier == "A"   |  
-           Qualifier == "A:e" |  
-           Qualifier == "A:<" 
-  )   
-
-gage_check <- gage_dv %>% 
-  filter(Qualifier != "A") %>% 
-  filter(Qualifier != "A:e") %>%  
-  filter(Qualifier != "A:<")  
-
-# 5. remove 2018 data 
-gage_dv <- gage_dv %>% 
-  filter(waterYear != "2018")  
-
-gage_check <- gage_dv %>%  
-  filter(waterYear == "2018")  
-
-rm(gage_check)   
-
-#export(gage_dv, "data/gage_dv.csv")   
+# clean up global environ
+rm(gage_check,  
+   short_sta_ck,  
+   yrs_summary  
+   )  
   
 ``` 
 
 ```{r censor_low_flows, message=FALSE} 
-
-gage_dv <- import("data/gage_dv.csv")  
-
+  
+# updated 2019-12-14
+  
 # fix low flows ---- this step needed for the PCA    
-#   EGRET calculates a "better" zero-flow value, but causes issues with results  
-#   this code chunk fixes low flow values by substituting 0.01 cfs    
-#   for zero-flow values   
+#  EGRET calculates a "better" zero-flow value, but causes issues with results  
+#  -- this code chunk fixes low flow values by substituting 0.01 cfs    
+#  for zero-flow values   
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
 
 # 1. gather the different flow values  
@@ -475,32 +464,35 @@ rm(gage_dv_gath,
 # incorporate zero flow into a gage id  
 gage_low_flow <- gage_low_flow %>%  
   mutate(flow_regime = "intermittent") 
-
+rm(gage_low_flow)  
+  
 gage_meta <- full_join(gage_meta, gage_low_flow) 
-
+  
 gage_meta <-gage_meta %>%  
   mutate(flow_regime = 
            replace_na(flow_regime, "perennial")  
          )  
-
+  
 # export results  
-#export(gage_meta, "data/gage_meta.csv")    
-#export(gage_dv, "data/gage_dv_fin.csv")  
+export(gage_meta, "data/gage_meta.csv")    
+export(gage_dv, "data/gage_dv.csv")  
   
 ``` 
 
 ```{r convert_flow_to_depth, message=FALSE} 
-
+  
+# updated 2019-12-14  
+  
 # 1. calculate contributing drainage area in square kilometers & sec/day     
 gage_contrib_area <- gage_meta %>%   
-  select(sta, drain_area_va, contrib_drain_area_va) %>%  
+  select(sta, drain_area_va, contrib_drain_area_va) %>%   
   mutate(contrib_drain_area_va =   
            contrib_drain_area_va %>%  
              is.na %>%   
              ifelse(drain_area_va, contrib_drain_area_va)) %>%   
   select(-drain_area_va) %>%   
   mutate(contrib_drain_km2 =  
-           measurements::conv_unit(contrib_drain_area_va,  
+           measurements::conv_unit(contrib_drain_area_va,   
                                    from = "mi2",   
                                    to = "km2"  
                                    )  
@@ -509,12 +501,12 @@ gage_contrib_area <- gage_meta %>%
            round(  
              contrib_drain_km2,  
              digits = 1  
-             )  
+             )   
          ) %>%  
   mutate(sec_per_day = 60 * 60 * 24)  
   
 # 2. calculate Q-depth:: q = Q/DA [m/km2 day]    
-gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%  
+gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%   
   select(site_no, sta, Date, Q, Q7, Q30, waterYear,  
          contrib_drain_km2, sec_per_day)  %>%  
   gather(type, value,   
@@ -525,17 +517,17 @@ gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%
   rename(q1_depth = Q) %>%  
   rename(q7_depth = Q7) %>%  
   rename(q30_depth = Q30) %>%  
-  select(-c(site_no, contrib_drain_km2, sec_per_day))   
+  select(-c(contrib_drain_km2, sec_per_day))   
   
 rm(gage_contrib_area)    
-  
-#export(gage_depth, "data/gage_depth.csv")    
-  
+   
+export(gage_depth, "data/gage_depth.csv")    
+   
 ``` 
 
 ```{r PCA-calculations}  
-
-gage_depth <- import("data/gage_depth.csv") 
+  
+#gage_depth <- import("data/gage_depth.csv") 
   
 # Prepare to approach normality using forcast::BoxCox----    
 # make a dataframe of lambda values====   
@@ -589,13 +581,13 @@ pca_matrix <- pca_input %>%
          center = TRUE,  
          scale. = TRUE  
          )        
-
+  
 # Gather & summarize PCA results----  
 # results about PC axes  
-pca_eigen <- tidy(pca_matrix, 
+pca_eigen <- tidy(pca_matrix,  
                   matrix = "pcs"  
                   )       
-
+  
 # PCA loadings 
 pca_vars <-  tidy(pca_matrix,  
                   matrix = "variables"  
@@ -626,9 +618,9 @@ gage_depth <- augment(pca_matrix,
       mutate(q1_q30_diff = q1_depth - q30_depth)  
   
 # Save results  
-#export(gage_depth, "data/gage_depth.csv")   
-#export(pca_eigen, "data/pca_eigen.csv")  
-#export(pca_vars, "data/pca_vars.csv")   
+export(gage_depth, "data/gage_depth.csv")   
+export(pca_eigen, "data/pca_eigen.csv")  
+export(pca_vars, "data/pca_vars.csv")   
   
 rm(pca_eigen, pca_input, pca_matrix, pca_vars, lambda_vals)  
   
@@ -738,15 +730,16 @@ gage_ecoreg <- gage_depth %>%
 gage_meta <- full_join(gage_meta, gage_ecoreg, 
                          by = "sta")  
 
-#export(gage_depth, "data/gage_depth.csv")    
-#export(gage_meta, "data/gage_meta.csv")   
+export(gage_depth, "data/gage_depth.csv")    
+export(gage_meta, "data/gage_meta.csv")   
   
 ```   
 
 ```{r daily_to_monthly_depth}
 #gage_depth <- import("data/gage_depth.csv")  
-#gage_depth <- gage_depth %>% 
-#  mutate(log_q1_depth = log10(q1_depth))    
+  
+gage_depth <- gage_depth %>%  
+  mutate(log_q1_depth = log10(q1_depth))    
   
 # average daily depths into monthly mean depths----     
 gage_mon <- gage_depth %>%  
@@ -770,15 +763,14 @@ gage_mon <- gage_depth %>%
   mutate(Date = ymd(Date)) %>%  
   as_tibble()   
   
-#export(gage_mon, "data/gage_mon.csv")   
+export(gage_mon, "data/gage_mon.csv")   
   
 ```
 
 ```{r select_complete_records}  
-
-# select complete records for period >1989 to present (n = 30) for SRI  
-gage_mon <- import("data/gage_mon.csv") %>%  
-  mutate(Date = ymd(Date))  
+  
+#gage_mon <- import("data/gage_mon.csv") %>%  
+#  mutate(Date = ymd(Date))  
 
 gage_meta <- import("data/gage_meta.csv")
 
@@ -787,22 +779,23 @@ gage_date_check <- gage_mon %>%
   summarize(start = min(Date), 
          end = max(Date))  
 
-gage_yrs_comp_full <- gage_mon %>%  
-  filter(Date > "1987-09-15") %>% 
-  group_by(sta, waterYear) %>% 
-  summarise(years  = n(), 
-            ecoreg = first(ecoreg)
+# select complete records for period wy 1989 to 2018 (n = 24) for SRI  
+gage_yrs_comp <- gage_mon %>%  
+  filter(Date > "1988-09-15") %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(years  = n(),  
+            ecoreg = first(ecoreg)  
   ) %>%  
   group_by(sta) %>%  
-  summarise(years  = n(), 
-            ecoreg = first(ecoreg)
+  summarise(years  = n(),  
+            ecoreg = first(ecoreg)  
   ) %>%  
-  ungroup() 
+  ungroup()  
 
-gage_meta <- right_join(gage_meta, gage_yrs_comp_full,  
+gage_meta <- right_join(gage_meta, gage_yrs_comp,  
                            by = "sta")  
-
-gage_yrs_comp <- gage_yrs_comp_full %>% 
+  
+gage_yrs_comp <- gage_yrs_comp %>% 
   filter(years >= 30)  
   
 gage_mon_full <- semi_join(gage_mon, gage_yrs_comp,  
@@ -814,13 +807,34 @@ gage_mon_name_ck <- gage_mon_full %>%
 export(gage_mon_full, "data/gage_mon_full.csv")   
 export(gage_meta, "data/gage_meta.csv")  
 
-rm(gage_meta,  
-   gage_mon,  
+rm(gage_mon,  
    gage_mon_full,  
-  gage_yrs_comp   
+  gage_yrs_comp, 
+  gage_ecoreg, 
+  gage_mon_name_ck
    )   
   
 ```
 
+```{r fix-metadata}
+  
+gage_meta <- gage_meta %>% 
+  select(sta,  
+         site_no,  
+         years_rec,  
+         years_past_1990 = years,  
+         min_year,  
+         max_year,  
+         dec_lat_va,  
+         dec_long_va,  
+         alt_va,  
+         drain_area_va,  
+         contrib_drain_area_va,  
+         ecoreg = ecoreg.x  
+         )  
+  
+export(gage_meta, "data/gage_meta.csv")    
+  
+```
 
 
