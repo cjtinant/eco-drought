@@ -1083,22 +1083,18 @@ models_mon <- list(
   lasso = lasso_mon,   
   elastic = elastic_mon)    
   
-rm(cores, 
-   train_index,  
-  lambda,  
-  reg.ctrl, 
-  seed  
-  )     
+rm(train_index,  
+   cores
+   )     
   
-
 ```     
 
 ```{r 14a-get-glm-coefs_pc1}
   
 # get & tidy model coefficients for each of the GLMs     
-# get number of parameters for each of the GLMs   
+# get number of parameters for each of the GLMs    
   
-# ridge coeffs ---------------------------------------------------------------  
+# ridge coeffs====    
 coef_ridge_mon <- coef(  
   ridge_mon$finalModel,  
   ridge_mon$bestTune$lambda) %>%  
@@ -1106,7 +1102,7 @@ coef_ridge_mon <- coef(
   as_tibble(., rownames = "coeff") %>%  
   mutate(type = "ridge")  
   
-# lasso coeffs  --------------------------------------------------------------   
+# lasso coeffs====  
 coef_lasso_mon <- coef(  
   lasso_mon$finalModel,  
   lasso_mon$bestTune$lambda) %>%  
@@ -1114,7 +1110,7 @@ coef_lasso_mon <- coef(
   as_tibble(., rownames = "coeff") %>%  
   mutate(type = "lasso")  
   
-# elastic coeffs  ------------------------------------------------------------  
+# elastic coeffs==== 
 coef_elastic_mon <- coef(  
   elastic_mon$finalModel,  
   elastic_mon$bestTune$lambda) %>%  
@@ -1122,7 +1118,7 @@ coef_elastic_mon <- coef(
   as_tibble(., rownames = "coeff") %>%  
   mutate(type = "elastic")  
   
-# join model coeff -----------------------------------------------------------  
+# join model coeff====  
 coefs_mon <- bind_rows(coef_ridge_mon, coef_lasso_mon, coef_elastic_mon)   
   
 coefs_mon <- coefs_mon %>%  
@@ -1132,7 +1128,7 @@ coefs_mon <- coefs_mon %>%
     ) %>%  
   spread(type, value)  
   
-# prepare for export table --------------------------------------------------- 
+# prepare for export table====  
 # arrange by absolute value of the lasso model  
 coefs_mon <- coefs_mon %>%   
   mutate(arrange_ridge = abs(ridge)) %>%   # temp terms to arrange coeffs  
@@ -1150,7 +1146,7 @@ coefs_mon <- coefs_mon %>%
     coeff == "pcov_ln"                      ~ "perc_cov",                   
     coeff == "kvert_ln"                     ~ "kvert_mean",                  
     coeff == "vpdan_sq"                     ~ "vpd_ann",               
-    coeff ==  "cout_sqr"                    ~ "cat_out",                
+    coeff ==  "cout_log"                    ~ "cat_out",                
     coeff ==  "ecoregSand Hills"            ~ "Ecoreg::Sand Hills",           
     coeff == "ecoregKeya Paha Tablelands"   ~ "Ecoreg::Keya Paha Tablelands",  
     coeff == "lwrat_sqr"                    ~ "lw_ratio",           
@@ -1166,7 +1162,7 @@ coefs_mon <- coefs_mon %>%
     coeff ==  "prcp_sq"                     ~ "prcp_mean",    
     TRUE ~ coeff))    
   
-# get number of parameters for each regression method ------------------------  
+# get number of parameters for each regression method==== 
 num_param <- coefs_mon %>%  
   map_dfc(~sum(. != 0)) %>%  
   select(-coeff) %>%                   # transpose df  
@@ -1204,8 +1200,8 @@ coef_table <- coefs_mon %>%
 
 # export a docx of flextables     
 coef_table <- read_docx() %>%  
-  body_add_flextable(value = coef_table) 
-print(coef_table, target = "output/table_coef_new.docx")   
+  body_add_flextable(value = coef_table)  
+print(coef_table, target = "output/table_coef_hydro-exp.docx")   
   
 rm(coef_table,  
    col_key_num,   
@@ -1477,17 +1473,17 @@ rm(mae_mon,
 ```{r 13b-build-glm-models_pc2}  
   
 # set up random seed & parallel processing for glmnet & caret====  
-seed <- 42  
-cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)   
-registerDoMC(cores)    
+#seed <- 42  
+#cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)   
+#registerDoMC(cores)    
   
 # set up 'caret' training control & lambda--200 possible lambda vals [-3, 3]  
 # note these values are used below for individual model fits  
-set.seed(seed)   
-reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
-                          search = "grid", allowParallel = TRUE)   
+#set.seed(seed)   
+#reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
+#                          search = "grid", allowParallel = TRUE)   
   
-lambda <- 10^seq(-3, 3, length = 200)  
+#lambda <- 10^seq(-3, 3, length = 200)  
   
 # Split the data into training and test set====  
 # create a data partition balanced by flow depths   
@@ -1549,12 +1545,7 @@ models_mon <- list(
   lasso = lasso_mon,   
   elastic = elastic_mon)    
   
-rm(cores, 
-   train_index,  
-  lambda,  
-  reg.ctrl, 
-  seed  
-  )     
+rm(train_index)     
   
 ```     
 
@@ -1716,7 +1707,8 @@ n_train <- train_mon %>%
 
 # clean up global environment  
 rm(error_call_mon,  
-   num_param)     
+   num_param, 
+   n_train)     
 ```   
 
 ```{r 17b-plot-glm-models_pc2} 
@@ -1938,18 +1930,22 @@ rm(mae_mon,
  
 ```  
 
-```{r 21b-clean-up_mon_model}
+```{r 20-prepare-for-ecoreg-GLM}
+  
 # clean up model data from above  
 rm(test_mon,  
    fit_model_mon,  
    fit_model_final,  
-   models_mon  
+   models_mon, 
+   gaged_pc2    # didn't fit better than a null model  
    )  
   
+gaged_ecoreg <- gaged_pc1 %>%  
 # drop unimportant predictors - from elastic_net above   
-gaged_ecoreg <- gaged_pc2 %>%  
-  select(-c(sta, q1_depth, .fittedPC1, .fittedPC2,  
-            prcp_sq, crel_sqr, vpdan_sq, t07_sq, TWI_sq)) %>%   
+  select(-c(prcp_sq,  
+            slop_ln,  
+            TWI_sq))  %>% 
+# create shorter variable names
   mutate(ecoreg2 = case_when(   
     ecoreg == "Black Hills Plateau"   ~ "bhplat",  
     ecoreg == "Keya Paha Tablelands"  ~ "kptabl",   
@@ -1958,7 +1954,7 @@ gaged_ecoreg <- gaged_pc2 %>%
     ecoreg == "Sand Hills"            ~ "sndhil",    
     ecoreg == "White River Badlands"  ~ "wrbadl"   
     )) %>%   
-  select(-ecoreg, mon)  
+  select(-c(axis, mon))  
 
 ``` 
 
@@ -1966,14 +1962,13 @@ gaged_ecoreg <- gaged_pc2 %>%
 ```{r 22-build-glm-models-ecoreg}  
 # prepare for modeling at the ecosystem scale --------------------------------  
 
-
 # Split the data into training and test sets by ecoreg -----------------------  
 ecoreg_list <- gaged_ecoreg %>%  
   split(., .$ecoreg2) 
     
 # create an index of values    
-ecoreg_index <- lapply(ecoreg_list, function(x) {   
-  return(createDataPartition(x$log_q1_depth, p = .8, list = FALSE))    
+ecoreg_index <- lapply(ecoreg_list, function(df) {   
+  return(createDataPartition(df$observed, p = .8, list = FALSE))    
   })    
    
 # get separate training & test df from the index (used in a code-chunk below) 
@@ -1991,26 +1986,81 @@ test_escarp <- (ecoreg_list[[4]])[-ecoreg_index[[4]],]
 test_sndhil <- (ecoreg_list[[5]])[-ecoreg_index[[5]],]  
 test_wrbadl <- (ecoreg_list[[6]])[-ecoreg_index[[6]],]  
   
-# drop ecoreg and date from the list  
+# drop variables from the list  
 ecoreg_list <- lapply(ecoreg_list,  
-                      function(x) select(x, -c(ecoreg2, Date, mon))  
+                      function(x) select(x, 
+                                         -c(sta,  
+                                            ecoreg,  
+                                            Date,  
+                                            season,  
+                                            trend,  
+                                            remainder,  
+                                            ecoreg2  
+                                            )  
+                                         )  
                       )   
   
 set.seed(seed)  
 model_list <- purrr::map2(ecoreg_list, ecoreg_index,  
                           function(df, train_index)  {   
-                            train(log_q1_depth ~ ., df[train_index,],  
+                            train(observed ~ ., df[train_index,],  
                                   method = 'glmnet',  
                                   trControl = reg.ctrl,  
                                   preProcess = c('nzv', 'center', 'scale'),  
-                                  tuneGrid = expand.grid(  
-                                    alpha = 1, lambda = lambda)  
+#                                  tuneGrid = expand.grid(  
+#                                    alpha = 1, lambda = lambda)
+                                   tuneLength = 10          # tune length    
                                   )  
                             })  
   
-rm(lambda, seed, reg.ctrl, ecoreg_index, ecoreg_list)   
+rm(lambda,  
+   seed,  
+   reg.ctrl,  
+   ecoreg_index,  
+   ecoreg_list  
+   )    
   
 ```  
+
+```{r 16a-select-glm-model_ecoreg, eval=FALSE}
+  
+# evaluate performance of models -- ridge, lasso and elastic net --      
+#   best model is the one that minimizes prediction error.    
+  
+# pick out the mse from the output lists   
+error_call_ecoreg <- resamples(model_list) %>%    
+  summary(metric = c("RMSE", "MAE"))     
+  
+# change list to tibble   
+error_vals_mon <- error_call_ecoreg %>%    
+  pluck(., 'statistics') %>%   
+    as.data.frame() %>%   
+  as_tibble(., rownames = "model") %>% 
+  gather(key, val, -c(model))  %>%  
+  mutate(key = str_replace(key, "[.]", "_")) %>%   
+  separate(key, c("statistic", "position"), extra = "drop") %>%  
+  filter(position != "NA") %>%   
+  spread(position, val)    
+  
+# add number of params to error vals & clean up   
+error_vals_mon <- full_join(error_vals_mon, num_param,   
+                           by = "model")    
+  
+# prepare for plotting   
+error_vals_mon <- error_vals_mon %>%    
+  mutate(num_param = as.character(num_param)) %>%   
+  mutate(temp = ", p = ") %>%   
+  mutate(model_text = str_c(model, temp, num_param))  %>%   
+  mutate(num_param = as.integer(num_param))  
+  
+n_train <- train_mon %>%  
+  mutate(n_count = n()) %>%  
+  distinct(n_count)   
+
+# clean up global environment  
+rm(error_call_mon,  
+   num_param)     
+```   
 
 ```{r 23-get-glm-coefs_ecoreg}  
 
@@ -2079,7 +2129,7 @@ coef_sndhil <- coef(
 # join model coefs -----------------------------------------------------------  
 coefs_ecoreg <- bind_cols( coef_pshale, coef_escarp, coef_wrbadl,  
                            coef_bhplat, coef_kptabl, coef_sndhil) %>%  
-# remove dupicate columns  
+# remove duplicate columns  
   select(coeff, pshale, escarp, wrbadl, bhplat, kptabl, sndhil) %>%  
   gather(key = ecoreg, value = val, -coeff) %>%  
   mutate(val = round(  
@@ -2088,31 +2138,69 @@ coefs_ecoreg <- bind_cols( coef_pshale, coef_escarp, coef_wrbadl,
   spread(ecoreg, val) %>%  
 # fix column order  
   select(coeff, pshale, escarp, wrbadl, bhplat, kptabl, sndhil) %>%   
-# fix row order  
-  arrange(desc(sndhil)) %>%  
-  arrange(desc(kptabl)) %>%  
-  arrange(desc(bhplat)) %>%  
-  arrange(desc(wrbadl)) %>%  
-  arrange(desc(escarp)) %>%  
-  arrange(desc(pshale))   
-  
-rm(coef_bhplat, coef_escarp, coef_kptabl,  
-   coef_pshale, coef_sndhil, coef_wrbadl)  
-  
 # rename coefficients to fit the hydrologic coefficient table  
-coefs_ecoreg <- coefs_ecoreg %>%   
   mutate(coeff = case_when(  
     coeff == "(Intercept)"                  ~ "Intercept",  
     coeff == "pcov_ln"                      ~ "perc_cov",                   
     coeff == "kvert_ln"                     ~ "kvert_mean",      
-    coeff == "lwrat_sqr"                    ~ "lw_ratio",     
+    coeff == "lwrat_log"                    ~ "lw_ratio",     
     coeff == "area_linv"                    ~ "cat_area",  
     coeff == "dden_sqr"                     ~ "drain_dens",  
     coeff ==  "cout_sqr"                    ~ "cat_out",                 
     coeff == "slop_ln"                      ~ "slop_med",  
-    TRUE ~ coeff))     
+    coeff == "vpdan_sq"                     ~ "vpd_ann",      
+    coeff == "t07_sq"                       ~ "t07_mean",    
+    coeff == "crel_sqr"                     ~ "cat_rel",   
+    TRUE ~ coeff)) 
+
+row_means <- coefs_ecoreg %>% 
+  gather(key = ecoreg, 
+         value = val, 
+         -coeff) %>% 
+  mutate(val = abs(val)) %>% 
+  group_by(coeff) %>% 
+  summarise(importance = round(median(val), 
+                               digits = 2)
+            )  
+
+coefs_ecoreg2 <- full_join(coefs_ecoreg, row_means,  
+                           by = "coeff")  
+
+
+# fix row order  
+  arrange(desc(abs(sndhil))) %>%  
+  arrange(desc(abs(kptabl))) %>%  
+  arrange(desc(abs(bhplat))) %>%  
+  arrange(desc(abs(wrbadl))) %>%  
+  arrange(desc(abs(escarp))) %>%  
+  arrange(desc(abs(pshale))) %>%    
+
+
+# get count data 
+eco_count <- gaged_ecoreg %>% 
+  group_by(ecoreg)  %>% 
+  summarise(n_tot = n()) %>%  
+  ungroup() %>% 
+  mutate(n = as.integer(0.8*n_tot))
   
-rm(pshale, escarp, wrbadl, bhplat, kptabl, sndhil)   
+
+
+
+
+
+  
+rm(coef_bhplat,  
+   coef_escarp,  
+   coef_kptabl,  
+   coef_pshale,  
+   coef_sndhil,  
+   coef_wrbadl, 
+   pshale,  
+   escarp,  
+   wrbadl,  
+   bhplat,  
+   kptabl,  
+   sndhil)   
   
 ```   
 
