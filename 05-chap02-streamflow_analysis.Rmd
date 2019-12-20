@@ -6,68 +6,10 @@ output: html_document
 ---
 
 <!--
-This R markdown file refactors prior code for data cleaning 
+This R markdown file uses cleaned data from 02_streamflow_cleaning.  See this 
+  Rmd for metadata on cleaning the data and variable conventions.
 
-1) Develop tables and plots for Chapter 2 
-
-Data:
-Predominant datasets used are:  
-1) USGS daily streamflow and station metadata,  
-2) Summary data from a QGIS analysis of ungaged watersheds of interest.  
-
-Approach: 
-1) find potential USGS gages by bounding box 
-     bBox = a contiguous range of decimal latitude and longitude, starting 
-     with the west longitude, then the south latitude, then the east longitude, 
-     and then the north latitude with each value separated by a comma. 
-# https://waterservices.usgs.gov/rest/Site-Service.html#bBox 
-# the Pine Ridge Reservation boundary is c(-103.0, 43.0, -100.2, 43.8)
-
-2) filter gages for the following reasons
-     - upstream control, 
-     - in crystaline or karst catchments
-     - provisional data 
-     - (sigh) overlooked in the first data screening from 1990-2017 
-
-3) clean metadata by removing non-needed variables  
-
-4) obtain USGS gage daily flow data
-
-5) filter stations based on record length 
-    - no data gages for 1980-2018 water years 
-    - less than 6-years of continuous data for 1990-2018
-      for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd 
-
-6) create metadata tables 
-    - gage_table - summary of gage metadata 
-    - ung_table - summary of ungaged watershed metadata 
-    - soils_table - summary of geology, soils, and vegetation 
-
-7) prepare daily flow data for PCA 
-     - check missing records & filter 
-     - remove provincial data 
-     - eliminate watershed size effects: 
-          Daily flow depth is calculated by dividing flow (cms) by watershed 
-          area (sq-km) and multiply the resultant by num. of sec. in a day.  
-          The resulting unit is cu-m-d per sq-km. 
-     - transform the data by BoxCox transformation by forcast::BoxCox
-          The daily flow data are highly skewed.  BoxCox transformation uses 
-          maximum likelihood to identify a best value (lambda) that best 
-          transforms a dataset to an ~ normal distribution.
-
-          # this is table of what the lambda values (probably) mean
-          # lambda = 1 is normal distribution (no change), 
-          # lambda = 0.5 is a square-root transformation, 
-          # lamda = 2 is a square transformation,
-          # lambda = 0 is a logrithmic transformation.
-
-8) make a PCA matrix and tidy the output 
-     - used prcomp() with center & scale = TRUE to center the data with a 
-         mean of zero and standard deviation of unity, e.g. a z-score.  
-         Note: '.' passes select(q1_tr, q7_tr, q30_tr) %>% to prcomp() 
-     - found eigenvectors-- the results about the PC axes
-
-9) construct bootstrap confidence intervals of PC axes to identify a difference 
+1) construct bootstrap confidence intervals of PC axes to identify a difference 
      in means. We obtained a 95% confidence interval (95% CI) around the our  
      estimate of the mean difference. The 95% indicates that a confidence 
      interval will capture the population mean difference 95% of the time. 
@@ -85,68 +27,136 @@ Approach:
      independent random samples will approach a normal distribution even if the 
      underlying population is not normally distributed.
 
-# Bootstrap resampling gives us two important benefits:
+Bootstrap resampling gives us two important benefits:
+1.1) Non-parametric statistical analysis. There is no need to assume that our   
+     observations, or the underlying populations, are normally distributed. 
+     Thanks to the Central Limit Theorem, the resampling distribution of the 
+     effect size will approach a normality.
+1.2) Easy construction of the 95% CI from the resampling distribution. 
+     For 1000 bootstrap resamples of the mean difference, one can use the 25th  
+     value and the 75th value of the ranked differences as boundaries of the 
+     95% confidence interval -- captures the central 95% of the distribution.
+     The interval construction is known as a percentile interval.
 
-# Non-parametric statistical analysis. There is no need to assume that our 
-# observations, or the underlying populations, are normally distributed. 
-# Thanks to the Central Limit Theorem, the resampling distribution of the 
-# effect size will approach a normality.
-# Easy construction of the 95% CI from the resampling distribution. 
-# For 1000 bootstrap resamples of the mean difference, one can use the 25th 
-# value and the 75th value of the ranked differences as boundaries of the 
-# 95% confidence interval. (This captures the central 95% of the distribution.) 
-# Such an interval construction is known as a percentile interval.
+Adjusting for asymmetrical resampling distributions
+  While resampling distributions of the difference in means often have a normal 
+  distribution, it is not uncommon to encounter a skewed distribution. Thus, 
+  Efron developed the bias-corrected and accelerated bootstrap (BCa bootstrap) 
+  to account for the skew, and still obtain the central 95% of the distribution. 
+  dabestr applies the BCa correction to the resampling bootstrap distributions 
+  of the effect size.
 
-# Adjusting for asymmetrical resampling distributions
-# While resampling distributions of the difference in means often have a normal 
-# distribution, it is not uncommon to encounter a skewed distribution. Thus, 
-# Efron developed the bias-corrected and accelerated bootstrap (BCa bootstrap) 
-# to account for the skew, and still obtain the central 95% of the distribution. 
-# dabestr applies the BCa correction to the resampling bootstrap distributions 
-# of the effect size.
+Estimation plots incorporate bootstrap resampling
+  The estimation plot produced by dabest presents the rawdata and the 
+  bootstrap confidence # interval of the effect size (the difference in means) 
+  side-by-side as a single integrated plot. It thus tightly couples visual 
+  presentation of the raw data with an indication of the population mean 
+  difference, and its confidence interval.
 
-# Estimation plots incorporate bootstrap resampling
-# The estimation plot produced by dabest presents the rawdata and the 
-# bootstrap confidence # interval of the effect size (the difference in means) 
-# side-by-side as a single integrated plot. It thus tightly couples visual 
-# presentation of the raw data with an indication of the population mean 
-# difference, and its confidence interval.
+2.0) check seasonality using stl 
+3.0) prepare data for glms 
+4.0) Generalized linear models (glms) for all of the data 
+5.0) GLMs for data by ecoregions 
 
-Variable naming conventions:   
-# ~~~~~~~~~~~~~~~~~~~~~~~~~
-gage               USGS streamflow gages  
-   _dv             daily mean flow values  
-   _dep            daily mean flow depths  
 
-  _sta            Short name used for this project 
-  _Date           Date     
-  _waterYear      Year following USGS water year format
-  _q1_depth       discharge depth in m/day
-  _q7_depth       7-day running average of q_depth
-  _q30_depth      30-day running average of q_depth 
+Variable naming conventions   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~  
+gage            USGS streamflow gages  
+  _dep          daily mean flow depths  
+  _mon          monthly dv depths 
+  
+ci_input_pc1    bootstrap at 95% CI for PC1 of monthly values
+ci_input_pc2    bootstrap at 95% CI for PC2 of monthly values
+ci_plot_pc1     plot of PC1 bootstrap  
+ci_plot_pc2     plot of PC2 bootstrap  
+ci_results_pc1  results of PC1 bootstrap
+ci_results_pc2  results of PC2 bootstrap 
+ci_table        table of PC results
+ci_table2       table of PC results
 
-gage_meta           cleaned metadata for USGS gaging stations in the study area 
-  "site_no"                site number     
-  "station_nm"             station name     
-  "dec_lat_va"             latitude value in decimal degrees 
-  "dec_long_va"            longitude value in decimal degrees 
-  "state_cd"               State code
-  "county_cd"              County code
-  "alt_va"                 altitude 
-  "huc_cd"                 hydrologic unit code 
-  "drain_area_va"          drainage area ???in square miles???
-  "contrib_drain_area_va"  contributing drainage area ???in square miles???
+mon_freq        scratch df of the average monthly frequency  
+                  'anomolize' parameter to remove season from observed vals  
+mon_trend_sta.  scratch df of the average monthly trend by sta  
+mon_trend       scratch df of the monthly trend 
+                  'anomolize' parameter to remove trend from observed vals 
+decomp_input    input for decomposition function (below) 
+decomp_fun      function to decompose into seasonal, trend, & remainder 
+gage_mon1       scratch df-decomposed monthly data for PC1 axis 
+gage_mon2       scratch df-decomposed gage_mon for PC2 axis 
+gage_mon        decomposed monthly daily flow depths 
 
-endDate             used for calling Egret::readNWISDaily 
-parameter_cd        used for calling Egret::readNWISDaily 
-startDate           used for calling Egret::readNWISDaily 
+anom_PC1        anomolies of PC1 after decomposition  
+pc1_obs          ggplot of PC1 observations vs time 
+pc1_seas         ggplot of PC1 seasons vs time 
+pc1_trend        ggplot of PC1 trend vs time 
+pc1_remainder    ggplot of PC1 remainder vs time  
 
-lon_riv_dv          scratch df for pulling lon_riv 
-gage_most_dv        scratch df for pulling !lon_riv 
-yrs_rec             calculates years of record 
-gage_dv             daily flow values for waterYear 1980-2017 
+mon_sum           summary table of PC1 & seasonal, trend explained 
+mon_sum_gath      prepares to summarize monthly data 
+mon_sum_pc1       summary PC1 & seasonal, trend explained by ecoregion 
+mon_sum_pc2       summary PC2 & seasonal, trend explained by ecoregion  
+mon_sum_pc1_all   summary PC1 & seasonal, trend explained by station 
 
-wsd_summary     zonal statistics of watershed environmental parameters 
+gpg_layers        scratch df for layers in gpg 
+wsd_summary       zonal statistics of watershed environmental parameters 
+env_vars          environmental variables from wsd summary 
+lambda            lambda vals for normalizing data 
+basic_eda_func    function for basic eda 
+
+gaged             joined gage_dv and  env_vars  
+
+seed              random seed for glmnet & caret   
+cores             parallel processing for glmnet & caret  
+reg.ctrl          trainControl for glmnet & caret  
+train_index       data partition training & test data (below)  
+train_dv          training dv data for glmnet 
+test_dv           test dv data for glmnet  
+  select(-c(sta, mon, q1_depth, .fittedPC1, .fittedPC2))     
+
+ridge_dv <- train_dv %>%   
+  select(-Date) %>%       # drop the data just prior to running the model  
+  train(    
+  log_q1_depth ~.,        # x = 'medv', y = the rest of the columns, from     
+  data = .,               #   the dataset 'train.data'   
+  method = "glmnet",      #   using method "glmnet"    
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,     
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values   
+  )    
+  
+# lasso -- alpha = 1====   
+set.seed(seed)             # need to set a seed each time you call a rand num   
+lasso_dv <- train_dv %>%   
+  select(-Date) %>%        # drop the data just prior to running the model   
+  train(   
+  log_q1_depth ~.,         # x = 'medv', y = the rest of the columns, from    
+  data = .,                #   the dataset 'train.data'    
+  method = "glmnet",       #   using method "glmnet"   
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,    
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values  
+  )   
+  
+# elastic net -- alpha vals [0, 1] by caret====  
+set.seed(seed)   
+elastic_dv <- train_dv %>%  
+  select(-Date) %>%         # drop the data just prior to running the model   
+  train(   
+  log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from   
+  data = .,                 #   the dataset 'train.data'     
+  method = "glmnet",       #   using method "glmnet"   
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,   
+  tuneLength = 10          # tune length    
+  )    
+  
+# make a list of the models====   
+models_dv <- list(   
+  ridge = ridge_dv,  
+  lasso = lasso_dv,   
+  elastic = elastic_dv)    
+
+wsd_summary
 *   "_id"       unique id
 *  "_sta_id"    four- or seven-digit station ID   
    "_type "     distinguishes gaged from ungaged 
@@ -177,7 +187,28 @@ wsd_summary     zonal statistics of watershed environmental parameters
 *  "_ksat_mean"   mean horizontal saturated hydraulic conductivity
 *  "_kvert_mean"  mean vertical saturated hydrologic conductivity 
 
-gage_check        scratch variable used to check operations 
+```{r eval=FALSE}
+
+# refactor below here 
+  _sta            Short name used for this project 
+  _Date           Date     
+  _waterYear      Year following USGS water year format
+  _q1_depth       discharge depth in m/day
+  _q7_depth       7-day running average of q_depth
+  _q30_depth      30-day running average of q_depth 
+
+gage_meta           cleaned metadata for USGS gaging stations in the study area 
+  "site_no"                site number     
+  "station_nm"             station name     
+  "dec_lat_va"             latitude value in decimal degrees 
+  "dec_long_va"            longitude value in decimal degrees 
+  "state_cd"               State code
+  "county_cd"              County code
+  "alt_va"                 altitude 
+  "huc_cd"                 hydrologic unit code 
+  "drain_area_va"          drainage area ???in square miles???
+  "contrib_drain_area_va"  contributing drainage area ???in square miles???
+
 gage_raw          the "raw" data, after removing the NA Qvals 
   _site_no        Eight-digit USGS gage number
   _sta            Short name used for this project 
@@ -195,46 +226,20 @@ gage_raw          the "raw" data, after removing the NA Qvals
   _Q7             7-day running average of Q
   _Q30            30-day running average of Q
 
-gage_dv_gath      scratch variable, gathers the Q, Q7, Q30 
-gage_dv_low       censored zero flows (q_val < 0.01)
-gage_dv_high      filtered non-zero flows -> join flows 
-gage_contrib_area used for converting Q [m3/s] -> q [m/day]
 
-pca_input         prcomp() input using gage_dv 
-pca_matrix        the matrix created by prcomp() 
-lambda_q1         lambda values for BoxCox transform prior to PCA 
-lambda_q7  
-lambda_q30 
-pca_eigen         results about PC axes -- the eigenvalues
-pca_vars          results about PC rotation -- magnitude and direction of vars  
 
 ecoreg            shapefile data of intersection of watershed area & 
                     merged SD, NE, WY ecoregions 
 eco_join          join variable for ecoreg & gage_dv 
 
-gage_mon          monthly dv depths used in decomposing PC eigens into trend, 
-                    seasonal, & random comps 
-mon_freq          'anomolize' parameter to remove season from observed vals  
-mon_trend          'anomolize' parameter to remove trend from observed vals 
-decomp_input      input for 'anomolize' decomp function 
-decomp_fun        function to decompose into seasonal, trend, & remainder vals 
+1) Develop tables and plots for Chapter 2 
 
-mon_sum           summary table of PC1 & seasonal, trend explained 
-mon_sum_gath      prepares to summarize monthly data 
-mon_sum_pc1       summary PC1 & seasonal, trend explained by ecoregion 
-mon_sum_pc2       summary PC2 & seasonal, trend explained by ecoregion  
-mon_sum_pc1_all   summary PC1 & seasonal, trend explained by station 
-  
-pca_plot          prepares PCA data for plotting 
-pc1_pc2_plot      ggplot PC1 vs PC2 plot  
-pc1_q7_plot       ggplot PC1 vs q7 plot  
-pc2_q_diff_plot   ggplot PC2 vs q_diff plot  
 
-mon_plot_pc1     prepares PC1 data for plotting 
-pc1_obs          ggplot of PC1 observations vs time 
-pc1_seas         ggplot of PC1 seasons vs time 
-pc1_trend        ggplot of PC1 trend vs time 
-pc1_remainder    ggplot of PC1 remainder vs time  
+6) create metadata tables 
+    - gage_table - summary of gage metadata 
+    - ung_table - summary of ungaged watershed metadata 
+    - soils_table - summary of geology, soils, and vegetation 
+```
 --> 
 
 ```{r setup, include=FALSE, message=FALSE}   
@@ -246,16 +251,19 @@ library("conflicted")       # An alternative conflict resolution strategy
 library("here")             # identifies where to save work  
 library("rio")              # more robust I/O - to import and clean data  
 library("lubridate")        # easier dates  
-library("measurements")     # eases measurement system manipulation 
+library("measurements")     # eases measurement system manipulation  
 library("flextable")        # construct complex table with 'kable'  
 library("officer")          # facilitates '.docx' access for table export  
-library("broom")            # convert statistical objs into tidy tibbles 
-library("ggfortify")        # data vis tools for statistical analysis 
+library("broom")            # convert statistical objs into tidy tibbles  
+library("ggfortify")        # data vis tools for statistical analysis  
 library("anomalize")        # detect anomalies using the tidyverse  
-library("mclust")           # model-based clustering & density estimation 
-library("caret")            # classification and regression training 
-library("doMC")             # parallelization for caret 
-library("glmnet")           # fit a GLM with lasso or elasticnet regularization 
+library("sf")               # Support for simple features, a standardized way  
+                            #   to encode spatial vector data   
+library("funModeling")     # EDA, data preparation and model performance  
+library("mclust")           # model-based clustering & density estimation  
+library("caret")            # classification and regression training  
+library("doMC")             # parallelization for caret  
+library("glmnet")           # fit a GLM with lasso or elasticnet regularization  
 library("Metrics")          # evaluation metrics for machine learning  
 library("DataExplorer") #--- used for plot_correlation() --- 
 library("assertthat") 
@@ -275,525 +283,624 @@ library("dabestr")          # data analysis using bootstrap estimation
 library("tidyverse")        # data munging tools 
 ``` 
 
-```{r immport_streamflow}
-
+```{r import_streamflow_df}
+  
 # Import streamflow data from 'streamflow_cleaning.Rmd'====  
-gage_dep <- import("data/gage_depth.csv")  
-
+# gage_dep <- import("data/gage_depth.csv")  # use monthly data  ??
+gage_mon_orig <- import("data/gage_mon.csv")  
+  
 ```
 
-# bootstrapping 
-```{r bootstrap, eval=FALSE}
-
-# Construct bootstrap confidence intervals of PC axes to identify 
-#   a difference in means 
-
-# remove 'leftover' attributes introduced by stl 
-gage_mon <- gage_mon %>% 
-  as_tibble() 
-
-# calculate 95% CI for PC1 - 'control' is Pierre Shale Plains 
+# bootstrapping  
+```{r 01-bootstrap}  
+  
+# reran results on 2019-12-15   
+# Construct bootstrap confidence intervals of PC axes to identify  
+#   a difference in means  
+# remove 'leftover' attributes introduced by stl  
+gage_mon <- gage_mon %>%  
+  as_tibble()   
+  
+# note: start 11:14 & end at 1:28 -- didn't set parallelization  
+# calculate 95% CI for PC1 - (n = 14,423) 
 ci_input_pc1 <- gage_mon %>%      
-  dabest(ecoreg, observed_PC1,  
-         idx = c("Pierre Shale Plains",     # groups to test - first is control
-                 "Pine Ridge Escarpment", 
-                 "White River Badlands", 
-                 "Black Hills Plateau", 
-                 "Keya Paha Tablelands", 
-                 "Sand Hills"), 
-         paired = FALSE, 
-         reps = 40000                     # number of bootstraps 
-         ) 
-
-# calculate 95% CI for PC2 - 'control' is Sand Hills
+  dabest(ecoreg, PC1_mon,   
+         idx = c("Pierre Shale Plains",  # groups to test - first is control  
+                 "Pine Ridge Escarpment",  
+                 "White River Badlands",   
+                 "Black Hills Plateau",   
+                 "Keya Paha Tablelands",   
+                 "Sand Hills"),   
+         paired = FALSE,  
+         reps = 40000                     # number of bootstraps  
+         )    
+  
+# calculate 95% CI for PC2  
 ci_input_pc2 <- gage_mon %>%  
-  dabest(ecoreg, observed_PC2,  
+  dabest(ecoreg, PC2_mon,  
          idx = c("Pierre Shale Plains",     
-                 "Pine Ridge Escarpment", 
-                 "White River Badlands", 
-                 "Black Hills Plateau", 
-                 "Keya Paha Tablelands", 
+                 "Pine Ridge Escarpment",  
+                 "White River Badlands",  
+                 "Black Hills Plateau",  
+                 "Keya Paha Tablelands",  
                  "Sand Hills"
-                 ), 
-         paired = FALSE, 
-         reps = 40000 
-         ) 
-
-# export results as Rdata files 
-# how???
-
-# this is the output of the runs 
-ci_input_pc1 
-co_input_pc2
+                 ),  
+         paired = FALSE,  
+         reps = 40000  
+         )  
+  
+# this is the output of the runs  
+ci_input_pc1  
+##  
+##DABEST (Data Analysis with Bootstrap Estimation) v0.2.2  
+##=======================================================  
+#Variable: PC1_mon  
+  
+# Unpaired mean difference of Pine Ridge Escarpment (n=4339)  
+#   minus Pierre Shale Plains (n=1297)  
+#     0.401 [95CI  0.322; 0.481]  
+  
+# Unpaired mean difference of White River Badlands (n=4339)  
+#   minus Pierre Shale Plains (n=977)  
+#    0.766 [95CI  0.667; 0.863]  
+  
+# Unpaired mean difference of Black Hills Plateau (n=4339)  
+#    minus Pierre Shale Plains (n=2561)  
+#     1.64 [95CI  1.57; 1.7]  
+  
+# Unpaired mean difference of Keya Paha Tablelands (n=4339)  
+#   minus Pierre Shale Plains (n=1502)  
+#     1.8 [95CI  1.73; 1.86]  
+  
+# Unpaired mean difference of Sand Hills (n=4339)  
+#   minus Pierre Shale Plains (n=3747)  
+#     2.63 [95CI  2.57; 2.68]  
+#  
+#  40000 bootstrap resamples.
+#  All confidence intervals are bias-corrected and accelerated.
+  
+ci_input_pc2  
+#
+#DABEST (Data Analysis with Bootstrap Estimation) v0.2.2
+#=======================================================
+# Variable: PC2_mon 
+#
+# Unpaired mean difference of Pine Ridge Escarpment (n=4339) 
+# minus Pierre Shale Plains (n=1297)
+# -0.124 [95CI  -0.14; -0.106]
+#
+# Unpaired mean difference of White River Badlands (n=4339) 
+# minus Pierre Shale Plains (n=977)
+# 0.0454 [95CI  0.0215; 0.0693]
+#
+# Unpaired mean difference of Black Hills Plateau (n=4339) 
+# minus Pierre Shale Plains (n=2561)
+# -0.135 [95CI  -0.148; -0.122]
+#
+# Unpaired mean difference of Keya Paha Tablelands (n=4339) 
+# minus Pierre Shale Plains (n=1502)
+#  -0.158 [95CI  -0.171; -0.144]
+#
+#Unpaired mean difference of Sand Hills (n=4339) 
+# minus Pierre Shale Plains (n=3747)
+# -0.0251 [95CI  -0.0382; -0.0124]
+#
+# 40000 bootstrap resamples.
+# All confidence intervals are bias-corrected and accelerated. 
+  
 ```
 
-```{r bootstrap-swarmplots} 
-#ci_input_pc1 <- load("data/dabest_pc1.rdata") 
-
-ci_plot_pc1 <- plot(ci_input_pc1, 
-                    rawplot.type = "swarmplot", 
-                    rawplot.ylabel = "PC1 Axis", 
-                    tick.fontsize = 7, 
-                    axes.title.fontsize = 11, 
+```{r 02-bootstrap-swarmplots} 
+  
+# reran results on 2019-12-15     
+  
+# 1. prepare to individual plots    
+ci_plot_pc1 <- plot(ci_input_pc1,  
+                    rawplot.type = "swarmplot",  
+                    rawplot.ylabel = "PC1 Axis",  
+                    tick.fontsize = 7,  
+                    axes.title.fontsize = 11,  
                     palette = "Greys"  
 )    
-
-ci_plot_pc2 <- plot(ci_input_pc2, 
-                    rawplot.type = "swarmplot", 
-                    rawplot.ylabel = "PC2 Axis", 
-                    tick.fontsize = 7, 
-                    axes.title.fontsize = 11, 
+# plot results below 
+ci_plot_pc1  
+  
+ci_plot_pc2 <- plot(ci_input_pc2,  
+                    rawplot.type = "swarmplot",  
+                    rawplot.ylabel = "PC2 Axis",  
+                    tick.fontsize = 7,  
+                    axes.title.fontsize = 11,  
                     palette = "Greys"  
 )    
-
-cowplot::plot_grid( 
-  ci_plot_pc1,
+  
+# plot results below 
+ci_plot_pc2  
+  
+# 2. print the combined plot  
+cowplot::plot_grid(  
+  ci_plot_pc1,  
   ci_plot_pc2,  
-  ncol = 1, 
-  align = "v" 
-) 
-# save the plot 
-
-cowplot::ggsave2("figure/ci_plot.png", 
+  ncol = 1,  
+  align = "v"  
+)  
+  
+# 3. save the combined plot====
+cowplot::ggsave2("figure/ci_plot_grays.png",  
                  units = "in",  
-                 width = 7, 
-                 height = 9) 
-
-rm(ci_plot_pc1, ci_plot_pc2)
+                 width = 7,  
+                 height = 9)  
+  
+rm(ci_plot_pc1,  
+   ci_plot_pc2)  
+  
 ```
 
-```{r ci_result_table, eval=FALSE}  
+```{r 03-ci_result_table}  
+  
+# reran results on 2019-12-15   
+  
+# 1. pluck results for summary tables & bind  
+ci_results_pc1 <- ci_input_pc1 %>%   
+  pluck("result") %>%  
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots))  
+  
+ci_results_pc2 <- ci_input_pc2 %>%  
+  pluck("result") %>%  
+  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots))  
+  
+ci_table <- rbind(ci_results_pc1, ci_results_pc2)  
 
-# pluck results for summary tables & bind
-ci_results_pc1 <- ci_input_pc1 %>% 
-  pluck("result") %>% 
-  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
-
-ci_results_pc2 <- ci_input_pc2 %>% 
-  pluck("result") %>% 
-  select(-c(paired, pct_ci_low, pct_ci_high, bootstraps, nboots)) 
-
-ci_table <- rbind(ci_results_pc1, ci_results_pc2) 
-
-# prepare results for presentation 
+# 2. prepare table results for presentation  
 ci_table <- ci_table %>% 
   mutate(variable =  case_when( 
-    variable == "observed_PC1" ~ "PC1", 
+    variable == "observed_PC1" ~ "PC1",  
     variable == "observed_PC2" ~ "PC2"    
-  )
-  ) %>% 
-  mutate(ci = as.integer(ci)) %>% 
-  select(variable, everything())
-
-# convert tibble to a flextable after fixing vars for presentation 
-ci_table <- ci_table %>% 
-  flextable() %>% 
-  #  colformat_num(col_keys = col_key_num, 
-  #                big.mark=",", 
-  #                digits = 1, na_str = "N/A") %>% 
-  set_header_labels(control_group = "Control Group", 
-                    test_group = "Test Groups", 
-                    control_size = "Control Size",
-                    test_size = "Test Size", 
-                    func = "Test Statistic", 
-                    variable = "Variable",
-                    difference = "Mean Difference", 
-                    ci = "CI", 
-                    bca_ci_low = "Lower Limit", 
-                    bca_ci_high = "Upper Limit") %>% 
-  autofit() %>% 
-  align(., part = "all", align = "center") %>% 
-  theme_booktabs() 
-
-
-ci_table2 <- read_docx() %>% 
+  )  
+  ) %>%  
+  mutate(ci = as.integer(ci)) %>%  
+  select(variable, everything())  
+  
+# 3. convert tibble to a flextable after fixing vars for presentation  
+ci_table <- ci_table %>%  
+  flextable() %>%  
+  #  colformat_num(col_keys = col_key_num,  
+  #                big.mark=",",  
+  #                digits = 1, na_str = "N/A") %>%  
+  set_header_labels(control_group = "Control Group",  
+                    test_group = "Test Groups",  
+                    control_size = "Control Size",  
+                    test_size = "Test Size",  
+                    func = "Test Statistic",  
+                    variable = "Variable",  
+                    difference = "Mean Difference",  
+                    ci = "CI",  
+                    bca_ci_low = "Lower Limit",  
+                    bca_ci_high = "Upper Limit") %>%  
+  autofit() %>%  
+  align(., part = "all", align = "center") %>%  
+  theme_booktabs()  
+  
+ci_table2 <- read_docx() %>%  
   body_add_flextable(value = ci_table)  
-
-print(ci_table2, target = "output/ci_table.docx") 
-
-rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table) 
-
+  
+print(ci_table2, target = "output/ci_table_new.docx")  
+  
+rm(ci_results_pc1, ci_results_pc2, ci_table2, ci_table)  
+  
 ```
 
 # check seasonality 
-```{r deconvolute_pca}
-
-# 1. prep to deconvolute PC eigens into trend, seasonal, & random comps. ---- 
-
-# 2. calculate parameters to remove season & trend from observed vals ----
-# 2.1. find the average monthly frequency & enframe 
-mon_freq <- gage_mon  %>% 
-  select(-c(waterYear,ecoreg)) %>%  
-  arrange(Date) %>% 
-  unite(sta_axis, c(sta, axis), sep = ".") %>% 
-  ungroup() %>%                       # not sure what this is for.... 
-  split(.$sta_axis) %>% 
-  map_dfc(~ time_frequency( 
-    period = "auto", data = .) 
-  ) %>% 
+```{r 04-deconvolute_pca_to_check_seasonality}
+  
+# reran results on 2019-12-16   
+  
+# Deconvolute PC eigens into trend, seasonal, & random comps----   
+# 1.0 calculate parameters to remove season & trend from observed vals====  
+  
+# 1.1 gather monthly values  
+gage_gath <- gage_mon_orig  %>%  
+  mutate(Date = ymd(Date)) %>%  
+  arrange(Date) %>%  
+# gather to create axes  
+  gather(key = axis,  
+         val = PCval,  
+         -c(sta,  
+            Date,  
+            log_q1_mon,  
+            q1_mon,  
+            q7_mon,  
+            q30_mon,  
+            q30_q1_mon,  
+            ecoreg,  
+            waterYear  
+            )  
+         )  
+  
+# 1.2 find the average monthly frequency & enframe    
+mon_freq <- gage_gath  %>%  
+  unite(sta_axis, c(sta, axis), sep = ".") %>%   
+  split(.$sta_axis) %>%  
+  map_dfc(~ time_frequency(period = "auto",  
+                           data = .)  
+          ) %>%  
   gather(key = sta.axis, value = freq) %>%  
-  summarise(freq = mean(freq), 
-            max = max(freq),
-            min = min(freq), 
-            sd = sd(freq)
-  ) 
-
-# 2.2. find the average monthly trend by sta 
-mon_trend_sta <- gage_mon  %>% 
-  select(-c(waterYear,ecoreg)) %>%  
-  arrange(Date) %>% 
-  unite(sta_axis, c(sta, axis), sep = ".") %>% 
-  ungroup() %>%                       # not sure what this is for.... 
-  split(.$sta_axis) %>% 
-  map_dfc(~ time_trend( 
-    period = "auto", data = .) 
-  ) %>% 
+  summarise(freq = mean(freq),  
+            max = max(freq),  
+            min = min(freq),  
+            sd = sd(freq)  
+            )  
+  
+# 1.3 find the average monthly trend by sta====  
+mon_trend_sta <- gage_gath  %>%  
+  unite(sta_axis, c(sta, axis), sep = ".") %>%   
+  split(.$sta_axis) %>%  
+  map_dfc(~ time_trend(period = "auto",  
+                           data = .)  
+          ) %>%  
   gather(key = sta.axis, value = trend) %>%  
-  separate(sta.axis, into = c("sta", "sta2", "axis"), extra = "merge") %>% 
+  separate(sta.axis, into = c("sta", "sta2", "axis"), extra = "merge") %>%  
   unite(sta, c(sta, sta2)) %>%           
-  spread(axis, trend) 
-
-# 2.3 find average monthly trend 
-mon_trend <- mon_trend_sta %>% 
-  summarise(trend = median(PC1_mon)) # no differnce in trend between PC1 & PC2 
-
-# 2.4 join and tidy 
-decomp_input <- bind_cols(mon_freq, mon_trend) 
-
-rm(mon_freq, mon_trend, eco_join)
-
-# 3. make function to decompose into seasonal, trend, & remainder -------------  
-decomp_fun <- function(df) { 
-  arrange(df, .data$Date) %>% 
-    group_by(.data$sta) %>% 
-    time_decompose( 
-      target  = PCval, 
-      data         = ., 
-      method       = "stl", 
-      frequency    = decomp_input$freq, 
-      trend        = decomp_input$trend, 
-      merge        = TRUE, 
-      message      = TRUE 
-    ) %>% 
-    ungroup() %>% 
-    anomalize(remainder, 
-              method = "gesd", 
-              alpha = 0.003) 
-}
-
-# 3.1 map_dfr causes issues with indexing; using a manual split and combine  
-gage_mon1 <- gage_mon %>% 
-  filter(axis == "PC1_mon") 
-
-gage_mon2 <- gage_mon %>% 
-  filter(axis == "PC2_mon") 
-
-gage_mon1 <- decomp_fun(gage_mon1) 
-gage_mon2 <- decomp_fun(gage_mon2)  
-
-# prepare to rejoin the dataframes 
-gage_mon0 <- gage_mon1 %>% 
-  select(sta:ecoreg) 
-
-gage_mon1 <- gage_mon1 %>% 
-  select(sta, Date, PCval:anomaly) %>% 
-  rename(mon = PCval) %>% 
-  rename_all(paste0, "_PC1") %>% 
-  rename(sta = sta_PC1) %>% 
-  rename(Date = Date_PC1)
-
-gage_mon2 <- gage_mon2 %>% 
-  select(sta, Date, PCval:anomaly) %>% 
-  rename(mon = PCval) %>% 
-  rename_all(paste0, "_PC2") %>% 
-  rename(sta = sta_PC2) %>% 
-  rename(Date = Date_PC2)
-
-# join the datatables   
-gage_mon1 <- full_join(gage_mon0, gage_mon1, 
-                       by = c("sta", "Date")
-) 
-
-gage_mon <- full_join(gage_mon1, gage_mon2, 
-                      by = c("sta", "Date")
-) 
-
-rm(gage_mon0, gage_mon1, gage_mon2, decomp_input, mon_trend_sta, decomp_fun)  
-
-
-# create station and ecoregion summaries 
-gage_mon <- gage_mon %>% 
-  group_by(sta) %>%  
-  mutate(sta_q1 = mean(q1_mon)) %>% 
-  mutate(sta_q7 = mean(q7_mon)) %>%   
-  mutate(sta_q30 = mean(q30_mon)) %>% 
-  mutate(sta_q30_q1 = mean(q30_q1_mon)) %>% 
-  mutate(sta_PC1 = mean(mon_PC1)) %>% 
-  mutate(sta_PC2 = mean(mon_PC2)) %>% 
-  ungroup() %>% 
-  group_by(ecoreg) %>%  
-  mutate(ecoreg_q1 = mean(q1_mon)) %>% 
+  spread(axis, trend)  
+  
+# 1.4 find median monthly trend====  
+mon_trend <- mon_trend_sta %>%  
+  summarise(trend = median(PC1_mon)) # no difference in trend betw PC1 & PC2  
+  
+# 1.5 join and tidy for function input====  
+decomp_input <- bind_cols(mon_freq, mon_trend)  
+  
+# 2.0 make function to decompose into seasonal, trend, & remainder----    
+decomp_fun <- function(df) {  
+  arrange(df, .data$Date) %>%  
+    group_by(.data$sta) %>%  
+    time_decompose(  
+      target  = PCval,  
+      data         = .,  
+      method       = "stl",  
+      frequency    = decomp_input$freq,  
+      trend        = decomp_input$trend,   
+      merge        = TRUE,  
+      message      = TRUE  
+    ) %>%  
+    ungroup() %>%  
+    anomalize(remainder,  
+              method = "gesd",  
+              alpha = 0.003)  
+}  
+  
+# 3.0 map_dfr causes indexing issues----  
+# 3.1 use a manual split and combine to run decomp_fun====  
+gage_mon1 <- gage_gath %>%  
+  filter(axis == "PC1_mon") %>%  
+  decomp_fun()  
+  
+gage_mon2 <- gage_gath %>%  
+  filter(axis == "PC2_mon")  %>%  
+  decomp_fun()  
+  
+# 3.2 rejoin the datatables====   
+gage_month <- bind_rows(gage_mon1, gage_mon2)
+  
+# create station and ecoregion level summaries====    
+gage_month <- gage_month %>% 
+  as.data.frame() %>%   
+  group_by(sta, axis) %>%  
+  mutate(mean_q1 = mean(q1_mon)) %>%  
+  mutate(mean_q7 = mean(q7_mon)) %>%   
+  mutate(mean_q30 = mean(q30_mon)) %>%  
+  mutate(mean_q30_q1 = mean(q30_q1_mon)) %>%  
+  mutate(mean_PCval = mean(PCval)) %>%  
+#  mutate(mean_PC2 = mean(mon_PC2)) %>%  
+  ungroup() %>%   
+  group_by(ecoreg, axis) %>%  
+  mutate(ecoreg_q1 = mean(q1_mon)) %>%  
   mutate(ecoreg_q7 = mean(q7_mon)) %>%   
-  mutate(ecoreg_q30 = mean(q30_mon)) %>% 
-  mutate(ecoreg_q30_q1 = mean(q30_q1_mon)) %>% 
-  mutate(ecoreg_PC1 = mean(mon_PC1)) %>% 
-  mutate(ecoreg_PC2 = mean(mon_PC2)) %>% 
+  mutate(ecoreg_q30 = mean(q30_mon)) %>%  
+  mutate(ecoreg_q30_q1 = mean(q30_q1_mon)) %>%  
+  mutate(ecoreg_PCval = mean(PCval)) %>%  
+#  mutate(ecoreg_PC2 = mean(mon_PC2)) %>%  
   ungroup() %>%  
-  group_by(Date, ecoreg) %>% 
-  mutate(ecoreg_mean_PC1 = mean(mon_PC1)) %>% 
-  mutate(ecoreg_seas_PC1 = mean(season_PC1)) %>% 
-  mutate(ecoreg_trend_PC1 = mean(trend_PC1)) %>%   
-  mutate(ecoreg_remain_PC1 = mean(remainder_PC1)) %>%   
-  ungroup() %>% 
-  arrange(ecoreg_PC1) %>% 
-  mutate(ecoreg = fct_reorder( 
-    as.factor(ecoreg), ecoreg_PC1)  # sets up the ordering by pc-axis 
-  ) %>% 
-  arrange(sta_PC1) %>%   
-  mutate(sta = fct_reorder( 
-    as.factor(sta), sta_PC1)  # sets up the ordering by pc-axis 
-  ) 
-
+  group_by(Date, ecoreg, axis) %>%  
+  mutate(ecoreg_mean = mean(PCval)) %>%  
+  mutate(ecoreg_seas = mean(season)) %>%  
+  mutate(ecoreg_trend = mean(trend)) %>%   
+  mutate(ecoreg_remain = mean(remainder)) %>%   
+  ungroup()  
+  
+# arrange by PC1_axis 
+ecoreg <- gage_month %>% 
+  filter(axis == "PC1_mon") %>%  
+  group_by(ecoreg) %>% 
+  summarise(PC1_mean = mean(PCval)) %>%  
+  ungroup() %>%  
+  arrange(PC1_mean)  
+  
+gage_month <- gage_month %>%  
+  mutate(ecoreg = fct_relevel(ecoreg,  
+                              c("Pierre Shale Plains",  
+                                "Pine Ridge Escarpment",  
+                                "White River Badlands",  
+                                "Black Hills Plateau",  
+                                "Keya Paha Tablelands",  
+                                "Sand Hills"))  
+         )  
+  
+rm(gage_mon1,  
+   gage_mon2,  
+   decomp_input,  
+   decomp_fun,  
+   mon_freq,  
+   mon_trend,  
+   mon_trend_sta,  
+   gage_gath,  
+   ecoreg 
+  )  
+  
 ```  
 
-```{r plot_time-series_PC1}
-
-# prepare to order time series plot 
-#pca_plot <- pca_plot %>% 
-#    arrange(PC1_ecoreg) 
+```{r 05-plot_time-series_PC1}  
   
-# split out the PC1 axis 
-#mon_plot_pc1 <- gage_mon %>% 
-#    filter(axis == "PC1_mon") %>% 
-#  mutate(ecoreg = fct_reorder(      # sets up the ordering by pc-axis 
-#    as.factor(ecoreg), pca_plot$PC1_ecoreg)  
-#    ) 
-
-# filter anomonies to plot below   
-anom_PC1 <- gage_mon %>% 
-  filter(anomaly_PC1 == "Yes")
-
-# PC1-observation plot 
-pc1_obs <- gage_mon %>% 
-  ggplot(aes(Date, observed_PC1)) + 
+# reran results on 2019-12-16  
+  
+# 1.0) prepare to order time series plot----  
+  
+# 1.1) filter anomonies to plot below====   
+anom_PC1 <- gage_month %>%  
+  filter(axis == "PC1_mon") %>%  
+  filter(anomaly == "Yes")  
+  
+# 2.0) plot seasonality, trend, remainder----  
+# 2.1) PC1-observation plot====  
+pc1_obs <- gage_month %>%  
+  filter(axis == "PC1_mon") %>%  
+  ggplot(aes(Date, observed)) +  
   facet_wrap(~ ecoreg) +   
-  geom_line(size = 0.5, 
-            colour = "grey"
-            ) + 
-  geom_line(aes(Date, ecoreg_mean_PC1), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("PC1 axis values")
+  geom_line(size = 0.5,  
+            colour = "grey"  
+            ) +  
+  geom_line(aes(Date, ecoreg_mean),  
+            size = 0.3,  
+            colour = "black"  
+            ) +  
+  scale_y_continuous(limits = c(-4.6, 5.1)) +  
+  theme_bw() +  
+  xlab("") +  
+  ylab("PC1 axis values") 
   
-# PC1-seasons plot 
-pc1_seas  <- gage_mon %>% 
-  ggplot(aes(Date, season_PC1)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size = 0.5, 
-            colour = "grey"
-            ) + 
-  geom_line(aes(Date, ecoreg_seas_PC1), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Season (12-months)")
-
-# PC1-trend plot 
-pc1_trend  <- gage_mon %>% 
-  ggplot(aes(Date, trend_PC1)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size = 0.5, 
-            colour = "grey"
-            ) + 
-  geom_line(aes(Date, ecoreg_trend_PC1), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-  scale_y_continuous(limits = c(-4.6, 5.1)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Trend (60-months)")
-
-# PC1 - remainder plot 
-pc1_remainder <- gage_mon %>%   
-  ggplot(aes(Date, remainder_PC1)) + 
-  facet_wrap(~ ecoreg) + 
-  geom_line(size =  0.5, 
-            colour = "grey"
-            ) + 
-  geom_line(aes(Date, ecoreg_remain_PC1), 
-            size = 0.3, 
-            colour = "black"
-            ) + 
-  geom_jitter(aes(Date, ecoreg_remain_PC1), 
-              data = anom_PC1, 
-              shape = 4, 
-              size = 0.7) + 
-  scale_y_continuous(limits = c(-4.0, 5.8)) + 
-  theme_bw() + 
-  xlab("") + 
-  ylab("Remainder")
-
-
-# plot the plots above as a grid & save 
-cowplot::plot_grid(
-  pc1_obs, pc1_seas, pc1_trend, pc1_remainder, 
+#pc1_obs 
+  
+# 2.2) PC1-seasons plot====   
+pc1_seas  <- gage_month %>%  
+  filter(axis == "PC1_mon") %>%  
+  ggplot(aes(Date, season)) +  
+  facet_wrap(~ ecoreg) +  
+  geom_line(size = 0.5,  
+            colour = "grey" 
+            ) +  
+  geom_line(aes(Date, ecoreg_seas),  
+            size = 0.3,   
+            colour = "black"  
+            ) +  
+  scale_y_continuous(limits = c(-4.6, 5.1)) +  
+  theme_bw() +  
+  xlab("") +  
+  ylab("Season (12-months)")  
+  
+#pc1_seas  
+  
+# 2.3) PC1-trend plot====  
+pc1_trend  <- gage_month %>%  
+  filter(axis == "PC1_mon") %>%  
+  ggplot(aes(Date, trend)) +  
+  facet_wrap(~ ecoreg) +  
+  geom_line(size = 0.5,  
+            colour = "grey"  
+            ) +  
+  geom_line(aes(Date, ecoreg_trend),  
+            size = 0.3,  
+            colour = "black"  
+            ) +  
+  scale_y_continuous(limits = c(-4.6, 5.1)) +  
+  theme_bw() +  
+  xlab("") +  
+  ylab("Trend (60-months)")  
+  
+#pc1_trend  
+  
+# 2.4) PC1 - remainder plot====  
+pc1_remainder <- gage_month %>%   
+  ggplot(aes(Date, remainder)) +  
+  facet_wrap(~ ecoreg) +  
+  geom_line(size =  0.5,  
+            colour = "grey70"  
+            ) +  
+  geom_line(aes(Date, ecoreg_remain),  
+            size = 0.3,  
+            colour = "grey20"  
+            ) +  
+  geom_jitter(aes(Date, ecoreg_remain),  
+              data = anom_PC1,  
+              shape = 4,  
+              size = 0.7) +  
+  scale_y_continuous(limits = c(-4.6, 5.1)) +  
+  theme_bw() +  
+  xlab("") +  
+  ylab("Remainder")  
+  
+pc1_remainder  
+  
+# 2.5) plot the plots above as a grid & save====  
+cowplot::plot_grid(  
+  pc1_obs, pc1_seas, pc1_trend, pc1_remainder,  
   ncol = 1, 
   align = "v"
-)
-
-cowplot::ggsave2("figure/pc1-deconv.png", 
-        units = "in", 
-        width = 7, 
-        height = 9)
-
-
-rm(pc1_obs, pc1_seas, pc1_trend, pc1_remainder, anom_PC1) 
+)  
+  
+cowplot::ggsave2("figure/pc1-deconv-new.png",  
+        units = "in",  
+        width = 7,  
+        height = 9)  
+  
+rm(pc1_obs,  
+   pc1_seas,  
+   pc1_trend,  
+   pc1_remainder,  
+   anom_PC1  
+   )    
+  
 ```  
 
-```{r pca_decomp_table} 
+```{r 06-pca_decomp_table_eval=FALSE} 
+  
+# not sure what to use this for....  consider deleting
 
-# summarize observations of the time series into observations for a summary table 
-mon_sum_gath <- gage_mon %>% 
-  group_by(ecoreg, axis) %>% 
-  summarize(value = round(mean(observed), digits = 2), 
-            obs_eco    = mean(abs(observed)), 
-            seas_eco   = mean(abs(season)), 
-            trend_eco  = mean(abs(trend)), 
-            remain_eco = mean(abs(remainder)) 
-            ) %>%  
-  ungroup() %>% 
+# summarize time series into observations for a summary table----   
+gage_sta_sum_PC1 <- gage_month %>% 
+  group_by(ecoreg) %>%  
+ summarize(value = round(mean(observed), digits = 2),  
+            obs_eco    = mean(abs(observed)),  
+            seas_eco   = mean(abs(season)),  
+            trend_eco  = mean(abs(trend)),  
+            remain_eco = mean(abs(remainder))  
+            ) %>%   
+  
+  summarize(value = round(mean(observed), digits = 2),  
+            obs_eco    = mean(abs(observed)),  
+            seas_eco   = mean(abs(season)),  
+            trend_eco  = mean(abs(trend)),  
+            remain_eco = mean(abs(remainder))  
+            ) %>%   
+  ungroup() %>%   
   mutate(seas_perc   = seas_eco / obs_eco) %>% 
-  mutate(trend_perc  = trend_eco / obs_eco) %>% 
-  mutate(remain_perc = remain_eco / obs_eco) %>% 
-  mutate(sum = seas_perc + trend_perc + remain_perc) %>% 
-  # readjust to 100% 
-  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>% 
-  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>% 
-  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
-  mutate(axis = str_remove_all(axis, "_mon")) %>% 
-  arrange(axis, value) %>% 
-  select(-c(obs_eco:sum)) 
-
-# split & mutate column names by PC  
-mon_sum_pc1 <- mon_sum_gath %>% 
-  filter(axis == "PC1") %>% 
-  select(-axis) %>% 
-  rename_all(function(x) paste0("PC1_", x)) 
- 
-mon_sum_pc2 <- mon_sum_gath %>% 
-  filter(axis == "PC2") %>% 
-  select(-axis) %>% 
-  rename_all(function(x) paste0("PC2_", x)) 
-
-# find averages across all the stations 
-mon_sum_pc1_all <- gage_mon %>% 
-  filter(axis == "PC1_mon") %>% 
-  summarize(value = round(mean(observed), digits = 2), 
-            obs_eco    = mean(abs(observed)), 
-            seas_eco   = mean(abs(season)), 
-            trend_eco  = mean(abs(trend)), 
-            remain_eco = mean(abs(remainder)) 
+  mutate(trend_perc  = trend_eco / obs_eco) %>%  
+  mutate(remain_perc = remain_eco / obs_eco) %>%  
+  mutate(sum = seas_perc + trend_perc + remain_perc) %>%  
+  # readjust to 100%  
+  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>%  
+  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>%  
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>%  
+  mutate(axis = str_remove_all(axis, "_mon")) %>%  
+  arrange(axis, value) %>%  
+  select(-c(obs_eco:sum))  
+  
+# split & mutate column names by PC====  
+mon_sum_pc1 <- mon_sum_gath %>%  
+  filter(axis == "PC1") %>%  
+  select(-axis) %>%  
+  rename_all(function(x) paste0("PC1_", x))  
+  
+mon_sum_pc2 <- mon_sum_gath %>%  
+  filter(axis == "PC2") %>%  
+  select(-axis) %>%  
+  rename_all(function(x) paste0("PC2_", x))  
+  
+# find averages across all the stations====  
+mon_sum_pc1_all <- gage_mon %>%  
+  filter(axis == "PC1_mon") %>%  
+  summarize(value = round(mean(observed), digits = 2),  
+            obs_eco    = mean(abs(observed)),  
+            seas_eco   = mean(abs(season)),  
+            trend_eco  = mean(abs(trend)),  
+            remain_eco = mean(abs(remainder))  
             ) %>%  
-  mutate(seas_perc   = seas_eco / obs_eco) %>% 
-  mutate(trend_perc  = trend_eco / obs_eco) %>% 
-  mutate(remain_perc = remain_eco / obs_eco) %>% 
-  mutate(sum = seas_perc + trend_perc + remain_perc)  %>% 
-  # readjust to 100% 
-  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>% 
-  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>% 
-  mutate(remainder = round(remain_perc / sum, digits = 2)) %>% 
+  mutate(seas_perc   = seas_eco / obs_eco) %>%  
+  mutate(trend_perc  = trend_eco / obs_eco) %>%  
+  mutate(remain_perc = remain_eco / obs_eco) %>%  
+  mutate(sum = seas_perc + trend_perc + remain_perc)  %>%  
+  # readjust to 100%  
+  mutate(ann_explained   = round(seas_perc / sum, digits = 2)) %>%  
+  mutate(trend_explained  = round(trend_perc / sum, digits = 2)) %>%  
+  mutate(remainder = round(remain_perc / sum, digits = 2)) %>%  
 #  mutate(axis = str_remove_all(axis, "_mon")) #%>% 
-#  arrange(axis, value) %>% 
-  select(-c(obs_eco:sum)) %>% 
-  mutate(ecoreg = "All Stations") %>% 
-  rename_all(function(x) paste0("PC1_", x)) 
+#  arrange(axis, value) %>%  
+  select(-c(obs_eco:sum)) %>%  
+  mutate(ecoreg = "All Stations") %>%  
+  rename_all(function(x) paste0("PC1_", x))  
   
+mon_sum <- bind_rows(mon_sum_pc1_all, mon_sum_pc1) %>%  
+  select(ecoreg = PC1_ecoreg, everything())  
   
-mon_sum <- bind_rows(mon_sum_pc1_all, mon_sum_pc1) %>% 
-  select(ecoreg = PC1_ecoreg, everything()) 
 
-rm(mon_sum_gath) 
 
 ``` 
-
-```{r import_spatial_data} 
   
-# this chunk adds and joins spatial data  
+# prepare data for glm models  
+```{r 07-import-spatial-data_get-enviro-vars}  
   
-# check layer names for the project geopackage  
+# Add and join spatial data----    
+# check layer names for the project geopackage====   
 gpg_layers <- st_layers("sp_data/eco-drought.gpkg")$name[1:5] %>%   
-  tibble::enframe(.) %>%  
+  tibble::enframe(.) %>%   
   select(value)  
   
-# read in geopackage data of zonal summaries for watersheds  
+# get station and ecoregion for a join below====
+scratch <- gage_mon_orig %>%  
+  group_by(sta) %>%  
+  summarise(ecoreg = first(ecoreg))  
+  
+# read in geopackage data of zonal summaries for watersheds====  
 wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
                        layer = "wbd_summary",    
                        as_tibble = TRUE) %>%  
-  st_drop_geometry()  
-  
-wsd_summary <- wsd_summary %>%  
+  st_drop_geometry() %>%   
   as_tibble() %>%  
-  modify_if(., is.factor, as.character) %>%  
+  modify_if(., is.factor, as.character) %>%   
   select(id, everything())  
   
-rm(gpg_layers)  
+wsd_summary <- full_join(scratch, wsd_summary,   
+                      by = c("sta" = "sta_id"))  
   
-wsd_summary <- full_join(wsd_summary, eco_join,  
-                      by = c("sta_id" = "sta"))  
-
 export(wsd_summary, "data/wsd_summary.csv")   
-```   
-
-```{r get_enviro_vars} 
-
-env_vars <-  wsd_summary %>% 
-  filter(type == "gaged") %>%          # we are only looking at training data  
-  select(sta_id, cat_area_l, lw_ratio, drain_dens, prcp_mean, t07_mean,   
-         vpd_ann, vpd_07, cat_out, cat_rel, slop_med, TWI_mean, perc_cov,   
-         fc_mean, ksat_mean, kvert_mean) %>%   
+  
+# get environmental variables for gaged stations====  
+env_vars <-  wsd_summary %>%  
+  filter(type == "gaged") %>%          
+  select(sta,  
+         ecoreg,  
+         cat_area_l,  
+         lw_ratio,  
+         drain_dens,  
+         prcp_mean,  
+         t07_mean,   
+         vpd_ann,  
+         vpd_07,  
+         cat_out,  
+         cat_rel,  
+         slop_med,  
+         TWI_mean,  
+         perc_cov,   
+         fc_mean,  
+         ksat_mean,  
+         kvert_mean  
+         ) %>%   
   rename(cat_area_ln = cat_area_l)   
   
-# join ecoreg   
-env_vars <- full_join(ecoreg, env_vars,  
-                      by = "sta_id") %>%  
-  select(-c(area_perc, ecoreg_L4, ecoreg_L3,  
-            ecoreg_L2, ecoreg_L1, watshed)) %>%  
-  rename(ecoreg = ecoreg_wtsd)  
-  
-``` 
-
-```{r box-cox_spatial-data, eval=FALSE} 
-  
-# use Box Cox to estimate transforms  
+# use Box Cox to estimate transforms====  
 lambda <- env_vars %>%  
-  select(-sta_id)     
-
+  select(-c(sta,  
+            ecoreg))     
+  
 lambda <- enframe(  
                   sapply(lambda, forecast::BoxCox.lambda)   
                   ) %>%   
   rename(sta = name) %>%   
   rename(lambda_val = value) %>%   
   arrange(sta)    
-   
-# print(lambda)  
   
-rm(lambda)    
-   
+# clean up global environment  
+rm(wsd_summary,  
+   gpg_layers,  
+   scratch  
+   )    
 ```   
 
-```{r visually_explore_spatial_data, eval=FALSE}
+```{r 08-visually_explore_spatial_data}  
   
-# Create eda function -------------------------------------------------------   
+# reran results on 2019-12-19   
+  
+# Create eda function ----    
 # basic EDA function from  
-# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/  
+# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/   
 basic_eda <- function(data)       
 {                                  
   glimpse(data)  
@@ -802,221 +909,245 @@ basic_eda <- function(data)
   profiling_num(data)  
   plot_num(data)  
   describe(data)  
-}   
-
-basic_eda(env_vars)   
+}     
+  
+basic_eda(env_vars)    
   
 ```  
 
-```{r transform_spatial-data} 
+```{r 09-transform_spatial-data}  
   
-# this code chunk transforms spatial data to approximate a normal distribution 
-
+# transform spatial data to approximate a normal distribution----  
 env_vars <- env_vars %>%   
   mutate(area_linv  = 1/cat_area_ln) %>%        
-  mutate(cout_sqr   = sqrt(cat_out)) %>%  
+  mutate(cout_sqr   = sqrt(cat_out)) %>%   
   mutate(crel_sqr   = sqrt(cat_rel)) %>%  
   mutate(dden_sqr   = sqrt(drain_dens)) %>%   
-  mutate(ksat_ln    = log(ksat_mean)) %>% 		 
+  mutate(ksat_ln    = log(ksat_mean)) %>%  
   mutate(kvert_ln   = log(kvert_mean)) %>%  
-  mutate(lwrat_sqr  = log(lw_ratio)) %>%  
-  mutate(pcov_ln    = log(1 + perc_cov)) %>% 	 
+  mutate(lwrat_log  = log(lw_ratio)) %>%  
+  mutate(pcov_ln    = log(1 + perc_cov)) %>%  
   mutate(prcp_sq    = prcp_mean^2) %>%  
   mutate(slop_ln    = log(slop_med)) %>%    
-  mutate(t07_sq     = t07_mean^2) %>%       
+  mutate(t07_sq     = t07_mean^2) %>%      
   mutate(TWI_sq     = TWI_mean^2) %>%     
-  mutate(vpd07_sq   = vpd_07^2) %>% 	 
+  mutate(vpd07_sq   = vpd_07^2) %>%  
   mutate(vpdan_sq   = vpd_ann^2)  
   
-# plot quantiles  
-plot_qq(env_vars)   
+# check results of transformation====  
+env_vars %>%  
+  select(area_linv:vpdan_sq) %>%  
+  basic_eda()  
   
 ```       
 
-```{r correlate_spatial-data} 
- 
-# this code chunk identifies perfectly correlated spatial variables   
+```{r 10-plot_quantiles}
   
-# select environmental variables for correlation    
+plot_qq(env_vars)   
+  
+```
+  
+```{r 11-correlate_spatial-data} 
+  
+# select environmental variables for correlation====    
 env_vars <- env_vars %>%  
-  select(sta_id, ecoreg, area_linv:vpdan_sq)   
+  select(sta,  
+         ecoreg,  
+         area_linv:vpdan_sq  
+         )   
   
-# plot correlations   
+# plot correlations====   
 env_vars %>%   
-  select(-ecoreg) %>% 
+  select(-c(sta,  
+            ecoreg) 
+         ) %>%  
   plot_correlation()   
   
-# drop 100% correlated variables 
-env_vars <- env_vars %>% 
+# drop 100% correlated variables====  
+env_vars <- env_vars %>%  
  select(-c(vpd07_sq, ksat_ln))  
-  
-## variable    transform_var    correlated vars (> 0.65)   drop?   
-## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-## drain_dens	  dden_sqr			  fc_mean, prcp_sq, 
-##                              ksat_ln, kvert_ln			      
-## fc_mean	                    ksat_ln, k_vert_ln,  
-##                              dden_sqr            
-## ksat_mean  	ksat_ln 		    dden_sqrm fc_mean,  
-##                              kvert_ln                    yes   
-## kvert_mean	  kvert_ln        dden_sqr, fc_mean,   
-##                              ksat_ln  
-## lw_ratio	    lwrat_sqr		      
-## prcp_mean	 	prcp_sq         vpd_ann, vpd_07	 
-## perc_cov	    pcov_ln		      slop_ln, t07_ln            
-##                              TWI_sq, vpd07_sq 
-##                              vpdan_sq                     
-## slop_med	    slop_ln         pcov_ln, TWI_sq  
-## t07_mean	    t07_sq          pcov_ln, vpdann_sq,  
-##                              vpd07_sq  
-## TWI_mean	    TWI_sq 				  pcov_ln, slop_ln 
-## vpd_ann	    vpdan_sq			  pcov_ln, prcp_sq, 
-##                              t07_mean, vpd07_sq 
-## vpd_07	      vpd07_sq			  pcov_ln, prcp_sq,  
-##                              t07_mean, vpdan_sq          yes   
-  
   
 ```    
 
-```{r add-response-var_spatial-data} 
- 
-# join the environmental vars to the daily flow values 
-gaged <- full_join(gage_dv, env_vars, 
-                   by = c("sta" = "sta_id", "ecoreg")) %>%   
-  select(sta, Date, q1_depth, .fittedPC1:.fittedPC2, ecoreg:vpdan_sq)  
+```{r 12-add-response-var_spatial-data} 
   
-# prepare for glm-model by calculating log-q1 depths   
-gaged <- gaged %>%   
-  mutate(log_q1_depth = log10(q1_depth)) %>%  
-  select(sta, q1_depth, log_q1_depth, everything()) %>%  
-  mutate(Date = ymd(Date)) %>%  
-  mutate(mon = month(Date)) %>%  
-  mutate(yr = year(Date)) %>% 
-  mutate(mon_spring = round( 
-    sin(2/12* pi * mon),           # spring & fall 
-    digits = 2) 
-    ) %>% 
-  mutate(mon_cos = round(        # summer & winter 
-    cos(2/12* pi * mon), 
-    digits = 2) 
-    ) %>% 
-  mutate(mon_summer = -mon_cos) %>%  
-  select(-mon_cos)    
-
-```  
-
-# glm models 
-```{r build-glm-models-dv} 
+# join the environmental vars to the daily flow values  
+gaged <- full_join(gage_month, env_vars,  
+                   by = c("sta", "ecoreg")) %>%     
+  mutate(Date = ymd(Date)) %>%    
+# add month to calculate seasonality terms  
+  mutate(mon = month(Date)) %>%   
+  mutate(mon_spring = round(  
+    sin(2/12* pi * mon),           # spring & fall  
+    digits = 2)  
+    ) %>%  
+  mutate(mon_cos = round(        # summer & winter  
+    cos(2/12* pi * mon),  
+    digits = 2)  
+    ) %>%  
+  mutate(mon_summer = -mon_cos) %>% # flip winter and summer  
+# arrange variables  
+  select(sta,  
+         ecoreg,  
+         Date,  
+         axis,  
+         PCval,  
+         everything()  
+         )  %>%  
+# remove variables not needed for the GLM  
+  select(-c(remainder_l1:ecoreg_remain,   
+            q1_mon:q30_q1_mon,  
+            PCval,  
+            mon_cos,  
+            log_q1_mon)  
+         )      
   
 # clean up global environment   
-rm(env_vars)    
-    
-# set up random seed & parallel processing for glmnet & caret ----------------  
+rm(env_vars, lambda)    
+  
+``` 
+  
+# glm models - all data   
+```{r 14-build-glm-models_mon}  
+  
+# set up random seed & parallel processing for glmnet & caret====  
 seed <- 42  
 cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)   
 registerDoMC(cores)    
   
-# set up 'caret' training control & lambda -- 100 possible lambda vals [-2, 2]  
+# set up 'caret' training control & lambda--200 possible lambda vals [-3, 3]  
 # note these values are used below for individual model fits  
 set.seed(seed)   
-reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5,   
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
                           search = "grid", allowParallel = TRUE)   
   
-lambda <- 10^seq(-2, 2, length = 100)  
+lambda <- 10^seq(-3, 3, length = 200)  
   
-# Split the data into training and test set ----------------------------------  
+# Split the data into training and test set====  
 # create a data partition balanced by flow depths   
 set.seed(seed)     
-train_index <- createDataPartition(gaged$log_q1_depth, p=0.8)[[1]]  
-#train_index <- createDataPartition(as.factor(gaged$ecoreg), p=0.8)[[1]]  
+gaged_pc1 <- gaged %>% 
+  filter(axis == "PC1_mon")  # keep only PC1 
   
-train_dv <- gaged[train_index,] %>%  
-  select(-c(sta, mon, q1_depth, .fittedPC1, .fittedPC2))   
+train_index <-  createDataPartition(gaged_pc1$observed, p=0.8)[[1]]  
   
-test_dv <- gaged[-train_index,] %>%  
-    select(-c(sta, mon, q1_depth, .fittedPC1, .fittedPC2))     
-   
-# ridge -- alpha = 0 ---------------------------------------------------------  
-set.seed(seed)             # need to set a seed each time you call a rand num   
-ridge_dv <- train_dv %>%   
-  select(-Date) %>%        # drop the data just prior to running the model  
+train_mon <- gaged_pc1[train_index,] %>%  
+  select(-c(axis, season, trend, remainder, mon))   
+  
+test_mon <- gaged_pc1[-train_index,] %>%  
+  select(-c(axis,  season, trend, remainder, mon))        
+  
+# ridge -- alpha = 0====  
+set.seed(seed)            # need to set a seed each time you call a rand num   
+ridge_mon <- train_mon %>%   
+  select(-c(sta, Date)) %>%       # drop data prior to running the model  
   train(    
-  log_q1_depth ~.,         # x = 'medv', y = the rest of the columns, from     
-  data = .,                #   the dataset 'train.data'   
-  method = "glmnet",       #   using method "glmnet"    
+  observed ~.,        # x = 'medv', y = the rest of the columns, from     
+  data = .,               #   the dataset 'train.data'   
+  method = "glmnet",      #   using method "glmnet"    
   preProcess = c("center", "scale"),   
   trControl = reg.ctrl,     
   tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values   
   )    
   
-# lasso -- alpha = 1 ---------------------------------------------------------   
-set.seed(seed)              # need to set a seed each time you call a rand num   
-lasso_dv <- train_dv %>%   
-  select(-Date) %>%         # drop the data just prior to running the model   
-  train(   
-  log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from    
-  data = .,                 #   the dataset 'train.data'    
-  method = "glmnet",        #   using method "glmnet"   
+# lasso -- alpha = 1====   
+set.seed(seed)             # need to set a seed each time you call a rand num   
+lasso_mon <- train_mon %>%   
+  select(-c(sta, Date)) %>%       # drop data prior to running the model  
+  train(    
+  observed ~.,        # x = 'medv', y = the rest of the columns, from     
+  data = .,               #   the dataset 'train.data'   
+  method = "glmnet",      #   using method "glmnet"    
   preProcess = c("center", "scale"),   
-  trControl = reg.ctrl,    
-  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values  
+  trControl = reg.ctrl,     
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values   
   )   
   
-# elastic net -- alpha vals [0, 1] by caret ----------------------------------  
+# elastic net -- alpha vals [0, 1] by caret====  
 set.seed(seed)   
-elastic_dv <- train_dv %>%  
-  select(-Date) %>%         # drop the data just prior to running the model   
-  train(   
-  log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from   
-  data = .,                 #   the dataset 'train.data'     
-  method = "glmnet",       #   using method "glmnet"   
+elastic_mon <- train_mon %>%  
+  select(-c(sta, Date)) %>%       # drop data prior to running the model  
+  train(    
+  observed ~.,        # x = 'medv', y = the rest of the columns, from     
+  data = .,               #   the dataset 'train.data'   
+  method = "glmnet",      #   using method "glmnet"    
   preProcess = c("center", "scale"),   
-  trControl = reg.ctrl,   
+  trControl = reg.ctrl,     
+#  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values  
   tuneLength = 10          # tune length    
-  )    
+  )   
   
-# make a list of the models --------------------------------------------------   
-models_dv <- list(   
-  ridge = ridge_dv,  
-  lasso = lasso_dv,   
-  elastic = elastic_dv)    
+# make a list of the models====   
+models_mon <- list(   
+  ridge = ridge_mon,  
+  lasso = lasso_mon,   
+  elastic = elastic_mon)    
   
-rm(cores, train_index)   
+rm(cores, 
+   train_index,  
+  lambda,  
+  reg.ctrl, 
+  seed  
+  )     
   
-```     
 
-```{r get-glm-coefs_dv}
- 
+```     
+#  createDataPartition(gaged$log_q1_depth, p=0.8)[[1]]  
+#train_index <- createDataPartition(as.factor(gaged$ecoreg), p=0.8)[[1]]  
+#test <- train_index %>% 
+#  tibble()
+
+#  select(-Date) %>%        # drop the data just prior to running the model   
+#  train(   
+#  log_q1_depth ~.,         # x = 'medv', y = the rest of the columns, from    
+#  data = .,                #   the dataset 'train.data'    
+#  method = "glmnet",       #   using method "glmnet"   
+#  preProcess = c("center", "scale"),   
+#  trControl = reg.ctrl,    
+#  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values  
+#  )   
+
+#  select(-Date) %>%         # drop the data just prior to running the model   
+#  train(   
+#  log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from   
+#  data = .,                 #   the dataset 'train.data'     
+#  method = "glmnet",       #   using method "glmnet"   
+#  preProcess = c("center", "scale"),   
+#  trControl = reg.ctrl,   
+
+```{r 15-get-glm-coefs_mon}
+  
 # get & tidy model coefficients for each of the GLMs     
 # get number of parameters for each of the GLMs   
-   
+  
 # ridge coeffs ---------------------------------------------------------------  
-coef_ridge_dv <- coef(  
-  ridge_dv$finalModel,  
-  ridge_dv$bestTune$lambda) %>%  
+coef_ridge_mon <- coef(  
+  ridge_mon$finalModel,  
+  ridge_mon$bestTune$lambda) %>%  
   as.matrix() %>%     
   as_tibble(., rownames = "coeff") %>%  
   mutate(type = "ridge")  
   
 # lasso coeffs  --------------------------------------------------------------   
-coef_lasso_dv <- coef(  
-  lasso_dv$finalModel,  
-  lasso_dv$bestTune$lambda) %>%  
+coef_lasso_mon <- coef(  
+  lasso_mon$finalModel,  
+  lasso_mon$bestTune$lambda) %>%  
   as.matrix() %>%     
   as_tibble(., rownames = "coeff") %>%  
   mutate(type = "lasso")  
   
 # elastic coeffs  ------------------------------------------------------------  
-coef_elastic_dv <- coef(  
-  elastic_dv$finalModel,  
-  elastic_dv$bestTune$lambda) %>%  
+coef_elastic_mon <- coef(  
+  elastic_mon$finalModel,  
+  elastic_mon$bestTune$lambda) %>%  
   as.matrix() %>%     
   as_tibble(., rownames = "coeff") %>%  
   mutate(type = "elastic")  
   
 # join model coeff -----------------------------------------------------------  
-coefs_dv <- bind_rows(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv)   
+coefs_mon <- bind_rows(coef_ridge_mon, coef_lasso_mon, coef_elastic_mon)   
   
-coefs_dv <- coefs_dv %>%  
+coefs_mon <- coefs_mon %>%  
   rename(value = 2) %>%  
   mutate(value = round(  
     value, digits = 3)  
@@ -1025,15 +1156,17 @@ coefs_dv <- coefs_dv %>%
   
 # prepare for export table --------------------------------------------------- 
 # arrange by absolute value of the lasso model  
-coefs_dv <- coefs_dv %>%   
+coefs_mon <- coefs_mon %>%   
   mutate(arrange_ridge = abs(ridge)) %>%   # temp terms to arrange coeffs  
   mutate(arrange_lasso = abs(lasso)) %>%   # temp terms to arrange coeffs  
-  arrange(desc(arrange_ridge)) %>%    
+  mutate(arrange_elastic = abs(elastic)) %>%   # temp terms to arrange coeffs  
   arrange(desc(arrange_lasso)) %>%  
-  select(coeff, lasso, ridge, elastic)  
+  arrange(desc(arrange_ridge)) %>%    
+  arrange(desc(arrange_elastic)) %>%    
+  select(coeff, elastic, lasso, ridge)  
   
 # rename coefficients to fit the hydrologic coefficient table  
-coefs_dv <- coefs_dv %>%   
+coefs_mon <- coefs_mon %>%   
   mutate(coeff = case_when(   
     coeff == "(Intercept)"                  ~ "Intercept",  
     coeff == "pcov_ln"                      ~ "perc_cov",                   
@@ -1056,27 +1189,32 @@ coefs_dv <- coefs_dv %>%
     TRUE ~ coeff))    
   
 # get number of parameters for each regression method ------------------------  
-num_param <- coefs_dv %>%  
+num_param <- coefs_mon %>%  
   map_dfc(~sum(. != 0)) %>%  
   select(-coeff) %>%                   # transpose df  
   gather(model, num_param)  
   
-rm(coef_ridge_dv, coef_lasso_dv, coef_elastic_dv,  
-   ridge_dv, lasso_dv, elastic_dv)     
+rm(coef_ridge_mon,  
+   coef_lasso_mon,  
+   coef_elastic_mon,  
+   ridge_mon,  
+   lasso_mon,  
+   elastic_mon  
+   )     
   
 ```   
 
-```{r export-table_glm-coeffs_dv} 
+```{r 16-export-table_glm-coeffs_mon} 
 # set the numeric columns   
-col_key_num <- coefs_dv %>%  
+col_key_num <- coefs_mon %>%  
   select(-coeff) %>%   
   names()  
-   
+  
 # convert tibble to a flextable    
-coef_table <- coefs_dv %>%   
+coef_table <- coefs_mon %>%   
   flextable() %>% 
   colformat_num(col_keys = col_key_num,   
-                big.mark=",",  
+                big.mark=",",   
                 digits = 2, na_str = "N/A") %>%  
   set_header_labels(  
   coeff  = "Explanatory variable",  
@@ -1086,30 +1224,29 @@ coef_table <- coefs_dv %>%
   autofit() %>%  
   theme_booktabs()   
 
-
 # export a docx of flextables     
 coef_table <- read_docx() %>%  
   body_add_flextable(value = coef_table) 
-print(coef_table, target = "output/table_coef.docx")   
+print(coef_table, target = "output/table_coef_new.docx")   
   
-rm(coef_table, col_key_num, coefs_dv)     
-  
-# checking if these can be removed without harm - I think so...  
-rm(eco_join, ecoreg)  
+rm(coef_table,  
+   col_key_num,   
+   coefs_mon 
+   )     
   
 ```  
 
-```{r select-glm-models_dv}
+```{r 17-select-glm-model_mon}
   
 # evaluate performance of models -- ridge, lasso and elastic net --      
-#   best model is the one that minimizes the prediction error.    
+#   best model is the one that minimizes prediction error.    
   
 # pick out the mse from the output lists   
-error_call_dv <- resamples(models_dv) %>%    
+error_call_mon <- resamples(models_mon) %>%    
   summary(metric = c("RMSE", "MAE"))     
   
 # change list to tibble   
-error_vals_dv <- error_call_dv %>%    
+error_vals_mon <- error_call_mon %>%    
   pluck(., 'statistics') %>%   
     as.data.frame() %>%   
   as_tibble(., rownames = "model") %>% 
@@ -1117,31 +1254,32 @@ error_vals_dv <- error_call_dv %>%
   mutate(key = str_replace(key, "[.]", "_")) %>%   
   separate(key, c("statistic", "position"), extra = "drop") %>%  
   filter(position != "NA") %>%   
-  spread(position, val)   
+  spread(position, val)    
   
 # add number of params to error vals & clean up   
-error_vals_dv <- full_join(error_vals_dv, num_param,   
+error_vals_mon <- full_join(error_vals_mon, num_param,   
                            by = "model")    
   
-rm(error_call_dv, num_param)   
-  
 # prepare for plotting   
-error_vals_dv <- error_vals_dv %>%   
+error_vals_mon <- error_vals_mon %>%    
   mutate(num_param = as.character(num_param)) %>%   
   mutate(temp = ", p = ") %>%   
   mutate(model_text = str_c(model, temp, num_param))  %>%   
   mutate(num_param = as.integer(num_param))  
   
-n_train <- train_dv %>%  
+n_train <- train_mon %>%  
   mutate(n_count = n()) %>%  
   distinct(n_count)   
-  
+
+# clean up global environment  
+rm(error_call_mon,  
+   num_param)     
 ```   
 
-```{r plot-glm-models_dv} 
- 
+```{r 18-plot-glm-models_mon} 
+  
 # make a boxplot of the three models   
-ggplot(error_vals_dv) +   
+ggplot(error_vals_mon) +   
   facet_grid(cols = vars(statistic)) +   
   geom_boxplot(aes(x = factor(model_text),  
                    group = model,  
@@ -1156,52 +1294,60 @@ ggplot(error_vals_dv) +
            aes(label= paste("n =", n_count, sep = " ")),   
            size = 3,   
            color = "gray20"  
-           ) + 
-  ylim(0, 0.75) +  
+           ) +  
+ # ylim(0, 0.75) +  
   labs(x = "",   
        y = bquote('Model error in log ('~m^3 / km^2 ~ 'day)')) +     
   theme_bw()   
   
-# save ggplot above & clean up   
-ggsave("figure/model_fit_dv.png", width = 7, height = 3.5, units = "in")   
+# save ggplot above & clean up    
+ggsave("figure/model_fit_mon.png",  
+       width = 7,  
+       height = 3.5,  
+       units = "in")   
   
-rm(n_train, error_vals_dv)    
+rm(n_train,  
+   error_vals_mon  
+   )    
   
 ```  
 
-```{r get_glm_observations_and_predictions_dv}  
+```{r 19-get_glm_observations_and_predictions_mon}  
   
 # get observations & predictions -- training --------------------------------  
-obs_train_dv   <- tibble(observed = train_dv$log_q1_depth,   
-                             Date = train_dv$Date, 
-                             ecoreg = train_dv$ecoreg) 
+obs_train_mon   <- tibble(observed = train_mon$observed,   
+                             Date = train_mon$Date,  
+                             ecoreg = train_mon$ecoreg)  
   
-preds_train_dv <- map_dfc(models_dv, predict, newdata = train_dv)   
+preds_train_mon <- map_dfc(models_mon,  
+                           predict,  
+                           newdata = train_mon)   
   
 # combine observations & predictions  
-fit_train_dv <- bind_cols(obs_train_dv, preds_train_dv) %>%  
+fit_train_mon <- bind_cols(obs_train_mon, preds_train_mon) %>%  
   mutate(split = "train") %>%  
   as_tibble() 
   
 # get observations & predictions -- test ------------------------------------  
-# obs_test_dv   <- tibble(observed = test_dv$log_q1_depth)  
-obs_test_dv   <- tibble(observed = test_dv$log_q1_depth, 
-                             Date = test_dv$Date, 
-                             ecoreg = test_dv$ecoreg) 
+obs_test_mon   <- tibble(observed = test_mon$observed, 
+                             Date = test_mon$Date, 
+                             ecoreg = test_mon$ecoreg) 
   
-preds_test_dv <- map_dfc(models_dv, predict, newdata = test_dv)  
+preds_test_mon <- map_dfc(models_mon,  
+                         predict,  
+                         newdata = test_mon)  
   
 # combine observations & predictions 
-fit_test_dv <- bind_cols(obs_test_dv, preds_test_dv) %>%  
+fit_test_mon <- bind_cols(obs_test_mon, preds_test_mon) %>%  
   mutate(split = "test") %>% 
   as_tibble()  
   
-fit_model_dv <-  bind_rows(fit_test_dv, fit_train_dv)  
+fit_model_mon <-  bind_rows(fit_test_mon, fit_train_mon)  
  
 # drop the training data -- find model errors & fit a null model ------------  
-fit_model_test <- fit_model_dv %>% 
+fit_model_final <- fit_model_mon %>% 
   filter(split == "test") %>%           # only want to see test data 
-  select(-c(split, ridge, elastic)) %>%        # drop non-selected models 
+  select(-c(split, ridge, lasso)) %>%        # drop non-selected models 
   group_by(Date)  %>%                   # fit a null model to the data by Date  
   mutate(null_mod = mean(observed)) %>% 
   ungroup() %>%  
@@ -1217,135 +1363,152 @@ fit_model_test <- fit_model_dv %>%
   mutate(freq = if_else(freq== 1, 0.9999, freq))  
   
 # clean-up  
-rm(preds_test_dv, preds_train_dv, obs_train_dv,  
-   obs_test_dv, train_dv, fit_test_dv, fit_train_dv)    
- 
+rm(preds_test_mon,  
+   preds_train_mon,  
+   obs_train_mon,  
+   obs_test_mon,  
+   train_mon,  
+   fit_test_mon,  
+   fit_train_mon)    
+  
 ```  
 
-```{r plot_glm_observations_predictions_dv}
+```{r 20-plot_glm_observations_predictions_mon}
   
 # set the facet labels, find number of test observations, get mae  
-labels_dv <- c(lasso = "Lasso model",  
+labels_mon <- c(elastic = "Elastic net predicted valuesl",  
                null_mod = "Mean of daily observations")   
-
-n_test <- test_dv %>% 
-  mutate(n_count = n()) %>% 
-  distinct(n_count)   
   
-mae_dv <- fit_model_test %>%  
-  select(model, MAE) %>% 
-  mutate(MAE = round(MAE, digits = 2)) %>% 
- mutate(MAE = as.character(MAE)) %>% 
+mae_mon <- fit_model_final %>%  
+  select(model, MAE) %>%  
+  mutate(MAE = round(MAE, digits = 2)) %>%  
+  mutate(MAE = as.character(MAE)) %>%  
   distinct(MAE, .keep_all = TRUE)   
   
-# observations vs predictions plot ------------------------------------------  
-obs_pred_plot <- fit_model_test %>%  
-# change the order of facets -- NOT WORKING !! 
-  mutate(MAE = factor(MAE, levels = c('0.54', '0.43'))) %>% 
-  mutate(model = factor(model, levels = c('null_mod', 'lasso'))) %>% 
+n_test <- test_mon %>%  
+  mutate(n_count = n()) %>%  
+  distinct(n_count)   
+  
+# observations vs predictions plot====   
+obs_pred_plot <- fit_model_final %>%  
+# change the order of facets  
+ mutate(model = factor(model, levels = c('null_mod', 'elastic'))) %>%  
 ggplot(., aes(observed, fitted)) +   
-# add text of the MSE vals 
-  geom_text(data = mae_dv, 
-            x = 3, y = -0.5,  
-            aes(label= paste("MSE =", MAE, sep = " ")), 
-            size = 3, 
-            color = "gray20" 
-           ) +  
-# plot points as '.' to reduce overplotting 
-  geom_point(shape = ".", 
-             color = "gray80")  + 
-# plot points as a density plot to reduce overplotting  
-  geom_density2d(color = "gray50")  + 
-  geom_smooth(method = "lm", 
-              color = "black") + 
-# plot a 45-degree line 
-  geom_abline( 
+  theme_bw() +  
+# create facets  
+  facet_wrap(vars(model),  
+             ncol = 2,  
+             labeller = labeller(model = labels_mon)) +  
+# plot a 45-degree line  
+  geom_abline(  
     intercept = 0,  
     slope = 1,  
     size = 0.25) +  
-# create facets 
-  facet_wrap(vars(model), 
-             ncol = 2, 
-             labeller = labeller(model = labels_dv)) + 
+# plot points as '.' to reduce overplotting  
+  geom_point(shape = ".",  
+             color = "gray80")  +  
+# plot points as a density plot to reduce overplotting  
+  geom_density2d(color = "gray50")  +  
+  geom_smooth(method = "lm",  
+              color = "black") +  
+  # add text of the MSE vals  
+  geom_text(data = mae_mon,  
+            x = 3,  
+            y = -1.5,  
+            aes(label= paste("MSE =", MAE, sep = " ")),  
+            size = 3,  
+            color = "gray20"  
+           ) +  
 # set limits  
-  scale_x_continuous(limits = c(-1.5, 4)) + 
-  scale_y_continuous(limits = c(-1.5, 4)) + 
-# set labels and theme 
-  labs(x = "", 
-       y = bquote('Fitted values in log ('~m^3 / km^2 ~ 'day)') 
-       ) +   
-  theme_bw() + 
-  theme(legend.position = "none") 
- 
+#  scale_x_continuous(limits = c(-1.5, 4)) + 
+#  scale_y_continuous(limits = c(-1.5, 4)) + 
+# set labels and theme  
+  labs(x = "",  
+       y = "Fitted values "  
+       )   
+#  theme(legend.position = "none")  
+  
 #obs_pred_plot 
- 
-# residuals plot ------------------------------------------------------------  
-resid_plot <- fit_model_test %>% 
+  
+# residuals plot====    
+resid_plot <- fit_model_final %>% 
 # change the order of facets 
-  mutate(model = factor(model, levels = c('lasso', 'null_mod'))) %>% 
+  mutate(model = factor(model, levels = c('elastic', 'null_mod'))) %>% 
   ggplot(., aes(observed, residual)) +  
 # plot points as a density plot to reduce overplotting 
-  geom_point( 
+  geom_point(  
     shape = ".", 
     color = "gray80")  + 
 # plot points as a density plot to reduce overplotting  
-  geom_density2d( 
-    color = "gray50")  + 
-# fit a linear model to the data 
-  geom_smooth( 
-    method = "lm", 
-    color = "black") + 
-# plot a horizontal line 
+  geom_density2d(  
+    color = "gray50")  +  
+# fit a linear model to the data  
+  geom_smooth(  
+    method = "lm",  
+    color = "black") +  
+# plot a horizontal line  
   geom_abline( 
     intercept = 0,  
     slope = 0,  
     size = 0.25) +  
-# add text of the number of observations 
-  geom_text(data = n_test, 
-            x = 3, y = -1.5,  
-           aes(label= paste("n =", n_count, sep = " ")), 
-           size = 3, 
-           color = "gray20" 
-           ) + 
-# create facets 
-  facet_wrap(vars(model), 
-             ncol = 2, 
-             labeller = labeller(model = labels_dv)) +  
+# add text of the number of observations  
+  geom_text(data = n_test,  
+            x = 3, y = -2.5,  
+           aes(label= paste("n =", n_count, sep = " ")),  
+           size = 3,  
+           color = "gray20"  
+           ) +  
+# create facets  
+  facet_wrap(vars(model),  
+             ncol = 2,  
+             labeller = labeller(model = labels_mon)) +  
 # set limits  
-  scale_x_continuous(limits = c(-1.5, 4)) + 
-  scale_y_continuous(limits = c(-2.5, 4)) + 
-# set labels and theme 
-  labs(x = bquote('Observations in log ('~m^3 / km^2 ~ 'day)'),    
-       y = bquote('Residuals in log ('~m^3 / km^2 ~ 'day)') 
+#  scale_x_continuous(limits = c(-1.5, 4)) +  
+#  scale_y_continuous(limits = c(-2.5, 4)) +  
+# set labels and theme  
+  labs(x = bquote('Observed values'),    
+       y = bquote('Residuals')  
        ) + 
   theme_bw() + 
   theme(legend.position = "none") 
  
-#resid_plot 
+# resid_plot  
  
 # plot obs_pred_plot & resid_plot -------------------------------------------   
 cowplot::plot_grid(   
   obs_pred_plot, resid_plot, 
   ncol = 1, align = "v")   
   
-cowplot::ggsave2("figure/dv_obs_pred_resid_plot.png",   
+cowplot::ggsave2("figure/dv_obs_pred_resid_plot_new.png",   
         units = "in",    
         width = 7, 
         height = 6)  
   
 # clean up  
-rm(mae_dv, n_test, obs_pred_plot, resid_plot) 
-  
+rm(mae_mon,  
+   n_test,  
+   obs_pred_plot,  
+   resid_plot,  
+   labels_mon  
+   ) 
+
+ 
 ```  
 
-```{r clean-up_dv_model}
+```{r 21-clean-up_mon_model}
 # clean up model data from above  
-rm(test_dv, coefs_dv) 
-rm(fit_model_dv, fit_model_test, models_dv)  
+rm(test_mon,  
+   fit_model_mon,  
+   fit_model_final,  
+   models_mon  
+   )
+   
+rm(fit_model_dv, fit_model_test, models_dv)   
 
 ``` 
 
-```{r build-glm-models-ecoreg}  
+# glm models - ecoregion scale data
+```{r 22-build-glm-models-ecoreg}  
 # prepare for modeling at the ecosystem scale --------------------------------  
 # drop unimportant predictors - from lasso above   
   
@@ -1407,7 +1570,7 @@ rm(lambda, seed, reg.ctrl, ecoreg_index, ecoreg_list)
   
 ```  
 
-```{r get-glm-coefs_ecoreg}  
+```{r 23-get-glm-coefs_ecoreg}  
 
 # pluck individual models from the model list ------------------------------   
 pshale <- model_list %>%    
@@ -1511,7 +1674,7 @@ rm(pshale, escarp, wrbadl, bhplat, kptabl, sndhil)
   
 ```   
 
-```{r export-table_glm-coeffs_ecoreg}  
+```{r 24-export-table_glm-coeffs_ecoreg}  
 
 # set the numeric columns  
 col_key_num <- coefs_ecoreg %>% 
@@ -1545,7 +1708,7 @@ rm(coef_table, col_key_num, coefs_ecoreg)
   
 ```  
 
-```{r get_glm_observations_and_predictions_ecoreg} 
+```{r 25-get_glm_observations_and_predictions_ecoreg} 
 
 # join the train and test sets ---------------------------------------------- 
 train_ecoreg <- bind_rows(train_bhplat, train_kptabl, train_pshale,  
@@ -1626,7 +1789,7 @@ fit_ecomod_test <- fit_ecoreg %>%
   
 ```   
 
-```{r prepare_ecoreg_plots}
+```{r 26-prepare_ecoreg_plots}
 
 # set the facet labels, find number of test observations, get mae   
 labels_models <- c(predicted = "Lasso model",   
@@ -1660,7 +1823,7 @@ mae_ecoreg <- fit_ecomod_test %>%
 
 ``` 
 
-```{r plot_flow-duration-curve-density_ecoreg} 
+```{r 27-plot_flow-duration-curve-density_ecoreg} 
 
 # flow duration curve plot -ecoreg  
 freq_plot_eco <- fit_ecomod_test %>% 
@@ -1722,7 +1885,7 @@ ggsave("figure/freq_plot_eco.png", width = 7, height = 7, units = "in")
   
 ``` 
 
-```{r plot_flow-duration-curve_data_ecoreg} 
+```{r 28-plot_flow-duration-curve_data_ecoreg} 
 
 # spread ecoregion data 
 mae_eco_sp <- mae_ecoreg %>% 
@@ -1831,7 +1994,7 @@ freq_plot_eco_diff
 ggsave("figure/freq_plot_eco_diff.png", width = 7, height = 4, units = "in")  
 ``` 
 
-```{r prepare_mixed_model}
+```{r 29-prepare_mixed_model}
 
 # calculate mixed models 
 fit_ecomod_spread <- fit_ecomod_spread %>% 
@@ -1903,7 +2066,7 @@ ecoreg_freq <- full_join(mae_ecoreg, ecoreg_freq,
   
 ```   
 
-```{r export-mixed-model-table}
+```{r 30-export-mixed-model-table}
   
 # set the numeric columns  
 col_key_num <- ecoreg_freq %>% 
@@ -1955,7 +2118,7 @@ rm(coef_table, col_key_num)
   
 ```  
 
-```{r plot-mixed-model}
+```{r 31-plot-mixed-model}
 
 # set facet order 
 mae_ecoreg <- mae_ecoreg %>% 
@@ -2021,8 +2184,4 @@ freq_plot_eco_mix
 
 ggsave("figure/freq_plot_eco_mix.png", width = 7, height = 4, units = "in")  
 ```
-
-
-
-
 
