@@ -1007,8 +1007,8 @@ rm(env_vars, lambda)
   
 ``` 
   
-# glm models - all data   
-```{r 14-build-glm-models_mon}  
+# glm models - all data - hydrologic export  
+```{r 13a-build-glm-models_pc1}  
   
 # set up random seed & parallel processing for glmnet & caret====  
 seed <- 42  
@@ -1092,30 +1092,8 @@ rm(cores,
   
 
 ```     
-#  createDataPartition(gaged$log_q1_depth, p=0.8)[[1]]  
-#train_index <- createDataPartition(as.factor(gaged$ecoreg), p=0.8)[[1]]  
-#test <- train_index %>% 
-#  tibble()
 
-#  select(-Date) %>%        # drop the data just prior to running the model   
-#  train(   
-#  log_q1_depth ~.,         # x = 'medv', y = the rest of the columns, from    
-#  data = .,                #   the dataset 'train.data'    
-#  method = "glmnet",       #   using method "glmnet"   
-#  preProcess = c("center", "scale"),   
-#  trControl = reg.ctrl,    
-#  tuneGrid = expand.grid(alpha = 1, lambda = lambda) # df with tuning values  
-#  )   
-
-#  select(-Date) %>%         # drop the data just prior to running the model   
-#  train(   
-#  log_q1_depth ~.,          # x = 'medv', y = the rest of the columns, from   
-#  data = .,                 #   the dataset 'train.data'     
-#  method = "glmnet",       #   using method "glmnet"   
-#  preProcess = c("center", "scale"),   
-#  trControl = reg.ctrl,   
-
-```{r 15-get-glm-coefs_mon}
+```{r 14a-get-glm-coefs_pc1}
   
 # get & tidy model coefficients for each of the GLMs     
 # get number of parameters for each of the GLMs   
@@ -1204,7 +1182,7 @@ rm(coef_ridge_mon,
   
 ```   
 
-```{r 16-export-table_glm-coeffs_mon} 
+```{r 15a-export-table_glm-coeffs_pc1} 
 # set the numeric columns   
 col_key_num <- coefs_mon %>%  
   select(-coeff) %>%   
@@ -1236,7 +1214,7 @@ rm(coef_table,
   
 ```  
 
-```{r 17-select-glm-model_mon}
+```{r 16a-select-glm-model_pc1}
   
 # evaluate performance of models -- ridge, lasso and elastic net --      
 #   best model is the one that minimizes prediction error.    
@@ -1276,7 +1254,7 @@ rm(error_call_mon,
    num_param)     
 ```   
 
-```{r 18-plot-glm-models_mon} 
+```{r 17a-plot-glm-models_pc1} 
   
 # make a boxplot of the three models   
 ggplot(error_vals_mon) +   
@@ -1312,7 +1290,7 @@ rm(n_train,
   
 ```  
 
-```{r 19-get_glm_observations_and_predictions_mon}  
+```{r 18a-get_glm_observations_and_predictions_pc1}  
   
 # get observations & predictions -- training --------------------------------  
 obs_train_mon   <- tibble(observed = train_mon$observed,   
@@ -1373,7 +1351,7 @@ rm(preds_test_mon,
   
 ```  
 
-```{r 20-plot_glm_observations_predictions_mon}
+```{r 19a-plot_glm_observations_predictions_pc1}
   
 # set the facet labels, find number of test observations, get mae  
 labels_mon <- c(elastic = "Elastic net predicted valuesl",  
@@ -1495,24 +1473,481 @@ rm(mae_mon,
  
 ```  
 
-```{r 21-clean-up_mon_model}
+# glm models - all data - evenness 
+```{r 13b-build-glm-models_pc2}  
+  
+# set up random seed & parallel processing for glmnet & caret====  
+seed <- 42  
+cores <- parallel::detectCores(all.tests = FALSE, logical = TRUE)   
+registerDoMC(cores)    
+  
+# set up 'caret' training control & lambda--200 possible lambda vals [-3, 3]  
+# note these values are used below for individual model fits  
+set.seed(seed)   
+reg.ctrl <-  trainControl(method = "repeatedcv", number = 5, repeats = 5, 
+                          search = "grid", allowParallel = TRUE)   
+  
+lambda <- 10^seq(-3, 3, length = 200)  
+  
+# Split the data into training and test set====  
+# create a data partition balanced by flow depths   
+set.seed(seed)     
+gaged_pc2 <- gaged %>% 
+  filter(axis == "PC2_mon")  # keep only PC2 
+  
+train_index <-  createDataPartition(gaged_pc2$observed, p=0.8)[[1]]  
+  
+train_mon <- gaged_pc2[train_index,] %>%  
+  select(-c(axis, season, trend, remainder, mon))   
+  
+test_mon <- gaged_pc2[-train_index,] %>%  
+  select(-c(axis,  season, trend, remainder, mon))        
+  
+# ridge -- alpha = 0====  
+set.seed(seed)            # need to set a seed each time you call a rand num   
+ridge_mon <- train_mon %>%   
+  select(-c(sta, Date)) %>%       # drop data prior to running the model  
+  train(    
+  observed ~.,        # x = 'medv', y = the rest of the columns, from     
+  data = .,               #   the dataset 'train.data'   
+  method = "glmnet",      #   using method "glmnet"    
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,     
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values   
+  )    
+  
+# lasso -- alpha====   
+set.seed(seed)             # need to set a seed each time you call a rand num   
+lasso_mon <- train_mon %>%   
+  select(-c(sta, Date)) %>%       # drop data prior to running the model  
+  train(    
+  observed ~.,        # x = 'medv', y = the rest of the columns, from     
+  data = .,               #   the dataset 'train.data'   
+  method = "glmnet",      #   using method "glmnet"    
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,     
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values   
+  )   
+  
+# elastic net -- alpha vals [0, 1] by caret====  
+set.seed(seed)   
+elastic_mon <- train_mon %>%  
+  select(-c(sta, Date)) %>%       # drop data prior to running the model  
+  train(    
+  observed ~.,        # x = 'medv', y = the rest of the columns, from     
+  data = .,               #   the dataset 'train.data'   
+  method = "glmnet",      #   using method "glmnet"    
+  preProcess = c("center", "scale"),   
+  trControl = reg.ctrl,     
+#  tuneGrid = expand.grid(alpha = 0, lambda = lambda) # df with tuning values  
+  tuneLength = 10          # tune length    
+  )   
+  
+# make a list of the models====   
+models_mon <- list(   
+  ridge = ridge_mon,  
+  lasso = lasso_mon,   
+  elastic = elastic_mon)    
+  
+rm(cores, 
+   train_index,  
+  lambda,  
+  reg.ctrl, 
+  seed  
+  )     
+  
+```     
+
+```{r 14b-get-glm-coefs_pc2}
+  
+# get & tidy model coefficients for each of the GLMs     
+# get number of parameters for each of the GLMs   
+  
+# ridge coeffs ---------------------------------------------------------------  
+coef_ridge_mon <- coef(  
+  ridge_mon$finalModel,  
+  ridge_mon$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "ridge")  
+  
+# lasso coeffs  --------------------------------------------------------------   
+coef_lasso_mon <- coef(  
+  lasso_mon$finalModel,  
+  lasso_mon$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "lasso")  
+  
+# elastic coeffs  ------------------------------------------------------------  
+coef_elastic_mon <- coef(  
+  elastic_mon$finalModel,  
+  elastic_mon$bestTune$lambda) %>%  
+  as.matrix() %>%     
+  as_tibble(., rownames = "coeff") %>%  
+  mutate(type = "elastic")  
+  
+# join model coeff -----------------------------------------------------------  
+coefs_mon <- bind_rows(coef_ridge_mon, coef_lasso_mon, coef_elastic_mon)   
+  
+coefs_mon <- coefs_mon %>%  
+  rename(value = 2) %>%  
+  mutate(value = round(  
+    value, digits = 3)  
+    ) %>%  
+  spread(type, value)  
+  
+# prepare for export table --------------------------------------------------- 
+# arrange by absolute value of the lasso model  
+coefs_mon <- coefs_mon %>%   
+  mutate(arrange_ridge = abs(ridge)) %>%   # temp terms to arrange coeffs  
+  mutate(arrange_lasso = abs(lasso)) %>%   # temp terms to arrange coeffs  
+  mutate(arrange_elastic = abs(elastic)) %>%   # temp terms to arrange coeffs  
+  arrange(desc(arrange_lasso)) %>%  
+  arrange(desc(arrange_ridge)) %>%    
+  arrange(desc(arrange_elastic)) %>%    
+  select(coeff, elastic, lasso, ridge)  
+  
+# rename coefficients to fit the hydrologic coefficient table  
+coefs_mon <- coefs_mon %>%   
+  mutate(coeff = case_when(   
+    coeff == "(Intercept)"                  ~ "Intercept",  
+    coeff == "pcov_ln"                      ~ "perc_cov",                   
+    coeff == "kvert_ln"                     ~ "kvert_mean",                  
+    coeff == "vpdan_sq"                     ~ "vpd_ann",               
+    coeff ==  "cout_sqr"                    ~ "cat_out",                
+    coeff ==  "ecoregSand Hills"            ~ "Ecoreg::Sand Hills",           
+    coeff == "ecoregKeya Paha Tablelands"   ~ "Ecoreg::Keya Paha Tablelands",  
+    coeff == "lwrat_sqr"                    ~ "lw_ratio",           
+    coeff == "area_linv"                    ~ "cat_area", 
+    coeff == "dden_sqr"                     ~ "drain_dens",  
+    coeff == "ecoregPierre Shale Plains"    ~ "Ecoreg::Pierre Shale Plains",   
+    coeff ==  "ecoregPine Ridge Escarpment" ~ "Ecoreg::Pine Ridge Escarpment",  
+    coeff == "crel_sqr"                     ~ "cat_rel",   
+    coeff ==  "TWI_sq"                      ~ "TWI_mean",  
+    coeff == "slop_ln"                      ~ "slop_med",  
+    coeff == "ecoregWhite River Badlands"   ~ "Ecoreg::White River Badlands",  
+    coeff == "t07_sq"                       ~ "t07_mean",    
+    coeff ==  "prcp_sq"                     ~ "prcp_mean",    
+    TRUE ~ coeff))    
+  
+# get number of parameters for each regression method ------------------------  
+num_param <- coefs_mon %>%  
+  map_dfc(~sum(. != 0)) %>%  
+  select(-coeff) %>%                   # transpose df  
+  gather(model, num_param)  
+  
+rm(coef_ridge_mon,  
+   coef_lasso_mon,  
+   coef_elastic_mon,  
+   ridge_mon,  
+   lasso_mon,  
+   elastic_mon  
+   )     
+  
+```   
+
+```{r 15b-export-table_glm-coeffs_pc2} 
+# set the numeric columns   
+col_key_num <- coefs_mon %>%  
+  select(-coeff) %>%   
+  names()  
+  
+# convert tibble to a flextable    
+coef_table <- coefs_mon %>%   
+  flextable() %>% 
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 2, na_str = "N/A") %>%  
+  set_header_labels(  
+  coeff  = "Explanatory variable",  
+  lasso  = "Lasso",  
+  elastic = "Elastic net",    
+  ridge = "Ridge") %>%      
+  autofit() %>%  
+  theme_booktabs()   
+
+# export a docx of flextables     
+coef_table <- read_docx() %>%  
+  body_add_flextable(value = coef_table) 
+print(coef_table, target = "output/table_coef_new2.docx")   
+  
+rm(coef_table,  
+   col_key_num,   
+   coefs_mon 
+   )     
+  
+```  
+
+```{r 16b-select-glm-model_pc2}
+  
+# evaluate performance of models -- ridge, lasso and elastic net --      
+#   best model is the one that minimizes prediction error.    
+  
+# pick out the mse from the output lists   
+error_call_mon <- resamples(models_mon) %>%    
+  summary(metric = c("RMSE", "MAE"))     
+  
+# change list to tibble   
+error_vals_mon <- error_call_mon %>%    
+  pluck(., 'statistics') %>%   
+    as.data.frame() %>%   
+  as_tibble(., rownames = "model") %>% 
+  gather(key, val, -c(model))  %>%  
+  mutate(key = str_replace(key, "[.]", "_")) %>%   
+  separate(key, c("statistic", "position"), extra = "drop") %>%  
+  filter(position != "NA") %>%   
+  spread(position, val)    
+  
+# add number of params to error vals & clean up   
+error_vals_mon <- full_join(error_vals_mon, num_param,   
+                           by = "model")    
+  
+# prepare for plotting   
+error_vals_mon <- error_vals_mon %>%    
+  mutate(num_param = as.character(num_param)) %>%   
+  mutate(temp = ", p = ") %>%   
+  mutate(model_text = str_c(model, temp, num_param))  %>%   
+  mutate(num_param = as.integer(num_param))  
+  
+n_train <- train_mon %>%  
+  mutate(n_count = n()) %>%  
+  distinct(n_count)   
+
+# clean up global environment  
+rm(error_call_mon,  
+   num_param)     
+```   
+
+```{r 17b-plot-glm-models_pc2} 
+  
+# make a boxplot of the three models   
+ggplot(error_vals_mon) +   
+  facet_grid(cols = vars(statistic)) +   
+  geom_boxplot(aes(x = factor(model_text),  
+                   group = model,  
+      lower = `1st`,  
+      upper = `3rd`,  
+      middle = `Median`,  
+      ymin = `Min`,  
+      ymax = `Max`),  
+    stat = "identity") +   
+  geom_text(data = n_train,  
+            x = 3, y = 0.2,    
+           aes(label= paste("n =", n_count, sep = " ")),   
+           size = 3,   
+           color = "gray20"  
+           ) +  
+ # ylim(0, 0.75) +  
+  labs(x = "",   
+       y = bquote('Model error in log ('~m^3 / km^2 ~ 'day)')) +     
+  theme_bw()   
+  
+# save ggplot above & clean up    
+ggsave("figure/model_fit_mon.png",  
+       width = 7,  
+       height = 3.5,  
+       units = "in")   
+  
+rm(n_train,  
+   error_vals_mon  
+   )    
+  
+```  
+
+```{r 18b-get_glm_observations_and_predictions_pc2}  
+  
+# get observations & predictions -- training --------------------------------  
+obs_train_mon   <- tibble(observed = train_mon$observed,   
+                             Date = train_mon$Date,  
+                             ecoreg = train_mon$ecoreg)  
+  
+preds_train_mon <- map_dfc(models_mon,  
+                           predict,  
+                           newdata = train_mon)   
+  
+# combine observations & predictions  
+fit_train_mon <- bind_cols(obs_train_mon, preds_train_mon) %>%  
+  mutate(split = "train") %>%  
+  as_tibble() 
+  
+# get observations & predictions -- test ------------------------------------  
+obs_test_mon   <- tibble(observed = test_mon$observed, 
+                             Date = test_mon$Date, 
+                             ecoreg = test_mon$ecoreg) 
+  
+preds_test_mon <- map_dfc(models_mon,  
+                         predict,  
+                         newdata = test_mon)  
+  
+# combine observations & predictions 
+fit_test_mon <- bind_cols(obs_test_mon, preds_test_mon) %>%  
+  mutate(split = "test") %>% 
+  as_tibble()  
+  
+fit_model_mon <-  bind_rows(fit_test_mon, fit_train_mon)  
+ 
+# drop the training data -- find model errors & fit a null model ------------  
+fit_model_final <- fit_model_mon %>% 
+  filter(split == "test") %>%           # only want to see test data 
+  select(-c(split, ridge, lasso)) %>%        # drop non-selected models 
+  group_by(Date)  %>%                   # fit a null model to the data by Date  
+  mutate(null_mod = mean(observed)) %>% 
+  ungroup() %>%  
+  gather(model, fitted, -c(observed, Date, ecoreg)) %>% 
+  group_by(model) %>% 
+  mutate(MAE = round( 
+    MAE(observed, fitted),              # find the model errors 
+    digits = 3) 
+    ) %>% 
+  ungroup() %>% 
+  mutate(residual = observed - fitted) %>% 
+  mutate(freq = 1- percent_rank(observed)) %>% 
+  mutate(freq = if_else(freq== 1, 0.9999, freq))  
+  
+# clean-up  
+rm(preds_test_mon,  
+   preds_train_mon,  
+   obs_train_mon,  
+   obs_test_mon,  
+   train_mon,  
+   fit_test_mon,  
+   fit_train_mon)    
+  
+```  
+
+```{r 19b-plot_glm_observations_predictions_pc2}
+  
+# set the facet labels, find number of test observations, get mae  
+labels_mon <- c(elastic = "Elastic net predicted values",  
+               null_mod = "Mean of daily observations")   
+  
+mae_mon <- fit_model_final %>%  
+  select(model, MAE) %>%  
+  mutate(MAE = round(MAE, digits = 2)) %>%  
+  mutate(MAE = as.character(MAE)) %>%  
+  distinct(model, .keep_all = TRUE)   
+  
+n_test <- test_mon %>%  
+  mutate(n_count = n()) %>%  
+  distinct(n_count)   
+  
+# observations vs predictions plot====   
+obs_pred_plot <- fit_model_final %>%  
+# change the order of facets  
+ mutate(model = factor(model, levels = c('null_mod', 'elastic'))) %>%  
+ggplot(., aes(observed, fitted)) +   
+  theme_bw() +  
+# create facets  
+  facet_wrap(vars(model),  
+             ncol = 2,  
+             labeller = labeller(model = labels_mon)) +  
+# plot a 45-degree line  
+  geom_abline(  
+    intercept = 0,  
+    slope = 1,  
+    size = 0.25) +  
+# plot points as '.' to reduce overplotting  
+  geom_point(shape = ".",  
+             color = "gray80")  +  
+# plot points as a density plot to reduce overplotting  
+  geom_density2d(color = "gray50")  +  
+  geom_smooth(method = "lm",  
+              color = "black") +  
+  # add text of the MSE vals  
+  geom_text(data = mae_mon,  
+            x = 1,  
+            y = 0,  
+            aes(label= paste("MSE =", MAE, sep = " ")),  
+            size = 3,  
+            color = "gray20"  
+           ) +  
+# set limits  
+#  scale_x_continuous(limits = c(-1.5, 4)) + 
+#  scale_y_continuous(limits = c(-1.5, 4)) + 
+# set labels and theme  
+  labs(x = "",  
+       y = "Fitted values"  
+       )   
+#  theme(legend.position = "none")  
+  
+obs_pred_plot 
+  
+# residuals plot====    
+resid_plot <- fit_model_final %>% 
+# change the order of facets 
+  mutate(model = factor(model, levels = c('elastic', 'null_mod'))) %>% 
+  ggplot(., aes(observed, residual)) +  
+# plot points as a density plot to reduce overplotting 
+  geom_point(  
+    shape = ".", 
+    color = "gray80")  + 
+# plot points as a density plot to reduce overplotting  
+  geom_density2d(  
+    color = "gray50")  +  
+# fit a linear model to the data  
+  geom_smooth(  
+    method = "lm",  
+    color = "black") +  
+# plot a horizontal line  
+  geom_abline( 
+    intercept = 0,  
+    slope = 0,  
+    size = 0.25) +  
+# add text of the number of observations  
+  geom_text(data = n_test,  
+            x = 3, y = -2.5,  
+           aes(label= paste("n =", n_count, sep = " ")),  
+           size = 3,  
+           color = "gray20"  
+           ) +  
+# create facets  
+  facet_wrap(vars(model),  
+             ncol = 2,  
+             labeller = labeller(model = labels_mon)) +  
+# set limits  
+#  scale_x_continuous(limits = c(-1.5, 4)) +  
+#  scale_y_continuous(limits = c(-2.5, 4)) +  
+# set labels and theme  
+  labs(x = bquote('Observed values'),    
+       y = bquote('Residuals')  
+       ) + 
+  theme_bw() + 
+  theme(legend.position = "none") 
+ 
+ resid_plot  
+ 
+# plot obs_pred_plot & resid_plot -------------------------------------------   
+cowplot::plot_grid(   
+  obs_pred_plot, resid_plot, 
+  ncol = 1, align = "v")   
+  
+cowplot::ggsave2("figure/obs_pred_resid_plot_pc2.png",   
+        units = "in",    
+        width = 7, 
+        height = 6)  
+  
+# clean up  
+rm(mae_mon,  
+   n_test,  
+   obs_pred_plot,  
+   resid_plot,  
+   labels_mon  
+   ) 
+
+ 
+```  
+
+```{r 21b-clean-up_mon_model}
 # clean up model data from above  
 rm(test_mon,  
    fit_model_mon,  
    fit_model_final,  
    models_mon  
-   )
-   
-rm(fit_model_dv, fit_model_test, models_dv)   
-
-``` 
-
-# glm models - ecoregion scale data
-```{r 22-build-glm-models-ecoreg}  
-# prepare for modeling at the ecosystem scale --------------------------------  
-# drop unimportant predictors - from lasso above   
+   )  
   
-gaged_ecoreg <- gaged %>%  
+# drop unimportant predictors - from elastic_net above   
+gaged_ecoreg <- gaged_pc2 %>%  
   select(-c(sta, q1_depth, .fittedPC1, .fittedPC2,  
             prcp_sq, crel_sqr, vpdan_sq, t07_sq, TWI_sq)) %>%   
   mutate(ecoreg2 = case_when(   
@@ -1524,7 +1959,14 @@ gaged_ecoreg <- gaged %>%
     ecoreg == "White River Badlands"  ~ "wrbadl"   
     )) %>%   
   select(-ecoreg, mon)  
-  
+
+``` 
+
+# glm models - ecoregion scale data
+```{r 22-build-glm-models-ecoreg}  
+# prepare for modeling at the ecosystem scale --------------------------------  
+
+
 # Split the data into training and test sets by ecoreg -----------------------  
 ecoreg_list <- gaged_ecoreg %>%  
   split(., .$ecoreg2) 
