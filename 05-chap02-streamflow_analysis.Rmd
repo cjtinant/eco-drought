@@ -1045,6 +1045,7 @@ train_pc2 <- gaged_pc2[train_index_pc2,] %>%
   
 test_pc2 <- gaged_pc2[-train_index_pc2,] %>%  
   select(-c(axis,  season, trend, remainder, mon))  
+  
 ```  
 
 ```{r 14-build-glm-models}  
@@ -1585,7 +1586,7 @@ rm(test_pc1,
   
 ```  
 
-```{r plot_glm_observations_predictions}
+```{r 21-plot_glm_observations_predictions}
   
 # observations vs predictions plots----  
 # PC1 observations vs predictions plot====  
@@ -1690,7 +1691,7 @@ rm(fit_model_pc1,
   
 ```  
 
-```{r plot_glm_residuals, eval=FALSE}
+```{r 21b-plot_glm_residuals, eval=FALSE}
   
 # residuals plots----  
 # PC1 residuals plot====    
@@ -1776,7 +1777,7 @@ resid_plot_pc2
   
 ```
 
-```{r 15a-export-table_glm-coeffs_pc1} 
+```{r 22-export-table_glm-coeffs_pc1} 
 # set the numeric columns   
 col_key_num <- coefs_pc1 %>%  
   select(-coeff) %>%   
@@ -1808,7 +1809,7 @@ rm(coef_table,
   
 ```  
 
-```{r 15b-export-table_glm-coeffs_pc2, eval=FALSE} 
+```{r 22b-export-table_glm-coeffs_pc2, eval=FALSE} 
 # set the numeric columns   
 col_key_num <- coefs_mon %>%  
   select(-coeff) %>%   
@@ -1840,264 +1841,11 @@ rm(coef_table,
   
 ```  
 
-```{r 16b-select-glm-model_pc2-DROP}
-  
-# evaluate performance of models -- ridge, lasso and elastic net --      
-#   best model is the one that minimizes prediction error.    
-  
-# pick out the mse from the output lists   
-error_call_mon <- resamples(models_mon) %>%    
-  summary(metric = c("RMSE", "MAE"))     
-  
-# change list to tibble   
-error_vals_mon <- error_call_mon %>%    
-  pluck(., 'statistics') %>%   
-    as.data.frame() %>%   
-  as_tibble(., rownames = "model") %>% 
-  gather(key, val, -c(model))  %>%  
-  mutate(key = str_replace(key, "[.]", "_")) %>%   
-  separate(key, c("statistic", "position"), extra = "drop") %>%  
-  filter(position != "NA") %>%   
-  spread(position, val)    
-  
-# add number of params to error vals & clean up   
-error_vals_mon <- full_join(error_vals_mon, num_param,   
-                           by = "model")    
-  
-# prepare for plotting   
-error_vals_mon <- error_vals_mon %>%    
-  mutate(num_param = as.character(num_param)) %>%   
-  mutate(temp = ", p = ") %>%   
-  mutate(model_text = str_c(model, temp, num_param))  %>%   
-  mutate(num_param = as.integer(num_param))  
-  
-n_train <- train_mon %>%  
-  mutate(n_count = n()) %>%  
-  distinct(n_count)   
-
-# clean up global environment  
-rm(error_call_mon,  
-   num_param, 
-   n_train)     
-```   
-
-```{r 17b-plot-glm-models_pc2-DROP} 
-  
-# make a boxplot of the three models   
-ggplot(error_vals_mon) +   
-  facet_grid(cols = vars(statistic)) +   
-  geom_boxplot(aes(x = factor(model_text),  
-                   group = model,  
-      lower = `1st`,  
-      upper = `3rd`,  
-      middle = `Median`,  
-      ymin = `Min`,  
-      ymax = `Max`),  
-    stat = "identity") +   
-  geom_text(data = n_train,  
-            x = 3, y = 0.2,    
-           aes(label= paste("n =", n_count, sep = " ")),   
-           size = 3,   
-           color = "gray20"  
-           ) +  
- # ylim(0, 0.75) +  
-  labs(x = "",   
-       y = bquote('Model error in log ('~m^3 / km^2 ~ 'day)')) +     
-  theme_bw()   
-  
-# save ggplot above & clean up    
-ggsave("figure/model_fit_mon.png",  
-       width = 7,  
-       height = 3.5,  
-       units = "in")   
-  
-rm(n_train,  
-   error_vals_mon  
-   )    
-  
-```  
-
-```{r 18b-get_glm_observations_and_predictions_pc2-DROP}  
-  
-
-  
-# combine observations & predictions  
-fit_train_pc2 <- bind_cols(obs_train_pc2, preds_train_pc2) %>%  
-  mutate(split = "train") %>%  
-  as_tibble() 
-  
-# get observations & predictions -- test ------------------------------------  
-obs_test_pc2   <- tibble(observed = test_pc2$observed, 
-                             Date = test_pc2$Date, 
-                             ecoreg = test_pc2$ecoreg) 
-  
-preds_test_pc2 <- map_dfc(models_pc2,  
-                         predict,  
-                         newdata = test_pc2)  
-  
-# combine observations & predictions 
-fit_test_pc2 <- bind_cols(obs_test_pc2, preds_test_pc2) %>%  
-  mutate(split = "test") %>% 
-  as_tibble()  
-  
-fit_model_pc2 <-  bind_rows(fit_test_pc2, fit_train_pc2)  
- 
-# drop the training data -- find model errors & fit a null model ------------  
-fit_model_final <- fit_model_pc2 %>% 
-  filter(split == "test") %>%           # only want to see test data 
-  select(-c(split, ridge, lasso)) %>%        # drop non-selected models 
-  group_by(Date)  %>%                   # fit a null model to the data by Date  
-  mutate(null_mod = mean(observed)) %>% 
-  ungroup() %>%  
-  gather(model, fitted, -c(observed, Date, ecoreg)) %>% 
-  group_by(model) %>% 
-  mutate(MAE = round( 
-    MAE(observed, fitted),              # find the model errors 
-    digits = 3) 
-    ) %>% 
-  ungroup() %>% 
-  mutate(residual = observed - fitted) %>% 
-  mutate(freq = 1- percent_rank(observed)) %>% 
-  mutate(freq = if_else(freq== 1, 0.9999, freq))  
-  
-# clean-up  
-rm(preds_test_pc2,  
-   preds_train_pc2,  
-   obs_train_pc2,  
-   obs_test_pc2,  
-   train_pc2,  
-   fit_test_pc2,  
-   fit_train_pc2)    
-  
-```
-
-```{r 19b-plot_glm_observations_predictions_pc2-DROP}
-  
-# set the facet labels, find number of test observations, get mae  
-labels_mon <- c(elastic = "Elastic net predicted values",  
-               null_mod = "Mean of daily observations")   
-  
-mae_mon <- fit_model_final %>%  
-  select(model, MAE) %>%  
-  mutate(MAE = round(MAE, digits = 2)) %>%  
-  mutate(MAE = as.character(MAE)) %>%  
-  distinct(model, .keep_all = TRUE)   
-  
-n_test <- test_mon %>%  
-  mutate(n_count = n()) %>%  
-  distinct(n_count)   
-  
-# observations vs predictions plot====   
-obs_pred_plot <- fit_model_final %>%  
-# change the order of facets  
- mutate(model = factor(model, levels = c('null_mod', 'elastic'))) %>%  
-ggplot(., aes(observed, fitted)) +   
-  theme_bw() +  
-# create facets  
-  facet_wrap(vars(model),  
-             ncol = 2,  
-             labeller = labeller(model = labels_mon)) +  
-# plot a 45-degree line  
-  geom_abline(  
-    intercept = 0,  
-    slope = 1,  
-    size = 0.25) +  
-# plot points as '.' to reduce overplotting  
-  geom_point(shape = ".",  
-             color = "gray80")  +  
-# plot points as a density plot to reduce overplotting  
-  geom_density2d(color = "gray50")  +  
-  geom_smooth(method = "lm",  
-              color = "black") +  
-  # add text of the MSE vals  
-  geom_text(data = mae_mon,  
-            x = 1,  
-            y = 0,  
-            aes(label= paste("MSE =", MAE, sep = " ")),  
-            size = 3,  
-            color = "gray20"  
-           ) +  
-# set limits  
-#  scale_x_continuous(limits = c(-1.5, 4)) + 
-#  scale_y_continuous(limits = c(-1.5, 4)) + 
-# set labels and theme  
-  labs(x = "",  
-       y = "Fitted values"  
-       )   
-#  theme(legend.position = "none")  
-  
-obs_pred_plot 
-  
-# residuals plot====    
-resid_plot <- fit_model_final %>% 
-# change the order of facets 
-  mutate(model = factor(model, levels = c('elastic', 'null_mod'))) %>% 
-  ggplot(., aes(observed, residual)) +  
-# plot points as a density plot to reduce overplotting 
-  geom_point(  
-    shape = ".", 
-    color = "gray80")  + 
-# plot points as a density plot to reduce overplotting  
-  geom_density2d(  
-    color = "gray50")  +  
-# fit a linear model to the data  
-  geom_smooth(  
-    method = "lm",  
-    color = "black") +  
-# plot a horizontal line  
-  geom_abline( 
-    intercept = 0,  
-    slope = 0,  
-    size = 0.25) +  
-# add text of the number of observations  
-  geom_text(data = n_test,  
-            x = 3, y = -2.5,  
-           aes(label= paste("n =", n_count, sep = " ")),  
-           size = 3,  
-           color = "gray20"  
-           ) +  
-# create facets  
-  facet_wrap(vars(model),  
-             ncol = 2,  
-             labeller = labeller(model = labels_mon)) +  
-# set limits  
-#  scale_x_continuous(limits = c(-1.5, 4)) +  
-#  scale_y_continuous(limits = c(-2.5, 4)) +  
-# set labels and theme  
-  labs(x = bquote('Observed values'),    
-       y = bquote('Residuals')  
-       ) + 
-  theme_bw() + 
-  theme(legend.position = "none") 
- 
- resid_plot  
- 
-# plot obs_pred_plot & resid_plot -------------------------------------------   
-cowplot::plot_grid(   
-  obs_pred_plot, resid_plot, 
-  ncol = 1, align = "v")   
-  
-cowplot::ggsave2("figure/obs_pred_resid_plot_pc2.png",   
-        units = "in",    
-        width = 7, 
-        height = 6)  
-  
-# clean up  
-rm(mae_mon,  
-   n_test,  
-   obs_pred_plot,  
-   resid_plot,  
-   labels_mon  
-   ) 
-
- 
-``` 
-
 # glm models - ecoregion scale data
 ```{r 20-prepare-for-ecoreg-GLM}
   
 # clean up model data from above  
-rm(test_mon,  
+rm(coefs_pc2,  
    fit_model_mon,  
    fit_model_final,  
    models_mon, 
