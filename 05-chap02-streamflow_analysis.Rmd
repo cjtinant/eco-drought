@@ -265,22 +265,23 @@ library("caret")            # classification and regression training
 library("doMC")             # parallelization for caret  
 library("glmnet")           # fit a GLM with lasso or elasticnet regularization  
 library("Metrics")          # evaluation metrics for machine learning  
-library("DataExplorer") #--- used for plot_correlation() --- 
-library("assertthat") 
-
+library("DataExplorer")     # used for plot_correlation()  
+library("assertthat")       #                    NOT SURE???
+library("dabestr")          # data analysis using bootstrap estimation  
+library("tidyverse")        # data munging tools  
+  
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
-
-# Notes on dabest
+conflict_prefer("summarize", "dplyr")  
+  
+# Notes on dabest====  
 # dabest for monthly scale (14,027 obs; 40,000 reps) takes ~2 hours.  
 #   even with increasing memory, I ran into a memory allocation 
 #    limit at 50,000 reps
-# increase memory allocation for dabest() by: 
-#   usethis::edit_r_environ("project") 
-library("dabestr")          # data analysis using bootstrap estimation 
+# increase memory allocation for dabest() by:  
+#   usethis::edit_r_environ("project")  
 
-library("tidyverse")        # data munging tools 
 ``` 
 
 ```{r import_streamflow_df}
@@ -290,6 +291,224 @@ library("tidyverse")        # data munging tools
 gage_mon_orig <- import("data/gage_mon.csv")  
   
 ```
+
+# model-based clustering  
+```{r Mclust-model}
+  
+# make monthly inputs for clustering====   
+clust_input <- gage_mon_orig %>%  
+  select(sta, Date, waterYear, ecoreg, q1_mon, q7_mon, q30_mon) %>%  
+  group_by(sta) %>%  # check on duplicate variables  
+  distinct(Date, .keep_all = TRUE) %>%  
+  ungroup()  %>% 
+  select(-c(sta, Date, waterYear, ecoreg)) # get rid of categorical data  
+  
+# Find Bayesian Information Criterion and run Mclust====  
+BIC <- mclustBIC(clust_input)  
+  
+mod <- Mclust(clust_input, x = BIC)   
+  
+# get Mclust model results and use broom to tidy up the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, gage_mon_orig)   
+  
+# get flow-type centroids===  
+mclust_means <- tidy(mod) %>%  
+    arrange(mean.q1_mon) %>%  
+  mutate(flow_type = c("type1", "type2", "type3",  
+                       "type4", "type5", "type6",  
+                       "type7", "type8", "type9")  
+         ) %>% 
+  mutate(.class = as.factor(component)) %>%  
+  select(-component)  
+  
+# prepare for plotting - reorganize flow by centroids====   
+mclust_aug_means <- mclust_aug %>%  
+  group_by(.class) %>%  
+  summarize(#q1_flow = mean(q1_mon),  # these are ~equal to mclust_means  
+            #q7_flow = mean(q7_mon),  
+            #q30_flow = mean(q30_mon),  
+            mean.PC1_mon = mean(PC1_mon),  
+            mean.PC2_mon = mean(PC2_mon), 
+            size = n()  
+            ) %>%  
+  ungroup()  
+  
+mclust_means <- full_join(mclust_means, mclust_aug_means,  
+                  by = c("size",  
+                         ".class")  
+                  ) %>%  
+# reorganize columns  
+  select(.class,  
+         flow_type,  
+         size,  
+         proportion,  
+         everything()  
+         )  
+  
+# join flow_type to tidy cluster model & clean up global environment====  
+mclust_aug <- full_join(mclust_aug, mclust_means,  
+                     by = c(".class")  
+                     ) %>%  
+  group_by(.class, ecoreg) %>%  
+  mutate(q1 = mean(q1_mon)) %>%  
+  mutate(q7_eco = mean(q7_mon)) %>%  
+  mutate(q30_eco = mean(q30_mon))  %>%  
+  mutate(PC1_eco = mean(PC1_mon)) %>%  
+  mutate(PC2_eco = mean(PC2_mon)) %>%  
+  ungroup() %>%  
+  mutate(flow_type = as.factor(flow_type)) %>%  
+# change the order of facets #  
+  mutate(ecoreg = factor(ecoreg,  
+                         levels = c('Pierre Shale Plains',  
+                                    'Pine Ridge Escarpment',  
+                                    'White River Badlands',  
+                                    'Black Hills Plateau',  
+                                    'Keya Paha Tablelands',  
+                                    'Sand Hills')  
+                         )  
+         )  
+  
+# get proportions of different flow types by ecoregion  
+mclust_prop <- mclust_aug %>%  
+  group_by(ecoreg, flow_type) %>%  
+  summarize(count = n()) %>%  
+  group_by(ecoreg) %>%  
+  mutate(count2 = sum(count)) %>%  
+  ungroup() %>%  
+  mutate(proportion_ecoreg = count/count2)  %>%  
+  select(-c(count, count2))  
+  
+mclust_aug <- full_join(mclust_aug, mclust_prop,   
+                         by = c("ecoreg", "flow_type"))  
+  
+# check results -- sample cluster plot====  
+factoextra::fviz_mclust(mod,  
+                          "classification",  
+                          geom = "point",  
+                          ellipse.type = "t",  
+                          ellipse.level = 0.7,  
+                          pointsize = 1.5,  
+                          palatte = "npg"  
+                          )  
+  
+# clean up global environment  
+rm(clust_input,  
+   BIC,  
+   mclust_aug_means,  
+   mclust_prop  
+   )  
+  
+```
+
+```{r Mclust-plot}
+  
+# get pc-vars for plotting====  
+pca_vars  <- import('data/pca_vars.csv')  
+pca_eigen <- import("data/pca_eigen.csv")  
+
+# plot clusters by ecoregion====  
+mclust_eco_plot  <- mclust_aug %>%  
+  ggplot(aes(PC1_mon, PC2_mon)) +  
+  # set theme and facets #  
+  theme_bw() +  
+  facet_wrap(vars(ecoreg)) +  
+  geom_jitter(  
+    aes(color = flow_type,  
+        shape = ecoreg,  
+        alpha = .uncertainty),  
+    size = 2,  
+    show.legend = FALSE) +  
+  scale_alpha(".uncertainty") +  
+  # plot pc eigenvectors as arrows #  
+  geom_segment(data = pca_vars,  
+               aes(x = 0, y = 0,  
+                   xend = PC1, yend = PC2), 
+               arrow = arrow(length = unit(0.03, "npc")) 
+  ) + 
+  # plot pc eigenvector text #  
+  geom_text(data = pca_vars,  
+            size = 3,  
+            nudge_x = 0.5,  
+            nudge_y = -0.1,  
+            hjust = 'outside',  
+            aes(x = PC1, y = PC2, label = labels)  
+  ) +  
+  # set axis text #  
+  xlab("PC1 axis (95.0%)") +  # from pca_eigen  
+  ylab("PC2 axis (4.3%)") +  
+  theme(legend.position="bottom")  
+  
+# plot clusters by flow type====  
+mclust_flow_plot <- mclust_aug %>%  
+  ggplot(aes(PC1_mon, PC2_mon)) +  
+  # set theme and facets #  
+  theme_bw() + 
+  facet_wrap(~ flow_type) +  
+  # plot points # 
+  geom_jitter(aes(shape = ecoreg,  
+                  color = flow_type,  
+                  alpha = .uncertainty  
+  ),  
+  show.legend=FALSE,  
+  size = 2)  +  
+  # plot centroids #  
+  geom_point(aes(PC1_eco, PC2_eco,  
+                 shape = ecoreg,  
+                 size = proportion_ecoreg  
+  ),  
+  show.legend=FALSE,  
+  color = "black"  
+  ) +  
+  # set axis text #  
+  xlab("PC1 axis (95.0%)") +  # from pca_eigen  
+  ylab("PC2 axis (4.3%)") +  
+  theme(legend.position="bottom")  
+  
+# plot grid of ggplots====  
+cowplot::plot_grid(  
+  mclust_eco_plot,  
+  mclust_flow_plot,  
+  ncol = 1,  
+  align = "v"  
+)  
+  
+cowplot::ggsave2("figure/mclust_plot.png", 
+        units = "in",  
+        width = 7, 
+        height = 9) 
+
+# save results & clean up global environment  
+export(mclust_aug, "data/mclust_results.csv")  
+export(mclust_fit, "data/mclust_fit.csv")  
+  
+rm(mclust_flow_plot,  
+   mclust_eco_plot,  
+   mod,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_means,  
+   pca_eigen,  
+   pca_vars  
+   )  
+
+#    scale_colour_brewer(palette = "Greys") + 
+#ecoreg_sum <- mclust_aug %>%  
+#  group_by(ecoreg) %>%  
+#  summarise(q)  # what to do here???
+# plot centroids for each flow type -- commented out to reduce plot clutter  
+#  geom_point(aes(PC1_eco, PC2_eco,  
+#                 color = flow_type
+#  ),  
+#  show.legend = FALSE,  
+#  shape = 3,                   # cross shape  
+#  size = 2.5,
+#  stroke = 2  )  
+# map the title of the geom for the legend  
+#  scale_shape_discrete(name="Ecoregion") + 
+#  scale_color_hue(name="Flow type") + 
+```
+
 
 # bootstrapping  
 ```{r 01-bootstrap}  
@@ -424,7 +643,7 @@ cowplot::plot_grid(
   align = "v"  
 )  
   
-# 3. save the combined plot====
+# 3. save the combined plot====  
 cowplot::ggsave2("figure/ci_plot_grays.png",  
                  units = "in",  
                  width = 7,  
@@ -2578,7 +2797,7 @@ mae_ecoreg <- fit_ecoreg %>%
 
 ```{r 30-plot_flow-duration-curve-density_ecoreg}
   
-# flow duration curve plot -ecoreg    
+# flow duration curve plot-ecoreg====    
 fit_ecoreg %>%  
 # change the order of facets  
   mutate(ecoreg = factor(ecoreg,  
@@ -2641,7 +2860,7 @@ ggsave("figure/freq_plot_eco_new.png",
 rm(labels_models,  
    labels_ecoreg,  
    n_test,  
-   mae_ecoreg
+   mae_ecoreg  
    )  
   
 ``` 
