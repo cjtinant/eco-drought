@@ -10,6 +10,350 @@ This R markdown file includes the junk that should be deleted but has not been..
 
 -->
 
+# prior code to move to dross
+```{r plot_flow-duration-curve_data_ecoreg, eval=FALSE} 
+
+# spread ecoregion data  
+mae_eco_sp <- mae_ecoreg %>%  
+  spread(model, MAE) %>%  
+  arrange(null_mod) %>%  
+  arrange(predicted)  
+
+# spread the null and fitted observations -- need to remove residual & MAE  
+fit_ecomod_spread <- fit_ecomod_test %>%  
+  select(-c(residual, MAE))  
+
+# pull out problem observations  
+fit_ecomod_spread1 <- fit_ecomod_spread %>%  
+  filter(ecoreg == "sndhil") %>%  
+  filter(Date == "1994-12-12") %>%  
+  arrange(observed)  
+
+# remove problem observations from active tibble  
+fit_ecomod_spread2 <- anti_join(fit_ecomod_spread, fit_ecomod_spread1,  
+                                by = c("observed", "Date", "ecoreg",  
+                                       "model", "fitted", "freq"))  
+
+# spread active tibble  
+fit_ecomod_spread2 <- fit_ecomod_spread2 %>%  
+  spread(model, fitted)  
+
+# remove problem observations - the 4 smallest observations are identical  
+fit_ecomod_spread1 <- fit_ecomod_spread1 %>%  
+  slice(-(1:4)) %>%  
+  spread(model, fitted)  
+
+# append the the active tibble - calculate diffs & clean up  
+# -- the sign of mod_diff indicates: +: null < pred, -: null > pred  
+fit_ecomod_spread <- bind_rows(  
+  fit_ecomod_spread1, fit_ecomod_spread2) %>%  
+  mutate(mod_diff = predicted-null_mod)  
+
+rm(fit_ecomod_spread1, fit_ecomod_spread2)  
+
+# set facet order  
+mae_ecoreg <- mae_ecoreg %>% 
+  mutate(ecoreg = factor(ecoreg, 
+                         levels = c('pshale', 'escarp', 'wrbadl',  
+                                    'bhplat', 'kptabl', 'sndhil')  
+  ))   
+
+# plot flow duration curve -- differences between models -------------------  
+freq_plot_eco_diff <- fit_ecomod_spread %>%  
+  # change the order of facets  
+  mutate(ecoreg = factor(ecoreg,  
+                         levels = c('pshale', 'escarp', 'wrbadl',  
+                                    'bhplat', 'kptabl', 'sndhil')  
+  )  
+  ) %>%  
+  ggplot(aes(x = freq, y = null_mod)) +  
+  # create facets  
+  facet_wrap(vars(ecoreg),  
+             ncol = 2,  
+             labeller = labeller(  
+               ecoreg = labels_ecoreg)  
+  ) +  
+  geom_point(shape = ".",   
+             color = "gray80") +  
+  geom_smooth(method = "gam",  
+              linetype = 2,  
+              size = 0.5,  
+              color = "gray60") +  
+  geom_point(aes(x = freq, y = predicted),  
+             shape = ".",   
+             color = "gray40") +   
+  geom_smooth(aes(x = freq, y = predicted),  
+              method = "gam",  
+              linetype = 4,  
+              size = 0.5,  
+              color = "gray20") +  
+  geom_line(aes(x = freq, y = observed)) +  
+  scale_y_continuous(  
+    name = bquote(  
+      'Observations and fitted values in log ('~m^3 / km^2 ~ 'day)')  
+  ) +  
+  # add text of the null model MAE  
+  geom_text(data = mae_eco_sp,  
+            x = 2, y = 3.5,  
+            aes(label= paste("Null model MAE =", null_mod, sep = " ")),  
+            size = 2.5,  
+            color = "gray70"  
+  ) +   
+  # add text of the predicted model MAE  
+  geom_text(data = mae_eco_sp,  
+            x = 2, y = 2.8,  
+            aes(label= paste("Lasso model MAE =", predicted, sep = " ")),  
+            size = 2.5,  
+            color = "gray30"  
+  ) +  
+  # set axes and themes   
+  scale_x_continuous(name = 'Percentage of time flow exceeded',  
+                     trans = 'probit',  
+                     limits = c(0.005, Inf),  
+                     breaks = c(0.99, 0.9, 0.75,  0.5, 0.25, 0.1, 0.01),  
+                     labels = c('99%', '90%', '75%',  
+                                '50%', '25%', '10%', '1%')) +  
+  theme_bw()  
+
+freq_plot_eco_diff  
+
+ggsave("figure/freq_plot_eco_diff.png", width = 7, height = 4, units = "in")  
+
+``` 
+
+```{r prepare_mixed_model, eval=FALSE}
+
+# calculate mixed models  
+fit_ecomod_spread <- fit_ecomod_spread %>%  
+  mutate(pred_mixed = case_when(  
+    ecoreg == "pshale" ~ case_when(  
+      between(freq, 0.65, 0.9) ~ predicted,  
+      freq > 0.65 ~ predicted,  
+      TRUE ~ null_mod),  
+    ecoreg == "escarp" ~ case_when(  
+      between(freq, 0.55, 0.9) ~ predicted,   
+      TRUE ~ null_mod),   
+    ecoreg == "wrbadl" ~ case_when(  
+      between(freq, 0.6, 0.9) ~ predicted,  # dropped from 1.0  
+      TRUE ~ null_mod),    
+    ecoreg == "bhplat" ~ case_when(  
+      between(freq, 0.1, 0.6)  ~ predicted,  
+      TRUE ~ null_mod),   
+    ecoreg == "kptabl" ~ case_when(  
+      between(freq, 0.1, 0.6)  ~ predicted,  
+      TRUE ~ null_mod),  
+    ecoreg == "sndhil" ~ case_when(  
+      freq < 0.6  ~ predicted,  
+      TRUE ~ null_mod)  
+  ))  
+
+# calculate model fits  
+mae_ecoreg <- fit_ecomod_spread %>%  
+  group_by(ecoreg) %>%  
+  mutate(MAE_null  = MAE(observed, null_mod)) %>%  
+  mutate(MAE_lasso = MAE(observed, predicted)) %>%  
+  mutate(MAE_mixed = MAE(observed, pred_mixed)) %>%   
+  summarise(MAE_null = round(mean(MAE_null), digits = 3),  
+            MAE_lasso = round(mean(MAE_lasso), digits = 3),  
+            MAE_mixed = round(mean(MAE_mixed), digits =3)  
+  ) %>%  
+  ungroup()  
+
+print(mae_ecoreg)  
+
+# add final model fits  
+ecoreg_freq <- tibble(  
+  ecoreg     = mae_ecoreg$ecoreg, 
+  hi_exceed  = c(0.10, 0.55, 0.10, 0.65, 0.0, 0.60),  
+  low_exceed = c(0.60, 0.90, 0.60, 0.90, 0.6, 0.90)  
+)    
+
+ecoreg_freq <- full_join(mae_ecoreg, ecoreg_freq,  
+                         by = "ecoreg") %>%  
+  mutate(ecoreg = as.character(ecoreg)) %>%  
+  mutate(ecoreg2 = case_when(  
+    ecoreg == "pshale" ~ "Pierre Shale Plains",   
+    ecoreg == "escarp" ~ "Pine Ridge Escarpment",  
+    ecoreg == "wrbadl" ~ "White River Badlands",  
+    ecoreg == "bhplat" ~ "Black Hills Plateau",  
+    ecoreg == "kptabl" ~ "Keya Paha Tablelands",  
+    ecoreg == "sndhil" ~ "Sand Hills" 
+  )) %>%  
+  select(ecoreg2, everything())  
+
+# final model   
+#ecoreg null_mod predict mixed    frequency  (bottom - first time just down)  
+#pshale	  0.657	 0.554	 0.425	 65% to  90%    
+#escarp	  0.441  0.445	 0.368   60% to  90%  
+#wrbadl	  0.462	 0.565	 0.435   60% to  90%  
+#bhplat	  0.454	 0.342	 0.299	 10% to  60%  
+#kptabl	  0.365	 0.234	 0.207	 10% to  65%  
+#sndhil	  0.594	 0.182	 0.168	  0% to  60%    
+
+```   
+
+```{r export-mixed-model-table, eval=FALSE}
+
+# set the numeric columns  
+col_key_num <- ecoreg_freq %>%  
+  select(-c(ecoreg)) %>%  
+  names()  
+
+top_row <- c("", "", "", "",  
+             "Exceedance Probablity", "Exceedance Probability")    
+
+hydro_table <- hydro_table %>%   
+  flextable() %>%   
+  theme_booktabs() %>%   
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 1, na_str = "N/A") %>%   
+  set_header_labels(values = header_labels) %>%  
+  add_header_row(values = top_row,   
+                 top = TRUE) %>%   
+  merge_at(i = 1, j = 7:9, part = "header") %>%   
+  merge_at(i = 1, j = 10:12, part = "header") %>%   
+  autofit()   
+
+# convert tibble to a flextable   
+coef_table <- ecoreg_freq %>%  
+  select(-ecoreg) %>%  
+  flextable() %>%  
+  colformat_num(col_keys = col_key_num,  
+                big.mark=",",   
+                digits = 2, na_str = "N/A") %>%   
+  set_header_labels(   
+    ecoreg2  = "Ecoregion",  
+    MAE_null = "Null model MAE",  
+    MAE_lasso = "Lasso model MAE",  
+    MAE_mixed = "Mixed model MAE",  
+    hi_exceed = "High value",  
+    low_exceed = "Low value") %>%  
+  add_header_row(values = top_row,   
+                 top = TRUE) %>%  
+  #  merge_at(i = 1, j = 5:6, part = "header") %>%     
+  autofit() %>%   
+  theme_booktabs()  
+
+# export a docx of flextables    
+coef_table <- read_docx() %>%  
+  body_add_flextable(value = coef_table)  
+print(coef_table, target = "output/table_ecoreg_freq.docx")  
+
+rm(coef_table, col_key_num)     
+
+```  
+
+```{r plot-mixed-model, EVAL=FALSE}
+
+# set facet order  
+mae_ecoreg <- mae_ecoreg %>%  
+  mutate(ecoreg = factor(ecoreg,  
+                         levels = c('pshale', 'escarp', 'wrbadl',  
+                                    'bhplat', 'kptabl', 'sndhil')  
+  ))   
+
+# set facet order  
+mae_ecoreg <- mae_ecoreg %>%  
+  mutate(ecoreg = factor(ecoreg,  
+                         levels = c('pshale', 'escarp', 'wrbadl',  
+                                    'bhplat', 'kptabl', 'sndhil')  
+  ))   
+
+# plot flow duration curve -- differences between models -------------------  
+
+freq_plot_eco_mix <- fit_ecomod_spread %>%  
+  # change the order of facets  
+  mutate(ecoreg = factor(ecoreg,  
+                         levels = c('pshale', 'escarp', 'wrbadl',  
+                                    'bhplat', 'kptabl', 'sndhil')  
+  )  
+  ) %>%  
+  ggplot(aes(x = freq, y = pred_mixed)) +  
+  # create facets  
+  facet_wrap(vars(ecoreg),  
+             ncol = 2,  
+             labeller = labeller(  
+               ecoreg = labels_ecoreg)  
+  ) +  
+  geom_point(shape = ".",  
+             color = "gray80") +  
+  geom_density2d(  
+    color = "gray60")  +   
+  geom_smooth(method = "gam",  
+              linetype = 2,  
+              size = 0.5,  
+              color = "gray40") +  
+  geom_line(aes(x = freq, y = observed)) +  
+  # add text of the null model MAE  
+  geom_text(data = mae_ecoreg,  
+            x = 2, y = 3.5,  
+            aes(label= paste("Mixed model MAE =",  
+                             round(MAE_mixed, digits = 2),  
+                             sep = " ")), 
+            size = 2.5,  
+            color = "gray20"  
+  ) +   
+  # set axes and themes   
+  scale_x_continuous(name = 'Percentage of time flow exceeded',  
+                     trans = 'probit',   
+                     limits = c(0.005, Inf),  
+                     breaks = c(0.99, 0.9, 0.75, 0.5, 0.25, 0.1, 0.01),  
+                     labels = c('99%', '90%', '75%',  
+                                '50%', '25%', '10%', '1%')) +  
+  scale_y_continuous(  
+    name = bquote(   
+      'Observations and final values in log ('~m^3 / km^2 ~ 'day)')  
+  ) +  
+  theme_bw()  
+
+freq_plot_eco_mix   
+
+ggsave("figure/freq_plot_eco_mix.png", width = 7, height = 4, units = "in")  
+
+```
+
+```{r select-glm-model_ecoreg, eval=FALSE}
+
+# evaluate performance of models -- ridge, lasso and elastic net----      
+#   best model is the one that minimizes prediction error.    
+
+# pick out the mse from the output lists====   
+error_call_ecoreg <- resamples(model_list) %>%    
+  summary(metric = c("RMSE", "MAE"))     
+
+# change list to tibble   
+error_vals_mon <- error_call_ecoreg %>%    
+  pluck(., 'statistics') %>%   
+  as.data.frame() %>%   
+  as_tibble(., rownames = "model") %>%  
+  gather(key, val, -c(model))  %>%  
+  mutate(key = str_replace(key, "[.]", "_")) %>%   
+  separate(key, c("statistic", "position"), extra = "drop") %>%  
+  filter(position != "NA") %>%   
+  spread(position, val)    
+
+# add number of params to error vals & clean up   
+error_vals_mon <- full_join(error_vals_mon, num_param,   
+                            by = "model")    
+
+# prepare for plotting====   
+error_vals_mon <- error_vals_mon %>%    
+  mutate(num_param = as.character(num_param)) %>%   
+  mutate(temp = ", p = ") %>%   
+  mutate(model_text = str_c(model, temp, num_param))  %>%   
+  mutate(num_param = as.integer(num_param))  
+
+n_train <- train_mon %>%  
+  mutate(n_count = n()) %>%  
+  distinct(n_count)   
+
+# clean up global environment====  
+rm(error_call_mon,  
+   num_param)  
+
+```   
+
 ```{r export-table_ecoreg_mae} 
   
 # set the numeric columns  
@@ -3498,20 +3842,4 @@ corrplot.mixed(corr_ann, order = "hclust",
 # corrplot.mixed(sta_M,  order = "hclust", addrect = 2, upper =  "ellipse", 
 # lower = "number", title = "Precipitation station correlation")  
 ```  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
