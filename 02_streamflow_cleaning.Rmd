@@ -867,4 +867,809 @@ export(gage_meta, "data/gage_meta.csv")
   
 ```
 
+# download & fill precip data  
+```{r download_prcp_data, eval=FALSE}  
+# Get possible station metadata----      
+# It's also possible to check station id with the mapping tool at:     
+# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
+  
+# The geographical extent given as SElat, SElon, NWlat, NWlon  
+sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),  
+                               limit = 1000) %>%      # n = 777   
+  # get possible stations into a dataframe  
+  pluck("data") %>%  
+  # turn min & max date into lubridates  
+  mutate(mindate = ymd(mindate)) %>%  
+  mutate(maxdate = ymd(maxdate)) %>%                  
+  # remove 'young' stations    
+  filter(mindate < "1988-09-15") %>%                    # n = 434  
+  # remove 'dead' stations    
+  filter(maxdate > "2018-09-15") %>%                    # n =  64    
+  # keep only the GHCND stations   
+  filter(str_detect(id, "^GHCND"))   %>%                # n =  58      
+  filter(!str_detect(name, "^MAGPIE"))                  # n =  57   
+  
+sta_meta_orig <- sta_meta_orig %>%  
+  mutate(elev_flag = case_when(  
+    elevation > 1200 ~ "yes",  
+    TRUE ~ "no"  
+      )                               
+  )  
+  
+# check number of stations 
+num_check <- sta_meta_orig %>%                          # n =  45   
+  filter(elev_flag == "no")  
+rm(num_check)
+  
+# create groups of stations by region====       
+#   Notes: the string "GHCND:" doesn't appear in calls to get Global Historical  
+#   Climatology Network (GHCN) Daily Data  
+sta_meta_orig <- sta_meta_orig %>%   
+  mutate(north_group = case_when(   
+    latitude > 43.5 ~ "N",   
+    TRUE ~ "S")   
+  ) %>%   
+  mutate(east_group = case_when(  
+    longitude > -100.67 ~ "E",  
+    longitude > -102.33 ~ "C",    
+    TRUE ~ "W")  
+  )  %>%  
+  mutate(group = str_c(north_group, east_group, sep = "")) %>%  
+  dplyr::select(-c(north_group, east_group)) %>%  
+  separate(  
+    col = id,  
+    sep = ":",   
+    into = c("type", "sta_id")   
+  ) %>%  
+  arrange(name)  
+  
+# add short names to metadata====    
+sta_meta_orig <- sta_meta_orig %>%  
+  mutate(sta = case_when(  
+    str_detect(name, "^AGATE")            ~ "AGA",  
+    str_detect(name, "^AINSWORTH")        ~ "AIN",  
+    str_detect(name, "^BEAR")             ~ "BEA",  
+    str_detect(name, "^BELLE FOURCHE 22") ~ "BE2",      
+    str_detect(name, "^BELLE FOURCHE,")   ~ "BEL",       
+    str_detect(name, "^CHADRON")          ~ "CHA",      
+    str_detect(name, "^COTTONWOOD")       ~ "COT",  
+    str_detect(name, "^CUSTER")           ~ "CUS",  
+    str_detect(name, "^DUPREE")           ~ "DUP",  
+    str_detect(name, "^EDGEMONT")         ~ "EDG",   
+    str_detect(name, "^ELLSWORTH")        ~ "ELL",  
+    str_detect(name, "^ELM SPRINGS")      ~ "ELM",  
+    str_detect(name, "^ELSMERE")          ~ "ELS",  
+    str_detect(name, "^FORT MEADE")       ~ "FME",      
+    str_detect(name, "^FORT PIERRE")      ~ "FPI",  
+    str_detect(name, "^FORT ROBINSON")    ~ "FRO",      
+    str_detect(name, "^GORDON")           ~ "GOR",    
+    str_detect(name, "^HARRISON")         ~ "HAI",   
+    str_detect(name, "^HARROLD")          ~ "HAR",   
+    str_detect(name, "^HEMINGFORD")       ~ "HEM",   
+    str_detect(name, "^HAY SPRINGS")      ~ "HAY",   
+    str_detect(name, "^HILL CITY")        ~ "HIL",   
+    str_detect(name, "^HOT SPRINGS")      ~ "HOT",  
+    str_detect(name, "^INTERIOR")         ~ "INT",  
+    str_detect(name, "^KENNEBEC")         ~ "KEN",  
+    str_detect(name, "^KIRLEY")           ~ "KIR",     
+    str_detect(name, "^KYLE")             ~ "KYL",  
+    str_detect(name, "^LEAD")             ~ "LEA",  
+    str_detect(name, "^LINGLE")           ~ "LIN",  
+    str_detect(name, "^KYLE")             ~ "KYL",  
+    str_detect(name, "^MAURINE")          ~ "MAU",     
+    str_detect(name, "^MILESVILLE")       ~ "MIL",    
+    str_detect(name, "^MISSION")          ~ "MIS",  
+    str_detect(name, "^MOUNT")            ~ "MTR",  
+    str_detect(name, "^MULLEN")           ~ "MUL",  
+    str_detect(name, "^MURDO")            ~ "MUR",   
+    str_detect(name, "^NEWCASTLE")        ~ "NEC",  
+    str_detect(name, "^NEWELL")           ~ "NEW",    
+    str_detect(name, "^OAHE DAM")         ~ "OAH",      
+    str_detect(name, "^NEWELL")           ~ "NEW",    
+    str_detect(name, "^OELRICHS")         ~ "OEL",  
+    str_detect(name, "^ONIDA")            ~ "ONI",  
+    str_detect(name, "^ORAL")             ~ "ORA",  
+    str_detect(name, "^PACTOLA")          ~ "PAC",  
+    str_detect(name, "^PHILIP")           ~ "PHI",  
+    str_detect(name, "^PLAINVIEW")        ~ "PLA",  
+    str_detect(name, "^PIERRE")           ~ "PIE",  
+    str_detect(name, "^PURDUM")           ~ "PUR",   
+    str_detect(name, "^RAPID CITY 4")     ~ "RA4",        
+    str_detect(name, "^RAPID CITY R")     ~ "RAP",   
+    str_detect(name, "^SPEARFISH")        ~ "SPE",        
+    str_detect(name, "^SPRINGVIEW")       ~ "SPR",      
+    str_detect(name, "^RED OWL")          ~ "RED",  
+    str_detect(name, "^REDBIRD")          ~ "REB",  
+    str_detect(name, "^SUNDANCE")         ~ "SUN",  
+    str_detect(name, "^VALENTINE MILLER") ~ "VAL",  
+    str_detect(name, "^VALENTINE NWR")    ~ "VNW",  
+    str_detect(name, "^WASTA")            ~ "WAS",  
+    str_detect(name, "^WIND CAVE")        ~ "WIN",  
+    str_detect(name, "^WINNER")           ~ "WIN",     
+    str_detect(name, "^WOOD")             ~ "WOO",  
+    TRUE ~ "ERROR"  
+  )   
+  ) %>%   
+  select(sta, name, longitude, latitude, elevation, group, everything())  
+  
+# download daily precip data from NOAA GHCN database-all_stations====       
+# date function calls start one-year early for long-term drought calcs  
+dateMin = "1959-01-01"      
+dateMax = "2018-12-31"    
+  
+sta_dv_orig <- sta_meta_orig %>%   
+  filter(elev_flag == "no") %>%  
+  select(sta_id) %>%  
+  split(.$sta_id) %>%  
+  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
+                            keep_flags   = TRUE,   
+                            var          = "PRCP",   
+                            date_min     = dateMin,   
+                            date_max     = dateMax)  
+  )     
+  
+# fix date & add year and month & add metadata====    
+sta_dv_orig <- sta_dv_orig %>%   
+  mutate(date  = ymd(date)) %>%   
+  arrange(desc(date)) %>%  
+  mutate(year  = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  select(date, year, month, everything())   
+  
+sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
+                         by = c("id" = "sta_id"))  
+  
+# check for missing years====            
+sta_miss_yr <- sta_dv_orig  %>%   
+  filter(year > 1988)       %>%  
+  mutate(year = year(date)) %>%  
+  group_by(name, year)      %>%   
+  summarise(num_day = n())  %>%   
+  filter(num_day < 345)     %>%   
+  ungroup() %>%  
+  group_by(name) %>%  
+  summarise(num_year = n())  
+  
+# add stations with zero missing years
+sta_miss_zero <- anti_join(sta_meta_orig, sta_miss_yr,  
+                           by = "name") %>%  
+  filter(elev_flag == "no") %>%  
+  mutate(num_year = 0) %>%  
+  select(name, num_year)  
+  
+sta_miss_yr <- bind_rows(sta_miss_yr, sta_miss_zero)  
+rm(sta_miss_zero)
+  
+# add missing year flag to df====    
+sta_meta_orig <- left_join(sta_meta_orig, sta_miss_yr,  
+                           by = "name")  
+  
+sta_meta_orig <- sta_meta_orig %>%  
+  mutate(missing_flag = case_when(  
+    num_year <= 3 ~ "no",  
+    num_year >  3 ~ "yes"  
+    )) %>%  
+  select(-num_year)  
 
+rm(sta_miss_yr)  
+# prepare to remove stations with 3 years of > 95% completeness====      
+sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
+                          by = c("sta",  
+                                 "name",  
+                                 "longitude",  
+                                 "latitude",  
+                                 "elevation",  
+                                 "group",  
+                                 "mindate",  
+                                 "maxdate",  
+                                 "datacoverage",  
+                                 "type",  
+                                 "elevationUnit",  
+                                 "elev_flag")) %>%  
+  select(-c(sta_id, type))  
+  
+# select final stations for each group====    
+# this was created from the map below   
+sta_meta_fin <- subset(sta_meta_orig,   
+                       sta %in%  
+                         c("RAP",  
+                           "COT",  
+                           "ONI",  
+                           "OEL",  
+                           "GOR",  
+                           "MIS"  
+                         )    
+)   
+  
+sta_dv_fin <- semi_join(sta_dv_orig, sta_meta_fin,  
+                        by = "sta")  
+  
+# export files and prepare for table below====    
+export(sta_dv_fin, "data/sta_dv_fin.csv")  
+export(sta_meta_fin, "data/sta_meta_fin.csv")    
+  
+sta_meta_fin <- sta_meta_fin %>%  
+  select(sta) %>%   
+  mutate(selected = "yes")  
+  
+sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin,  
+                           by = "sta")  
+  
+export(sta_meta_orig, "data/sta_meta_orig.csv")   
+export(sta_dv_orig, "data/sta_dv_orig.csv")
+```
+  
+```{r check_prcp_data, eval=FALSE}  
+
+sta_check <- sta_dv_fin %>%  
+  group_by(sta, mflag_prcp) %>%  
+  summarise(mflag = n()) %>%  
+  filter(mflag_prcp != " ") %>%  
+  group_by(mflag_prcp) %>%    
+  summarise(mflag = n()) %>%  
+  ungroup()    
+  
+# check_prcp_data_quality====  
+# Table of Measurement Flag/Attributes -- mflag      
+# Blank = no measurement information applicable            
+# A     = precip depth is a multi-day total, accumulated since last meas         
+# B     = precipitation total formed from two twelve-hour totals  
+# D     = precipitation total formed from four six-hour totals           
+# H     = represents TMAX or TMIN or average of hourly values (TAVG)           
+# K     = converted from knots            
+# L     = temperature appears lagged w/ respect to reported hr of observation  
+# O     = converted from oktas  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
+# W    = converted from 16-point WBAN code (for wind direction)  
+  
+# Table of Quality Flag/Attributes----    
+# Blank = did not fail any quality assurance check   
+# D     = failed duplicate check           
+# G     = failed gap check           
+# I     = failed internal consistency check           
+# K     = failed streak/frequent-value check           
+# L     = failed check on length of multiday period  
+# M     = failed mega-consistency check            
+# N     = failed naught check            
+# O     = failed climatological outlier check            
+# R     = failed lagged range check           
+# S     = failed spatial consistency check            
+# T     = failed temporal consistency check            
+# W     = temperature too warm for snow            
+# X     = failed bounds check           
+# Z     = flagged as a result of an official Datzilla investigation  
+  
+# Table Source Flag/Attributes----     
+# Blank = No source (i.e., data value missing)  
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
+# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)   
+# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
+# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
+# a  = Australian data from the Australian Bureau of Meteorology           
+# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
+# b  = Belarus update           
+# C  = Environment Canada            
+# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)      
+# F  = U.S. Fort data             
+# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data   
+# H  = High Plains Regional Climate Center real-time data            
+# I  = International collection (non U.S. data received thru pers. contacts   
+# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
+# M  = Monthly METAR Extract (additional ASOS data)           
+# N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
+# Q  = Data from African countries w/ later permission granted  
+# R  = NCDC Reference Network Database  
+# r  = All-Russian Research Inst. Hydromet Information-World Data Center    
+# S  = Global Summary of the Day (NCDC DSI-9618)  
+#        NOTE: "S" values are derived from hourly synoptic reports   
+#         exchanged on the Global Telecommunications System (GTS).  
+#         Daily values derived in this fashion may differ significantly from  
+#        "true" daily data, particularly for precip (i.e., use with caution).  
+# s  = China Met Admn/Nat Met Info/Climate Data Centr (http://cdc.cma.gov.cn)   
+# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center   
+# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr  
+# u  = Ukraine update           
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
+# Z  = Datzilla official additions or replacements           
+# z  = Uzbekistan update   
+  
+sta_check <- sta_dv_fin %>%  
+  group_by(sta, qflag_prcp) %>%  
+  summarise(qflag = n()) %>%  
+  filter(qflag_prcp != " ") %>%  
+  group_by(qflag_prcp) %>%    
+  summarise(qflag = n()) %>%  
+  ungroup()    
+  
+# Measurement flags are T & P flags  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
+  
+# quality flags are D, I, K, L, O flags  
+# D     = failed duplicate check           
+# I     = failed internal consistency check           
+# K     = failed streak/frequent-value check           
+# L     = failed check on length of multiday period  
+# O     = failed climatological outlier check            
+  
+sta_check <- sta_dv_fin %>%  
+  group_by(sta, sflag_prcp) %>%  
+  summarise(sflag = n()) %>%  
+  filter(sflag_prcp != " ") %>%  
+  group_by(sflag_prcp) %>%    
+  summarise(sflag = n()) %>%  
+  ungroup()    
+  
+# flags are 0, 7, B, H, K, W, X, Z  
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
+# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
+# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
+# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
+# H  = High Plains Regional Climate Center real-time data         
+# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)            
+# Z  = Datzilla official additions or replacements           
+  
+# clean up global environment====  
+rm(sta_miss_yr,   
+   dateMin,  
+   dateMax,  
+   sta_meta_fin,  
+   sta_miss_zero,  
+   sta_dv_orig,  
+   sta_check,  
+   sta_dv_fin,  
+   sta_meta_orig,  
+)   
+  
+```
+
+```{r fill-prcp-na, eval=FALSE}  
+  
+sta_dv_fil <- import("data/sta_dv_fin.csv")  
+sta_dv_alt <- import("data/sta_dv_orig.csv")  
+  
+# create a df of monthly precipitation values-NW-RAP----  
+station <- "RAP"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_dv_alt   %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^RAPID CITY 4")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^ELM")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_rap <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-NC-COT----  
+station <- "COT"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_dv_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))           
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^MILES")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^INTERIOR")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# get alternate site data & check if sta_mis_day = 0  
+# Phillip & Plainview were big zeros  
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^DUPREE")) %>%        
+  filter(!is.na(prcp))  
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+  
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up      
+sta_cot <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )                 
+  
+# create a df of monthly precipitation values-NE-ONI----  
+station <- "ONI"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))          
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^KENNE")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^PIERRE")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a summary & monthly prcp df & clean up       
+sta_oni <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-SW-OEL----   
+station <- "OEL"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^ORAL")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^HOT SPRINGS")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_oel <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-SC-GOR----  
+station <- "GOR"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^VALENTINE NWR")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^MULLEN")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^ELLSWORTH")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_gor <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-SW-MIS----  
+station <- "MIS"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^WOOD")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^VALENTINE MILLER")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_mis <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# join the filled data & clean up----  
+sta_dv_fill <- bind_rows(sta_rap,  
+                         sta_cot,  
+                         sta_oni,  
+                         sta_oel,  
+                         sta_gor,  
+                         sta_mis  
+                         )  
+  
+rm(sta_rap,  
+   sta_cot,  
+   sta_oni,  
+   sta_oel,  
+   sta_gor,  
+   sta_mis,  
+   station  
+)  
+  
+# create monthly data from the daily data----    
+sta_mon <- sta_dv_fill          %>%  
+  arrange(date)                 %>%  
+  group_by(sta, month, year)    %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>%  
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year   = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp)   
+  
+# export and clean-up data  
+export(sta_dv_fill, "data/sta_dv_fill.csv")    
+export(sta_mon, "data/sta_mon.csv")  
+  
+rm(sta_dv_alt,   
+   sta_dv_fill,  
+   sta_dv_fil,  
+   sta_mon  
+   )  
+  
+```  
