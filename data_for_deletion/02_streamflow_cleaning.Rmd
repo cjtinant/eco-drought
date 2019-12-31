@@ -1,0 +1,1675 @@
+---
+title: "02_streamflow_cleaning"
+author: "CJ Tinant"
+date: "10/28/2019"
+output: html_document
+---
+
+<!--
+This R markdown file is for streamflow data cleaning 
+
+Data:
+Predominant datasets used are:  
+1) USGS daily streamflow and station metadata,  
+2) Summary data from a QGIS analysis of ungaged watersheds of interest.  
+  
+Approach:  
+1) find potential USGS gages by bounding box 
+     note: Pine Ridge Reservation boundary is c(-103.0, 43.0, -100.2, 43.8)  
+1.2) filter gages for the following reasons
+     - short or incomplete records
+     - upstream control or drainages/ditches, 
+     - East River 
+     - in crystaline or karst catchments
+     - provisional data 
+1.3) clean metadata by removing non-needed variables  
+2.0) obtain USGS gage daily flow data for dates:  
+       from: 1979-08-01 (WY 1980 + 2 months)  
+       to:   2018-12-31 (WY 2018 + 3 months ) -- later removed to 2018-09-30  
+2.1) filter stations based on record length 
+       - no data gages for 1980-2018 water years 
+       - less than 6-years of continuous data for 1990-2018  
+3.0) censor low flows ---- this step needed for the PCA    
+      EGRET calculates a "better" zero-flow value, but causes issues with PCA  
+       -- fixed low flow values by substituting 0.01 cfs for zero-flow values   
+4.0) prepare to conduct a PCA analysis ofdaily flow data 
+       - transform the data by BoxCox transformation by forcast::BoxCox
+          The daily flow data are highly skewed.  BoxCox transformation uses 
+          maximum likelihood to identify a best value (lambda) that best 
+          transforms a dataset to an ~ normal distribution.
+          # this is table of what the lambda values (probably) mean
+          # lambda = 1 is normal distribution (no change), 
+          # lambda = 0.5 is a square-root transformation, 
+          # lamda = 2 is a square transformation,
+          # lambda = 0 is a logrithmic transformation.
+4.1) make a PCA matrix and tidy the output 
+       - used prcomp() with center & scale = TRUE to center the data with a 
+         mean of zero and standard deviation of unity, e.g. a z-score.  
+         Note: '.' passes select(q1_tr, q7_tr, q30_tr) %>% to prcomp() 
+     - found eigenvectors-- the results about the PC axes
+
+Variable naming convention----  
+gage                USGS gaging stations
+  _poss             possible USGS gaging stations in the study area 
+  _meta             metadata for possible gaging stations
+  _int1             scratch df for pulling gages with integer fields 
+  _int2             scratch df for pulling gages with integer fields 
+  _int3             scratch df for pulling gages with integer fields 
+  _drop             scratch df to check dropped variables  
+  _check            scratch variable used to check operations 
+  _gtlt_range       check df for data outside of temporal range
+  _NA_inc           check df for NA values  
+  _dv_orig          original dv data  
+  _dv_qual          check df for provisional data
+  _wy79             check df for water year 1979  
+  _dv               active df for daily flow values
+  _dv_gath          intermediate df to gather the Q, Q7, Q30 for low flows
+  _dv_low           censored zero flows (q_val < 0.01)
+  _dv_high          filtered non-zero flows -> join flows 
+  _contrib_area     used for converting Q [m3/s] -> q [m/day]
+  _depth            flow depth in q = Q/DA [m/km2 day]   
+  _mon              monthly dv flow depths
+  _mon_full         monthly dv for complete 1989-2018 water years 
+  _yrs_comp         scratch df for complete years calculation  
+  _mon_name_ck      scratch df for checking names  
+  
+wsd_summary         df of QGIS watershed summary using sf_read   
+names               scratch df of short gage names   
+
+endDate             used for calling Egret::readNWISDaily  -- "1979-08-01"
+parameter_cd        used for calling Egret::readNWISDaily  -- "2018-12-31"  
+startDate           used for calling Egret::readNWISDaily  -- "00060" 
+lon_riv_dv          scratch df for pulling lon_riv 
+gage_most_dv        scratch df for pulling !lon_riv 
+min_date            check df for minimum date
+max_date            check df for maximum date 
+short_sta_ck        check df for short stations  
+yrs_summary         intermediate df to summarize years
+
+pca_input           prcomp() input using gage_dv 
+pca_matrix          the matrix created by prcomp() 
+lambda_q1           lambda values for BoxCox transform prior to PCA 
+  _q7  
+  _q30 
+pca_eigen           results about PC axes -- the eigenvalues
+pca_vars            results about PC rotation-magnitude and direction of vars  
+
+ecoreg              shapefile data of intersection of watershed area & 
+                      merged SD, NE, WY ecoregions 
+eco_join            join variable for ecoreg & gage_dv 
+
+Someday - Maybe: 
+-- check into stylr-packag
+  
+--> 
+
+```{r setup_&_library, message=FALSE}  
+  
+knitr::opts_chunk$set(echo = FALSE)     
+options(tibble.print_max = 70) # sets tibble output for printing        
+  
+# Sets up the library of packages   
+library("conflicted")        # An alternative conflict resolution strategy  
+library("here")              # identifies where to save work  
+library("dataRetrieval")     # USGS data import  
+library("EGRET")             # Exploration and Graphics for RivEr Trends  
+library("rio")               # more robust I/O - to import and clean data  
+library("sf")                # simple features--spatial geometries for R  
+library("lubridate")         # easier dates 
+library("forecast")          # for BoxCox.lambda 
+library("stringi")           # character string processing facilities  
+library("broom")             # convert statistical objs into tidy tibbles 
+library("tidyverse")  
+  
+# resolve conflicted packages----  
+conflict_prefer("filter", "dplyr")  
+conflict_prefer("select", "dplyr")  
+conflict_prefer("first", "dplyr")  
+conflict_prefer("last", "dplyr")  
+  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+why_to_write <- function()   
+{today <- today(tzone = "") 
+paper2 <- ymd("2019-12-31")  
+until <- paper2 - today  
+print(paste("You have", until, "days until the second paper is due"  
+))  
+}  
+why_to_write()  
+```  
+
+```{r 01-import_metadata, eval=FALSE}  
+  
+# updated 2019-12-14  
+  
+# get possible stations from NWIS website----  
+gage_poss <- whatNWISsites(bBox = c(-103.8, 42.2, -99.2, 44.6),    
+                           parameterCd = "00060",  
+                           hasDataTypeCd = "dv") %>%  
+  arrange(site_no)   
+  
+# 2. get stream station metadata====   
+# this needs to be run in parts because some project numbers & 
+# inventories are stored as integers & others are stored as characters 
+  
+gage_meta_int1 <- gage_poss %>% 
+  slice(7, 17, 142, 148) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+  
+gage_meta_int2 <- gage_poss %>% 
+  slice(94) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+
+gage_meta_int3 <- gage_poss %>% 
+  slice(-c(7, 17, 94, 142, 148)) %>% 
+  split(.$site_no) %>% 
+  map_dfr(~ readNWISsite(siteNumbers = .$site_no)) %>% 
+  select(-c(project_no, inventory_dt)) 
+  
+# 3. join gage metadata 
+gage_meta_poss <- bind_rows(gage_meta_int1, 
+                            gage_meta_int2, 
+                            gage_meta_int3) %>% 
+  #gage_meta_poss <- gage_meta_poss %>%  
+  mutate(site_no = zeroPad(site_no, 8))  
+  
+# clean up 
+rm(gage_meta_int1,  
+   gage_meta_int2,  
+   gage_meta_int3,  
+   gage_poss  
+)    
+   
+``` 
+  
+```{r 02-clean_gage_metadata, eval=FALSE} 
+  
+# updated on 2019-12-14  
+# gage_meta_poss <- import("data/gage_meta_poss.csv")       
+  
+# select final stations for consideration----  
+# 1. remove gages that do not meet standards====    # should be 88 gages 
+gage_meta_int <- gage_meta_poss %>%    
+  mutate(site_no = as.character(site_no)) %>%  
+  mutate(site_no = zeroPad(site_no, 8)) %>%              # pad site_no   
+  mutate(reliability_cd = replace_na(reliability_cd, 0)
+         ) %>% #  NA <- zero  
+    filter(site_no != "06461150"&  
+         site_no != "06463670"&   
+         site_no != "06461595") %>%  # rem. short sites w/ provisional data  
+  filter(site_no != "06441000") %>%  # only active 180 days/yr   
+  filter(site_no != "06438000") %>%  
+  filter(site_no != "06437000") %>%  # remove northern Black Hills stations  
+  filter(site_no != "06442718") %>%  # remove East River stations  
+  filter(reliability_cd != "M") %>% # M is minimal data  
+  filter(!str_detect(station_nm, 'DAM|DITCH|DRAIN')) %>% # upstream control  
+  filter(!str_detect(station_nm,  
+                     'CUSTER|KEYSTONE|HILL CITY|HAYWARD')) %>%  
+  filter(site_no != "06424000") %>%  
+  # 2. Crystaline catchments  
+  filter(!str_detect(station_nm,  
+                     'LEAD|DEADWOOD|WHITEWOOD')) %>%   
+  filter(!str_detect(station_nm, 'CLEGHORN')) %>% # karstic? spring  
+  filter(!str_detect(station_nm, 'BOXELDER|LIME')) %>% # karstic  
+  filter(!str_detect(station_nm, 'RAPID')) %>%    
+  # 3. Rapid Creek & upper Spring Creek  
+  filter(!str_detect(station_nm, 'MISSOURI')) %>%  
+# 4. remove provisional sites       
+  mutate(site_no = as.character(site_no)) %>%  
+  select(-reliability_cd) %>%  
+  mutate(length = str_length(site_no)) %>%  
+  filter(length <= 8) %>%   # removes two provisional sites  
+  select(-length) %>% 
+# 5. remove codes not needed for this project  
+  select(-agency_cd) %>%  
+  select(-site_tp_cd) %>% # all streams so delete 
+  select(-c(lat_va, long_va)) %>% # in DMS so delete  
+  select(-c(coord_meth_cd, coord_acy_cd)) %>% # coord meth & agency, so delete  
+  select(-c(coord_datum_cd, dec_coord_datum_cd)) %>% # NAD83 or NAD27  
+  select(-c(district_cd, country_cd)) %>% # Congressional dist & Country  
+  select(-c(land_net_ds, map_nm, map_scale_fc)) %>%  # refers to USGS maps  
+  select(-c(alt_meth_cd, alt_datum_cd, alt_acy_va)) %>% #%>% # alt metadata   
+  select(-c(basin_cd, topo_cd, instruments_cd)) %>%  
+  select(-c(construction_dt)) %>%  
+  select(-c(tz_cd, local_time_fg)) %>% # daily data, so NA  
+  select(-c(gw_file_cd, nat_aqfr_cd, aqfr_type_cd, aqfr_cd)) %>%  
+  select(-c(well_depth_va, hole_depth_va, depth_src_cd))  
+  
+gage_drop <- anti_join(gage_meta_poss, gage_meta_int,  
+                       by = "site_no")  
+  
+```  
+  
+```{r 03-add_names_to_gage_meta, message=FALSE, eval=FALSE}  
+  
+# updated on 2019-12-14     
+  
+# 1. get data from QGIS analysis of gaged & ungaged watersheds of interest====    
+wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
+                       layer = "wbd_summary",  
+                       as_tibble = TRUE) %>%  
+  st_drop_geometry() %>%  
+  mutate_if(is.factor, as.character)  
+  
+# 2. join names to gage_meta   
+names <- wsd_summary %>%  
+  select(site_no = gage_num, sta = sta_id) %>%  
+  drop_na() %>%  
+  mutate(site_no = zeroPad(site_no, 8))  
+  
+gage_meta_poss <- full_join(names, gage_meta_poss,   
+                       by ="site_no") 
+  
+gage_meta <- gage_meta_poss %>%   
+  filter(sta != " ")  
+  
+gage_drop <- anti_join(gage_meta_poss, gage_meta,  
+                       by = "site_no")  
+  
+rm(wsd_summary)  
+  
+```   
+
+```{r 04-import_daily_flow_data, message=FALSE, eval=FALSE} 
+  
+# updated on 2019-12-14   
+  
+# set parameters for Egret::readNWISDaily     
+startDate    <- "1979-08-01" # pulling early to get Q7 & Q30    
+endDate      <- "2018-12-31"    
+parameter_cd <- "00060"   
+  
+# get daily flows----   
+# note for EGRET::readNWISDailyQ the discharge is in m^3/s   
+  
+# Long River gage needs to be called separately or it creates an error   
+gage_lonriv_dv <- gage_meta %>%   
+  filter(site_no == "06463500") %>%   
+  split(.$site_no)  %>%   
+  map_dfr(~ readNWISDaily(   
+    siteNumber = .$site_no,   
+    parameter_cd,   
+    startDate,   
+    endDate),   
+    .id = "site_no")   
+   
+gage_most_dv <- gage_meta %>%   
+  filter(site_no != "06463500") %>%           # drop long river from call   
+  split(.$site_no) %>%    
+  map_dfr(~ readNWISDaily(   
+    siteNumber = .$site_no,   
+    parameter_cd,   
+    startDate,   
+    endDate),  
+    .id = "site_no")   
+  
+# join data  
+gage_dv_orig <-bind_rows(gage_most_dv, gage_lonriv_dv)  
+  
+# add names to gage_dv_orig====  
+gage_dv_orig <- full_join(names, gage_dv_orig,   
+                     by ="site_no")  
+  
+# clean_up  
+rm(gage_lonriv_dv,   
+   gage_most_dv,  
+   startDate,  
+   endDate,  
+   parameter_cd,  
+   gage_drop,  
+   gage_meta_int,  # drop this?  
+   gage_meta_poss,  
+   names  
+   )   
+   
+```  
+
+```{r 05-clean_daily_flow, eval=FALSE} 
+  
+# updated on 2019-12-14     
+  
+# 1. remove dates prior to 1979-10-01 and after 2018-10-01
+gage_dv_gtlt_range <- gage_dv_orig   
+  
+gage_dv <- gage_dv_orig %>%  
+                  filter(Date >"1979-09-30" & Date < "2018-10-01")  
+  
+gage_dv_gtlt_range <- anti_join(gage_dv_gtlt_range, gage_dv,  
+                          by = c("sta", "Date"))  
+  
+# check dates  
+min_date <- gage_dv %>%  
+  arrange(Date) %>%  
+  slice(1)  
+   
+max_date <- gage_dv %>%  
+  arrange(desc(Date)) %>%  
+  slice(1)  
+  
+# 2. filter missing records from Q1, Q7, Q30  
+gage_dv_NA_inc <- gage_dv  
+  
+gage_check <- gage_dv_NA_inc %>%  
+  filter(is.na(Q30) |  
+         is.na(Q7) |  
+         is.na(Q)  
+  ) %>%  
+  mutate(Year = year(Date)) %>%  
+  group_by(sta, Year) %>%  
+  summarise(count = n())  
+  
+gage_dv <- gage_dv %>%  
+  filter(!is.na(Q30) &  
+           !is.na(Q7) &  
+           !is.na(Q)  
+  )  
+  
+gage_check <- gage_dv %>%  
+  filter(is.na(Q30) |  
+           is.na(Q7) |  
+           is.na(Q)  
+  )  
+  
+# 3. check provincial data 
+gage_dv_qual <- gage_dv  
+  
+gage_dv <- gage_dv %>%  
+  filter(Qualifier == "A"   |  
+           Qualifier == "A:e" |  
+           Qualifier == "A:<"  
+  )   
+  
+gage_dv_qual <- anti_join(gage_dv_qual, gage_dv,  
+                          by = c("sta", "Date")) %>%  
+  mutate(Year = year(Date)) %>%   
+  group_by(sta, Month, Year) %>%  
+  summarise(count = n())  
+  
+# 4. check that all na were dropped====  
+gage_check <- gage_dv %>%  
+  drop_na()  
+  
+rm(gage_dv_gtlt_range,  
+   gage_dv_NA_inc,  
+   gage_dv_orig,  
+   gage_dv_qual,  
+   gage_dv_wy79,  
+   min_date,  
+   max_date  
+   )  
+```
+
+```{r 06-check_stations, eval=FALSE}
+
+# 1. check short flow records----     
+# calculate min & max years of record   
+yrs_summary <- gage_dv %>% 
+  group_by(site_no) %>%                  
+  summarise(years_rec = n_distinct(waterYear),   
+            min_year = min(waterYear),   
+            max_year = max(waterYear)   
+            ) %>%                     
+  ungroup() %>%  
+  mutate(apparent_yrs = 1 + max_year - min_year) %>% 
+  mutate(years_rec = as.numeric(years_rec))   
+  
+gage_meta <- full_join(yrs_summary, gage_meta,        
+                       by = "site_no")  
+rm(yrs_summary)  
+  
+# 2. check for gages with no records ----    
+# filter gages with no records  
+gage_check <- gage_meta %>%  
+  filter(is.na(years_rec))  
+  
+# 3. check for stations with less than 6 years of record   
+gage_check <- gage_meta %>%  
+  filter(years_rec < 7)  
+  
+# 4. check for incomplete days of record for short recs ====    
+short_sta_ck <- gage_dv %>%    
+  filter(sta == "plu_hay" |  
+         sta == "wkc_wok" |  
+         sta == "bev_abf" |  
+         sta == "whi_slm"   
+         ) %>% 
+  group_by(sta, waterYear) %>%                   
+  summarise(days_yr = n()) %>%                     
+  ungroup() %>%  
+  filter(days_yr < 360) 
+  
+export(gage_dv, "data/gage_dv.csv")   
+export(gage_meta, "data/gage_meta.csv")   
+  
+# 5. clean up global environ  
+rm(gage_check,  
+   short_sta_ck,  
+   yrs_summary  
+   )  
+  
+``` 
+
+```{r 07-censor_low_flows, message=FALSE} 
+  
+# updated 2019-12-14
+  
+# fix low flows ---- this step needed for the PCA    
+#  EGRET calculates a "better" zero-flow value, but causes issues with results  
+#  -- this code chunk fixes low flow values by substituting 0.01 cfs    
+#  for zero-flow values   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+
+# 1. gather the different flow values  
+gage_dv_gath <- gage_dv %>%  # using diff var name to check length later   
+  select(site_no, sta, Date, waterYear, Q, Q7, Q30) %>%  
+  gather(key = q_type, val = q_val,       # prepares to censor to 0.01 cfs  
+         -c(site_no, sta, waterYear, Date))   
+
+# 2. filter & censor zero flows & non-zero flows -> join flows  
+gage_dv_low <- gage_dv_gath %>%  # n ~ 123,987/3 = 41,329 obs or ~7%/yr 
+  filter(q_val < 0.01) %>%                
+  mutate(q_val = 0.01)  
+
+gage_dv_high <- gage_dv_gath %>%  
+  filter(q_val >= 0.01) %>%  
+  mutate(q_val = round(.$q_val, digits = 2))  
+
+gage_dv <- bind_rows(gage_dv_high, gage_dv_low) %>%  
+  spread(q_type, q_val)  
+
+# 3. check low-flow stations -- intermittant stations 
+gage_low_flow <- gage_dv_low %>%  
+  distinct(sta) %>% 
+  arrange(sta)  
+
+rm(gage_dv_gath, 
+   gage_dv_high,  
+   gage_dv_low  
+   )     
+
+# incorporate zero flow into a gage id  
+gage_low_flow <- gage_low_flow %>%  
+  mutate(flow_regime = "intermittent") 
+rm(gage_low_flow)  
+  
+gage_meta <- full_join(gage_meta, gage_low_flow) 
+  
+gage_meta <-gage_meta %>%  
+  mutate(flow_regime = 
+           replace_na(flow_regime, "perennial")  
+         )  
+  
+# export results  
+export(gage_meta, "data/gage_meta.csv")    
+export(gage_dv, "data/gage_dv.csv")  
+  
+``` 
+
+```{r 08-convert_flow_to_depth, message=FALSE} 
+  
+# updated 2019-12-14  
+  
+# 1. calculate contributing drainage area in square kilometers & sec/day     
+gage_contrib_area <- gage_meta %>%   
+  select(sta, drain_area_va, contrib_drain_area_va) %>%   
+  mutate(contrib_drain_area_va =   
+           contrib_drain_area_va %>%  
+             is.na %>%   
+             ifelse(drain_area_va, contrib_drain_area_va)) %>%   
+  select(-drain_area_va) %>%    
+  mutate(contrib_drain_km2 =  
+           measurements::conv_unit(contrib_drain_area_va,   
+                                   from = "mi2",   
+                                   to = "km2"  
+                                   )  
+         ) %>%  
+  mutate(contrib_drain_km2 =  
+           round(  
+             contrib_drain_km2,  
+             digits = 1  
+             )   
+         ) %>%  
+  mutate(sec_per_day = 60 * 60 * 24)  
+  
+# 2. calculate Q-depth:: q = Q/DA [m/km2 day]    
+gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%   
+  select(site_no, sta, Date, Q, Q7, Q30, waterYear,  
+         contrib_drain_km2, sec_per_day)  %>%  
+  gather(type, value,   
+         -c(site_no, sta, Date, waterYear, contrib_drain_km2, sec_per_day)  
+         ) %>%  
+  mutate(value = value * sec_per_day / contrib_drain_km2) %>%  
+  spread(type, value) %>%  
+  rename(q1_depth = Q) %>%   
+  rename(q7_depth = Q7) %>%  
+  rename(q30_depth = Q30) %>%  
+  select(-c(contrib_drain_km2, sec_per_day))   
+  
+rm(gage_contrib_area)    
+   
+export(gage_depth, "data/gage_depth.csv")    
+   
+``` 
+
+```{r 09-PCA-calculations}  
+  
+#gage_depth <- import("data/gage_depth.csv") 
+  
+# Prepare to approach normality using forcast::BoxCox----    
+# make a dataframe of lambda values====    
+lambda_q1  <- enframe(   
+  BoxCox.lambda(gage_depth$q1_depth)   
+  )    
+ 
+lambda_q7  <- enframe(  
+  BoxCox.lambda(gage_depth$q7_depth)  
+  )   
+  
+lambda_q30 <- enframe(  
+  BoxCox.lambda(gage_depth$q30_depth)  
+  )  
+  
+lambda_vals <- bind_cols(lambda_q1,  
+                         lambda_q7,  
+                         lambda_q30  
+                         ) %>%   
+  select(-c(name1, name2)) %>%  
+  rename(lambda_q1  = value) %>%   
+  rename(lambda_q7  = value1) %>%  
+  rename(lambda_q30 = value2)  
+  
+rm(lambda_q1, lambda_q7, lambda_q30)    
+  
+# create a PCA input dataframe & PCA matrix====   
+pca_input <- gage_depth %>%  
+  mutate(q1_tr = BoxCox(.$q1_depth,  
+                        lambda_vals$lambda_q1)   
+         ) %>%  
+  mutate(q7_tr = BoxCox(.$q7_depth,  
+                        lambda_vals$lambda_q7)  
+         ) %>%  
+  mutate(q30_tr = BoxCox(.$q30_depth,  
+                         lambda_vals$lambda_q30)  
+         ) %>%  
+  select(sta,  
+         Date,  
+         q1_tr,  
+         q7_tr,  
+         q30_tr  
+         )    
+  
+pca_matrix <- pca_input %>%  
+  select(q1_tr,  
+         q7_tr,  
+         q30_tr  
+         ) %>%   
+  prcomp(.,  
+         center = TRUE,  
+         scale. = TRUE  
+         )        
+  
+# Gather & summarize PCA results----  
+# results about PC axes  
+pca_eigen <- tidy(pca_matrix,  
+                  matrix = "pcs"  
+                  )       
+  
+# PCA loadings 
+pca_vars <-  tidy(pca_matrix,  
+                  matrix = "variables"  
+                  ) %>%     
+  filter(PC != 3) %>%              
+  rename(var = column) %>%  
+  mutate(PC = as.character(PC)) %>%  
+  mutate(pc_stem = "PC") %>%  
+  unite("pc_axis",  
+        c("pc_stem",  
+          "PC"  
+          ),  
+        sep = "",  
+        remove = TRUE  
+        ) %>%   
+  spread(pc_axis,  
+         value) %>%  
+  mutate(labels = c("q1", "q30", "q7")  
+         )   
+  
+# Bind sample vals to PCA matrix  
+gage_depth <- augment(pca_matrix, 
+                   data = gage_depth  
+                   ) %>% 
+  select(-c(.rownames, 
+            .fittedPC3)
+         ) %>%       
+      mutate(q1_q30_diff = q1_depth - q30_depth)  
+  
+# Save results  
+export(gage_depth, "data/gage_depth.csv")   
+export(pca_eigen, "data/pca_eigen.csv")  
+export(pca_vars, "data/pca_vars.csv")   
+  
+rm(pca_eigen, pca_input, pca_matrix, pca_vars, lambda_vals)  
+  
+```  
+
+```{r 10-add_ecoreg_&_metadata}
+
+#gage_meta <- import("data/gage_meta.csv")  
+
+# 1. read in shapefile data of intersection of watershed area &  
+# merged SD, NE, WY ecoregions----  
+ecoreg <- st_read("sp_data/ecoreg_int.shp",  
+                       as_tibble = TRUE) %>%  
+  st_drop_geometry() %>%                       #  we only want the data table  
+  mutate_if(is.factor, as.character) %>%   
+  rename(ecoreg_L4 = US_L4NAME) %>%     
+  rename(ecoreg_L3 = US_L3NAME) %>%  
+  rename(ecoreg_L2 = NA_L2NAME) %>%  
+  rename(ecoreg_L1 = NA_L1NAME) %>%  
+  rename(area_km = Shape_Area) %>%   
+  select(sta_id, watshed, ecoreg_L4, ecoreg_L3,  
+         ecoreg_L2, ecoreg_L1, area_km) %>%  
+# prep for gather -> change title case  
+  mutate(grouped_id = row_number()) %>%  
+  gather(key, val, -c(sta_id, watshed, grouped_id)) %>%  
+  mutate(val = stri_trans_totitle(val)) %>%  
+  spread(key, val) %>%  
+  select(-grouped_id) %>%  
+  mutate(area_km = as.numeric(area_km)  # round the areas  
+         ) %>%  
+  mutate(area_km = round(area_km, digits = 2)  
+         )%>%  
+# get percentages by ecoregion  
+  group_by(sta_id) %>%  
+  mutate(area_tot = sum(area_km)) %>%  
+  mutate(area_perc = round(  
+    area_km / area_tot,  
+    digits = 2)  
+  ) %>%  
+  ungroup() %>%  
+  filter(area_perc > 0.10) %>%   
+  arrange(  
+    desc(area_perc)  
+    ) %>%  
+  arrange(sta_id) %>%  
+  select(sta_id, area_perc, ecoreg_L4,  
+         ecoreg_L3, ecoreg_L2, ecoreg_L1, watshed)  
+  
+# 2. generalize ecoregions using max percentage & percentage near the gage  
+ecoreg <- ecoreg %>%  
+  group_by(sta_id) %>%   
+  arrange(sta_id, desc(area_perc)) %>%  
+  # make a default pick based on the max %  
+  mutate(ecoreg_wtsd = head(ecoreg_L4, 1) ) %>%  
+  # refine the pick based on expert knowlege & percentage near the gage  
+  mutate(  
+    ecoreg_wtsd =   
+           case_when(  
+             sta_id == "bat_bhr" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "blp_bel" ~ "White River Badlands",   
+             sta_id == "che_buf" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_pla" ~ "Semiarid Pierre Shale Plains",   
+             sta_id == "che_red" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_sce" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "che_was" ~ "Semiarid Pierre Shale Plains",  
+             sta_id == "lcr_bel" ~ "Sand Hills",      
+             sta_id == "lwr_aro" ~ "Sand Hills",  
+             sta_id == "lwr_mar" ~ "Sand Hills",  
+             sta_id == "lwr_ros" ~ "Sand Hills",  
+             sta_id == "lwr_vet" ~ "Sand Hills",  
+             sta_id == "lwr_whi" ~ "Sand Hills",  
+             sta_id == "spr_her" ~ "Black Hills Plateau",   
+             sta_id == "whi_int" ~ "White River Badlands",  
+             sta_id == "whi_kad" ~ "White River Badlands",  
+             sta_id == "whi_oac" ~ "Subhumid Pierre Shale Plains",   
+                           TRUE ~ ecoreg_wtsd)  
+   ) %>%   
+  select(sta_id, ecoreg_wtsd, everything()) %>%   
+  group_by(sta_id) %>%   
+  distinct(ecoreg_wtsd, .keep_all = TRUE) %>%   
+  # generalize the Pierre shale   
+  mutate(  
+    ecoreg_wtsd =   
+           case_when(  
+             ecoreg_wtsd ==  
+               "Semiarid Pierre Shale Plains" ~ "Pierre Shale Plains",  
+             ecoreg_wtsd ==  
+               "Subhumid Pierre Shale Plains" ~ "Pierre Shale Plains",  
+                           TRUE ~ ecoreg_wtsd)  
+   ) %>%  
+  ungroup %>%  
+  arrange(ecoreg_wtsd)  
+  
+# 3. join ecoregions to gage_dv  
+eco_join <- ecoreg %>%  
+  select(sta = sta_id, ecoreg = ecoreg_wtsd)  
+  
+gage_depth <- full_join(gage_depth, eco_join,  
+                  by = "sta")   
+  
+rm(eco_join, ecoreg)  
+
+gage_ecoreg <- gage_depth %>% 
+  select(sta, ecoreg) %>% 
+  distinct()  
+
+gage_meta <- full_join(gage_meta, gage_ecoreg, 
+                         by = "sta")  
+
+export(gage_depth, "data/gage_depth.csv")    
+export(gage_meta, "data/gage_meta.csv")   
+  
+```   
+
+```{r 11-daily_to_monthly_depth}
+#gage_depth <- import("data/gage_depth.csv")  
+  
+gage_depth <- gage_depth %>%  
+  mutate(log_q1_depth = log10(q1_depth))    
+  
+# average daily depths into monthly mean depths----     
+gage_mon <- gage_depth %>%  
+  mutate(yr = year(Date)) %>%  
+  mutate(mon = month(Date)) %>%  
+  mutate(q30_q1_diff = q30_depth - q1_depth) %>%  
+  group_by(sta, mon, yr) %>%  
+  summarize(waterYear = first(waterYear),   
+            log_q1_mon = mean(log_q1_depth),  
+            q1_mon     = mean(q1_depth),  
+            q7_mon     = mean(q7_depth),  
+            q30_mon    = mean(q30_depth),           
+            PC1_mon    = mean(.fittedPC1),  
+            PC2_mon    = mean(.fittedPC2),  
+            q30_q1_mon = mean(abs(q30_q1_diff)),  
+            ecoreg      = first(ecoreg)  
+  ) %>%  
+  mutate(day = 15) %>%   
+  ungroup() %>%  
+  unite("Date", c("yr", "mon", "day")) %>%  
+  mutate(Date = ymd(Date)) %>%  
+  as_tibble()   
+  
+export(gage_mon, "data/gage_mon.csv")   
+  
+```
+
+```{r 12-select_complete_records}  
+  
+#gage_mon <- import("data/gage_mon.csv") %>%  
+#  mutate(Date = ymd(Date))  
+
+gage_meta <- import("data/gage_meta.csv")
+
+gage_date_check <- gage_mon %>% 
+  group_by(sta) %>% 
+  summarize(start = min(Date), 
+         end = max(Date))  
+
+# select complete records for period wy 1989 to 2018 (n = 24) for SRI  
+gage_yrs_comp <- gage_mon %>%  
+  filter(Date > "1988-09-15") %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(years  = n(),  
+            ecoreg = first(ecoreg)  
+  ) %>%  
+  group_by(sta) %>%  
+  summarise(years  = n(),  
+            ecoreg = first(ecoreg)  
+  ) %>%  
+  ungroup()  
+
+gage_meta <- right_join(gage_meta, gage_yrs_comp,  
+                           by = "sta")  
+  
+gage_yrs_comp <- gage_yrs_comp %>% 
+  filter(years >= 30)  
+  
+gage_mon_full <- semi_join(gage_mon, gage_yrs_comp,  
+                           by = "sta")  
+
+gage_mon_name_ck <- gage_mon_full %>% 
+  distinct(sta)
+  
+export(gage_mon_full, "data/gage_mon_full.csv")   
+export(gage_meta, "data/gage_meta.csv")  
+
+rm(gage_mon,  
+   gage_mon_full,  
+  gage_yrs_comp, 
+  gage_ecoreg, 
+  gage_mon_name_ck
+   )   
+  
+```
+
+```{r 13-fix-metadata}
+  
+gage_meta <- gage_meta %>% 
+  select(sta,  
+         site_no,  
+         years_rec,  
+         years_past_1990 = years,  
+         min_year,  
+         max_year,  
+         dec_lat_va,  
+         dec_long_va,  
+         alt_va,  
+         drain_area_va,  
+         contrib_drain_area_va,  
+         ecoreg = ecoreg.x  
+         )  
+  
+export(gage_meta, "data/gage_meta.csv")    
+  
+```
+
+# download & fill precip data  
+```{r download_prcp_data, eval=FALSE}  
+# Get possible station metadata----      
+# It's also possible to check station id with the mapping tool at:     
+# https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
+  
+# The geographical extent given as SElat, SElon, NWlat, NWlon  
+sta_meta_orig <- ncdc_stations(extent = c(42.0, -104.5, 45, -99.5),  
+                               limit = 1000) %>%      # n = 777   
+  # get possible stations into a dataframe  
+  pluck("data") %>%  
+  # turn min & max date into lubridates  
+  mutate(mindate = ymd(mindate)) %>%  
+  mutate(maxdate = ymd(maxdate)) %>%                  
+  # remove 'young' stations    
+  filter(mindate < "1988-09-15") %>%                    # n = 434  
+  # remove 'dead' stations    
+  filter(maxdate > "2018-09-15") %>%                    # n =  64    
+  # keep only the GHCND stations   
+  filter(str_detect(id, "^GHCND"))   %>%                # n =  58      
+  filter(!str_detect(name, "^MAGPIE"))                  # n =  57   
+  
+sta_meta_orig <- sta_meta_orig %>%  
+  mutate(elev_flag = case_when(  
+    elevation > 1200 ~ "yes",  
+    TRUE ~ "no"  
+      )                               
+  )  
+  
+# check number of stations 
+num_check <- sta_meta_orig %>%                          # n =  45   
+  filter(elev_flag == "no")  
+rm(num_check)
+  
+# create groups of stations by region====       
+#   Notes: the string "GHCND:" doesn't appear in calls to get Global Historical  
+#   Climatology Network (GHCN) Daily Data  
+sta_meta_orig <- sta_meta_orig %>%   
+  mutate(north_group = case_when(   
+    latitude > 43.5 ~ "N",   
+    TRUE ~ "S")   
+  ) %>%   
+  mutate(east_group = case_when(  
+    longitude > -100.67 ~ "E",  
+    longitude > -102.33 ~ "C",    
+    TRUE ~ "W")  
+  )  %>%  
+  mutate(group = str_c(north_group, east_group, sep = "")) %>%  
+  dplyr::select(-c(north_group, east_group)) %>%  
+  separate(  
+    col = id,  
+    sep = ":",   
+    into = c("type", "sta_id")   
+  ) %>%  
+  arrange(name)  
+  
+# add short names to metadata====    
+sta_meta_orig <- sta_meta_orig %>%  
+  mutate(sta = case_when(  
+    str_detect(name, "^AGATE")            ~ "AGA",  
+    str_detect(name, "^AINSWORTH")        ~ "AIN",  
+    str_detect(name, "^BEAR")             ~ "BEA",  
+    str_detect(name, "^BELLE FOURCHE 22") ~ "BE2",      
+    str_detect(name, "^BELLE FOURCHE,")   ~ "BEL",       
+    str_detect(name, "^CHADRON")          ~ "CHA",      
+    str_detect(name, "^COTTONWOOD")       ~ "COT",  
+    str_detect(name, "^CUSTER")           ~ "CUS",  
+    str_detect(name, "^DUPREE")           ~ "DUP",  
+    str_detect(name, "^EDGEMONT")         ~ "EDG",   
+    str_detect(name, "^ELLSWORTH")        ~ "ELL",  
+    str_detect(name, "^ELM SPRINGS")      ~ "ELM",  
+    str_detect(name, "^ELSMERE")          ~ "ELS",  
+    str_detect(name, "^FORT MEADE")       ~ "FME",      
+    str_detect(name, "^FORT PIERRE")      ~ "FPI",  
+    str_detect(name, "^FORT ROBINSON")    ~ "FRO",      
+    str_detect(name, "^GORDON")           ~ "GOR",    
+    str_detect(name, "^HARRISON")         ~ "HAI",   
+    str_detect(name, "^HARROLD")          ~ "HAR",   
+    str_detect(name, "^HEMINGFORD")       ~ "HEM",   
+    str_detect(name, "^HAY SPRINGS")      ~ "HAY",   
+    str_detect(name, "^HILL CITY")        ~ "HIL",   
+    str_detect(name, "^HOT SPRINGS")      ~ "HOT",  
+    str_detect(name, "^INTERIOR")         ~ "INT",  
+    str_detect(name, "^KENNEBEC")         ~ "KEN",  
+    str_detect(name, "^KIRLEY")           ~ "KIR",     
+    str_detect(name, "^KYLE")             ~ "KYL",  
+    str_detect(name, "^LEAD")             ~ "LEA",  
+    str_detect(name, "^LINGLE")           ~ "LIN",  
+    str_detect(name, "^KYLE")             ~ "KYL",  
+    str_detect(name, "^MAURINE")          ~ "MAU",     
+    str_detect(name, "^MILESVILLE")       ~ "MIL",    
+    str_detect(name, "^MISSION")          ~ "MIS",  
+    str_detect(name, "^MOUNT")            ~ "MTR",  
+    str_detect(name, "^MULLEN")           ~ "MUL",  
+    str_detect(name, "^MURDO")            ~ "MUR",   
+    str_detect(name, "^NEWCASTLE")        ~ "NEC",  
+    str_detect(name, "^NEWELL")           ~ "NEW",    
+    str_detect(name, "^OAHE DAM")         ~ "OAH",      
+    str_detect(name, "^NEWELL")           ~ "NEW",    
+    str_detect(name, "^OELRICHS")         ~ "OEL",  
+    str_detect(name, "^ONIDA")            ~ "ONI",  
+    str_detect(name, "^ORAL")             ~ "ORA",  
+    str_detect(name, "^PACTOLA")          ~ "PAC",  
+    str_detect(name, "^PHILIP")           ~ "PHI",  
+    str_detect(name, "^PLAINVIEW")        ~ "PLA",  
+    str_detect(name, "^PIERRE")           ~ "PIE",  
+    str_detect(name, "^PURDUM")           ~ "PUR",   
+    str_detect(name, "^RAPID CITY 4")     ~ "RA4",        
+    str_detect(name, "^RAPID CITY R")     ~ "RAP",   
+    str_detect(name, "^SPEARFISH")        ~ "SPE",        
+    str_detect(name, "^SPRINGVIEW")       ~ "SPR",      
+    str_detect(name, "^RED OWL")          ~ "RED",  
+    str_detect(name, "^REDBIRD")          ~ "REB",  
+    str_detect(name, "^SUNDANCE")         ~ "SUN",  
+    str_detect(name, "^VALENTINE MILLER") ~ "VAL",  
+    str_detect(name, "^VALENTINE NWR")    ~ "VNW",  
+    str_detect(name, "^WASTA")            ~ "WAS",  
+    str_detect(name, "^WIND CAVE")        ~ "WIN",  
+    str_detect(name, "^WINNER")           ~ "WIN",     
+    str_detect(name, "^WOOD")             ~ "WOO",  
+    TRUE ~ "ERROR"  
+  )   
+  ) %>%   
+  select(sta, name, longitude, latitude, elevation, group, everything())  
+  
+# download daily precip data from NOAA GHCN database-all_stations====       
+# date function calls start one-year early for long-term drought calcs  
+dateMin = "1959-01-01"      
+dateMax = "2018-12-31"    
+  
+sta_dv_orig <- sta_meta_orig %>%   
+  filter(elev_flag == "no") %>%  
+  select(sta_id) %>%  
+  split(.$sta_id) %>%  
+  map_dfr(~meteo_tidy_ghcnd(stationid = .$sta_id,   
+                            keep_flags   = TRUE,   
+                            var          = "PRCP",   
+                            date_min     = dateMin,   
+                            date_max     = dateMax)  
+  )     
+  
+# fix date & add year and month & add metadata====    
+sta_dv_orig <- sta_dv_orig %>%   
+  mutate(date  = ymd(date)) %>%   
+  arrange(desc(date)) %>%  
+  mutate(year  = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  select(date, year, month, everything())   
+  
+sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
+                         by = c("id" = "sta_id"))  
+  
+# check for missing years====            
+sta_miss_yr <- sta_dv_orig  %>%   
+  filter(year > 1988)       %>%  
+  mutate(year = year(date)) %>%  
+  group_by(name, year)      %>%   
+  summarise(num_day = n())  %>%   
+  filter(num_day < 345)     %>%   
+  ungroup() %>%  
+  group_by(name) %>%  
+  summarise(num_year = n())  
+  
+# add stations with zero missing years
+sta_miss_zero <- anti_join(sta_meta_orig, sta_miss_yr,  
+                           by = "name") %>%  
+  filter(elev_flag == "no") %>%  
+  mutate(num_year = 0) %>%  
+  select(name, num_year)  
+  
+sta_miss_yr <- bind_rows(sta_miss_yr, sta_miss_zero)  
+rm(sta_miss_zero)
+  
+# add missing year flag to df====    
+sta_meta_orig <- left_join(sta_meta_orig, sta_miss_yr,  
+                           by = "name")  
+  
+sta_meta_orig <- sta_meta_orig %>%  
+  mutate(missing_flag = case_when(  
+    num_year <= 3 ~ "no",  
+    num_year >  3 ~ "yes"  
+    )) %>%  
+  select(-num_year)  
+
+rm(sta_miss_yr)  
+# prepare to remove stations with 3 years of > 95% completeness====      
+sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
+                          by = c("sta",  
+                                 "name",  
+                                 "longitude",  
+                                 "latitude",  
+                                 "elevation",  
+                                 "group",  
+                                 "mindate",  
+                                 "maxdate",  
+                                 "datacoverage",  
+                                 "type",  
+                                 "elevationUnit",  
+                                 "elev_flag")) %>%  
+  select(-c(sta_id, type))  
+  
+# select final stations for each group====    
+# this was created from the map below   
+sta_meta_fin <- subset(sta_meta_orig,   
+                       sta %in%  
+                         c("RAP",  
+                           "COT",  
+                           "ONI",  
+                           "OEL",  
+                           "GOR",  
+                           "MIS"  
+                         )    
+)   
+  
+sta_dv_fin <- semi_join(sta_dv_orig, sta_meta_fin,  
+                        by = "sta")  
+  
+# export files and prepare for table below====    
+export(sta_dv_fin, "data/sta_dv_fin.csv")  
+export(sta_meta_fin, "data/sta_meta_fin.csv")    
+  
+sta_meta_fin <- sta_meta_fin %>%  
+  select(sta) %>%   
+  mutate(selected = "yes")  
+  
+sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin,  
+                           by = "sta")  
+  
+export(sta_meta_orig, "data/sta_meta_orig.csv")   
+export(sta_dv_orig, "data/sta_dv_orig.csv")
+```
+  
+```{r check_prcp_data, eval=FALSE}  
+
+sta_check <- sta_dv_fin %>%  
+  group_by(sta, mflag_prcp) %>%  
+  summarise(mflag = n()) %>%  
+  filter(mflag_prcp != " ") %>%  
+  group_by(mflag_prcp) %>%    
+  summarise(mflag = n()) %>%  
+  ungroup()    
+  
+# check_prcp_data_quality====  
+# Table of Measurement Flag/Attributes -- mflag      
+# Blank = no measurement information applicable            
+# A     = precip depth is a multi-day total, accumulated since last meas         
+# B     = precipitation total formed from two twelve-hour totals  
+# D     = precipitation total formed from four six-hour totals           
+# H     = represents TMAX or TMIN or average of hourly values (TAVG)           
+# K     = converted from knots            
+# L     = temperature appears lagged w/ respect to reported hr of observation  
+# O     = converted from oktas  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
+# W    = converted from 16-point WBAN code (for wind direction)  
+  
+# Table of Quality Flag/Attributes----    
+# Blank = did not fail any quality assurance check   
+# D     = failed duplicate check           
+# G     = failed gap check           
+# I     = failed internal consistency check           
+# K     = failed streak/frequent-value check           
+# L     = failed check on length of multiday period  
+# M     = failed mega-consistency check            
+# N     = failed naught check            
+# O     = failed climatological outlier check            
+# R     = failed lagged range check           
+# S     = failed spatial consistency check            
+# T     = failed temporal consistency check            
+# W     = temperature too warm for snow            
+# X     = failed bounds check           
+# Z     = flagged as a result of an official Datzilla investigation  
+  
+# Table Source Flag/Attributes----     
+# Blank = No source (i.e., data value missing)  
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
+# 6  = CDMP Cooperative Summary of the Day (NCDC DSI-3206)   
+# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
+# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
+# a  = Australian data from the Australian Bureau of Meteorology           
+# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
+# b  = Belarus update           
+# C  = Environment Canada            
+# E  = European Climate Assessment and Dataset (Klein Tank et al., 2002)      
+# F  = U.S. Fort data             
+# G  = Off Global Climate Observing System (GCOS) or other gov-supplied data   
+# H  = High Plains Regional Climate Center real-time data            
+# I  = International collection (non U.S. data received thru pers. contacts   
+# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
+# M  = Monthly METAR Extract (additional ASOS data)           
+# N  = Community Collaborative Rain, Hail,and Snow (CoCoRaHS)           
+# Q  = Data from African countries w/ later permission granted  
+# R  = NCDC Reference Network Database  
+# r  = All-Russian Research Inst. Hydromet Information-World Data Center    
+# S  = Global Summary of the Day (NCDC DSI-9618)  
+#        NOTE: "S" values are derived from hourly synoptic reports   
+#         exchanged on the Global Telecommunications System (GTS).  
+#         Daily values derived in this fashion may differ significantly from  
+#        "true" daily data, particularly for precip (i.e., use with caution).  
+# s  = China Met Admn/Nat Met Info/Climate Data Centr (http://cdc.cma.gov.cn)   
+# T  = SNOwpack TELemtry (SNOTEL) data from Western Regional Climate Center   
+# U  = Remote Automatic Weather Station (RAWS) data from West Reg Climate Centr  
+# u  = Ukraine update           
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)           
+# Z  = Datzilla official additions or replacements           
+# z  = Uzbekistan update   
+  
+sta_check <- sta_dv_fin %>%  
+  group_by(sta, qflag_prcp) %>%  
+  summarise(qflag = n()) %>%  
+  filter(qflag_prcp != " ") %>%  
+  group_by(qflag_prcp) %>%    
+  summarise(qflag = n()) %>%  
+  ungroup()    
+  
+# Measurement flags are T & P flags  
+# P     = identified as "missing presumed zero" in DSI 3200 and 3206           
+# T     = trace of precipitation, snowfall, or snow depth   
+  
+# quality flags are D, I, K, L, O flags  
+# D     = failed duplicate check           
+# I     = failed internal consistency check           
+# K     = failed streak/frequent-value check           
+# L     = failed check on length of multiday period  
+# O     = failed climatological outlier check            
+  
+sta_check <- sta_dv_fin %>%  
+  group_by(sta, sflag_prcp) %>%  
+  summarise(sflag = n()) %>%  
+  filter(sflag_prcp != " ") %>%  
+  group_by(sflag_prcp) %>%    
+  summarise(sflag = n()) %>%  
+  ungroup()    
+  
+# flags are 0, 7, B, H, K, W, X, Z  
+# 0  = U.S. Cooperative Summary of the Day (NCDC DSI-3200)   
+# 7  = U.S. Cooperative Summary of the Day -- Transmitted via WxCoder  
+# A  = U.S. Automated Surface Observing System (ASOS) real-time data  
+# B  = U.S. ASOS data for October 2000-December 2005 (NCDC  DSI-3211)  
+# H  = High Plains Regional Climate Center real-time data         
+# K  = U.S. Coop Summary of the Day data digitized from paper observer forms  
+# W  = WBAN/ASOS Summary of the Day from NCDC's Integrated Surface Data (ISD)  
+# X  = U.S. First-Order Summary of the Day (NCDC DSI-3210)            
+# Z  = Datzilla official additions or replacements           
+  
+# clean up global environment====  
+rm(sta_miss_yr,   
+   dateMin,  
+   dateMax,  
+   sta_meta_fin,  
+   sta_miss_zero,  
+   sta_dv_orig,  
+   sta_check,  
+   sta_dv_fin,  
+   sta_meta_orig,  
+)   
+  
+```
+
+```{r fill-prcp-na, eval=FALSE}  
+  
+sta_dv_fil <- import("data/sta_dv_fin.csv")  
+sta_dv_alt <- import("data/sta_dv_orig.csv")  
+  
+# create a df of monthly precipitation values-NW-RAP----  
+station <- "RAP"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_dv_alt   %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^RAPID CITY 4")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^ELM")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_rap <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-NC-COT----  
+station <- "COT"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_dv_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))           
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^MILES")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^INTERIOR")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# get alternate site data & check if sta_mis_day = 0  
+# Phillip & Plainview were big zeros  
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^DUPREE")) %>%        
+  filter(!is.na(prcp))  
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)  
+  
+sta_miss_day <- sta_fil        %>%   
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up      
+sta_cot <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )                 
+  
+# create a df of monthly precipitation values-NE-ONI----  
+station <- "ONI"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))          
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^KENNE")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^PIERRE")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a summary & monthly prcp df & clean up       
+sta_oni <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-SW-OEL----   
+station <- "OEL"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^ORAL")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^HOT SPRINGS")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_oel <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-SC-GOR----  
+station <- "GOR"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^VALENTINE NWR")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^MULLEN")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^ELLSWORTH")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_gor <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# create a df of monthly precipitation values-SW-MIS----  
+station <- "MIS"  
+sta_fil <- sta_dv_alt %>%  
+  filter(sta == station)  
+  
+# fill missing data & check for missing days     
+sta_fil <- sta_fil       %>%   
+  filter(sta == station) %>%   
+  filter(!is.na(prcp))                                     
+  
+sta_miss_day <- sta_fil        %>%     
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)     
+  
+sta_short_name <- sta_fil %>%   
+  slice(1) %>%  
+  select(sta, id)   
+  
+# get alternate site data & check if sta_mis_day = 0      
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^WOOD")) %>%        
+  filter(!is.na(prcp))    
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)  
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%    
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%  
+  filter(num_day < 365)    
+  
+# get alternate site data & check if sta_mis_day = 0        
+sta_alt <- sta_dv_alt %>%   
+  filter(str_detect(name, "^VALENTINE MILLER")) %>%        
+  filter(!is.na(prcp))                             
+  
+sta_alt <- anti_join(sta_alt, sta_fil, by = "date") %>%  
+  mutate(sta = sta_short_name$sta)   
+  
+sta_fil <- bind_rows(sta_alt, sta_fil)   
+  
+sta_miss_day <- sta_fil        %>%    
+  group_by(sta, year)          %>%   
+  summarise(num_day = n())     %>%  
+  ungroup()                    %>%   
+  filter(num_day < 365)   
+  
+# make a filled prcp df & clean up     
+sta_mis <- sta_fil  
+  
+rm(sta_alt,  
+   sta_fil,  
+   sta_miss_day,  
+   sta_short_name  
+   )     
+  
+# join the filled data & clean up----  
+sta_dv_fill <- bind_rows(sta_rap,  
+                         sta_cot,  
+                         sta_oni,  
+                         sta_oel,  
+                         sta_gor,  
+                         sta_mis  
+                         )  
+  
+rm(sta_rap,  
+   sta_cot,  
+   sta_oni,  
+   sta_oel,  
+   sta_gor,  
+   sta_mis,  
+   station  
+)  
+  
+# create monthly data from the daily data----    
+sta_mon <- sta_dv_fill          %>%  
+  arrange(date)                 %>%  
+  group_by(sta, month, year)    %>%  
+  summarize(prcp = sum(prcp))   %>%  
+  ungroup()                     %>%  
+  mutate(day     = 15)          %>%  
+  mutate(date    = make_date(year   = year,  
+                              month = month,  
+                              day   = day)  
+  ) %>%           
+  select(sta, date, prcp)   
+  
+# export and clean-up data  
+export(sta_dv_fill, "data/sta_dv_fill.csv")    
+export(sta_mon, "data/sta_mon.csv")  
+  
+rm(sta_dv_alt,   
+   sta_dv_fill,  
+   sta_dv_fil,  
+   sta_mon  
+   )  
+  
+```  
