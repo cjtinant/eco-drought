@@ -1,8 +1,9 @@
 ---
-title: "02_streamflow_cleaning"
-author: "CJ Tinant"
-date: "10/28/2019"
-output: html_document
+title: "02_data_cleaning"  
+author: "CJ Tinant"  
+# start_date: "10/28/2019"  
+date: "12/31/2-19"  
+output: html_document  
 ---
 
 <!--
@@ -868,7 +869,7 @@ export(gage_meta, "data/gage_meta.csv")
 ```
 
 # download & fill precip data  
-```{r download_prcp_data, eval=FALSE}  
+```{r 14-download_prcp_data}  
 # Get possible station metadata----      
 # It's also possible to check station id with the mapping tool at:     
 # https://www.ncdc.noaa.gov/cdo-web/datatools/findstation   
@@ -896,14 +897,14 @@ sta_meta_orig <- sta_meta_orig %>%
       )                               
   )  
   
-# check number of stations 
+# check number of stations  
 num_check <- sta_meta_orig %>%                          # n =  45   
   filter(elev_flag == "no")  
-rm(num_check)
+rm(num_check)  
   
 # create groups of stations by region====       
-#   Notes: the string "GHCND:" doesn't appear in calls to get Global Historical  
-#   Climatology Network (GHCN) Daily Data  
+#   Notes: the string "GHCND:" doesn't appear in  
+#   Global Historical Climatology Network (GHCN) Daily Data calls  
 sta_meta_orig <- sta_meta_orig %>%   
   mutate(north_group = case_when(   
     latitude > 43.5 ~ "N",   
@@ -994,8 +995,10 @@ sta_meta_orig <- sta_meta_orig %>%
   
 # download daily precip data from NOAA GHCN database-all_stations====       
 # date function calls start one-year early for long-term drought calcs  
-dateMin = "1959-01-01"      
-dateMax = "2018-12-31"    
+#dateMin = "1959-01-01"      # updated 2019-12-31 to match water-year  
+#dateMax = "2018-12-31"    
+dateMin =  "1958-10-01"     
+dateMax =  "2018-10-31"    
   
 sta_dv_orig <- sta_meta_orig %>%   
   filter(elev_flag == "no") %>%  
@@ -1030,7 +1033,7 @@ sta_miss_yr <- sta_dv_orig  %>%
   group_by(name) %>%  
   summarise(num_year = n())  
   
-# add stations with zero missing years
+# add stations with zero missing years  
 sta_miss_zero <- anti_join(sta_meta_orig, sta_miss_yr,  
                            by = "name") %>%  
   filter(elev_flag == "no") %>%  
@@ -1038,7 +1041,7 @@ sta_miss_zero <- anti_join(sta_meta_orig, sta_miss_yr,
   select(name, num_year)  
   
 sta_miss_yr <- bind_rows(sta_miss_yr, sta_miss_zero)  
-rm(sta_miss_zero)
+rm(sta_miss_zero)  
   
 # add missing year flag to df====    
 sta_meta_orig <- left_join(sta_meta_orig, sta_miss_yr,  
@@ -1050,8 +1053,9 @@ sta_meta_orig <- sta_meta_orig %>%
     num_year >  3 ~ "yes"  
     )) %>%  
   select(-num_year)  
-
+  
 rm(sta_miss_yr)  
+
 # prepare to remove stations with 3 years of > 95% completeness====      
 sta_dv_orig <- left_join(sta_dv_orig, sta_meta_orig,  
                           by = c("sta",  
@@ -1096,11 +1100,11 @@ sta_meta_orig <- left_join(sta_meta_orig, sta_meta_fin,
                            by = "sta")  
   
 export(sta_meta_orig, "data/sta_meta_orig.csv")   
-export(sta_dv_orig, "data/sta_dv_orig.csv")
+export(sta_dv_orig, "data/sta_dv_orig.csv")  # too big to add to git!  
 ```
   
 ```{r check_prcp_data, eval=FALSE}  
-
+  
 sta_check <- sta_dv_fin %>%  
   group_by(sta, mflag_prcp) %>%  
   summarise(mflag = n()) %>%  
@@ -1214,11 +1218,9 @@ sta_check <- sta_dv_fin %>%
 # Z  = Datzilla official additions or replacements           
   
 # clean up global environment====  
-rm(sta_miss_yr,   
-   dateMin,  
+rm(dateMin,  
    dateMax,  
    sta_meta_fin,  
-   sta_miss_zero,  
    sta_dv_orig,  
    sta_check,  
    sta_dv_fin,  
@@ -1227,7 +1229,7 @@ rm(sta_miss_yr,
   
 ```
 
-```{r fill-prcp-na, eval=FALSE}  
+```{r fill-prcp-na}  
   
 sta_dv_fil <- import("data/sta_dv_fin.csv")  
 sta_dv_alt <- import("data/sta_dv_orig.csv")  
@@ -1283,6 +1285,13 @@ sta_miss_day <- sta_fil        %>%
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
+  
+date_check <- sta_fil %>%    # got a n of 396  
+  filter(year == "1958" |  
+           year == "2018"  
+  )  
+  
+rm(date_check)  
   
 # make a filled prcp df & clean up     
 sta_rap <- sta_fil  
@@ -1362,6 +1371,13 @@ sta_miss_day <- sta_fil        %>%
   ungroup()                    %>%  
   filter(num_day < 365)   
   
+date_check <- sta_fil %>%    # got a n of 396  
+  filter(year == "1958" |  
+           year == "2018"  
+  )  
+  
+rm(date_check)  
+  
 # make a filled prcp df & clean up      
 sta_cot <- sta_fil  
   
@@ -1423,6 +1439,13 @@ sta_miss_day <- sta_fil        %>%
   ungroup()                    %>%   
   filter(num_day < 365)   
   
+date_check <- sta_fil %>%    # got a n of 396  
+  filter(year == "1958" |  
+           year == "2018"  
+  )  
+  
+rm(date_check)  
+  
 # make a summary & monthly prcp df & clean up       
 sta_oni <- sta_fil  
   
@@ -1483,6 +1506,13 @@ sta_miss_day <- sta_fil        %>%
   summarise(num_day = n())     %>%  
   ungroup()                    %>%   
   filter(num_day < 365)   
+  
+date_check <- sta_fil %>%    # got a n of 396  
+  filter(year == "1958" |  
+           year == "2018"  
+  )  
+  
+rm(date_check)  
   
 # make a filled prcp df & clean up     
 sta_oel <- sta_fil  
@@ -1561,6 +1591,13 @@ sta_miss_day <- sta_fil        %>%
   ungroup()                    %>%   
   filter(num_day < 365)   
   
+date_check <- sta_fil %>%    # got a n of 396  
+  filter(year == "1958" |  
+           year == "2018"  
+  )  
+  
+rm(date_check)  
+  
 # make a filled prcp df & clean up     
 sta_gor <- sta_fil  
   
@@ -1622,6 +1659,13 @@ sta_miss_day <- sta_fil        %>%
   ungroup()                    %>%   
   filter(num_day < 365)   
   
+date_check <- sta_fil %>%    # got a n of 396  
+  filter(year == "1958" |  
+           year == "2018"  
+  )  
+  
+rm(date_check)  
+  
 # make a filled prcp df & clean up     
 sta_mis <- sta_fil  
   
@@ -1663,8 +1707,8 @@ sta_mon <- sta_dv_fill          %>%
   select(sta, date, prcp)   
   
 # export and clean-up data  
-export(sta_dv_fill, "data/sta_dv_fill.csv")    
-export(sta_mon, "data/sta_mon.csv")  
+export(sta_dv_fill, "data/sta_dv_fill.csv")   # too big for git! 
+export(sta_mon, "data/sta_mon.csv")   
   
 rm(sta_dv_alt,   
    sta_dv_fill,  
