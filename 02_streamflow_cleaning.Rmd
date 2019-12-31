@@ -15,30 +15,38 @@ Predominant datasets used are:
   
 Approach:  
 1) find potential USGS gages by bounding box 
-     bBox = a contiguous range of decimal latitude and longitude, starting
-     with the west longitude, then the south latitude, then the east longitude, 
-     and then the north latitude with each value separated by a comma. 
-# https://waterservices.usgs.gov/rest/Site-Service.html#bBox 
-# the Pine Ridge Reservation boundary is c(-103.0, 43.0, -100.2, 43.8)
-
-2) filter gages for the following reasons
-     - upstream control, 
+     note: Pine Ridge Reservation boundary is c(-103.0, 43.0, -100.2, 43.8)  
+1.2) filter gages for the following reasons
+     - short or incomplete records
+     - upstream control or drainages/ditches, 
+     - East River 
      - in crystaline or karst catchments
      - provisional data 
-
-3) clean metadata by removing non-needed variables  
-
-4) obtain USGS gage daily flow data for dates:  
-   from: 1979-08-01 (WY 1980 + 2 months)  
-   to:   2018-12-31 (WY 2018 + 3 months )  
-
-5) filter stations based on record length 
-    - no data gages for 1980-2018 water years 
-    - less than 6-years of continuous data for 1990-2018
-      for filtering info see: https://help.waterdata.usgs.gov/site_tp_cd 
-
-Next Steps: 
--- check into stylr-packag
+1.3) clean metadata by removing non-needed variables  
+2.0) obtain USGS gage daily flow data for dates:  
+       from: 1979-08-01 (WY 1980 + 2 months)  
+       to:   2018-12-31 (WY 2018 + 3 months ) -- later removed to 2018-09-30  
+2.1) filter stations based on record length 
+       - no data gages for 1980-2018 water years 
+       - less than 6-years of continuous data for 1990-2018  
+3.0) censor low flows ---- this step needed for the PCA    
+      EGRET calculates a "better" zero-flow value, but causes issues with PCA  
+       -- fixed low flow values by substituting 0.01 cfs for zero-flow values   
+4.0) prepare to conduct a PCA analysis ofdaily flow data 
+       - transform the data by BoxCox transformation by forcast::BoxCox
+          The daily flow data are highly skewed.  BoxCox transformation uses 
+          maximum likelihood to identify a best value (lambda) that best 
+          transforms a dataset to an ~ normal distribution.
+          # this is table of what the lambda values (probably) mean
+          # lambda = 1 is normal distribution (no change), 
+          # lambda = 0.5 is a square-root transformation, 
+          # lamda = 2 is a square transformation,
+          # lambda = 0 is a logrithmic transformation.
+4.1) make a PCA matrix and tidy the output 
+       - used prcomp() with center & scale = TRUE to center the data with a 
+         mean of zero and standard deviation of unity, e.g. a z-score.  
+         Note: '.' passes select(q1_tr, q7_tr, q30_tr) %>% to prcomp() 
+     - found eigenvectors-- the results about the PC axes
 
 Variable naming convention----  
 gage                USGS gaging stations
@@ -47,23 +55,52 @@ gage                USGS gaging stations
   _int1             scratch df for pulling gages with integer fields 
   _int2             scratch df for pulling gages with integer fields 
   _int3             scratch df for pulling gages with integer fields 
-
-wsd  
-  _summary
-names   
+  _drop             scratch df to check dropped variables  
+  _check            scratch variable used to check operations 
+  _gtlt_range       check df for data outside of temporal range
+  _NA_inc           check df for NA values  
+  _dv_orig          original dv data  
+  _dv_qual          check df for provisional data
+  _wy79             check df for water year 1979  
+  _dv               active df for daily flow values
+  _dv_gath          intermediate df to gather the Q, Q7, Q30 for low flows
+  _dv_low           censored zero flows (q_val < 0.01)
+  _dv_high          filtered non-zero flows -> join flows 
+  _contrib_area     used for converting Q [m3/s] -> q [m/day]
+  _depth            flow depth in q = Q/DA [m/km2 day]   
+  _mon              monthly dv flow depths
+  _mon_full         monthly dv for complete 1989-2018 water years 
+  _yrs_comp         scratch df for complete years calculation  
+  _mon_name_ck      scratch df for checking names  
+  
+wsd_summary         df of QGIS watershed summary using sf_read   
+names               scratch df of short gage names   
 
 endDate             used for calling Egret::readNWISDaily  -- "1979-08-01"
-parameter_cd        used for calling Egret::readNWISDaily  -- "2018-09-30"  
+parameter_cd        used for calling Egret::readNWISDaily  -- "2018-12-31"  
 startDate           used for calling Egret::readNWISDaily  -- "00060" 
-
-
 lon_riv_dv          scratch df for pulling lon_riv 
 gage_most_dv        scratch df for pulling !lon_riv 
-yrs_rec             calculates years of record 
-gage_dv             daily flow values for waterYear 1980-2017 
-gage_check          scratch variable used to check operations 
+min_date            check df for minimum date
+max_date            check df for maximum date 
+short_sta_ck        check df for short stations  
+yrs_summary         intermediate df to summarize years
 
-gage_meta           cleaned metadata for USGS gaging stations in the study area 
+pca_input           prcomp() input using gage_dv 
+pca_matrix          the matrix created by prcomp() 
+lambda_q1           lambda values for BoxCox transform prior to PCA 
+  _q7  
+  _q30 
+pca_eigen           results about PC axes -- the eigenvalues
+pca_vars            results about PC rotation-magnitude and direction of vars  
+
+ecoreg              shapefile data of intersection of watershed area & 
+                      merged SD, NE, WY ecoregions 
+eco_join            join variable for ecoreg & gage_dv 
+
+Someday - Maybe: 
+-- check into stylr-packag
+  
 --> 
 
 ```{r setup_&_library, message=FALSE}  
@@ -101,7 +138,7 @@ print(paste("You have", until, "days until the second paper is due"
 why_to_write()  
 ```  
 
-```{r import_metadata, eval=FALSE}  
+```{r 01-import_metadata, eval=FALSE}  
   
 # updated 2019-12-14  
   
@@ -149,10 +186,9 @@ rm(gage_meta_int1,
    
 ``` 
   
-```{r clean_gage_metadata, eval=FALSE} 
+```{r 02-clean_gage_metadata, eval=FALSE} 
   
 # updated on 2019-12-14  
-  
 # gage_meta_poss <- import("data/gage_meta_poss.csv")       
   
 # select final stations for consideration----  
@@ -208,18 +244,18 @@ gage_drop <- anti_join(gage_meta_poss, gage_meta_int,
   
 ```  
   
-```{r add_names_to_gage_meta, message=FALSE, eval=FALSE}  
+```{r 03-add_names_to_gage_meta, message=FALSE, eval=FALSE}  
   
 # updated on 2019-12-14     
   
-# get data from QGIS analysis of gaged & ungaged watersheds of interest====    
+# 1. get data from QGIS analysis of gaged & ungaged watersheds of interest====    
 wsd_summary <- st_read("sp_data/eco-drought.gpkg",   
                        layer = "wbd_summary",  
                        as_tibble = TRUE) %>%  
   st_drop_geometry() %>%  
   mutate_if(is.factor, as.character)  
   
-# join names to gage_meta   
+# 2. join names to gage_meta   
 names <- wsd_summary %>%  
   select(site_no = gage_num, sta = sta_id) %>%  
   drop_na() %>%  
@@ -238,7 +274,7 @@ rm(wsd_summary)
   
 ```   
 
-```{r import_daily_flow_data, message=FALSE, eval=FALSE} 
+```{r 04-import_daily_flow_data, message=FALSE, eval=FALSE} 
   
 # updated on 2019-12-14   
   
@@ -272,33 +308,27 @@ gage_most_dv <- gage_meta %>%
     .id = "site_no")   
   
 # join data  
-gage_dv_orig <-bind_rows(gage_most_dv, gage_lonriv_dv) 
-
+gage_dv_orig <-bind_rows(gage_most_dv, gage_lonriv_dv)  
+  
 # add names to gage_dv_orig====  
 gage_dv_orig <- full_join(names, gage_dv_orig,   
                      by ="site_no")  
-
-# clean_up
+  
+# clean_up  
 rm(gage_lonriv_dv,   
    gage_most_dv,  
    startDate,  
    endDate,  
    parameter_cd,  
-   gage_drop, 
-   gage_meta_int, 
+   gage_drop,  
+   gage_meta_int,  # drop this?  
    gage_meta_poss,  
    names  
    )   
    
 ```  
 
-#gage_dv <- import("data/gage_dv.csv") %>% 
-#    mutate(site_no = zeroPad(site_no, 8)) 
-
-#gage_meta <- import("data/gage_meta.csv") %>%  
-#    mutate(site_no = zeroPad(site_no, 8)) 
-
-```{r clean_daily_flow, eval=FALSE} 
+```{r 05-clean_daily_flow, eval=FALSE} 
   
 # updated on 2019-12-14     
   
@@ -306,74 +336,74 @@ rm(gage_lonriv_dv,
 gage_dv_gtlt_range <- gage_dv_orig   
   
 gage_dv <- gage_dv_orig %>%  
-                  filter(Date >"1979-09-30" & Date < "2018-10-01")
+                  filter(Date >"1979-09-30" & Date < "2018-10-01")  
   
 gage_dv_gtlt_range <- anti_join(gage_dv_gtlt_range, gage_dv,  
                           by = c("sta", "Date"))  
- 
-# check dates 
-min_date <- gage_dv %>% 
-  arrange(Date) %>% 
-  slice(1) 
-
-max_date <- gage_dv %>% 
-  arrange(desc(Date)) %>% 
-  slice(1) 
-
-# 2. filter missing records from Q1, Q7, Q30 
+  
+# check dates  
+min_date <- gage_dv %>%  
+  arrange(Date) %>%  
+  slice(1)  
+   
+max_date <- gage_dv %>%  
+  arrange(desc(Date)) %>%  
+  slice(1)  
+  
+# 2. filter missing records from Q1, Q7, Q30  
 gage_dv_NA_inc <- gage_dv  
   
-gage_check <- gage_dv_NA_inc %>% 
+gage_check <- gage_dv_NA_inc %>%  
   filter(is.na(Q30) |  
          is.na(Q7) |  
          is.na(Q)  
-  ) %>% 
+  ) %>%  
   mutate(Year = year(Date)) %>%  
   group_by(sta, Year) %>%  
-  summarise(count = n())
+  summarise(count = n())  
   
-gage_dv <- gage_dv %>% 
-  filter(!is.na(Q30) & 
-           !is.na(Q7) & 
+gage_dv <- gage_dv %>%  
+  filter(!is.na(Q30) &  
+           !is.na(Q7) &  
            !is.na(Q)  
   )  
   
-gage_check <- gage_dv %>% 
-  filter(is.na(Q30) | 
-           is.na(Q7) | 
-           is.na(Q) 
+gage_check <- gage_dv %>%  
+  filter(is.na(Q30) |  
+           is.na(Q7) |  
+           is.na(Q)  
   )  
   
-# 3. check provincial data -
+# 3. check provincial data 
 gage_dv_qual <- gage_dv  
-
-gage_dv <- gage_dv %>% 
+  
+gage_dv <- gage_dv %>%  
   filter(Qualifier == "A"   |  
            Qualifier == "A:e" |  
-           Qualifier == "A:<" 
+           Qualifier == "A:<"  
   )   
-
+  
 gage_dv_qual <- anti_join(gage_dv_qual, gage_dv,  
                           by = c("sta", "Date")) %>%  
   mutate(Year = year(Date)) %>%   
   group_by(sta, Month, Year) %>%  
   summarise(count = n())  
   
-# 4. check that all na were dropped====
+# 4. check that all na were dropped====  
 gage_check <- gage_dv %>%  
-  drop_na() 
-
-rm(gage_dv_gtlt_range, 
-   gage_dv_NA_inc, 
-   gage_dv_orig, 
-   gage_dv_qual, 
-   gage_dv_wy79, 
-   min_date, 
+  drop_na()  
+  
+rm(gage_dv_gtlt_range,  
+   gage_dv_NA_inc,  
+   gage_dv_orig,  
+   gage_dv_qual,  
+   gage_dv_wy79,  
+   min_date,  
    max_date  
-   )
+   )  
 ```
 
-```{r check_stations, eval=FALSE}
+```{r 06-check_stations, eval=FALSE}
 
 # 1. check short flow records----     
 # calculate min & max years of record   
@@ -400,7 +430,7 @@ gage_check <- gage_meta %>%
 gage_check <- gage_meta %>%  
   filter(years_rec < 7)  
   
-# 3. check for incomplete days of record for short recs ====    
+# 4. check for incomplete days of record for short recs ====    
 short_sta_ck <- gage_dv %>%    
   filter(sta == "plu_hay" |  
          sta == "wkc_wok" |  
@@ -415,7 +445,7 @@ short_sta_ck <- gage_dv %>%
 export(gage_dv, "data/gage_dv.csv")   
 export(gage_meta, "data/gage_meta.csv")   
   
-# clean up global environ
+# 5. clean up global environ  
 rm(gage_check,  
    short_sta_ck,  
    yrs_summary  
@@ -423,7 +453,7 @@ rm(gage_check,
   
 ``` 
 
-```{r censor_low_flows, message=FALSE} 
+```{r 07-censor_low_flows, message=FALSE} 
   
 # updated 2019-12-14
   
@@ -479,7 +509,7 @@ export(gage_dv, "data/gage_dv.csv")
   
 ``` 
 
-```{r convert_flow_to_depth, message=FALSE} 
+```{r 08-convert_flow_to_depth, message=FALSE} 
   
 # updated 2019-12-14  
   
@@ -490,7 +520,7 @@ gage_contrib_area <- gage_meta %>%
            contrib_drain_area_va %>%  
              is.na %>%   
              ifelse(drain_area_va, contrib_drain_area_va)) %>%   
-  select(-drain_area_va) %>%   
+  select(-drain_area_va) %>%    
   mutate(contrib_drain_km2 =  
            measurements::conv_unit(contrib_drain_area_va,   
                                    from = "mi2",   
@@ -514,7 +544,7 @@ gage_depth <- left_join(gage_dv, gage_contrib_area, by = "sta") %>%
          ) %>%  
   mutate(value = value * sec_per_day / contrib_drain_km2) %>%  
   spread(type, value) %>%  
-  rename(q1_depth = Q) %>%  
+  rename(q1_depth = Q) %>%   
   rename(q7_depth = Q7) %>%  
   rename(q30_depth = Q30) %>%  
   select(-c(contrib_drain_km2, sec_per_day))   
@@ -525,12 +555,12 @@ export(gage_depth, "data/gage_depth.csv")
    
 ``` 
 
-```{r PCA-calculations}  
+```{r 09-PCA-calculations}  
   
 #gage_depth <- import("data/gage_depth.csv") 
   
 # Prepare to approach normality using forcast::BoxCox----    
-# make a dataframe of lambda values====   
+# make a dataframe of lambda values====    
 lambda_q1  <- enframe(   
   BoxCox.lambda(gage_depth$q1_depth)   
   )    
@@ -626,7 +656,7 @@ rm(pca_eigen, pca_input, pca_matrix, pca_vars, lambda_vals)
   
 ```  
 
-```{r add_ecoreg_&_metadata}
+```{r 10-add_ecoreg_&_metadata}
 
 #gage_meta <- import("data/gage_meta.csv")  
 
@@ -735,7 +765,7 @@ export(gage_meta, "data/gage_meta.csv")
   
 ```   
 
-```{r daily_to_monthly_depth}
+```{r 11-daily_to_monthly_depth}
 #gage_depth <- import("data/gage_depth.csv")  
   
 gage_depth <- gage_depth %>%  
@@ -767,7 +797,7 @@ export(gage_mon, "data/gage_mon.csv")
   
 ```
 
-```{r select_complete_records}  
+```{r 12-select_complete_records}  
   
 #gage_mon <- import("data/gage_mon.csv") %>%  
 #  mutate(Date = ymd(Date))  
@@ -816,7 +846,7 @@ rm(gage_mon,
   
 ```
 
-```{r fix-metadata}
+```{r 13-fix-metadata}
   
 gage_meta <- gage_meta %>% 
   select(sta,  
