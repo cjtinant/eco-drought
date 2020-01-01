@@ -210,7 +210,14 @@ Does the drought extent differ across the study area?
 What is the underlying distribution of precipitation data?  
 
 # Next STEPS  
-3. Describe the precipitation seasonality
+1. update bootstrapping to check precip differences - with water year  
+Also check these -- 
+this needs to be raw data -because the old data missing some dates 
+Also need to drop the Hot Springs creek 
+Fixing the 02_streamflow_cleaning.Rmd
+
+3. Describe the precipitation seasonality ??
+
 -->  
 
 ```{r setup_&_library, message=FALSE}    
@@ -322,146 +329,81 @@ why_to_write()
   
 ```  
 
-#  download and check streamflow 
-## import streamflow data -- 
-  
-<!--
-this needs to be raw data -because the old data missing some dates 
-Also need to drop the Hot Springs creek 
-Fixing the 02_streamflow_cleaning.Rmd
--->  
-  
-```{r import_streamflow_data, eval=FALSE}    
-  
-# import full streamflow records----   
-gage_mon_full <- import("data/gage_mon_full.csv") %>%  
-  mutate(Date = ymd(Date)) 
-  
-#%>%  
-#  filter(between(Date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
-  
-gage_meta <-  import("data/gage_meta.csv")   
-  
-gage_eco <- gage_mon %>%  
-  select(sta, ecoreg) %>%  
-  distinct()  
-  
-# add ecoregions & reduce set to full-gages  
-lmom_gage_meta <- right_join(gage_meta, gage_eco,  
-                            by = "sta")  
-  
-rm(gage_eco,  
-   gage_meta  
-   )      
-  
-export(gage_mon, "data/gage_mon.csv")  
-  
-# Note -- we might consider Weiss 1964 bias value of 1.018 for L1     
-  
-# Calculate L-moment ratios====     
-lmom_gage <- gage_mon %>%  
-  split(.$sta) %>%  
-  map(~ lmoms(.$log_q1_mon)) %>%    
-  transpose() %>%  
-  as_tibble(rownames = sta) %>%  
-  select(lambdas, ratios) %>%  
-  mutate(lambdas = map(lambdas,   
-                       ~as_tibble(t(.x))  
-  )) %>%  
-  mutate(lambdas = map(lambdas,   
-                       ~set_names(.x,  
-                                  c("L1", "L2", "L3", "L4", "L5")  
-                       )  
-  )) %>%  
-  mutate(ratios = map(ratios,  
-                      ~as_tibble(t(.x)   
-                      )   
-  )) %>%  
-  mutate(ratios = map(ratios,  
-                      ~set_names(.x,  
-                                 c("T1", "T2", "T3", "T4", "T5")   
-                      )   
-  )) %>%  
-  unnest(lambdas) %>%  
-  unnest(ratios)  %>%   
-  select(-T1) %>%  
-  rename(L_CV = T2) %>%  
-  rename(L_skew = T3) %>%  
-  rename(L_kurtosis = T4) %>%  
-  select(L1, L_CV, L_skew, L_kurtosis) %>%  
-  mutate(L1 = round(L1,  
-                    digits = 2)  
+```{r 1_import_hydrologic-data}    
+
+# 1. import streamflow & precipitation records====   
+#   min gage is 1979-10-15  
+#   max gage is 2018-09-15  
+gage_mon <- import("data/gage_mon_full.csv") %>%  # this is just >30-yr gages  
+  mutate(Date = ymd(Date))  
+
+gage_meta <-  import("data/gage_meta.csv")  
+
+# 2. prepare gage metadata====  
+# helpful dataframes - depending on where 'data_cleaning' output is at  
+# gage_flow_regime <- import("data/gage_flow_regime.csv")  
+gage_ecoreg <- import("data/gage_ecoreg.csv")  
+gage_lmom <- full_join(gage_meta, gage_ecoreg,  
+                       by = "sta")  
+# arrange variables  
+gage_lmom <- gage_lmom %>%  
+  select(site_no,  
+         sta,  
+         ecoreg,  
+         flow_regime,  
+         dec_lat_va,  
+         dec_long_va,  
+         everything()  
   )  
-  
-# get station names from the list  
-lmom_gage_list <- gage_mon %>%  
-  split(.$sta) %>%  
-  map(~ lmoms(.$log_q1_mon)) %>%  
-  transpose()  
-  
-lmom_gage_nm <- lmom_gage_list %>%  
-  pluck(2) %>%                     # plucks lmom-ratios  
-  enframe()  
-  
-lmom_gage_nm <- lmom_gage_nm %>%  
-  unnest(value) %>%  
-  drop_na() %>%  
-  rename(sta = name) %>%  
-  group_by(sta) %>%  
-  summarize(L_CV = first(value))  
-  
-# join name to lmom vals & to the metadata  
-lmom_gage <- full_join(lmom_gage_nm, lmom_gage,  
-                        by = ("L_CV"))  
-  
-# check value  
-bad_fpi <- tibble(lmom_gage_list[["ratios"]][["bad_fpi"]])  
-  
-# clean up df & join with metadata====  
-lmom_gage <- lmom_gage %>%  
-  gather(type, value, -sta) %>%  
-  mutate(value = round(value,  
-                       digits = 2)  
-         ) %>%   
-  spread(type, value) %>%  
-  select(sta, L1, L_CV, L_skew, L_kurtosis)  
-  
-lmom_gage <- full_join(lmom_gage_meta, lmom_gage,    
-                            by = "sta") 
-  
-# check stations for discordance & prepare for join====    
-dischord <- lmrdiscord(site = lmom_gage$sta,  
-                       #                       Dcrit = 2.5,  
-                       digits = 2,  
-                       t2 = lmom_gage$L_CV,  
-                       t3 = lmom_gage$L_skew,   
-                       t4 = lmom_gage$L_kurtosis  
-) %>%  
-  mutate(site = as.character(site)) %>%  
-  rename(sta = site) %>%  
-  rename(L_CV = t2) %>%  
-  rename(L_skew = t3) %>%  
-  rename(L_kurtosis = t4)  
-  
-lmom_gage <- full_join(lmom_gage, dischord, 
-                  by = c("sta", "L_CV", "L_skew", 'L_kurtosis'))  
-  
-export(lmom_gage, "data/gage_meta_lmom.csv")   
-  
-# clean up  
-rm(bad_fpi,  
-   lmom_gage_list,  
-   lmom_gage_nm,  
-   lmom_gage,  
-   gage_mon,  
-   dischord, 
-   lmom_gage_meta  
-   )  
-  
+# select important variables  
+gage_lmom <- gage_lmom %>%  
+  select(site_no:dec_long_va)  
+# drop sites without full data  
+gage_lmom <- semi_join(gage_lmom, gage_mon,  
+                  by = "sta")  
+
+# 3. import final monthly precip data & prepare for bootstrapping====   
+# Dates are based on water year instead of calender year  
+#   min sta1 is 1958-10-15  
+#   max sta1 is 1988-09-15  
+#   min sta2 is 1988-10-15  
+#   max sta2 is 2018-09-15    
+sta_meta_fin <- import("data/sta_meta_fin.csv")  
+
+sta_mon_full <- import("data/sta_mon.csv") %>%  
+  mutate(date = ymd(date)) %>%   
+  mutate(yr = year(date))  %>%  
+  arrange(desc(date)) %>%      # slice 2018 obs for 10-15 to 12-15  
+  slice(-1:-6) %>%  
+  # create an id variable  
+  mutate(Period = case_when(   
+    date < "1988-10-15" ~ "<1989",  
+    TRUE ~ ">1989")  
+  ) %>%  
+  # create a grouping variable   
+  unite("group",   
+        c("sta", "Period"),  
+        sep = "",   
+        remove = FALSE) %>%   
+  arrange(date)   
+
+# check results by printing a summary of the data====  
+sta_mon_full %>%   
+  group_by(group) %>%   
+  summarise(count = n()) %>%   
+  ungroup() %>%   
+  mutate(num_yr = count/(12))  
+
+# clean up global environment====  
+rm(gage_ecoreg,  
+   gage_flow_regime,  
+   gage_meta)  
+
 ```
 
 # use bootstrapping to check precip differences 
-```{r bootstrap_precip}   
+# NEED TO DO
+```{r 2_bootstrap_precip}   
   
 # Construct bootstrap confidence intervals of precipitation----    
 #   to identify differences in means   
@@ -472,29 +414,6 @@ rm(bad_fpi,
 # dabest for 14,027 obs; 40,000 reps takes ~2 hours.    
 #   Still had memory allocation issues @ 50,000 reps after increasing memory.   
   
-# import final monthly precip data & prepare for bootstrapping====   
-sta_mon <- import("data/sta_mon.csv") %>%  
-  mutate(date = ymd(date)) %>%   
-  mutate(yr = year(date)) %>%     
-  
-  # create an id variable  
-  mutate(Period = case_when(   
-    yr < 1989 ~ "<1989",  
-    TRUE ~ ">1989")  
-  ) %>%  
-  # create a grouping variable   
-  unite("group",   
-        c("sta", "Period"),  
-        sep = "",   
-        remove = FALSE) %>%   
-  arrange(date)   
-  
-# print a summary of the data====  
-sta_mon %>%   
-  group_by(group) %>%   
-  summarise(count = n()) %>%   
-  ungroup() %>%   
-  mutate(num_yr = count/(12))  
   
 # construct bootstrap confidence interval of prcp====   
 prcp_dabest <- sta_mon %>%   
@@ -539,7 +458,7 @@ rm(prcp_dabest,
   
 ```
 
-```{r compare_precip_locations}  
+```{r 3_compare_precip-locations}  
   
 sta_mon <- import("data/sta_mon.csv") %>%    
   mutate(date = ymd(date))  
@@ -609,15 +528,119 @@ rm(nw,
 ```
 
 # L-moments 
-```{r lmoments_prcp, eval=FALSE}
+```{r 4_lmoment-ratios-streamflow, eval=FALSE}
   
-sta_mon     <- import("data/sta_mon.csv")  
-sta_meta_fin <- import("data/sta_meta_fin.csv")
-  
-# Note that we might consider Weiss 1964 bias value of 1.018 for L1   
-  
-# Calculate L-moment ratios   
-lmom_sta <- sta_mon %>%  
+# 1. calculate L-moment ratios====     
+# Note -- we might consider Weiss 1964 bias value of 1.018 for L1  
+lmom_gage <- gage_mon %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$log_q1_mon)) %>%    
+  transpose() %>%  
+  as_tibble(rownames = sta) %>%  
+  select(lambdas, ratios) %>%  
+  mutate(lambdas = map(lambdas,   
+                       ~as_tibble(t(.x))  
+  )) %>%  
+  mutate(lambdas = map(lambdas,   
+                       ~set_names(.x,  
+                                  c("L1", "L2", "L3", "L4", "L5")  
+                       )  
+  )) %>%  
+  mutate(ratios = map(ratios,  
+                      ~as_tibble(t(.x)   
+                      )   
+  )) %>%  
+  mutate(ratios = map(ratios,  
+                      ~set_names(.x,  
+                                 c("T1", "T2", "T3", "T4", "T5")   
+                      )   
+  )) %>%  
+  unnest(lambdas) %>%  
+  unnest(ratios)  %>%   
+  select(-T1) %>%  
+  rename(L_CV = T2) %>%  
+  rename(L_skew = T3) %>%  
+  rename(L_kurtosis = T4) %>%  
+  select(L1, L_CV, L_skew, L_kurtosis) %>%  
+  mutate(L1 = round(L1,  
+                    digits = 2)  
+  )  
+
+# 2. get station names from the list====  
+lmom_gage_list <- gage_mon %>%  
+  split(.$sta) %>%  
+  map(~ lmoms(.$log_q1_mon)) %>%  
+  transpose()  
+
+lmom_gage_nm <- lmom_gage_list %>%  
+  pluck(2) %>%                     # plucks lmom-ratios  
+  enframe()  
+
+lmom_gage_nm <- lmom_gage_nm %>%  
+  unnest(value) %>%  
+  drop_na() %>%  
+  rename(sta = name) %>%  
+  group_by(sta) %>%  
+  summarize(L_CV = first(value))  
+
+# 3. join name to lmom vals & to the metadata====  
+lmom_gage <- full_join(lmom_gage_nm, lmom_gage,  
+                       by = ("L_CV"))  
+
+# * check lmoms====   
+#bad_fpi <- tibble(lmom_gage_list[["ratios"]][["bad_fpi"]])  
+
+# 4. clean up lmom_gage & join with metadata====  
+lmom_gage <- lmom_gage %>%  
+  gather(type, value, -sta) %>%  
+  mutate(value = round(value,  
+                       digits = 2)  
+  ) %>%   
+  spread(type, value) %>%  
+  select(sta, L1, L_CV, L_skew, L_kurtosis)  
+
+lmom_gage <- full_join(gage_lmom, lmom_gage,    # lmom_gage_meta  
+                       by = "sta") %>%  
+  select(-c(site_no,  
+            dec_lat_va,  
+            dec_long_va)  
+  )  
+
+# 5. check and remove discordant gages - will put back later ====    
+dischord <- lmrdiscord(site = lmom_gage$sta,  
+                       #                       Dcrit = 2.5,  
+                       digits = 2,  
+                       t2 = lmom_gage$L_CV,  
+                       t3 = lmom_gage$L_skew,   
+                       t4 = lmom_gage$L_kurtosis  
+) %>%  
+  mutate(site = as.character(site)) %>%  
+  rename(sta = site) %>%  
+  rename(L_CV = t2) %>%  
+  rename(L_skew = t3) %>%  
+  rename(L_kurtosis = t4) 
+
+# 6 join all of the lmom data  
+lmom_gage <- full_join(lmom_gage, dischord, 
+                       by = c("sta", "L_CV", "L_skew", 'L_kurtosis'))  
+
+# 6. clean up global enviroment====   
+rm(lmom_gage_list,  
+   lmom_gage_nm,  
+   gage_mon,  
+   dischord, 
+#   lmom_gage_meta,  
+   gage_lmom)  
+
+# 7. export results====  
+export(lmom_gage, "data/gage_meta_lmom.csv")   
+
+```
+
+```{r 5_lmoments_prcp}
+
+# 1. calculate L-moment ratios for precip stations====   
+lmom_sta <- sta_mon_full %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$prcp)) %>%    
   transpose() %>%  
@@ -648,30 +671,29 @@ lmom_sta <- sta_mon %>%
   rename(L_kurtosis = T4) %>%  
   select(L1, L_CV, L_skew, L_kurtosis) %>%  
   mutate(L1 = round(L1,  
-                    digits = 2)  
-  )  
-  
-# get station names from the list  
-lmom_sta_nm <- sta_mon %>%  
+                    digits = 2))  
+
+# 2. get station names from the list====  
+lmom_sta_nm <- sta_mon_full %>%  
   split(.$sta) %>%  
   map(~ lmoms(.$prcp)) %>%  
   transpose()  
-  
+
 lmom_sta_nm <- lmom_sta_nm %>%  
   pluck(1) %>%  
   enframe()  
-  
+
 lmom_sta_nm <- lmom_sta_nm %>%  
   unnest(value)  
-  
+
 lmom_sta_nm <- lmom_sta_nm %>%  
   group_by(name) %>%  
   summarize(L1 = first(value)) %>%  
   ungroup() %>%  
   mutate(L1 = round(L1,  
                     digits = 2))  
-  
-# join name to lmom vals & to the metadata  
+
+# 3. join name to lmom vals & to the metadata  
 lmom_sta <- full_join(lmom_sta_nm, lmom_sta,  
                       by = "L1") %>%  
   rename(sta = name) %>%  
@@ -684,69 +706,69 @@ lmom_sta <- full_join(lmom_sta_nm, lmom_sta,
   mutate(L_kurtosis = round(L_kurtosis,  
                             digits = 2)  
   )  
-  
-# join the lmoments to the metadata   
+
 sta_meta_lmom <- full_join(sta_meta_fin, lmom_sta,   
                            by = "sta")   
-  
-export(sta_meta_lmom, "data/sta_meta_lmom.csv")    
-  
+
+# 4. clean up global environment====
 rm(sta_meta_fin,   
    lmom_sta_nm,  
-   sta_mon, 
-   lmom_sta,  
-   sta_meta_lmom  
-   )   
-  
+   lmom_sta  
+)   
+
+# 5. export results====  
+export(sta_meta_lmom, "data/sta_meta_lmom.csv")  
+
 ```
 
+```{r 6_prepare_Lmoment_diagram_ratios}  
 
-
-```{r Lmoment_diagram_ratios}  
-# extract elements from the lmrdia list to plot in ggplot2          
+# extract elements from the lmrdia list to plot in ggplot2====          
 #   the x-value is the L-skewness and y-value is L-kurtosis    
-  
-# get vals from the lmrdia list   
+
+# 1. get vals from the lmrdia list====   
 # note that as gamma distribution is a 2-parameter dist, it is not shown   
 lmrdia <- lmrdia()   
-  
-# extract L-skew & L-kurtosis values for several distributions   
+
+# * extract L-skew & L-kurtosis values for several distributions====   
 #   note:  aep4 <- lmrdia %>% extract2(2) %>% as.tibble()    
-  
+
 gev <- lmrdia[[5]]  %>%  
   as_tibble() %>%  
   mutate(distribution = "GEV")      
-  
+
 glo <- lmrdia[[6]]  %>%   
   as_tibble() %>%          
   mutate(distribution = "GLO")  
-  
+
 gpa <- lmrdia[[7]]  %>%   
   as_tibble() %>%         
   mutate(distribution = "GPA")   
-  
+
 gno <- lmrdia[[9]]  %>%   
   as_tibble() %>%      
   mutate(distribution = "GNO")  
-  
+
 gov <- lmrdia[[10]] %>%    
   as_tibble() %>%     
   mutate(distribution = "GOV")  
-  
+
 pe3 <- lmrdia[[12]] %>%   
   as_tibble() %>%         
   mutate(distribution = "PE3")     
-  
+
+# 2. create a dataframe of results====  
 lmom_theo <- bind_rows(gev,   
-                  glo,   
-                  gpa,   
-                  gno,   
-                  gov,   
-                  pe3    
-                  ) %>%  
+                       glo,   
+                       gpa,   
+                       gno,   
+                       gov,   
+                       pe3    
+) %>%  
   rename(L_skew = V1) %>%  
   rename(L_kurtosis = V2)  
-  
+
+# 3. clean up global environment====  
 rm(gev,   
    glo,   
    gpa,   
@@ -754,13 +776,16 @@ rm(gev,
    gov,   
    pe3,   
    lmrdia   
-   )   
-  
+)  
+
+# 4 export lmom_theo====  
+export(lmom_theo, "data/lmom_theo.csv")  
+
 ```  
 
-```{r plot-lmoment-diagram}  
+```{r 7_prepare-lmoment-diagram}  
   
-# prepare station data for plot====   
+# 1. prepare station data for plot====   
 lmom_sta <- import("data/sta_meta_lmom.csv") %>%   
   select(sta,  
          L1,  
@@ -771,16 +796,10 @@ lmom_sta <- import("data/sta_meta_lmom.csv") %>%
   mutate(flow_regime = "precipitation") %>%  
   mutate(ecoreg = "NA") %>%  
   mutate(type = "sta")  
-  
-# prepare gage data for plot====       
-# drop discordant stations & calculate ecoregion vals  
-lmom_gage <- import("data/gage_meta_lmom.csv")  
-  
-discord <- lmom_gage %>%  
-  filter(isD == TRUE)  
-  
-lmom_gage <- lmom_gage %>%  
-  select(sta,  
+
+# 2. prepare gage data for plot====       
+lmom_gage <- import("data/gage_meta_lmom.csv") %>% 
+    select(sta,  
          flow_regime,  
          ecoreg,  
          L1,   
@@ -788,12 +807,21 @@ lmom_gage <- lmom_gage %>%
          L_skew,   
          L_kurtosis,  
          isD   
-  ) %>%  
+  ) 
+
+# * drop discordant stations & calculate ecoregion vals====  
+gage_discord <- lmom_gage %>%  
+  filter(isD == TRUE) %>% 
+  select(-isD) %>%  
+  mutate(type = "discordant")  
+
+lmom_gage <- lmom_gage %>%  
+  # prepare to join to lmom_ecoreg  
   filter(isD == FALSE)  %>%  
   select(-isD) %>%  
   mutate(type = "gage")  
-  
-# calculate ecoregion values  
+
+# 3. calculate lmom ecoregion values====  
 lmom_ecoreg <- lmom_gage %>%  
   group_by(ecoreg) %>%  
   summarise(L1         = mean(L1),  
@@ -801,7 +829,7 @@ lmom_ecoreg <- lmom_gage %>%
             L_skew     = mean(L_skew),  
             L_kurtosis = mean(L_kurtosis),  
             n          = n()  
-            ) %>%  
+  ) %>%  
   ungroup() %>%  
   gather(key, val, -ecoreg) %>%  
   mutate(val           = round(val, digits = 2)) %>%  
@@ -810,15 +838,15 @@ lmom_ecoreg <- lmom_gage %>%
   mutate(sta           = NA) %>%  
   mutate(flow_regime   = "ecoregion mean") %>%  
   mutate(type          = "gage")  
-  
-# join station & individual gage data  
+
+# 4. join lmom data & prepare for plotting====  
 lmom_data <- bind_rows(lmom_gage,  
-                       lmom_sta,   
-                       lmom_ecoreg  
-)  
-  
-# refactor levels and provide label names====   
-lmom_data <- lmom_data %>%   
+                       lmom_ecoreg,  
+                       lmom_sta, 
+                       gage_discord) %>%  
+  # arrange columns  
+  select(type, everything()) %>%  
+  # refactor levels and provide label names    
   mutate(ecoreg = fct_relevel(ecoreg,   
                               "NA",   
                               "Sand Hills",   
@@ -834,13 +862,18 @@ lmom_data <- lmom_data %>%
                                    "intermittent",   
                                    "ecoregion mean"  
   ))    
-  
-type_labels <- c(  
-  gage = "stream gages",  
+
+type_labels <- c(
+  discordant = "discordant gages",  
+  gage = "concordant gages",  
   sta = "weather stations"  
 )  
-  
-# plot the theoretical distributions, and sample vals----    
+
+```
+
+```{r 8_plot-lmoment-diagram}
+
+# 1 plot the theoretical distributions, and sample vals====    
 ggplot(lmom_data,    
        aes(x = L_skew,  
            y = L_kurtosis  
@@ -848,8 +881,6 @@ ggplot(lmom_data,
   labs(x = "L-skew",  
        y = "L-kurtosis"  
   ) +   
-  xlim(-0.4, 0.4) +  
-  ylim(-0.1, 0.3) +  
   theme_bw() +    
   theme(legend.title      = element_text(size = 10),  
         legend.text       = element_text(size = 8),  
@@ -858,7 +889,10 @@ ggplot(lmom_data,
   guides(linetype         = guide_legend(order = 1),  
          color            = guide_legend(order = 2),   
          shape            = guide_legend(order = 3)  
-  ) +     
+  ) +  
+# set plot limits   
+  xlim(-0.7, 0.7) +  
+  ylim(-0.1, 0.4) +  
   facet_grid(cols     = vars(type),   
              rows     = NULL,  
              scale    = "fixed",   
@@ -882,35 +916,37 @@ ggplot(lmom_data,
     aes(shape = flow_regime,   
         color = ecoreg  
     )) +  
+# scale aesthetics  
   scale_shape_discrete(name = "Type") +  
   scale_colour_grey(  
     breaks = rev(  
       levels(lmom_data$ecoreg)  
     ),  
     guide = "legend", 
-    start      = 0.0,    
-    end        = 0.6,    
+#    start      = 0.0,    
+#    end        = 0.8,    
     na.value   = "red",   
     aesthetics = "colour",  
     name       = 'Ecoregion'  
-  ) 
-  
-# save plot & table====  
+  )  
+
+# 2 save lmom plot====  
 ggplot2::ggsave(filename = "figure/lmom_plot.png",  
                 width = 6, height = 3.6, units = "in")  
-  
+
+# 3 join discordant gages and save lmom table====  
 export(lmom_data, "data/lmom_table.csv")  
   
-# clean-up====     
-rm(discord,  
-   lmom_theo,   
+# clean-up global environment====     
+rm(lmom_theo,   
    lmom_gage,   
    lmom_ecoreg,    
    lmom_sta,   
    type_labels,  
-   lmom_gage_meta,  
+   gage_discord,  
    sta_meta_lmom,  
-   lmom_data   
+   lmom_data, 
+   gage_lmom  
 )        
   
 ```  
@@ -4438,9 +4474,6 @@ rm(preds_test,
    fit_train)    
  
 ``` 
-
-  
-
 
 ```{r build-glm-models-ecoreg}  
 # prepare for modeling at the ecosystem scale --------------------------------  
