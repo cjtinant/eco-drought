@@ -419,54 +419,27 @@ rm(flow_regime,
    gage_full,  
    gage_mon)  
 
-# GET RID OF OLD CODE 
-# helpful dataframes - depending on where 'data_cleaning' output is at  
-# gage_flow_regime <- import("data/gage_flow_regime.csv")  
-#gage_ecoreg <- import("data/gage_ecoreg.csv")  
-#gage_lmom <- full_join(gage_ecoreg, gage_mon_sri,  
-#                       by = c("sta", "ecoreg"))  
-
-# arrange variables  
-#gage_lmom <- gage_lmom %>%  
-#  select(site_no,  
-#         sta,  
-#         ecoreg,  
-#         flow_regime,  
-#         dec_lat_va,  
-#         dec_long_va,  
-#         everything()  
-#  )  
-
-# select important variables  
-#gage_lmom <- gage_lmom %>%  
-#  select(site_no:dec_long_va)  
-
-
-# drop sites without full data  
-#gage_lmom <- semi_join(gage_lmom, gage_mon_sri,  
-#                  by = "sta")  
-
 ```
 
 # use bootstrapping to check precip differences 
 # NEED TO REDO with water years!
 ```{r 2_bootstrap_precip, eval=FALSE}   
-  
+
 # Construct bootstrap confidence intervals of precipitation----    
 #   to identify differences in means   
 # Monthly precipitation data is from 1954 to 2018 = 65 years  
 #   Split data into two groups of 30 years & test for differences  
-  
+
 # Notes on dabest and memory -- see setup for how to increase memory  
 # dabest for 14,027 obs; 40,000 reps takes ~2 hours.    
 #   Still had memory allocation issues @ 50,000 reps after increasing memory.   
-  
-  
+
+
 # construct bootstrap confidence interval of prcp====   
 prcp_dabest <- sta_mon %>%   
   dabest(x = group,             # grouping variable  
          y = prcp,              # measurement variable   
-# list order shows control as first group on the list   
+         # list order shows control as first group on the list   
          idx = list(c("RAP<1989",  
                       "OEL<1989",  
                       "COT<1989",  
@@ -484,7 +457,7 @@ prcp_dabest <- sta_mon %>%
          reps      = 20000,  
          id.column = group   
   )  
-  
+
 # plot the dabest bootstrap====   
 plot(prcp_dabest,  
      color.column = Period,  
@@ -494,63 +467,102 @@ plot(prcp_dabest,
      rawplot.ylabel = "Monthly precipitation (mm)",  
      rawplot.groupwidth = 0.3,  
      palette = "Greys")  
-  
+
 # save results====   
 ggplot2::ggsave(filename = "figure/prcp_dif.png",   
                 width = 6.5, height = 4.5, units = "in")  
-  
+
 rm(prcp_dabest,  
    sta_mon  
-   )      
-  
+)      
+
 ```
 
-```{r 3_compare_precip-locations, eval=FALSE}  
-  
-sta_mon <- import("data/sta_mon.csv") %>%    
-  mutate(date = ymd(date))  
+```{r 3_plot_monthly_precip, eval=FALSE}  
 
 # the bootstrapping showed there is some difference between past & present   
-sta_pres <- sta_mon %>%  
-filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))   
-  
+sta_pres <- sta_mon_full %>%  
+  as_tibble() %>%  
+  filter(Period == ">1989") %>%  
+  select(-c(group, Period)) %>%  
+  mutate(mon = month(date)) %>%  
+  mutate(location = case_when(   
+    sta == "COT" ~ "NC",  
+    sta == "GOR" ~ "SC",  
+    sta == "MIS" ~ "SE",  
+    sta == "OEL" ~ "SW",  
+    sta == "ONI" ~ "NE",  
+    sta == "RAP" ~ "NW")  
+  ) 
+
+# * set plotting order====  
+sta_pres$location <-  factor(sta_pres$location, 
+                             levels = c("NW", "NC", "NE", "SW", "SC", "SE")
+) 
+
+# 2 plot annual precips====  
+sta_pres %>%  
+  ggplot(aes(mon, prcp)) +  
+  # set up theme and facets  
+  theme_bw() +   
+  facet_grid(rows =vars(location)) +  
+  # set up labels  
+  labs(title = "Annual precipitation depths",  
+       subtitle = "water years 1989-2018",  
+       x = "",  
+       y = "mm") +  
+  scale_x_continuous(breaks = 1:12,   
+                     labels = c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")) +  
+  geom_quasirandom(size = 0.2,  
+                   position = position_beeswarm())  
+
+ggsave(filename = "figure/prcp_mon.png",   
+       width = 6.5, height = 4.5, units = "in")  
+
+```
+
+```{r 4_compare_precip-locations, eval=FALSE}  
+
+#sta_mon <- import("data/sta_mon.csv") %>%    
+#mutate(date = ymd(date))  
+
 # comparison of locations----   
 # split out northwest & southeast to prepare for plot    
 nw <- sta_pres %>%  
   filter(sta == "COT" |  
-         sta == "RAP" |  
-         sta == "OEL") %>%  
+           sta == "RAP" |  
+           sta == "OEL") %>%  
   select(sta, date, prcp) %>%  
   mutate(prcp = prcp + 1) %>%  
   spread(sta, prcp) %>%   
   gather(other, prcp, -c(date, COT)) %>%  
   mutate(location = "COT") %>%  
   rename(control = COT)   
-  
+
 se <- sta_pres %>%  
   filter(sta == "GOR" |  
-         sta == "ONI" |  
-         sta == "MIS") %>%  
+           sta == "ONI" |  
+           sta == "MIS") %>%  
   select(sta, date, prcp) %>%  
   mutate(prcp = prcp + 1) %>%  
   spread(sta, prcp) %>%   
   gather(other, prcp, -c(date, GOR)) %>%  
   mutate(location = "GOR")  %>%  
   rename(control = GOR)  
-  
+
 # join splits & create factor     
 prcp_compare <- bind_rows(nw, se) %>%  
   mutate(diff = control - prcp) %>%    
   mutate(other = fct_relevel(other,  
-                           "RAP",  
-                           "OEL",  
-                           "ONI",  
-                           "MIS"  
+                             "RAP",  
+                             "OEL",  
+                             "ONI",  
+                             "MIS"  
   ))  
-  
+
 # plot location differences  
 prcp_compare %>%   
-ggplot(aes(date, diff)) +  
+  ggplot(aes(date, diff)) +  
   theme_bw() +  
   xlab("") +  
   ylab("Monthly precipitation difference (mm)") +  
@@ -560,8 +572,8 @@ ggplot(aes(date, diff)) +
   geom_smooth(method = "lm",  
               color  = "gray30",  
               size   = 0.5  
-              )  
-  
+  )  
+
 ggplot2::ggsave(filename = "figure/prcp_loc_dif.png",   
                 width = 6.5, height = 4.5, units = "in")  
 
@@ -570,12 +582,12 @@ rm(nw,
    prcp_compare, 
    sta_mon,  
    sta_pres  
-   )  
-  
+)  
+
 ```
 
 # L-moments 
-```{r 4_lmoment-ratios_streamflow}
+```{r 5_lmoment-ratios_streamflow}
 
 # 1 calculate L-moment ratios====     
 # Note -- we might consider Weiss 1964 bias value of 1.018 for L1  
@@ -673,30 +685,23 @@ rm(lmom_gage_list,
 # 7. export results====  
 export(lmom_gage, "data/gage_meta_lmom.csv")   
 
-# OLD CODE to DELETE  
-#  select(-c(site_no,  
-#            dec_lat_va,  
-#            dec_long_va)  
-#  )  
 ```
 
-```{r 5_lmoment-ratios_prcp}
+```{r 6_lmoment-ratios_prcp}
 
 # 1 calculate L-moment ratios for precip stations====   
-lmom_sta <- sta_mon_full %>%  
+lmom_sta <- sta_mon_full %>%   
   split(.$sta) %>%  
   map(~ lmoms(.$prcp)) %>%    
   transpose() %>%  
   as_tibble() %>%  
   select(lambdas, ratios) %>%  
   mutate(lambdas = map(lambdas,   
-                       ~as_tibble(t(.x))  
-  )) %>%   
+                       ~as_tibble(t(.x)))) %>%   
   mutate(lambdas = map(lambdas,    
                        ~set_names(.x,   
                                   c("L1", "L2", "L3", "L4", "L5")  
-                       )  
-  )) %>%   
+                       ))) %>%   
   mutate(ratios = map(ratios,   
                       ~as_tibble(t(.x)    
                       )   
@@ -751,9 +756,9 @@ lmom_sta <- full_join(lmom_sta_nm, lmom_sta,
   )  
 
 lmom_sta <- full_join(sta_meta_fin, lmom_sta,   
-                           by = "sta")   
+                      by = "sta")   
 
-# 4 clean up global environment====
+# 4 clean up global environment====  
 rm(sta_meta_fin,   
    lmom_sta_nm)   
 
@@ -762,31 +767,31 @@ export(lmom_sta, "data/sta_meta_lmom.csv")
 
 ```
 
-```{r 6_prepare_Lmoment_diagram_ratios}  
+```{r 7_prepare_Lmoment_diagram_ratios}  
 
 # extract elements from the lmrdia list to plot in ggplot2====          
 #   the x-value is the L-skewness and y-value is L-kurtosis    
 
 # 1. get vals from the lmrdia list====   
-# note that as gamma distribution is a 2-parameter dist, it is not shown   
+# note that as gamma distribution is a 2-parameter dist, it is not shown    
 lmrdia <- lmrdia()   
 
 # * extract L-skew & L-kurtosis values for several distributions====   
 #   note:  aep4 <- lmrdia %>% extract2(2) %>% as.tibble()    
 
-gev <- lmrdia[[5]]  %>%  
+gev <- lmrdia[[5]] %>%  
   as_tibble() %>%  
   mutate(distribution = "GEV")      
 
-glo <- lmrdia[[6]]  %>%   
+glo <- lmrdia[[6]] %>%   
   as_tibble() %>%          
   mutate(distribution = "GLO")  
 
-gpa <- lmrdia[[7]]  %>%   
+gpa <- lmrdia[[7]] %>%   
   as_tibble() %>%         
   mutate(distribution = "GPA")   
 
-gno <- lmrdia[[9]]  %>%   
+gno <- lmrdia[[9]] %>%   
   as_tibble() %>%      
   mutate(distribution = "GNO")  
 
@@ -816,24 +821,22 @@ rm(gev,
    gno,   
    gov,   
    pe3,   
-   lmrdia   
-)  
+   lmrdia)  
 
 # 4 export lmom_theo====  
 export(lmom_theo, "data/lmom_theo.csv")  
 
 ```  
 
-```{r 7_prepare-lmoment-diagram}  
+```{r 8_prepare-lmoment-diagram}  
 
 # 1. prepare station data for plot====   
 lmom_sta <- import("data/sta_meta_lmom.csv") %>%   
   select(sta,  
          L1,  
-         L_CV,  
+         L_CV,   
          L_skew,  
-         L_kurtosis  
-  ) %>%  
+         L_kurtosis) %>%  
   mutate(flow_regime = "precipitation") %>%  
   mutate(ecoreg = "NA") %>%  
   mutate(type = "sta")  
@@ -847,8 +850,7 @@ lmom_gage <- import("data/gage_meta_lmom.csv") %>%
          L_CV,   
          L_skew,   
          L_kurtosis,  
-         isD   
-  )  
+         isD)  
 
 # * filter discordant stations & calculate ecoregion vals====  
 gage_discord <- lmom_gage %>%  
@@ -869,8 +871,7 @@ lmom_ecoreg <- lmom_gage %>%
             L_CV       = mean(L_CV),  
             L_skew     = mean(L_skew),  
             L_kurtosis = mean(L_kurtosis),  
-            n          = n()  
-  ) %>%  
+            n          = n()) %>%  
   ungroup() %>%  
   gather(key, val, -ecoreg) %>%  
   mutate(val           = round(val, digits = 2)) %>%  
@@ -895,24 +896,22 @@ lmom_data <- bind_rows(lmom_gage,
                               "Black Hills Plateau",  
                               "White River Badlands",  
                               "Pine Ridge Escarpment",  
-                              "Pierre Shale Plains")    
-  ) %>%   
+                              "Pierre Shale Plains")) %>%   
   mutate(flow_regime = fct_relevel(flow_regime,   
                                    "precipitation",   
                                    "perennial",   
                                    "intermittent",   
-                                   "ecoregion mean"  
-  ))    
+                                   "ecoregion mean")  
+  )    
 
 type_labels <- c(  
   discordant = "discordant gages",  
   gage = "concordant gages",  
-  sta = "weather stations"  
-)  
+  sta = "weather stations")  
 
 ```
 
-```{r 8_plot-lmoment-diagram}
+```{r 9_plot-lmoment-diagram}
 
 # 1 plot the theoretical distributions, and sample vals====    
 ggplot(lmom_data,    
@@ -920,8 +919,7 @@ ggplot(lmom_data,
            y = L_kurtosis  
        )) +  
   labs(x = "L-skew",  
-       y = "L-kurtosis"  
-  ) +   
+       y = "L-kurtosis") +   
   theme_bw() +    
   theme(legend.title      = element_text(size = 10),  
         legend.text       = element_text(size = 8),  
@@ -929,8 +927,7 @@ ggplot(lmom_data,
         legend.spacing    = unit(0.1, "cm")) +  
   guides(linetype         = guide_legend(order = 1),  
          color            = guide_legend(order = 2),   
-         shape            = guide_legend(order = 3)  
-  ) +  
+         shape            = guide_legend(order = 3)) +  
   # set plot limits   
   xlim(-0.7, 0.7) +  
   ylim(-0.1, 0.4) +  
@@ -938,9 +935,7 @@ ggplot(lmom_data,
              rows     = NULL,  
              scale    = "fixed",   
              labeller = labeller(  
-               type     = type_labels  
-             )  
-  ) +  
+               type     = type_labels)) +  
   # add l-moments  
   geom_line(data = lmom_theo,  
             size = 0.5,  
@@ -948,28 +943,24 @@ ggplot(lmom_data,
             aes(L_skew,  
                 L_kurtosis,  
                 group = distribution,  
-                linetype = distribution  
-            )) +   
+                linetype = distribution)) +   
   scale_linetype_discrete(name = "Distribution") +  
   # add individual station data  
   geom_point(  
     size = 2,  
     aes(shape = flow_regime,   
-        color = ecoreg  
-    )) +  
+        color = ecoreg)) +  
   # scale aesthetics  
   scale_shape_discrete(name = "Type") +  
   scale_colour_grey(  
     breaks = rev(  
-      levels(lmom_data$ecoreg)  
-    ),  
+      levels(lmom_data$ecoreg)),  
     guide = "legend",  
     #    start      = 0.0,    
     #    end        = 0.8,    
     na.value   = "red",   
     aesthetics = "colour",  
-    name       = 'Ecoregion'  
-  )  
+    name       = 'Ecoregion')  
 
 # 2 save lmom plot====  
 ggplot2::ggsave(filename = "figure/lmom_plot.png",  
@@ -986,12 +977,11 @@ rm(lmom_theo,
    type_labels,  
    gage_discord,  
    sta_meta_lmom,  
-   gage_lmom  
-)        
+   gage_lmom)        
 
 ```  
 
-```{r 9_export-lmoment-table}
+```{r 10_export-lmoment-table}
 
 # * set the numeric columns====   
 col_key_num <- lmom_data %>%   
@@ -1055,13 +1045,13 @@ rm(coef_table,
 ```
 
 # model-based clustering  
-```{r 10_Mclust-model_gages}  
+```{r 11_Mclust-model_gages}  
 
 # 1 make clustering inputs for gage lmoments====   
 lmom_gage <- lmom_data %>%  
   filter(type != "sta") %>%  
-  filter(sta != "ecoreg_mean")  %>% 
-  filter(type != "discordant")  
+  filter(sta != "ecoreg_mean") 
+#  filter(type != "discordant")  
 
 clust_input <- lmom_gage  %>%  
   select(-c(type, sta, flow_regime, ecoreg)) # get rid of categorical data  
@@ -1081,30 +1071,133 @@ mclust_means <- tidy(mod)
 # 4 update groups based on L_skew====  
 mclust_aug %<>%  
   mutate(flow_regime = as.character(flow_regime)) %>% 
-  mutate(flow_regime = case_when(  
-    type == "discordant" ~ "discordant",  
-    TRUE ~ flow_regime)  
-  )  %>%  
+#  mutate(flow_regime = case_when(  
+#    type == "discordant" ~ "discordant",  
+#    TRUE ~ flow_regime))  %>%  
   mutate(CV_group = case_when(  
-    L_CV < 0.13 ~ "very low",  
-    L_CV < 0.25 ~ "low",  
-    L_CV < 0.50 ~ "moderate",  
-    L_CV < 1.0 ~ "high",  
-    L_CV >= 1.0 ~ "very high")   
-  ) %>%  
+    L_CV < 0.15 ~ "very low",  
+    L_CV < 0.30 ~ "low",  
+    L_CV < 0.60 ~ "moderate",  
+    L_CV < 0.90 ~ "high",  
+    L_CV > 0.90 ~ "very high")) %>%  
   mutate(CV_group = as_factor(CV_group)) %>%  
   mutate(CV_group = fct_reorder(CV_group, L_CV)) %>%  
   mutate(group = case_when(  
     .class == "3" ~ "1",  
     .class == "1" ~ "2",  
     .class == "2" ~ "3", 
-    .class == "6" ~ "4", 
-    .class == "7" ~ "5", 
-    .class == "5" ~ "6", 
-    .class == "4" ~ "7", 
-  ))  
+    .class == "7" ~ "4", 
+    .class == "4" ~ "5", 
+    .class == "6" ~ "6", 
+    .class == "5" ~ "7", 
+    .class == "8" ~ "8"))  
 
-# 5 export results and clean up global environment====  
+# 5 create final clusters====  
+mclust_aug <- mclust_aug %>%  
+  # create a short name variable for ecoregion  
+  mutate(ecoreg2 = case_when(  
+    ecoreg == "Pierre Shale Plains" ~ "psp",  
+    ecoreg == "Keya Paha Tablelands" ~ "kpt",  
+    ecoreg == "Pine Ridge Escarpment" ~ "pre",  
+    ecoreg == "Black Hills Plateau" ~ "bhp",  
+    ecoreg == "Sand Hills" ~ "snd",  
+    ecoreg == "White River Badlands" ~ "bad",  
+  )) %>%  
+  # unite ecoregion and Mclust groups  
+  unite("final_group", ecoreg2, group, 
+        sep = "_", 
+        remove = FALSE) %>%  
+  # create final groups  
+  mutate(final_group = case_when(  
+    final_group == "bad_2" ~ "Tertiary Clays",  
+    final_group == "pre_2" ~ "Tertiary Clays",  
+    final_group == "bhp_3" ~ "Black Hills Plateau",  
+    final_group == "kpt_3" ~ "Keya Paha Tablelands",  
+    final_group == "kpt_4" ~ "Keya Paha Tablelands",  
+    final_group == "snd_3" ~ "Sand Hills",  
+    final_group == "snd_4" ~ "Sand Hills",  
+    final_group == "snd_1" ~ "GW control",  
+    final_group == "bhp_1" ~ "GW control",   
+    L1           < 1.0     ~ "Pierre Shale Low",  
+    L1           > 1.0     ~ "Pierre Shale High",  
+    TRUE ~ "NA")) %>%  
+  # relevel ecoregion for plotting  
+  mutate(ecoreg = factor(ecoreg)) %>% 
+  mutate(ecoreg = fct_relevel(ecoreg,  
+                              "Pierre Shale Plains",  
+                              "Pine Ridge Escarpment",  
+                              "White River Badlands",  
+                              "Black Hills Plateau",  
+                              "Keya Paha Tablelands",  
+                              "Sand Hills")) %>%  
+# relevel final groups for plotting  
+mutate(final_group = factor(final_group)) %>% 
+  mutate(final_group = fct_relevel(final_group,  
+                                   "GW control",  
+                                   "Tertiary Clays",  
+                                   "Pierre Shale High",  
+                                   "Black Hills Plateau",  
+                                   "Keya Paha Tablelands", 
+                                   "Sand Hills", 
+                                   "Pierre Shale Low"))  
+
+# 6 create final group summaries====  
+final_group <- mclust_aug %>%  
+  # summarise by final group  
+  group_by(final_group) %>%  
+  summarise(L1 = mean(L1),  
+            L_CV = mean(L_CV),  
+            L_skew = mean(L_skew),  
+            L_kurtosis = mean(L_kurtosis)) %>%  
+  ungroup() %>%  
+  mutate_if(is.numeric, round, 2) %>%  
+  # add ecoregions as doubled for cases when two ecoregions are present 
+  mutate(ecoreg = case_when(  
+    final_group == "GW control" ~  
+      "Black Hills Plateau_Sand Hills",  
+    final_group == "Tertiary Clays" ~  
+      "Pine Ridge Escarpment_White River Badlands",  
+    final_group == "Pierre Shale High" ~  
+      "Pierre Shale Plains_Pierre Shale Plains",  
+    final_group == "Black Hills Plateau" ~  
+      "Black Hills Plateau_Black Hills Plateau",  
+    final_group == "Keya Paha Tablelands" ~  
+      "Keya Paha Tablelands_Keya Paha Tablelands",   
+    final_group == "Sand Hills" ~  
+      "Sand Hills_Sand Hills",  
+    final_group == "Pierre Shale Low" ~  
+      "Pierre Shale Plains_Pierre Shale Plains")) %>%  
+  # separate ecoregons into two columns  
+  separate(ecoreg, c("ecoreg1", "ecoreg2"), sep = "_") %>%  
+  # gather and drop duplicates  
+  gather(key = drop, val = ecoreg,  
+         -c(final_group, L1, L_CV, L_skew, L_kurtosis)) %>%  
+  select(-drop) %>%  
+  distinct() %>%  
+  arrange(L_skew) %>%   
+  # relevel ecoregion for plotting  
+  mutate(ecoreg = factor(ecoreg)) %>% 
+  mutate(ecoreg = fct_relevel(ecoreg,  
+                              "Pierre Shale Plains",  
+                              "Pine Ridge Escarpment",  
+                              "White River Badlands",  
+                              "Black Hills Plateau",  
+                              "Keya Paha Tablelands",  
+                              "Sand Hills")) %>%  
+# relevel final groups for plotting  
+mutate(final_group = factor(final_group)) %>% 
+  mutate(final_group = fct_relevel(final_group,  
+                                   "GW control",  
+                                   "Tertiary Clays",  
+                                   "Pierre Shale High",  
+                                   "Black Hills Plateau",  
+                                   "Keya Paha Tablelands", 
+                                   "Sand Hills", 
+                                   "Pierre Shale Low"))  
+
+  
+  
+# 6 export results and clean up global environment====  
 export(mclust_aug, "data/lmom_mclust_fit.csv")  
 
 rm(lmom_data,  
@@ -1117,23 +1210,108 @@ rm(lmom_data,
 
 ```  
 
-```{r 11-Mclust-plot}  
+```{r 12-Mclust-plot}  
 
-mclust_aug %>%  
+init_grp_plot <- mclust_aug %>%  
   ggplot(aes(L_skew, L_kurtosis)) +  
-  # set theme and facets #  
+  # set theme, facets, labels #  
+  theme_bw() +  
+  facet_wrap(vars(ecoreg)) +  
+  ggtitle("Initial L-moment groups for streamflow gages", 
+          subtitle = "scaled by L1 magnitude") + 
+  xlab("L-skew") +  
+  ylab("L-kurtosis") +  
+  geom_point(aes(color = group,  
+                 shape = CV_group,  
+                 size = L1)) +  
+  scale_size(range = c(1, 4), guide = "none") +     
+  scale_color_grey(name = "Mclust group") +  
+  scale_shape(name = "CV magnitude")  
+
+fin_grp_plot <- mclust_aug %>%  
+  ggplot(aes(L_skew, L_kurtosis)) +  
+  # set theme, facets, labels #  
+  theme_bw() +  
+  facet_wrap(vars(ecoreg)) +  
+  ggtitle("Final L-moment groups for streamflow gages") + 
+  xlab("L-skew") +  
+  ylab("L-kurtosis") +  
   theme_bw() +  
   facet_wrap(vars(ecoreg)) + 
-  geom_point(aes(color = group, 
-                 shape = CV_group, 
-                 size = L1)) + 
-  guides(size = "none")  
+  geom_point(data = final_group, 
+             shape = 3,  
+             size = 4,  
+             aes(color = final_group)) +   
+  geom_point(aes(color = final_group,  
+                 size = L1)) +  
+  scale_size(range = c(1, 4), guide = "none") +     
+  scale_color_grey(name = "Final groups")  
 
+# plot the plots above as a grid & save====  
+cowplot::plot_grid(init_grp_plot, fin_grp_plot,  
+                   ncol = 1,   
+                   align = "v")    
+  
+cowplot::ggsave2("figure/Mclust_lmoms.png",  
+                 units = "in",  
+                 width = 7,  
+                 height = 9)  
+  
 ```
 
 # calculate SCI  
-```{r prepare_SRI}  
+```{r prepare_SPI} 
 
+#sta_mon <- import("data/sta_mon.csv") %>%  
+#  mutate(date = ymd(date))  
+
+# 1.0 prepare sci function vector inputs====   
+# 1.1 north-west (NW)====   
+sta_rap <- sta_pres %>%   
+  arrange(date) %>%   
+  filter(sta == "RAP")   
+
+rap <- as.double(sta_rap$prcp)   
+
+# 1.2 north-central (NC)====  
+sta_cot <- sta_pres %>%   
+  arrange(date) %>%  
+  filter(sta == "COT")   
+
+cot <- as.double(sta_cot$prcp)   
+
+# 1.3 north-east (NE)====  
+sta_oni <- sta_pres %>%  
+  arrange(date) %>%   
+  filter(sta == "ONI")    
+
+oni <- as.double(sta_oni$prcp)   
+
+# 1.4 south-west (SW)====   
+sta_oel <- sta_pres %>%  
+  arrange(date) %>%  
+  filter(sta == "OEL")   
+
+oel <- as.double(sta_oel$prcp)   
+
+# 1.5 south-central (SC)====  
+sta_gor <- sta_pres %>%  
+  arrange(date) %>%  
+  filter(sta == "GOR")    
+
+gor <- as.double(sta_gor$prcp)   
+
+# 1.6 south-east (SE)====  
+sta_mis <- sta_pres %>%  
+  arrange(date) %>%  
+  filter(sta == "MIS")   
+
+mis <- as.double(sta_mis$prcp)   
+
+``` 
+
+```{r prepare_SRI}  
+ 
 # * double-check input data====  
 gage_mon_sri %>%   
   group_by(sta) %>%   
@@ -1142,11 +1320,11 @@ gage_mon_sri %>%
   mutate(num_yr = count/12)  
 
 # prepare input for SCI====    
-sri_input <- lmom_data %>%  
-  filter(type == "gage") %>%  
-  filter(sta != is.na(sta))  
+#sri_input <- mclust_aug %>%  
+#  filter(type == "gage") %>%  
+#  filter(sta != is.na(sta))  
 
-sri_input <- semi_join(gage_mon_sri, sri_input,  
+sri_input <- semi_join(gage_mon_sri, mclust_aug,  
                        by = "sta") %>% 
   rename(date = Date) %>%   
   arrange(date) %>%  
@@ -1154,8 +1332,7 @@ sri_input <- semi_join(gage_mon_sri, sri_input,
     sta,  
     ecoreg,  
     date,  
-    log_q1_mon  
-  )  
+    log_q1_mon)  
 
 # * double-check input data====  
 sri_input %>%  
@@ -1317,7 +1494,7 @@ rm(sri_input)
 #)    
 ```  
 
-```{r SCI_function, eval=FALSE}  
+```{r SCI_function}  
 
 # fitSCI identifies Standardized Climate Index (SCI) parameters----       
 #   some notes about the SCI package:      
@@ -1332,8 +1509,8 @@ p_zero     <- TRUE  # sets a function to reduce zero-precip bias
 p_zero_cm  <- TRUE  # uses Weibull plotting position for p_zero     
 scale      <- "sd"  # scales input by subtract mean & divide by sd     
 warn_me    <- TRUE  # sets explicit warning    
-first_mon  <- 1     # Set first month for each station   
-sci.limit  <- 3.5     # Sets a limit of [-3, 3] for limit   
+first_mon  <- 10     # Set first month for each station   
+sci.limit  <- 3     # Sets a limit of [-3, 3] for limit   
 
 # sci function====                                            
 sci.fun <- function(sta, time_scale) fitSCI( x = sta,    
@@ -1349,103 +1526,56 @@ sci.fun <- function(sta, time_scale) fitSCI( x = sta,
 
 ```  
 
-# delCINK below
-```{r calculate_SPI, eval=FALSE} 
-  
-sta_mon <- import("data/sta_mon.csv") %>%  
-  mutate(date = ymd(date))  
-  
-# prepare sci function vector inputs (1989-01 to 2017-01)----     
-# north-west (NW)   
-sta_rap <- sta_mon %>%   
-  arrange(date) %>%   
-  filter(sta == "RAP")   
-  
-rap <- as.double(sta_rap$prcp)   
-  
-# north-central (NC)  
-sta_cot <- sta_mon %>%   
-  arrange(date) %>%  
-  filter(sta == "COT")   
-  
-cot <- as.double(sta_cot$prcp)   
-  
-# north-east (NE)  
-sta_oni <- sta_mon %>%  
-  arrange(date) %>%   
-  filter(sta == "ONI")    
-  
-oni <- as.double(sta_oni$prcp)   
-  
-# south-west (SW)   
-sta_oel <- sta_mon %>%  
-  arrange(date) %>%  
-  filter(sta == "OEL")   
-  
-oel <- as.double(sta_oel$prcp)   
-  
-# south-central (SC)  
-sta_gor <- sta_mon %>%  
-  arrange(date) %>%  
-  filter(sta == "GOR")    
-  
-gor <- as.double(sta_gor$prcp)   
-  
-# south-east (SE)  
-sta_mis <- sta_mon %>%  
-  arrange(date) %>%  
-  filter(sta == "MIS")   
-  
-mis <- as.double(sta_mis$prcp)   
-  
-# calculate SCI-rap----  
-# set up the station for sci & make sci list vars====   
+```{r calculate_SPI} 
+
+# 1.0 calculate SCI-rap---- 
+# * set up the station for sci & make sci list vars====   
 sta      <- rap  
-sci_1mo  <- sci.fun(sta, 1)                             
-sci_2mo  <- sci.fun(sta, 2)                             
+sci_1mo  <- sci.fun(sta, 1)      # MLE fail month 5  (MAY)                 
+sci_2mo  <- sci.fun(sta, 2)      # MLE fail month 6  (MAY-JUN)                  
 sci_3mo  <- sci.fun(sta, 3)                             
 sci_4mo  <- sci.fun(sta, 4)    
-sci_6mo  <- sci.fun(sta, 6)    
-sci_9mo  <- sci.fun(sta, 9)    
+sci_6mo  <- sci.fun(sta, 6)      # MLE fail month 5  (MAY-DEC)
+sci_9mo  <- sci.fun(sta, 9)      # MLE fail month 1  (MAY-JAN)  
 sci_12mo <- sci.fun(sta, 12)   
-  
-# Apply the transformation identified by fitSCI function====   
+
+# * apply the transformation identified by fitSCI function====   
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,    
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
-  
-# bind and rename the sci vals====      
+
+# * bind and rename the sci vals====      
 sci_rap <- bind_cols(sta_rap,     
                      sci_1mo,   
                      sci_2mo,   
@@ -1462,66 +1592,65 @@ sci_rap <- bind_cols(sta_rap,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)      
-  
-# clean up global environment====  
+
+# * clean up global environment====  
 rm(sci_1mo,  
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo)      
 rm(sta_rap, rap)   
-  
-# calculate SCI-cot----   
-# set up the station for sci & make sci list vars   
+
+# 2.0 calculate SCI-cot----   
+# * set up the station for sci & make sci list vars====   
 sta      <- cot  
 sci_1mo  <- sci.fun(sta, 1)                               
 sci_2mo  <- sci.fun(sta, 2)                             
-sci_3mo  <- sci.fun(sta, 3)                            
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail month 6    (APR-JUN)              
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)   
 sci_9mo  <- sci.fun(sta, 9)   
 sci_12mo <- sci.fun(sta, 12)  
-  
-# Apply the transformation identified by fitSCI function    
+
+# * apply the transformation identified by fitSCI function====    
 sci_1mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_2mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_6mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%  
   enframe(name                     = NULL)  
-  
-# bind and rename the sci vals     
+
+# * bind and rename the sci vals====     
 sci_cot <- bind_cols(sta_cot,     
                      sci_1mo,  
                      sci_2mo,   
@@ -1538,66 +1667,65 @@ sci_cot <- bind_cols(sta_cot,
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%   
   rename(sci_12mo = value6)       
-  
-# clean up global environment  
+
+# * clean up global environment====  
 rm(sci_1mo,  
    sci_2mo,  
    sci_3mo,  
    sci_4mo,  
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )           
+   sci_12mo)           
 rm(sta_cot, cot)  
-  
-# calculate SCI-oni----   
-# set up the station for sci & make sci list vars     
+
+# 3.0 calculate SCI-oni----   
+# * set up the station for sci & make sci list vars====     
 sta      <- oni    
-sci_1mo  <- sci.fun(sta, 1)         # fail at mon = 11                       
+sci_1mo  <- sci.fun(sta, 1)         # fail at mon = 10 (OCT)                
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                            
 sci_4mo  <- sci.fun(sta, 4)   
 sci_6mo  <- sci.fun(sta, 6)   
 sci_9mo  <- sci.fun(sta, 9)   
 sci_12mo <- sci.fun(sta, 12)  
-  
-# Apply the transformation identified by fitSCI function      
+
+# * apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_2mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_6mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%  
   enframe(name                     = NULL)  
-  
-# bind and rename the sci vals     
+
+# * bind and rename the sci vals====     
 sci_oni <- bind_cols(sta_oni,     
                      sci_1mo,  
                      sci_2mo,   
@@ -1614,66 +1742,65 @@ sci_oni <- bind_cols(sta_oni,
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)      
-  
-# clean up global environment  
+
+# * clean up global environment====  
 rm(sci_1mo,  
    sci_2mo,  
    sci_3mo,  
    sci_4mo,  
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )         
+   sci_12mo)         
 rm(sta_oni, oni)  
-  
-# calculate SCI-oel----  
-# set up the station for sci & make sci list vars   
+
+# 4.0 calculate SCI-oel----  
+# * set up the station for sci & make sci list vars====   
 sta      <- oel  
 sci_1mo  <- sci.fun(sta, 1)                              
 sci_2mo  <- sci.fun(sta, 2)                             
-sci_3mo  <- sci.fun(sta, 3)                            
+sci_3mo  <- sci.fun(sta, 3)   # MLE fail month 12 (OCT-DEC)              
 sci_4mo  <- sci.fun(sta, 4)   
 sci_6mo  <- sci.fun(sta, 6)   
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)  
-  
-# Apply the transformation identified by fitSCI function       
+
+# * apply the transformation identified by fitSCI function====       
 sci_1mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj = sci_1mo) %>%  
   enframe(name = NULL)  
-  
+
 sci_2mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj = sci_2mo) %>%  
   enframe(name = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj = sci_3mo) %>%  
   enframe(name = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj = sci_4mo) %>%  
   enframe(name = NULL)  
-  
+
 sci_6mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj = sci_6mo) %>%  
   enframe(name = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj = sci_9mo) %>%  
   enframe(name = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj = sci_12mo) %>%  
   enframe(name = NULL)  
-  
-# bind and rename the sci vals   
+
+# * bind and rename the sci vals====   
 sci_oel <- bind_cols(sta_oel,     
                      sci_1mo,  
                      sci_2mo,   
@@ -1690,66 +1817,65 @@ sci_oel <- bind_cols(sta_oel,
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)      
-  
-# clean up global environment        
+
+# * clean up global environment====        
 rm(sci_1mo,  
    sci_2mo,  
    sci_3mo,  
    sci_4mo,  
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )         
+   sci_12mo)         
 rm(sta_oel, oel)    
-  
-# calculate SCI-gor----  
-# set up the station for sci & make sci list vars   
+
+# 5.0 calculate SCI-gor----  
+# * set up the station for sci & make sci list vars====   
 sta      <- gor    
-sci_1mo  <- sci.fun(sta, 1)                              
+sci_1mo  <- sci.fun(sta, 1)      # MLE fail month 9 (SEP)                   
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                            
 sci_4mo  <- sci.fun(sta, 4)   
 sci_6mo  <- sci.fun(sta, 6)   
 sci_9mo  <- sci.fun(sta, 9)   
 sci_12mo <- sci.fun(sta, 12)  
-  
-# Apply the transformation identified by fitSCI function        
+
+# * apply the transformation identified by fitSCI function====        
 sci_1mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_2mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_6mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%  
   enframe(name                     = NULL)  
-  
-# bind and rename the sci vals      
+
+# * bind and rename the sci vals====      
 sci_gor <- bind_cols(sta_gor,     
                      sci_1mo,  
                      sci_2mo,   
@@ -1766,66 +1892,65 @@ sci_gor <- bind_cols(sta_gor,
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)    
-  
-# clean up global environment    
+
+# * clean up global environment====    
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,   
    sci_4mo,  
    sci_6mo,  
    sci_9mo,  
-   sci_12mo   
-   )    
+   sci_12mo)    
 rm(sta_gor, gor)    
-  
-# calculate sci-mis----  
-# set up the station for sci & make sci list vars   
+
+# 6.0 calculate sci-mis----  
+# * set up the station for sci & make sci list vars ====  
 sta      <- mis  
-sci_1mo  <- sci.fun(sta, 1)         # fail for mon = 4                      
+sci_1mo  <- sci.fun(sta, 1)         # fail for mon = 8 (AUG)               
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                            
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)   
 sci_9mo  <- sci.fun(sta, 9)   
 sci_12mo <- sci.fun(sta, 12)  
-  
-# Apply the transformation identified by fitSCI function     
+
+# * apply the transformation identified by fitSCI function====     
 sci_1mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_2mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_6mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%  
   enframe(name                     = NULL)  
-  
-# bind and rename the sci vals     
+
+# * bind and rename the sci vals====     
 sci_mis <- bind_cols(sta_mis,     
                      sci_1mo,  
                      sci_2mo,   
@@ -1842,29 +1967,29 @@ sci_mis <- bind_cols(sta_mis,
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)      
-  
-# clean up global environment  
+
+# * clean up global environment====  
 rm(sci_1mo,  
    sci_2mo,  
    sci_3mo,  
    sci_4mo,  
    sci_6mo,  
    sci_9mo,  
-   sci_12mo   
-   )   
+   sci_12mo)   
 rm(sta_mis, mis)      
-  
-# join sci data----   
+
+# 7.0 join sci data----   
 sci_sta <- bind_rows(  
   sci_rap,  
   sci_cot,  
   sci_oni,  
   sci_oel,  
   sci_gor,  
-  sci_mis  
-) %>%  
-    # truncate sci vals to [-3, 3]    
-  gather(key = type, val = value, -c(sta, date, prcp)) %>%  
+  sci_mis) %>%  
+  select(-c(yr, mon)) %>%  
+  # truncate sci vals to [-3, 3]    
+  gather(key = type, val = value, -c(sta, date, prcp, location)) %>% 
+#  mutate(val_orig = value) %>% 
   mutate(value = case_when(     
     value < -3.0 ~ -3.0,    
     value >  3.0 ~  3.0,  
@@ -1872,36 +1997,27 @@ sci_sta <- bind_rows(
   spread(type, value) %>%    
   # move the longer sci-values to the end of the df    
   select(-sci_12mo, sci_12mo)    
-  
-# export sci data        
+
+# 8.0 export sci data & clean workspace====        
 export(sci_sta, "data/sci_sta.csv")  
-  
-# clean up workspace     
+
+# * clean up workspace     
 rm(sci_cot,  
    sci_gor,  
    sci_mis,  
    sci_oel,  
    sci_oni,  
    sci_rap,  
-   sta_mon  
-   )         
-  
-#distrib,  
-#   first_mon,   
-#   p_zero,   
-#   p_zero_cm,   
-#   scale,   
-#   sci.limit,   
-#   sta,   
-#   time_scale,   
-#   warn_me,  
-#   sci.fun,  
+   sta_mon_full,  
+   sta_pres  
+)         
+
 ```  
 
 ```{r calculate_SRI}  
   
-# calculate SCI_blp----   
-# SCI calcs - bha_bat -- set up the station for sci & make sci list vars====  
+# 1.0 calculate SCI_blp====  
+# 1.1 SCI calcs - bha_bat -- set up station for sci & make sci list vars====  
 sta      <- bhp_bat_v   
 sci_1mo  <- sci.fun(sta, 1)                             
 sci_2mo  <- sci.fun(sta, 2)                             
@@ -1910,66 +2026,66 @@ sci_4mo  <- sci.fun(sta, 4)
 sci_6mo  <- sci.fun(sta, 6)    
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)   
-  
-# bha_bat -- apply the transformation identified by fitSCI function====      
+
+# * bha_bat -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo,  
                          sci.limit = sci.limit  
-                         ) %>%  
+) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
-                         obj       = sci_2mo,
+                         obj       = sci_2mo,  
                          sci.limit = sci.limit  
-                         ) %>%  
+) %>%  
   enframe(name                     = NULL)  
-  
-sci_3mo  <- transformSCI(sta,  
+
+sci_3mo  <- transformSCI(sta,   
                          first.mon = first_mon,   
-                         obj       = sci_3mo, 
+                         obj       = sci_3mo,  
                          sci.limit = sci.limit  
-                         ) %>%   
+) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
-                         obj       = sci_4mo, 
+                         obj       = sci_4mo,  
                          sci.limit = sci.limit  
-                         ) %>%    
+) %>%    
   enframe(name                     = NULL)    
   
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
-                         obj       = sci_6mo, 
+                         obj       = sci_6mo,  
                          sci.limit = sci.limit  
-                         ) %>%    
+) %>%    
   enframe(name                     = NULL)  
   
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
-                         obj       = sci_9mo, 
+                         obj       = sci_9mo,  
                          sci.limit = sci.limit  
-                         ) %>%  
+) %>%  
   enframe(name                     = NULL)  
   
-sci_12mo <- transformSCI(sta,  
+sci_12mo <- transformSCI(sta,   
                          first.mon = first_mon,  
-                         obj       = sci_12mo, 
+                         obj       = sci_12mo,  
                          sci.limit = sci.limit  
-                         ) %>%    
+) %>%    
   enframe(name                     = NULL)   
-  
-# bha_bat -- bind and rename the sci vals====         
+
+# * bha_bat -- bind and rename the sci vals====         
 sci_bhp_bat <- bind_cols(bhp_bat,     
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,   
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,   
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -1978,19 +2094,19 @@ sci_bhp_bat <- bind_cols(bhp_bat,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)   
-  
-# bha_bat -- clean up global environment====  
+
+# * bha_bat -- clean up global environment====  
 rm(sci_1mo,  
-   sci_2mo,  
+   sci_2mo,   
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(bhp_bat, bhp_bat_v)   
   
-# SCI calcs - bhp_bev -- set up the station for sci & make sci list vars====    
+# 1.2 SCI calcs - bhp_bev -- set up station for sci & make sci list vars====    
 sta      <- bhp_bev_v  
 sci_1mo  <- sci.fun(sta, 1)                             
 sci_2mo  <- sci.fun(sta, 2)                             
@@ -1999,52 +2115,52 @@ sci_4mo  <- sci.fun(sta, 4)
 sci_6mo  <- sci.fun(sta, 6)    
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)   
-  
-# bha_bev -- apply the transformation identified by fitSCI function====      
-sci_1mo  <- transformSCI(sta,    
+
+# * bha_bev -- apply the transformation identified by fitSCI function====      
+sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
-  
-# bha_bev -- bind and rename the sci vals====        
+
+# * bha_bev -- bind and rename the sci vals====         
 sci_bhp_bev <- bind_cols(bhp_bev,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%   
   rename(sci_2mo = value1)  %>%   
@@ -2053,73 +2169,72 @@ sci_bhp_bev <- bind_cols(bhp_bev,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# bha_bev -- clean up global environment====  
+
+# * bha_bev -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo)      
 rm(bhp_bev, bhp_bev_v)   
-  
-# SCI calcs - bha_fal -- set up the station for sci & make sci list vars====    
+
+# 1.3 SCI calcs - bha_fal -- set up station for sci & make sci list vars====   
 sta      <- bhp_fal_v   
 sci_1mo  <- sci.fun(sta, 1)                             
-sci_2mo  <- sci.fun(sta, 2)                         
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail for month 8         
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 4 (MAR-APR)                    
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail for month 1, 5 (NOV-JAN) (MAR-MAY)   
 sci_4mo  <- sci.fun(sta, 4)    
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 9-  
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 10   
-sci_12mo <- sci.fun(sta, 12)    
-  
-# bha_fal -- apply the transformation identified by fitSCI function====      
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail for month 6 (JAN-JUN)  
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail for month 8 (DEC-AUG) 
+sci_12mo <- sci.fun(sta, 12)   # MLE fail for month 8, 9 (AUG & SEP) 
+
+# * bha_fal -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,   
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
-  
-# bha_fal -- bind and rename the sci vals====      
+
+# * bha_fal -- bind and rename the sci vals====       
 sci_bhp_fal <- bind_cols(bhp_fal,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2128,8 +2243,8 @@ sci_bhp_fal <- bind_cols(bhp_fal,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# bha_fal -- clean up global environment====  
+
+# * bha_fal -- clean up global environment====  
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
@@ -2137,64 +2252,64 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(bhp_fal, bhp_fal_v)   
-  
-# SCI calcs - bha_frn -- set up the station for sci & make sci list vars====  
+
+# 1.4 SCI calcs - bha_frn -- set up station for sci & make sci list vars====  
 sta      <- bhp_frn_v   
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail for month 8                          
-sci_2mo  <- sci.fun(sta, 2)                  
-sci_3mo  <- sci.fun(sta, 3)     # MLE fail for month 9       
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail for month 10 (OCT)                
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail for month 11 (OCT-NOV)               
+sci_3mo  <- sci.fun(sta, 3)     # MLE fail for month 12 (OCT-DEC)       
 sci_4mo  <- sci.fun(sta, 4)     
 sci_6mo  <- sci.fun(sta, 6)     
 sci_9mo  <- sci.fun(sta, 9)      
 sci_12mo <- sci.fun(sta, 12)   
-  
-# bha_frn -- apply the transformation identified by fitSCI function====    
-sci_1mo  <- transformSCI(sta,    
+
+# * bha_frn -- apply the transformation identified by fitSCI function====    
+sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
-  
-# bha_frn -- bind and rename the sci vals====      
+
+# * bha_frn -- bind and rename the sci vals====       
 sci_bhp_frn <- bind_cols(bhp_frn,       
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,    
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2203,21 +2318,20 @@ sci_bhp_frn <- bind_cols(bhp_frn,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# bha_frn -- clean up global environment====  
+
+# * bha_frn -- clean up global environment====  
 rm(sci_1mo,    
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo)      
 rm(bhp_frn, bhp_frn_v)   
-  
-# calculate SCI_kpt----  
-# SCI calcs - kpt_key -- set up the station for sci & make sci list vars====   
-sta      <- kpt_key_v  
+
+# 2.0 calculate SCI_kpt----  
+# 2.1 SCI calcs - kpt_key -- set up station for sci & make sci list vars====   
+sta      <- kpt_key_v   
 sci_1mo  <- sci.fun(sta, 1)                     
 sci_2mo  <- sci.fun(sta, 2)                   
 sci_3mo  <- sci.fun(sta, 3)           
@@ -2225,52 +2339,52 @@ sci_4mo  <- sci.fun(sta, 4)
 sci_6mo  <- sci.fun(sta, 6)     
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)  
-  
-# kpt_key -- apply the transformation identified by fitSCI function====     
-sci_1mo  <- transformSCI(sta,    
+
+# * kpt_key -- apply the transformation identified by fitSCI function====     
+sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
-  
-# kpt_key -- bind and rename the sci vals====      
+
+# * kpt_key -- bind and rename the sci vals====       
 sci_kpt_key <- bind_cols(kpt_key,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2279,8 +2393,8 @@ sci_kpt_key <- bind_cols(kpt_key,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# kpt_key -- clean up global environment====  
+
+# * kpt_key -- clean up global environment====  
 rm(sci_1mo,    
    sci_2mo,   
    sci_3mo,  
@@ -2288,10 +2402,10 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(kpt_key, kpt_key_v)   
-  
-# SCI calcs - kpt_wew -- set up the station for sci & make sci list vars==== 
+
+# 2.2 SCI calcs - kpt_wew -- set up station for sci & make sci list vars==== 
 sta      <- kpt_wew_v  
 sci_1mo  <- sci.fun(sta, 1)                       
 sci_2mo  <- sci.fun(sta, 2)                        
@@ -2300,128 +2414,128 @@ sci_4mo  <- sci.fun(sta, 4)
 sci_6mo  <- sci.fun(sta, 6)     
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
-  
-# kpt_wew -- apply the transformation identified by fitSCI function====    
+
+# * kpt_wew -- apply the transformation identified by fitSCI function====    
+sci_1mo  <- transformSCI(sta,      
+                         first.mon = first_mon,  
+                         obj       = sci_1mo) %>%  
+  enframe(name                     = NULL)   
+
+sci_2mo  <- transformSCI(sta,   
+                         first.mon = first_mon,  
+                         obj       = sci_2mo) %>%   
+  enframe(name                     = NULL)  
+
+sci_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = sci_3mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_4mo  <- transformSCI(sta,    
+                         first.mon = first_mon,   
+                         obj       = sci_4mo) %>%  
+  enframe(name                     = NULL)    
+
+sci_6mo  <- transformSCI(sta,   
+                         first.mon = first_mon,  
+                         obj       = sci_6mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = sci_9mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = sci_12mo) %>%   
+  enframe(name                     = NULL)   
+
+# * kpt_wew -- bind and rename the sci vals====       
+sci_kpt_wew <- bind_cols(kpt_wew,      
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
+) %>%                             
+  rename(sci_1mo = value)   %>%  
+  rename(sci_2mo = value1)  %>%   
+  rename(sci_3mo = value2)  %>%  
+  rename(sci_4mo = value3)  %>%   
+  rename(sci_6mo = value4)  %>%   
+  rename(sci_9mo = value5)  %>%  
+  rename(sci_12mo = value6)  
+
+# * kpt_wew -- clean up global environment====   
+rm(sci_1mo,   
+   sci_2mo,  
+   sci_3mo,  
+   sci_4mo,   
+   sci_6mo,  
+   sci_9mo,  
+   sci_12mo  
+)      
+rm(kpt_wew, kpt_wew_v)   
+
+# 3.0 calculate SCI_pre---- 
+# 3.1 SCI calcs - pre_ogl -- set up station for sci & make sci list vars====   
+sta      <- pre_ogl_v   
+sci_1mo  <- sci.fun(sta, 1)     # MLE fail month 9 (SEP)                    
+sci_2mo  <- sci.fun(sta, 2)     # MLE fail month 10 (SEP-OCT)           
+sci_3mo  <- sci.fun(sta, 3)    
+sci_4mo  <- sci.fun(sta, 4)     # MLE fail month 2 (NOV-FEB)  
+sci_6mo  <- sci.fun(sta, 6)     
+sci_9mo  <- sci.fun(sta, 9)         
+sci_12mo <- sci.fun(sta, 12)   
+
+# * pre_ogl -- apply the transformation identified by fitSCI function====     
 sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
-sci_12mo <- transformSCI(sta,  
-                         first.mon = first_mon,  
-                         obj       = sci_12mo) %>%   
-  enframe(name                     = NULL)   
-  
-# kpt_wew -- bind and rename the sci vals====      
-sci_kpt_wew <- bind_cols(kpt_wew,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
-) %>%                             
-  rename(sci_1mo = value)   %>%  
-  rename(sci_2mo = value1)  %>%   
-  rename(sci_3mo = value2)  %>%  
-  rename(sci_4mo = value3)  %>%   
-  rename(sci_6mo = value4)  %>%   
-  rename(sci_9mo = value5)  %>%  
-  rename(sci_12mo = value6)  
-  
-# kpt_wew -- clean up global environment====   
-rm(sci_1mo,   
-   sci_2mo,  
-   sci_3mo,  
-   sci_4mo,   
-   sci_6mo,  
-   sci_9mo,  
-   sci_12mo  
-   )      
-rm(kpt_wew, kpt_wew_v)   
-  
-# calculate SCI_pre---- 
-# SCI calcs - pre_ogl -- set up the station for sci & make sci list vars====   
-sta      <- pre_ogl_v  
-sci_1mo  <- sci.fun(sta, 1)                         
-sci_2mo  <- sci.fun(sta, 2)              
-sci_3mo  <- sci.fun(sta, 3)    
-sci_4mo  <- sci.fun(sta, 4)    
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 6-  
-sci_9mo  <- sci.fun(sta, 9)         
-sci_12mo <- sci.fun(sta, 12)   
-  
-# pre_ogl -- apply the transformation identified by fitSCI function====     
-sci_1mo  <- transformSCI(sta,    
-                         first.mon = first_mon,  
-                         obj       = sci_1mo) %>%  
-  enframe(name                     = NULL)   
-  
-sci_2mo  <- transformSCI(sta,   
-                         first.mon = first_mon,  
-                         obj       = sci_2mo) %>%   
-  enframe(name                     = NULL)  
-  
-sci_3mo  <- transformSCI(sta,  
-                         first.mon = first_mon,   
-                         obj       = sci_3mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_4mo  <- transformSCI(sta,    
-                         first.mon = first_mon,   
-                         obj       = sci_4mo) %>%  
-  enframe(name                     = NULL)    
-  
-sci_6mo  <- transformSCI(sta,   
-                         first.mon = first_mon,  
-                         obj       = sci_6mo) %>%  
-  enframe(name                     = NULL)  
-  
-sci_9mo  <- transformSCI(sta,  
-                         first.mon = first_mon,   
-                         obj       = sci_9mo) %>%  
-  enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# pre_ogl -- bind and rename the sci vals====        
-sci_pre_ogl <- bind_cols(pre_ogl,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+# * pre_ogl -- bind and rename the sci vals====        
+sci_pre_ogl <- bind_cols(pre_ogl,       
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2430,73 +2544,73 @@ sci_pre_ogl <- bind_cols(pre_ogl,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# pre_ogl -- clean up global environment====   
-rm(sci_1mo,   
+
+# * pre_ogl -- clean up global environment====   
+rm(sci_1mo,    
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(pre_ogl, pre_ogl_v)   
-  
-# SCI calcs - pre_sta -- set up the station for sci & make sci list vars====   
+
+# 3.2 SCI calcs - pre_sta -- set up station for sci & make sci list vars====   
 sta      <- pre_sta_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 12-                    
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 1-                     
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 9 (SEP)                   
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 10  (SEP-OCT)               
 sci_3mo  <- sci.fun(sta, 3)             
 sci_4mo  <- sci.fun(sta, 4)          
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 8-       
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 5 (DEC-MAY)       
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
-  
-# pre_sta -- apply the transformation identified by fitSCI function====      
+
+# * pre_sta -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# pre_sta -- bind and rename the sci vals====       
-sci_pre_sta <- bind_cols(pre_sta,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+# * pre_sta -- bind and rename the sci vals====       
+sci_pre_sta <- bind_cols(pre_sta,       
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2505,8 +2619,8 @@ sci_pre_sta <- bind_cols(pre_sta,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# pre_sta -- clean up global environment====   
+
+# * pre_sta -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
@@ -2514,10 +2628,160 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(pre_sta, pre_sta_v)  
-  
-# SCI calcs - psp_che -- set up the station for sci & make sci list vars====   
+
+# 4.0 calculate SCI_psp---- 
+# 4.1 SCI calcs - psp_che -- set up station for sci & make sci list vars====   
+sta      <- psp_bat_v   
+sci_1mo  <- sci.fun(sta, 1)   # MLE fail months 8 & 10 (AUG & OCT)         
+sci_2mo  <- sci.fun(sta, 2)   # MLE fail month 11 (OCT-NOV)                
+sci_3mo  <- sci.fun(sta, 3)   # MLE fail months 9 & 11  (JUL-SEP) & (SEP-NOV)  
+sci_4mo  <- sci.fun(sta, 4)   # MLE fail month 10 (JUL-OCT)           
+sci_6mo  <- sci.fun(sta, 6)   # MLE fail month 12 (JUN-DEC)                
+sci_9mo  <- sci.fun(sta, 9)   # MLE fail month 3 (JUN-MAR)            
+sci_12mo <- sci.fun(sta, 12)  # MLE fail months 4 & 5 (MAR-APR) & (APR-MAY)    
+
+# * psp_bat -- apply the transformation identified by fitSCI function====      
+sci_1mo  <- transformSCI(sta,    
+                         first.mon = first_mon,  
+                         obj       = sci_1mo) %>%  
+  enframe(name                     = NULL)   
+
+sci_2mo  <- transformSCI(sta,   
+                         first.mon = first_mon,  
+                         obj       = sci_2mo) %>%   
+  enframe(name                     = NULL)  
+
+sci_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = sci_3mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_4mo  <- transformSCI(sta,    
+                         first.mon = first_mon,   
+                         obj       = sci_4mo) %>%  
+  enframe(name                     = NULL)    
+
+sci_6mo  <- transformSCI(sta,   
+                         first.mon = first_mon,  
+                         obj       = sci_6mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = sci_9mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = sci_12mo) %>%   
+  enframe(name                     = NULL)   
+
+# * psp_bat -- bind and rename the sci vals====       
+sci_psp_bat <- bind_cols(psp_bat,       
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
+) %>%                             
+  rename(sci_1mo = value)   %>%  
+  rename(sci_2mo = value1)  %>%   
+  rename(sci_3mo = value2)  %>%  
+  rename(sci_4mo = value3)  %>%   
+  rename(sci_6mo = value4)  %>%   
+  rename(sci_9mo = value5)  %>%  
+  rename(sci_12mo = value6)  
+
+# * psp_bat -- clean up global environment====   
+rm(sci_1mo,   
+   sci_2mo,  
+   sci_3mo,  
+   sci_4mo,   
+   sci_6mo,  
+   sci_9mo,  
+   sci_12mo  
+)      
+rm(psp_bat, psp_bat_v)  
+
+# 4.2 SCI calcs - psp_brs -- set up station for sci & make sci list vars====   
+sta      <- psp_brs_v  
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 1, 9, 11 (JAN & SEP & NOV)   
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail month  4 (MAR-APr)                 
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail month 11 (SEP-NOV)                 
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail month 12 (SEP-DEC)             
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail month  2 (SEP-FEB)                 
+sci_9mo  <- sci.fun(sta, 9)                
+sci_12mo <- sci.fun(sta, 12)      
+
+# * psp_brs -- apply the transformation identified by fitSCI function====      
+sci_1mo  <- transformSCI(sta,     
+                         first.mon = first_mon,  
+                         obj       = sci_1mo) %>%  
+  enframe(name                     = NULL)   
+
+sci_2mo  <- transformSCI(sta,   
+                         first.mon = first_mon,  
+                         obj       = sci_2mo) %>%   
+  enframe(name                     = NULL)  
+
+sci_3mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = sci_3mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_4mo  <- transformSCI(sta,    
+                         first.mon = first_mon,   
+                         obj       = sci_4mo) %>%  
+  enframe(name                     = NULL)    
+
+sci_6mo  <- transformSCI(sta,   
+                         first.mon = first_mon,  
+                         obj       = sci_6mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_9mo  <- transformSCI(sta,  
+                         first.mon = first_mon,   
+                         obj       = sci_9mo) %>%  
+  enframe(name                     = NULL)  
+
+sci_12mo <- transformSCI(sta,  
+                         first.mon = first_mon,  
+                         obj       = sci_12mo) %>%   
+  enframe(name                     = NULL)   
+
+# * psp_brs -- bind and rename the sci vals====       
+sci_psp_brs <- bind_cols(psp_brs,       
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
+) %>%                             
+  rename(sci_1mo = value)   %>%  
+  rename(sci_2mo = value1)  %>%   
+  rename(sci_3mo = value2)  %>%  
+  rename(sci_4mo = value3)  %>%   
+  rename(sci_6mo = value4)  %>%   
+  rename(sci_9mo = value5)  %>%  
+  rename(sci_12mo = value6)  
+
+# * psp_brs -- clean up global environment====   
+rm(sci_1mo,   
+   sci_2mo,  
+   sci_3mo,  
+   sci_4mo,   
+   sci_6mo,  
+   sci_9mo,  
+   sci_12mo)      
+rm(psp_brs, psp_brs_v)  
+
+# 4.3 SCI calcs - psp_che -- set up station for sci & make sci list vars====   
 sta      <- psp_che_v  
 sci_1mo  <- sci.fun(sta, 1)                       
 sci_2mo  <- sci.fun(sta, 2)                        
@@ -2526,52 +2790,52 @@ sci_4mo  <- sci.fun(sta, 4)
 sci_6mo  <- sci.fun(sta, 6)                   
 sci_9mo  <- sci.fun(sta, 9)                
 sci_12mo <- sci.fun(sta, 12)      
-  
-# psp_che -- apply the transformation identified by fitSCI function====      
-sci_1mo  <- transformSCI(sta,    
+
+# * psp_che -- apply the transformation identified by fitSCI function====      
+sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# psp_che -- bind and rename the sci vals====       
+# * psp_che -- bind and rename the sci vals====       
 sci_psp_che <- bind_cols(psp_che,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,   
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2580,73 +2844,72 @@ sci_psp_che <- bind_cols(psp_che,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# psp_che -- clean up global environment====   
+
+# * psp_che -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo)      
 rm(psp_che, psp_che_v)  
-  
-# SCI calcs - psp_elk -- set up the station for sci & make sci list vars====   
+
+# 4.4 SCI calcs - psp_elk -- set up station for sci & make sci list vars====   
 sta      <- psp_elk_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 1, 2, 3, 4, 5, 10, 11, 12-  
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 1, 2, 3, 4, 5, 6, 7, 11, 12 
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail months 1, 2, 3, 4, 6, 7, 12         
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 1, 2, 3, 5, 6, 7, 11, 12 
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 2, 3, 4, 6, 7, 8  
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail months 1, 2, 4, 5, 6, 8, 9, 10, 12    
-sci_12mo <- sci.fun(sta, 12)   # MLE fail months 2, 5, 6, 8, 9, 11      
-  
-# psp_elk -- apply the transformation identified by fitSCI function====      
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 1, 8, 10, 11, 12   
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 1, 2, 6, 8, 11, 12  
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail months 1, 9, 10, 11, 12         
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 1, 3, 9, 12   
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 1, 2, 9, 11, 12  
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail months 6    
+sci_12mo <- sci.fun(sta, 12)   # MLE fail months 6, 7    
+
+# * psp_elk -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# psp_elk -- bind and rename the sci vals====       
+# * psp_elk -- bind and rename the sci vals====       
 sci_psp_elk <- bind_cols(psp_elk,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,    
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2655,8 +2918,8 @@ sci_psp_elk <- bind_cols(psp_elk,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# psp_elk -- clean up global environment====   
+
+# * psp_elk -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
@@ -2664,64 +2927,64 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(psp_elk, psp_elk_v)  
-  
-# SCI calcs - psp_hat -- set up the station for sci & make sci list vars====   
+
+# 4.5 SCI calcs - psp_hat -- set up station for sci & make sci list vars====   
 sta      <- psp_hat_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 6, 9  
-sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 4, 10  
-sci_3mo  <- sci.fun(sta, 3)    # MLE fail months 10, 11          
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 1, 5  
-sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 3, 6     
-sci_9mo  <- sci.fun(sta, 9)    # MLE fail months 1, 6    
-sci_12mo <- sci.fun(sta, 12)   # MLE fail months 7      
-  
-# psp_hat -- apply the transformation identified by fitSCI function====      
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 9, 11   
+sci_2mo  <- sci.fun(sta, 2)    # MLE fail months 2, 12   
+sci_3mo  <- sci.fun(sta, 3)            
+sci_4mo  <- sci.fun(sta, 4)    # MLE fail months 2  
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail months 10    
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail months 12    
+sci_12mo <- sci.fun(sta, 12)         
+
+# * psp_hat -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# psp_hat -- bind and rename the sci vals====       
-sci_psp_hat <- bind_cols(psp_hat,       
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+# * psp_hat -- bind and rename the sci vals====       
+sci_psp_hat <- bind_cols(psp_hat,        
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2730,8 +2993,8 @@ sci_psp_hat <- bind_cols(psp_hat,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# psp_hat -- clean up global environment====   
+
+# * psp_hat -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
@@ -2739,64 +3002,64 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(psp_hat, psp_hat_v)  
-  
-# SCI calcs - psp_whi -- set up the station for sci & make sci list vars====   
+
+# 4.6 SCI calcs - psp_whi -- set up station for sci & make sci list vars====   
 sta      <- psp_whi_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail months 7-   
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 7   
 sci_2mo  <- sci.fun(sta, 2)      
 sci_3mo  <- sci.fun(sta, 3)                
 sci_4mo  <- sci.fun(sta, 4)     
 sci_6mo  <- sci.fun(sta, 6)     
 sci_9mo  <- sci.fun(sta, 9)                 
 sci_12mo <- sci.fun(sta, 12)        
-  
-# psp_whi -- apply the transformation identified by fitSCI function====      
-sci_1mo  <- transformSCI(sta,    
+
+# * psp_whi -- apply the transformation identified by fitSCI function====      
+sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# psp_whi -- bind and rename the sci vals====       
+# * psp_whi -- bind and rename the sci vals====       
 sci_psp_whi <- bind_cols(psp_whi,       
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,   
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2805,8 +3068,8 @@ sci_psp_whi <- bind_cols(psp_whi,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# psp_whi -- clean up global environment====   
+
+# * psp_whi -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
@@ -2814,65 +3077,65 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(psp_whi, psp_whi_v)  
-  
-# calculate SCI_snd---- 
-# SCI calcs - snd_lcr -- set up the station for sci & make sci list vars====    
-sta      <- snd_lcr_v  
-sci_1mo  <- sci.fun(sta, 1)                   
+
+# 5.0 calculate SCI_snd---- 
+# 5.1 SCI calcs - snd_lcr -- set up station for sci & make sci list vars====    
+sta      <- snd_lcr_v   
+sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 5, 8                     
 sci_2mo  <- sci.fun(sta, 2)                       
 sci_3mo  <- sci.fun(sta, 3)       
-sci_4mo  <- sci.fun(sta, 4)    # MLE fail month 7  
-sci_6mo  <- sci.fun(sta, 6)     
+sci_4mo  <- sci.fun(sta, 4)   
+sci_6mo  <- sci.fun(sta, 6)    # MLE fail month 5   
 sci_9mo  <- sci.fun(sta, 9)    
 sci_12mo <- sci.fun(sta, 12)    
-  
-# snd_lcr -- apply the transformation identified by fitSCI function====      
+
+# * snd_lcr -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,    
-                         first.mon = first_mon,  
+                         first.mon = first_mon,   
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# snd_lcr -- bind and rename the sci vals====        
+# * snd_lcr -- bind and rename the sci vals====        
 sci_snd_lcr <- bind_cols(snd_lcr,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,    
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2881,73 +3144,73 @@ sci_snd_lcr <- bind_cols(snd_lcr,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# snd_lcr -- clean up global environment====   
+
+# * snd_lcr -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
-   sci_9mo,  
+   sci_9mo,   
    sci_12mo  
-   )      
+)      
 rm(snd_lcr, snd_lcr_v)   
-  
-# SCI calcs - snd_lon -- set up the station for sci & make sci list vars####  
+
+# 5.2 SCI calcs - snd_lon -- set up station for sci & make sci list vars====   
 sta      <- snd_lon_v  
 sci_1mo  <- sci.fun(sta, 1)                      
 sci_2mo  <- sci.fun(sta, 2)                       
 sci_3mo  <- sci.fun(sta, 3)       
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
-sci_9mo  <- sci.fun(sta, 9)         
-sci_12mo <- sci.fun(sta, 12)   # MLE fail month 1-, 6- 
-  
-# snd_lon -- apply the transformation identified by fitSCI function####    
+sci_9mo  <- sci.fun(sta, 9)    # MLE fail month 12        
+sci_12mo <- sci.fun(sta, 12)   # MLE fail month 6   
+
+# * snd_lon -- apply the transformation identified by fitSCI function====    
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# snd_lon -- bind and rename the sci vals####      
+# * snd_lon -- bind and rename the sci vals====      
 sci_snd_lon <- bind_cols(snd_lon,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,    
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -2956,8 +3219,8 @@ sci_snd_lon <- bind_cols(snd_lon,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# snd_lon -- clean up global environment====  
+
+# * snd_lon -- clean up global environment====  
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
@@ -2965,11 +3228,11 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(snd_lon, snd_lon_v)   
-  
-# SCI calcs - snd_mar -- set up the station for sci & make sci list vars####  
-sta      <- snd_mar_v  
+
+# 5.3 SCI calcs - snd_mar -- set up station for sci & make sci list vars====  
+sta      <- snd_mar_v   
 sci_1mo  <- sci.fun(sta, 1)                      
 sci_2mo  <- sci.fun(sta, 2)                       
 sci_3mo  <- sci.fun(sta, 3)       
@@ -2977,52 +3240,52 @@ sci_4mo  <- sci.fun(sta, 4)
 sci_6mo  <- sci.fun(sta, 6)      
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
-  
-# snd_mar -- apply the transformation identified by fitSCI function####    
-sci_1mo  <- transformSCI(sta,    
+
+# * snd_mar -- apply the transformation identified by fitSCI function====    
+sci_1mo  <- transformSCI(sta,     
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# snd_mar -- bind and rename the sci vals####      
+# * snd_mar -- bind and rename the sci vals====      
 sci_snd_mar <- bind_cols(snd_mar,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -3031,19 +3294,18 @@ sci_snd_mar <- bind_cols(snd_mar,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# snd_mar -- clean up global environment====  
+
+# * snd_mar -- clean up global environment====   
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo)      
 rm(snd_mar, snd_mar_v)    
-  
-# SCI calcs - snd_nio -- set up the station for sci & make sci list vars####  
+
+# 5.4 SCI calcs - snd_nio -- set up station for sci & make sci list vars====  
 sta      <- snd_nio_v  
 sci_1mo  <- sci.fun(sta, 1)                      
 sci_2mo  <- sci.fun(sta, 2)    # MLE fail month 12-                        
@@ -3052,52 +3314,52 @@ sci_4mo  <- sci.fun(sta, 4)
 sci_6mo  <- sci.fun(sta, 6)      
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
-  
-# snd_nio -- apply the transformation identified by fitSCI function####    
+
+# * snd_nio -- apply the transformation identified by fitSCI function====    
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# snd_nio -- bind and rename the sci vals####      
+# * snd_nio -- bind and rename the sci vals====      
 sci_snd_nio <- bind_cols(snd_nio,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,   
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -3106,8 +3368,8 @@ sci_snd_nio <- bind_cols(snd_nio,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# snd_nio -- clean up global environment====  
+
+# * snd_nio -- clean up global environment====  
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
@@ -3115,64 +3377,64 @@ rm(sci_1mo,
    sci_6mo,  
    sci_9mo,  
    sci_12mo  
-   )      
+)      
 rm(snd_nio, snd_nio_v)    
-  
-# SCI calcs - snd_ros -- set up the station for sci & make sci list vars####  
+
+# 5.5 SCI calcs - snd_ros -- set up station for sci & make sci list vars====  
 sta      <- snd_ros_v  
-sci_1mo  <- sci.fun(sta, 1)    # MLE fail month 1                     
+sci_1mo  <- sci.fun(sta, 1)                        
 sci_2mo  <- sci.fun(sta, 2)                    
-sci_3mo  <- sci.fun(sta, 3)       
+sci_3mo  <- sci.fun(sta, 3)    # MLE fail for month 5    
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
-  
-# snd_ros -- apply the transformation identified by fitSCI function####    
+
+# * snd_ros -- apply the transformation identified by fitSCI function====    
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# snd_ros -- bind and rename the sci vals####      
+# * snd_ros -- bind and rename the sci vals====      
 sci_snd_ros <- bind_cols(snd_ros,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -3181,73 +3443,72 @@ sci_snd_ros <- bind_cols(snd_ros,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# snd_ros -- clean up global environment====  
+
+# * snd_ros -- clean up global environment====  
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo  )      
 rm(snd_ros, snd_ros_v)    
-  
-# SCI calcs - snd_vet -- set up the station for sci & make sci list vars####  
-sta      <- snd_vet_v  
+
+# 5.6 SCI calcs - snd_vet -- set up station for sci & make sci list vars====  
+sta      <- snd_vet_v   
 sci_1mo  <- sci.fun(sta, 1)                      
 sci_2mo  <- sci.fun(sta, 2)                             
-sci_3mo  <- sci.fun(sta, 3)     # MLE fail month 8   
+sci_3mo  <- sci.fun(sta, 3)     # MLE fail month 5   
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
-  
-# snd_vet -- apply the transformation identified by fitSCI function####    
+
+# * snd_vet -- apply the transformation identified by fitSCI function====    
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# snd_vet -- bind and rename the sci vals####      
+# * snd_vet -- bind and rename the sci vals====      
 sci_snd_vet <- bind_cols(snd_vet,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -3256,73 +3517,72 @@ sci_snd_vet <- bind_cols(snd_vet,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# snd_vet -- clean up global environment====  
+
+# * snd_vet -- clean up global environment====  
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo)      
 rm(snd_vet, snd_vet_v)    
-  
-# SCI calcs - snd_whi -- set up the station for sci & make sci list vars####  
+
+# 5.7 SCI calcs - snd_whi -- set up station for sci & make sci list vars====  
 sta      <- snd_whi_v  
 sci_1mo  <- sci.fun(sta, 1)                      
-sci_2mo  <- sci.fun(sta, 2)      # MLE fail mon 11                       
+sci_2mo  <- sci.fun(sta, 2)                            
 sci_3mo  <- sci.fun(sta, 3)       
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
 sci_9mo  <- sci.fun(sta, 9)         
 sci_12mo <- sci.fun(sta, 12)   
-  
-# snd_whi -- apply the transformation identified by fitSCI function####    
+
+# * snd_whi -- apply the transformation identified by fitSCI function====    
 sci_1mo  <- transformSCI(sta,    
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)   
-  
+
 sci_2mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%   
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,    
                          first.mon = first_mon,   
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)    
-  
+
 sci_6mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,  
                          first.mon = first_mon,   
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%   
   enframe(name                     = NULL)   
 
-# snd_whi -- bind and rename the sci vals####      
+# * snd_whi -- bind and rename the sci vals====      
 sci_snd_whi <- bind_cols(snd_whi,      
-                     sci_1mo,   
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,   
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo  
+                         sci_1mo,   
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,   
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo  
 ) %>%                             
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%   
@@ -3331,74 +3591,73 @@ sci_snd_whi <- bind_cols(snd_whi,
   rename(sci_6mo = value4)  %>%   
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# snd_whi -- clean up global environment====  
+
+# * snd_whi -- clean up global environment====  
 rm(sci_1mo,   
    sci_2mo,  
    sci_3mo,  
    sci_4mo,   
    sci_6mo,  
    sci_9mo,  
-   sci_12mo  
-   )      
+   sci_12mo)      
 rm(snd_whi, snd_whi_v)    
-  
-# calculate SCI-bad----  
-# SCI calcs - bad_whi -- set up the station for sci & make sci list vars####  
+
+# 6.0 calculate SCI-bad----  
+# 6.1 SCI calcs - bad_whi -- set up station for sci & make sci list vars====  
 sta      <- bad_whi_v    
 sci_1mo  <- sci.fun(sta, 1)                              
 sci_2mo  <- sci.fun(sta, 2)                             
 sci_3mo  <- sci.fun(sta, 3)                            
 sci_4mo  <- sci.fun(sta, 4)    
 sci_6mo  <- sci.fun(sta, 6)      
-sci_9mo  <- sci.fun(sta, 9)     
+sci_9mo  <- sci.fun(sta, 9)  # MLE fail month 6     
 sci_12mo <- sci.fun(sta, 12)   
-  
-# bad_whi -- apply the transformation identified by fitSCI function####        
+
+# * bad_whi -- apply the transformation identified by fitSCI function====      
 sci_1mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_1mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_2mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_2mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_3mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_3mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_4mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_4mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_6mo  <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_6mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_9mo  <- transformSCI(sta,   
                          first.mon = first_mon,  
                          obj       = sci_9mo) %>%  
   enframe(name                     = NULL)  
-  
+
 sci_12mo <- transformSCI(sta,  
                          first.mon = first_mon,  
                          obj       = sci_12mo) %>%  
   enframe(name                     = NULL)  
-  
-# bad_whi -- bind and rename the sci vals####       
+
+# * bad_whi -- bind and rename the sci vals====       
 sci_bad_whi <- bind_cols(bad_whi,     
-                     sci_1mo,  
-                     sci_2mo,   
-                     sci_3mo,  
-                     sci_4mo,  
-                     sci_6mo,  
-                     sci_9mo,   
-                     sci_12mo   
+                         sci_1mo,  
+                         sci_2mo,   
+                         sci_3mo,  
+                         sci_4mo,  
+                         sci_6mo,  
+                         sci_9mo,   
+                         sci_12mo   
 ) %>%  
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%  
@@ -3407,46 +3666,66 @@ sci_bad_whi <- bind_cols(bad_whi,
   rename(sci_6mo = value4)  %>%  
   rename(sci_9mo = value5)  %>%  
   rename(sci_12mo = value6)  
-  
-# bad_whi -- clean up global environment====    
+
+# * bad_whi -- clean up global environment====     
 rm(sci_1mo,  
    sci_2mo,  
    sci_3mo,  
    sci_4mo,  
    sci_6mo,  
    sci_9mo,  
-   sci_12mo   
-   )   
-
+   sci_12mo)   
 rm(bad_whi, bad_whi_v)     
-  
-# clean up sci.fun vars====  
-rm(  
-  distrib,  
-  first_mon,  
-  p_zero,  
-  p_zero_cm,  
-  scale,  
-  sci.limit,  
-  sta,  
-  time_scale,  
-  warn_me  
-  )   
-  
+
 ```
 
 ```{r join_SRI}  
-# join sci data----  
-# join black hills plateau SCI vals====    
+
+# 1 clean up sci.fun vars====  
+rm(distrib,  
+   first_mon,  
+   p_zero,  
+   p_zero_cm,  
+   scale,  
+   sci.limit,  
+   sta,  
+   time_scale,  
+   warn_me,  
+   sci.fun)  
+
+ # join black hills plateau SCI vals====    
 sci_bhp <- bind_rows(sci_bhp_bat,  
-                     sci_bhp_bev,  
                      sci_bhp_fal,  
-                     sci_bhp_frn    
-  )   
-  
-sci_bhp <- sci_bhp %>%    
+                     sci_bhp_frn) %>%  
+  gather(key = type, val = value,  
+         -c(sta, date, ecoreg, log_q1_mon))   
+
+# join gw control SCI vals====  
+sci_gwc <- bind_rows(sci_bhp_bev,  
+                     sci_snd_lcr) %>%    
+  gather(key = type, val = value,  
+         -c(sta, date, ecoreg, log_q1_mon)) 
+
+# join keya paha tablelands SCI vals====  
+sci_kpt <- bind_rows(sci_kpt_key,  
+                     sci_kpt_wew) %>%  
+  gather(key = type, val = value, 
+         -c(sta, date, ecoreg, log_q1_mon))   
+
+# join pierre shale high SCI vals====  
+sci_psh <- bind_rows(sci_psp_bat,  
+                     sci_psp_brs,  
+                     sci_psp_che,  
+                     sci_psp_elk,  
+                     sci_psp_hat,  
+                     sci_psp_whi,  
+                     ) %>%  
+  gather(key = type, val = value, 
+         -c(sta, date, ecoreg, log_q1_mon))   
+
+
+
   # truncate sci vals to [-3, 3]    
-  gather(key = type, val = value, -c(sta, date, ecoreg, log_q1_mon)) %>%  
   mutate(value = case_when(     
     value < -3.0 ~ -3.0,    
     value >  3.0 ~  3.0,  
@@ -4445,21 +4724,7 @@ ggplot2::ggsave(path = "figure/", filename = "precip_mon.png",
 ````  
 
 # TO DO Monthly plot PRCP_MON - check code   
-```{r plot-annual-prcp}  
-# plot annual precips  
-sta_mon_plus %>%  
-  ggplot(aes(year, depth_mm, group = year)) +  
-  facet_grid(rows =vars(group)) +  
-  #  geom_quasirandom(size = 0.2,  
-  #                position = position_beeswarm()) +  
-  geom_boxplot() +  
-  theme_bw() +   
-  labs(title = "Annual precipitation depths",  
-       subtitle = "1990-2017") +  
-  xlab("") +  
-  ylab("mm")  
-  
-```
+
 
 ```{r precip-EDA, include=FALSE, eval=FALSE}
 # Purpose: EDA of precipitation data.
