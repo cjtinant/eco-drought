@@ -4125,49 +4125,109 @@ decomp_fun <- function(df) {
 
 ```{r deconvolute_plot_spi}    
 
-# deconvolute the grouped prcp into trend, seasonal & random components----    
+# 1 deconvolute the grouped prcp into trend, seasonal & random components----    
 
 # import working data====           
 #sci_sta <- import("data/spi_sta.csv") %>%    
 #  mutate(date = ymd(date)) %>%    
 #  filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))  
 
-# identify frequency of seasonality -- should be 12 months====      
-#   the level is group rather than station - so need to combine stations  
-freq <- sci_sta  %>%     
-  split(.$group) %>%   
-  map_dfc(~ anomalize::time_frequency(  
-    period       = "auto",  
-    data = .)   
-  ) %>%  
+# 2 identify frequency of seasonality -- should be 12 months====  
+# * precip data====
+freq_sta <- sci_sta  %>%  
+  pivot_wider(names_from = key, values_from = value) %>%  
+  split(.$sta) %>%  
+  map_dfc(~ anomalize::time_frequency(period       = "auto",  
+    data = .)) %>%  
   gather(key     = group,  
          value   = freq) %>%   
   summarise(freq = mean(freq),    
             max  = max(freq),   
             min  = min(freq),   
+            sd   = sd(freq))   
+
+# * streamflow data====  
+freq_gage <- sci_gage  %>%  
+  pivot_wider(names_from = type, values_from = value) %>%  
+  split(.$sta) %>%   
+  map_dfc(~ anomalize::time_frequency(  
+    period       = "auto",  
+    data = .)) %>%  
+  gather(key     = group,  
+         value   = freq) %>%   
+  summarise(freq = mean(freq),   
+            max  = max(freq),   
+            min  = min(freq),   
             sd   = sd(freq)  
   )   
 
-#   identify trend of periodicity -- should be 60 months====  
-trend <- sci_sta  %>%  
-  split(.$group) %>%   
+# 3 identify trend of periodicity -- should be 60 months====   
+# * precip data====  
+trend_sta <- sci_sta  %>%  
+  pivot_wider(names_from = key, values_from = value) %>%  
+  split(.$sta) %>%   
   map_dfc(~ anomalize::time_trend(  
-    period       = "auto", data = .)   
-  ) %>%  
+    period       = "auto", data = .)) %>%  
   gather(key     = grpup, value = freq) %>%   
   summarise(freq = mean(freq),  
             max  = max(freq),  
             min  = min(freq),  
-            sd   = sd(freq)  
-  )  
+            sd   = sd(freq))  
 
-# decompose prcp into seasonal, trend, & remainder====    
-FREQ   <- "12 months"  
-TREND  <- "60 months"   
-TARGET <- "spi_1mo"  
+# * streamflow data====
+trend_gage <- sci_gage  %>%   
+  pivot_wider(names_from = type, values_from = value) %>%  
+  split(.$sta) %>%   
+  map_dfc(~ anomalize::time_trend(   
+    period       = "auto", data = .)    
+  ) %>%                        
+  gather(key     = grpup, value = freq) %>%   
+  summarise(freq = mean(freq),   
+            max  = max(freq),   
+            min  = min(freq),   
+            sd   = sd(freq)    
+  )   
+  
+# 4 decompose prcp into seasonal, trend, & remainder====     
+FREQ   <- "12 months"   
+TREND  <- "60 months"    
+TARGET <- "sci_1mo"   
 
 spi_seas <- sci_sta %>%   
+  pivot_wider(names_from = key, values_from = value) %>%  
   decomp_fun()  
+
+sri_seas <- sci_gage %>%  
+  pivot_wider(names_from = type, values_from = value) %>%  
+  decomp_fun()   
+  
+# identify seasonally intermittant streams  
+sri_intermit <- sri_seas %>%  
+  group_by(sta) %>%  
+  summarise(group = first(group),  
+            season_max = max(season)) %>%  
+  ungroup() %>%  
+  mutate(season_max = round(season_max, digits = 2)) %>%  
+  arrange(desc(season_max))  
+
+# clean up global environment====     
+mclust_aug <- full_join(mclust_aug, sri_intermit)  
+
+rm(freq_gage,  
+   freq_sta,  
+   trend_gage,  
+   trend_sta,  
+   FREQ,   
+   TARGET,  
+   TREND,  
+   decomp_fun,   
+   sci_gage,  
+   sci_sta,  
+   sri_intermit)  
+
+```
+
+```{r stuff}
 
 # save seasonal spi & clean up global environment====    
 export(spi_seas, "data/spi_seas.csv")  
@@ -4185,6 +4245,7 @@ rm(freq,
 # check for anomonies====     
 spi_anom <- spi_seas %>%   
   filter(anomaly == "Yes")  
+  
 
 # vars for plotting====    
 sta_size   <- 0.2   
@@ -4278,92 +4339,27 @@ rm(
   
 # deconvolute streamflow into trend, seasonal & random components----   
 # import streamflow data and metadata====     
-sci_gage <- import("data/sci_gage.csv") %>%    
-  mutate(date = ymd(date)) %>%   
-  filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))  %>%  
-  arrange(date) %>%   
-  as_tibble() %>%  
-  mutate(group = sta)  # group is for decomp_fun  
+#sci_gage <- import("data/sci_gage.csv") %>%    
+#  mutate(date = ymd(date)) %>%   
+#  filter(between(date, as.Date("1988-09-15"), as.Date("2018-09-15")))  %>%  
+#  arrange(date) %>%   
+#  as_tibble() %>%  
+#  mutate(group = sta)  # group is for decomp_fun  
   
 # clean metadata  
-gage_meta <-  import("data/gage_meta_lmom.csv") %>% 
-  select(-c(ecoreg.x, years.y, ecoreg.y)) %>% 
-  rename(years = years.x)  
+#gage_meta <-  import("data/gage_meta_lmom.csv") %>% 
+#  select(-c(ecoreg.x, years.y, ecoreg.y)) %>% 
+#  rename(years = years.x)  
 
-export(gage_meta, "gage_meta_lmom.csv") 
+#export(gage_meta, "gage_meta_lmom.csv") 
  
 # remove discordant stations from metadata====    
-gage_meta <- semi_join(gage_meta, sci_gage,  
-                       by = c("sta", "ecoreg"))  
+#gage_meta <- semi_join(gage_meta, sci_gage,  
+#                       by = c("sta", "ecoreg"))  
   
-# identify frequency of seasonality -- should be 12 months====      
-freq <- sci_gage  %>%    
-  split(.$sta) %>%   
-  map_dfc(~ anomalize::time_frequency(  
-    period       = "auto",  
-    data = .)   
-  ) %>%  
-  gather(key     = group,  
-         value   = freq) %>%   
-  summarise(freq = mean(freq),   
-            max  = max(freq),   
-            min  = min(freq),   
-            sd   = sd(freq)  
-  )   
+
   
-#   identify trend of periodicity -- should be 60 months====   
-trend <- sci_gage  %>%   
-  split(.$sta) %>%   
-  map_dfc(~ anomalize::time_trend(   
-    period       = "auto", data = .)    
-  ) %>%                        
-  gather(key     = grpup, value = freq) %>%   
-  summarise(freq = mean(freq),   
-            max  = max(freq),   
-            min  = min(freq),   
-            sd   = sd(freq)    
-  )   
-  
-# decompose prcp into seasonal, trend, & remainder====     
-FREQ   <- "12 months"   
-TREND  <- "60 months"    
-TARGET <- "sci_1mo"   
-  
-sri_seas <- sci_gage %>%   
-  decomp_fun()   
-  
-# identify seasonally intermittant streams  
-sri_intermit <- sri_seas %>%  
-  group_by(sta) %>% 
-  summarise(season_max = max(season)  
-  ) %>% 
-  ungroup() %>%  
-  arrange(desc(season_max))  
-  
-gage_meta <- full_join(gage_meta, sri_intermit, 
-                       by = "sta") 
-  
-gage_meta <- gage_meta %>% 
-  mutate(flow_regime = case_when(  
-    season_max > 0.8 ~ "strongly intermittent",  
-    season_max > 0.4 ~ "moderately intermittent", 
-    TRUE ~ flow_regime
-    ))   
-  
-export(gage_meta, "data/gage_meta_seas.csv")  
-export(sri_seas, "data/sri_seas.csv")  
-  
-# clean up global environment====     
-rm(freq,  
-   trend,  
-   FREQ,   
-   TARGET,  
-   TREND,  
-   decomp_fun,   
-   sci_gage, 
-   sri_intermit  
-   )    
-  
+
 # prep_season_plot_sri----  
 # calculate group median & MAD====   
 sri_seas_ecoreg <- sri_seas %>%  
@@ -4904,6 +4900,19 @@ test2 %>%
 ```
 
 <!--  
+
+gage_meta <- full_join(gage_meta, sri_intermit, 
+                       by = "sta") 
+  
+gage_meta <- gage_meta %>% 
+  mutate(flow_regime = case_when(  
+    season_max > 0.8 ~ "strongly intermittent",  
+    season_max > 0.4 ~ "moderately intermittent", 
+    TRUE ~ flow_regime
+    ))   
+  
+export(gage_meta, "data/gage_meta_seas.csv")  
+export(sri_seas, "data/sri_seas.csv") 
 #sta_meta_fin <- import("data/sta_meta_fin.csv")       
 
 # prepare for deconvoluting the grouped precip====    
