@@ -262,6 +262,7 @@ library("glmnet")        # fit a GLM with lasso or elasticnet regularization
 library("Metrics")       # evaluation metrics for machine learning  
 library("flextable")     # functions for tabular reporting  
 library("officer")       # facilitates '.docx' access for table export  
+library("patchwork")     # the 'composer of plots'  
 library("tidyverse")  
   
 # resolve conflicted packages----  
@@ -1104,7 +1105,7 @@ mclust_aug %<>%
     L1           < 1.0     ~ "Pierre Shale Low",  
     L1           > 1.0     ~ "Pierre Shale High",  
     TRUE ~ "NA")) %>%  
-# change hydro_group based on STL decomp (below)  
+  # change hydro_group based on STL decomp (below)  
   mutate(hydro_group = case_when(  
     sta == "fal_hot" ~ "GW control",  
     TRUE ~ hydro_mclust)) %>%  
@@ -1193,11 +1194,11 @@ rm(lmom_data,
    mclust_means,  
    lmom_gage)  
 
-```  
+```
 
 ```{r 12-Mclust-plot}  
 
-# plot intitial Mclust groups ====  
+# plot intitial Mclust groups ====   
 mclust_aug %>%  
   ggplot(aes(L_skew, L_kurtosis)) +  
   # set theme, facets, labels #  
@@ -1217,7 +1218,7 @@ mclust_aug %>%
   scale_shape(name = "CV magnitude")  
 
 # plot final hydrologic groups====  
-mclust_plot <- mclust_aug %>%  
+mclust_aug %>%  
   ggplot(aes(L_skew, L_kurtosis)) +  
   # set theme, facets, labels #  
   theme_bw() +  
@@ -1237,16 +1238,18 @@ mclust_plot <- mclust_aug %>%
   scale_shape(name = "L-CV magnitude")  
 
 # save individual plot - drop this to add stuff below   
-#ggsave("figure/Mclust_lmoms.png",  
-#                 units = "in",  
-#                 width = 7,  
-#                 height = 4.5)  
+ggsave("figure/Mclust_lmoms.png",  
+       units = "in",  
+       width = 7,  
+       height = 4.5)  
+
+rm(mclust_plot)  
 
 ```
 
 ```{r 13 export_mclust-table}
 
-# 1 arrange gage data====  
+# 1 arrange gage data====   
 mclust_aug <- mclust_aug %>%  
   select(sta,  
          ecoreg,  
@@ -1475,7 +1478,6 @@ ter_ogl_v <- as.double(ter_ogl$log_q1_mon)
 ter_sta_v <- as.double(ter_sta$log_q1_mon)   
 ter_whi_v <- as.double(ter_whi$log_q1_mon)   
 
-
 # 4.0 clean up global enviroment====    
 rm(sri_input)   
 
@@ -1508,7 +1510,7 @@ sci.fun <- function(sta, time_scale) fitSCI(x = sta,
                                             scaling        = scale,     
                                             warn	         = warn_me)     
 
-```  
+```
 
 ```{r calculate_SPI}
 
@@ -1994,7 +1996,7 @@ rm(sci_cot,
 
 ```  
 
-```{r calculate_SRI}  
+```{r calculate_SRI}
 
 # 1.0 calculate SCI_blp====   
 # 1.1 SCI calcs - bhp_bat -- set up station for sci & make sci list vars====  
@@ -3749,8 +3751,7 @@ sci_ter_whi <- bind_cols(ter_whi,
                          sci_4mo,  
                          sci_6mo,  
                          sci_9mo,   
-                         sci_12mo   
-) %>%  
+                         sci_12mo) %>%  
   rename(sci_1mo = value)   %>%  
   rename(sci_2mo = value1)  %>%  
   rename(sci_3mo = value2)  %>%  
@@ -3771,19 +3772,21 @@ rm(ter_whi, ter_whi_v)
 
 ```
 
-```{r join_SRI}  
+```{r join_SRI}
 
-# 2.1 join black hills plateau SCI vals====    
+# 2.1 join black hills plateau SCI vals====  
+# changed fal_hot to GW Control  
 sci_bhp <- bind_rows(sci_bhp_bat,  
-                     sci_bhp_fal,  
                      sci_bhp_frn) %>%  
   mutate(group = "Black Hills Plateau") %>%   
   select(sta, group, ecoreg, everything())  
 
 # 2.2 join gw control SCI vals====  
+# changed fal_hot to GW Control  
 sci_gwc <- bind_rows(sci_gwc_bev,  
-                     sci_gwc_lcr) %>%  
-  mutate(group = "GW control") %>%   
+                     sci_gwc_lcr,  
+                     sci_bhp_fal) %>%           
+  mutate(group = "GW Control") %>%   
   select(sta, group, ecoreg, everything())  
 
 # 2.3 join keya paha tablelands SCI vals====  
@@ -3833,7 +3836,7 @@ sci_gage <- bind_rows(sci_bhp,
                       sci_psl,  
                       sci_snd,  
                       sci_ter) %>%  
-    gather(key = type, val = value,  
+  gather(key = type, val = value,  
          -c(sta, date, group, ecoreg, log_q1_mon))    
 
 # * 4 clean up global environment====  
@@ -3885,11 +3888,11 @@ rm(distrib,
 
 ```{r summarise_sri}
 
-# Get counts of high and low vals====  
+# Get counts of high and low vals====   
 # * summarize high and low flow values  #  
 summary_prop <- sci_gage %>%  
   group_by(group) %>%  
-  summarise(n = n()) 
+  summarise(n = n())  
 
 summary_high <- sci_gage %>%  
   filter(value >= 3.0) %>%  
@@ -3989,15 +3992,17 @@ rm(summary_high,
 
 ```  
 
-# need to fix color to gray  -- START HERE  
 ```{r plot_exceedances}
 
 # 1 prepare for plotting====   
+# * yearly exceedances  
 exceed_year %<>%  
   mutate(group = as.character(group)) %>%  
   mutate(group = case_when(  
-    group == "GW control" ~ "GW Control", 
-    TRUE ~ group)) %>%   
+    group == "GW control" ~ "GW Control",  
+    TRUE ~ group)) %>%  
+  # round proportions for plotting  
+#  mutate(prop = round(prop, digits = 1)) %>%  
   # refactor levels and provide label names  #  
   mutate(group = fct_relevel(group,  
                              "Pierre Shale Low",  
@@ -4008,11 +4013,14 @@ exceed_year %<>%
                              "GW Control",  
                              "Sand Hills"))  
 
+# * monthly exceedences  
 exceed_month %<>%  
   mutate(group = as.character(group)) %>%  
   mutate(group = case_when(  
-    group == "GW control" ~ "GW Control", 
+    group == "GW control" ~ "GW Control",  
     TRUE ~ group)) %>%   
+  # round proportions for plotting  
+#  mutate(prop = round(prop, digits = 1)) %>%  
   # refactor levels and provide label names  #  
   mutate(group = fct_relevel(group,  
                              "Pierre Shale Low",  
@@ -4030,19 +4038,19 @@ exceed_yr_plot <- exceed_year %>%
   # set theme, facets, labels  #  
   theme_bw() +  
   facet_wrap(vars(group)) +  
+   scale_y_continuous(breaks = c(-1.5, -1.0, -0.5, 0, 0.5)) +  
   # ggtitle("High and low streamflow months by ecoregion") +  
-  ylab("Proportion of observations") +  
+  ylab("Proportion of outliers") +  
   xlab("") +  
   # plot horizontal line  #  
   geom_hline(yintercept = 0,  
-             color = "gray50",  
+             color = "gray40",  
              size = 0.1) +  
   # plot proportation of months with sci outside the range of [-3, 3]  #  
   geom_bar(stat ="identity",  
            position ="identity",  
-           show.legend = FALSE) +  
-  # scale legend keys   
-    scale_color_grey()  
+           fill = "grey70",  
+           show.legend = FALSE)  
 
 # 3 plot exceedances by month  #  
 exceed_mon_plot <- exceed_month %>%  
@@ -4052,31 +4060,30 @@ exceed_mon_plot <- exceed_month %>%
   theme_bw() +  
   facet_wrap(vars(group)) +  
 #  ggtitle("High and low streamflow months by ecoregion ") +  
-  ylab("Proportion of observations") +  
+  ylab("Proportion of outliers") +  
   xlab("") +  
   scale_x_continuous(breaks = 1:12,   
                      labels = c("J", "F", "M", "A", "M", "J",  
                                 "J", "A", "S", "O", "N", "D")) +  
+ scale_y_continuous(breaks = c(-1.5, -1.0, -0.5, 0, 0.5)) +  
   # plot horizontal line  #  
   geom_hline(yintercept = 0,  
-             color = "gray60",  
+             color = "gray40",  
              size = 0.1) +  
   # plot proportation of months with sci outside the range of [-3, 3]  #  
   geom_bar(stat ="identity",  
            position ="identity",  
-           show.legend = FALSE) +  
-  # scale legend keys +  
-    scale_color_grey(guide = "none")   
+           fill = "grey70",  
+           show.legend = FALSE)   
 
-# 4 plot the plots above as a grid & save====  
-cowplot::plot_grid(exceed_yr_plot, exceed_mon_plot,  
-                   ncol = 1,   
-                   align = "v")    
+# 4 plot using patchwork and save====  
+exceed_yr_plot / exceed_mon_plot +  
+  plot_layout(height = c(1, 1))  
 
-cowplot::ggsave2("figure/sci_exceedances.png",  
+ggsave("figure/SCI_exceed.png",  
                  units = "in",  
                  width = 7,  
-                 height = 9)  
+                 height = 4.5)  
 
 # 5 clean up global enviroment====  
 rm(exceed_yr_plot,  
@@ -4084,26 +4091,6 @@ rm(exceed_yr_plot,
    exceed_month,  
    exceed_year)  
 
-# old code to delete  #   
-# plot ecoregion means #  
-#  geom_point(data = hydro_group,  
-#             shape = 3,  
-#             size = 4,  
-#             aes(color = hydro_group)) +   
-
-# plot the plots above as a grid & save====  
-#cowplot::plot_grid(init_grp_plot, fin_grp_plot,  
-#                   ncol = 1,   
-#                   align = "v")    
-  
-#cowplot::ggsave2("figure/Mclust_lmoms.png",  
-#                 units = "in",  
-#                 width = 7,  
-#                 height = 9)  
-
-# clean up global enviroment  
-#rm(init_grp_plot,  
-#   fin_grp_plot)  
 ```
 
 ```{r truncate_SCI-vars}
@@ -4130,7 +4117,7 @@ export(sci_sta, "data/sci_sta.csv")
 
 # Identify seasonality & trend of SCI data -- plot seasonality  
 ```{r make_stl-decomp_function}    
-  
+
 # make function to decompose into seasonal, trend, & remainder----  
 decomp_fun <- function(df) {    
   arrange(df, .data$date) %>%  
@@ -4156,10 +4143,9 @@ decomp_fun <- function(df) {
   
 ```
 
-```{r deconvolute_plot_spi}    
+```{r deconvolute_sci}    
 
-# 1 deconvolute the grouped prcp into trend, seasonal & random components----    
-
+# 1 deconvolute the grouped prcp into trend, seasonal & random components----  
 # import working data====           
 #sci_sta <- import("data/sci_sta.csv") %>%    
 #  mutate(date = ymd(date))  
@@ -4168,7 +4154,7 @@ decomp_fun <- function(df) {
 #  mutate(date = ymd(date))  
 
 # 2 identify frequency of seasonality -- should be 12 months====  
-# * precip data====
+# * precip data====  
 freq_sta <- sci_sta  %>%  
   pivot_wider(names_from = key, values_from = value) %>%  
   split(.$sta) %>%  
@@ -4221,7 +4207,7 @@ trend_gage <- sci_gage  %>%
             min  = min(freq),   
             sd   = sd(freq)    
   )   
-  
+
 # 4 decompose SCIs into seasonal, trend, & remainder====     
 # * set frequency and trend  
 FREQ   <- "12 months"   
@@ -4234,7 +4220,7 @@ spi_wide <- sci_sta %>%
 sri_wide <- sci_gage %>%  
   pivot_wider(names_from = type, values_from = value)   
 
-# * need to drop NA vals prior to decomp_fun() then prepare results for join====  
+# * need to drop NA vals prior to decomp_fun() - prepare results for join====  
 # next step is to create a function for the drop and rename steps  
 # *  1-month SCI decomp====  
 TARGET <- "sci_1mo"   
@@ -4265,8 +4251,8 @@ spi_seas_2mo <- spi_wide %>%
          sta:location,  
          season:anomaly) %>%  
   rename(value = 1) %>%  
-  mutate(name = paste0(TARGET)) 
-  
+  mutate(name = paste0(TARGET))  
+
 sri_seas_2mo <- sri_wide %>%  
   drop_na(!!!TARGET) %>%  
   decomp_fun() %>%  
@@ -4390,19 +4376,18 @@ rm(freq_gage,
    spi_wide,  
    sri_wide)  
 
-
 ```
 
-```{r append decomp results}
+```{r append_decomp_results}
 
-# 1 append decomp results ====
+# 1 append decomp results ====  
 spi_decomp_long <- bind_rows(spi_seas_1mo,  
                         spi_seas_2mo,  
                         spi_seas_3mo,  
                         spi_seas_4mo,  
                         spi_seas_6mo,  
                         spi_seas_9mo,  
-                        spi_seas_12mo) %>% 
+                        spi_seas_12mo) %>%  
   as_tibble()  
 
 sri_decomp_long <- bind_rows(sri_seas_1mo,  
@@ -4411,33 +4396,37 @@ sri_decomp_long <- bind_rows(sri_seas_1mo,
                         sri_seas_4mo,  
                         sri_seas_6mo,  
                         sri_seas_9mo,  
-                        sri_seas_12mo) %>% 
-  as_tibble()  
+                        sri_seas_12mo) %>%  
+  as_tibble()   
 
-# 7 pivot wider and drop non-important vars
+# * clean up global environment  
+rm(spi_seas_1mo,  
+   spi_seas_2mo,  
+   spi_seas_3mo,  
+   spi_seas_4mo,  
+   spi_seas_6mo,  
+   spi_seas_9mo,  
+   spi_seas_12mo,  
+   sri_seas_1mo,  
+   sri_seas_2mo,  
+   sri_seas_3mo,  
+   sri_seas_4mo,  
+   sri_seas_6mo,  
+   sri_seas_9mo,  
+   sri_seas_12mo)  
 
 # 7 export results====     
-mclust_aug <- full_join(mclust_aug, sri_intermit, 
-                        by = "sta")  
+#mclust_aug <- full_join(mclust_aug, sri_intermit, 
+#                        by = "sta")  
 
-export(spi_seas, "data/spi_seas.csv")  
-export(sri_seas, "data/sri_seas.csv")  
-export(mclust_aug, "data/lmom_mclust_fit.csv")  
-
-# 6 identify seasonally intermittant streams (NEED TO FIX====  
-#sri_intermit <- sri_seas %>%  
-#  group_by(sta) %>%  
-#  summarise(group = first(group),  
-#            season_max = max(season)) %>%  
-#  ungroup() %>%  
-#  mutate(season_max = round(season_max, digits = 2)) %>%  
-#  arrange(desc(season_max))  
+export(spi_decomp_long, "data/spi_seas.csv")  
+export(sri_decomp_long, "data/sri_seas.csv")  
 
 ```
 
 ```{r plot_spi}
 
-# * check for anomonies====     
+# * check for anomonies====      
 spi_anom <- spi_decomp_long %>%   
   filter(anomaly == "Yes")  
 
@@ -4508,101 +4497,106 @@ spi_remain <- spi_decomp_long %>%
             colour = sta_color)    
 
 # 5 plot above as a grid & save====  
-cowplot::plot_grid(  
-  spi_obs, spi_seas_plot, spi_trend_plot, spi_remain,  
-  ncol = 1,   
-  align = "v")  
+spi_obs / spi_seas_plot / spi_trend_plot / spi_remain   
 
-cowplot::ggsave2("figure/spi_deconv.png",  
+ggsave("figure/spi_deconv.png",  
                  units = "in",  
                  width = 7,  
                  height = 9)  
 
 # 6 clean up global environment====  
 rm(spi_anom,  
-  spi_obs,  
-  spi_remain,  
-  spi_seas_plot,  
-  spi_trend,  
-  sta_color,  
-  sta_size)  
+   spi_obs,  
+   spi_remain,  
+   spi_seas_plot,  
+   spi_trend_plot,  
+   sta_color,  
+   sta_size)  
 
-```  
+```
 
-START HERE 
 ```{r prepare_sri_plot}
+
 # prep_season_plot_sri----  
 # 1 check for anomolies====  
-sri_anom <- sri_seas %>%  
+sri_anom <- sri_decomp_long %>%  
   filter(anomaly == "Yes")  
 
 # 2 relevel groups for plotting====  
-sri_seas %<>% 
+sri_decomp_1mo <- sri_decomp_long %>%  
+  filter(name == "sci_1mo")  
+
+sri_decomp_1mo %<>%  
   mutate(group = factor(group)) %>%  
   mutate(group = fct_relevel(group,  
-                             "GW control",  
-                             "Tertiary Clays",  
+                             "Pierre Shale Low",  
                              "Pierre Shale High",  
+                             "Tertiary Clays",  
                              "Black Hills Plateau",  
+                             "GW Control",  
                              "Keya Paha Tablelands",  
-                             "Sand Hills",  
-                             "Pierre Shale Low"))  
+                             "Sand Hills"))  
 
 # 3 get quantiles====  
-sri_summary <- sri_seas %>%  
-  select(group, sci_1mo, season, trend, remainder) %>%  
+sri_summary <- sri_decomp_1mo %>%  
+  select(group, sci_1mo = value, season, trend, remainder) %>%  
   pivot_longer(-group) %>%   
   group_by(group, name) %>%  
   summarise(median = median(value),  
             lower  = quantile(value, probs = 0.25),  
             upper  = quantile(value, probs = 0.75),  
             high   = quantile(value, probs = 0.95),  
-            low    = quantile(value, probs = 0.05)) %>%   
+            low    = quantile(value, probs = 0.05)) %>%  
   ungroup() %>%  
-  rename(type = name) %>%  
-  pivot_wider(names_from = type,  
-              values_from = c(median:low)) %>%  
-  mutate_if(is.numeric, round, 2)  
+  mutate_if(is.numeric, round, 2) %>%  
+  pivot_wider(names_from = name,  
+              values_from = c(median:low))  
 
-sri_season <- full_join(sri_seas, sri_summary,  
+sri_1mo <- full_join(sri_decomp_1mo, sri_summary,  
                         by = "group")  
 
-# 4 pull fal-hot====  
-fal_hot <- sri_season %>%  
+# 4 pull fal-hot for plotting ====  
+fal_hot <- sri_1mo %>%  
   filter(sta == "fal_hot")  
 
-# 5 identify 
-seas_group_max <- sri_seas %>%  
+# 5 identify group max mins====  
+seas_group_max <- sri_1mo %>%  
   group_by(group) %>%  
   slice(which.max(season)) %>%  
   ungroup() %>%  
   select(group, season_max = season)  
-  
-seas_group_min <- sri_seas %>%  
+
+seas_group_min <- sri_1mo %>%  
   group_by(group) %>%  
   slice(which.min(season)) %>%  
   ungroup() %>%  
   select(group, season_min = season)  
 
-seas_group_med <- sri_seas %>%  
+seas_group_med <- sri_1mo %>%  
   group_by(group) %>%  
   summarise(season_med   = median(season)) %>%  
   ungroup() %>%  
   select(group, season_med)  
 
-seas_group <- full_join(seas_group_min, seas_group_max,  
-                             by = "group")  
-seas_group <- full_join(seas_group, seas_group_med,  
-                             by = "group")  
+# 6 create group max mins====  
+#seas_group <- full_join(seas_group_min, seas_group_max,  
+#                        by = "group")  
+#seas_group <- full_join(seas_group, seas_group_med,  
+#                        by = "group")  
 
+# * clean up global environment  
+#rm(seas_group_max,  
+#   seas_group_med,  
+#   seas_group_min)  
+# rm(seas_group)  
 ```
 
 ```{r plot-sri-deconvolution}
 
 # 1 plot SRI obs, seasons, trend, and remainder----  
 # * streamflow observations plot====  
-sri_obs <- sri_season %>%   
-  ggplot(aes(date, sci_1mo)) +  
+sri_obs <- sri_1mo %>%   
+  ggplot(aes(date, value)) +  
 # set theme, labels, facets #  
   theme_bw() +  
   xlab("") +  
@@ -4617,11 +4611,11 @@ sri_obs <- sri_season %>%
                    xend = date),  
                colour          = "gray90") +  
 # plot 25% & 75% as line segments #  
-  geom_segment(aes(y = upper_sci_1mo, 
-                   x = date, 
-                   yend = lower_sci_1mo, 
+  geom_segment(aes(y = upper_sci_1mo,  
+                   x = date,  
+                   yend = lower_sci_1mo,  
                    xend = date),  
-               colour          = "gray70") + 
+               colour          = "gray70") +  
 # plot median value #  
   geom_line(aes(date, median_sci_1mo),  
             size        = 0.3,  
@@ -4631,7 +4625,7 @@ sri_obs <- sri_season %>%
             colour      = "black")  
 
 # * streamflow seasons plot====    
-sri_seas_plot <- sri_season %>%   
+sri_seas_plot <- sri_1mo %>%   
   mutate(month = month(date)) %>%  
   ggplot(aes(month, season)) +  
 # set theme, labels, facets #  
@@ -4667,7 +4661,7 @@ sri_seas_plot <- sri_season %>%
             colour = "black")  
 
 # * streamflow trend plot====  
-sri_trend_plot <- sri_season %>%   
+sri_trend_plot <- sri_1mo %>%   
   ggplot(aes(date, trend)) +  
 # set theme, labels, facets #  
   theme_bw() +  
@@ -4702,7 +4696,7 @@ sri_trend_plot <- sri_season %>%
             colour   = "black")  
 
 # * streamflow remainder plot====  
-sri_remain <- sri_season %>%   
+sri_remain <- sri_1mo %>%   
   ggplot(aes(date, remainder)) +  
   # set theme, labels, facets #  
   theme_bw() +  
@@ -4732,32 +4726,30 @@ sri_remain <- sri_season %>%
              colour = "gray30")  
 
 # 2 plot above as a grid & save====  
-cowplot::plot_grid(sri_obs, sri_seas_plot, sri_trend_plot, sri_remain,  
-                   ncol = 1,   
-                   align = "v")  
+sri_obs / sri_seas_plot / sri_trend_plot / sri_remain  
 
-cowplot::ggsave2("figure/sri_deconv.png",  
+ggsave("figure/sri_deconv.png",  
                  units = "in",  
                  width = 7,  
                  height = 9)  
 
 # 3 update fal_hot grouping and export results====  
 #spi_seas <- import("data/spi_seas.csv")  
-mclust_fin <- mclust_aug %>%  
-  mutate(final_group = as.character(final_group)) %>%  
-  mutate(final_group = case_when(  
-    group == "GW control" ~ "GW loss",  
-    sta   == "fal_hot" ~ "GW gain",  
-    TRUE ~ final_group))  
+#mclust_fin <- mclust_aug %>%  
+#  mutate(final_group = as.character(final_group)) %>%  
+#  mutate(final_group = case_when(  
+#    group == "GW control" ~ "GW loss",  
+#    sta   == "fal_hot" ~ "GW gain",  
+#    TRUE ~ final_group))  
 
-mclust_group <- mclust_fin %>%  
-  select(sta, final_group)  
+#mclust_group <- mclust_aug %>%  
+#  select(sta, final_group)  
 
-sri_final <- full_join(sri_seas, mclust_group,  
-                       by = "sta")  
+#sri_final <- full_join(sri_seas, mclust_group,  
+#                       by = "sta")  
 
-export(mclust_fin, "data/mclust_final.csv")  
-export(sri_seas2, "data/sri_seas2.csv")  
+#export(mclust_fin, "data/mclust_final.csv")  
+#export(sri_seas2, "data/sri_seas2.csv")  
 
 # 4 clean up global environment====  
 rm(sri_anom,  
@@ -4768,18 +4760,600 @@ rm(sri_anom,
   fal_hot,  
   sri_summary,  
   sri_season,  
-  colour,  
-  sri_seas,  
-  mclust_aug,  
-  mclust_group)  
+  sri_1mo, 
+  sri_decomp_1mo)  
 
 ```
 
-# calculate SCI for trend and season  
+staRt here
+# time series correlation
+```{r prepare-SCI-correlation}
+
+# 1 pivot SCI dfs wider and drop non-important vars====  
+spi_decomp <- spi_decomp_long %>%  
+  group_by(sta, date) %>%  
+  mutate(seas_trend = season + trend) %>%  
+  ungroup() %>%  
+  select(sta:location, name, value, season, trend, seas_trend) %>%  
+  mutate_if(is.numeric, round, digits = 2) %>%  
+  pivot_wider(names_from = name, 
+              values_from = c(value, season, trend, seas_trend)) %>%  
+  rename_at(vars(starts_with('value_')), ~ str_remove_all(., "value_"))  
+
+sri_decomp <- sri_decomp_long %>%  
+  group_by(sta, date) %>%  
+  mutate(seas_trend = season + trend) %>%  
+  ungroup() %>%  
+  select(sta:date, name, value, season, trend, seas_trend) %>%  
+  mutate_if(is.numeric, round, digits = 2) %>%  
+  pivot_wider(names_from = name, 
+              values_from = c(value, season, trend, seas_trend)) %>%  
+  rename_at(vars(starts_with('value_')), ~ str_remove_all(., "value_"))  
+
+# 2 add location to mclust dataframe====  
+# * identify gage locations    
+mclust_aug <- import("data/lmom_mclust_fit.csv") %>%  
+    rename(gage = sta)  
+
+gage_location <- import("data/gage_meta.csv") %>%  
+    rename(gage = sta)  
+
+gage_location <- semi_join(gage_location, mclust_aug,  
+                       by = "gage") %>%  
+  mutate(north_group = case_when(   
+    dec_lat_va > 43.5 ~ "N",   
+    TRUE ~ "S")) %>%   
+  mutate(east_group = case_when(  
+    dec_long_va  > -100.67 ~ "E",  
+    dec_long_va  > -102.33 ~ "C",    
+    TRUE ~ "W")) %>%  
+  mutate(location = str_c(north_group,  
+                       east_group,   
+                       sep = "")) %>%  
+  select(gage, location)  
+
+# * add location to mclust dataframe   
+mclust_fin <- full_join(mclust_aug, gage_location,  
+                         by = "gage") %>% 
+  mutate(hydro_group = case_when(  
+    hydro_group == "GW control" ~ "GW Control",  
+    TRUE ~ hydro_group))
+
+# * add location to SRI dataframe  
+sri_decomp <- full_join(sri_decomp, gage_location,  
+                        by = c("sta" ="gage")) %>%  
+  rename(gage = sta)  
+
+
+# prepare for joining SCI dfs====   
+sri_decomp <- sri_decomp %>%  
+  rename_at(vars(contains('sci')), ~ str_replace_all(., "sci", "sri"))  
+
+spi_decomp <- spi_decomp %>%  
+  rename_at(vars(contains('sci')), ~ str_replace_all(., "sci", "spi")) %>%  
+  mutate(location = as.character(location))  
+
+# * join SRI and SPI & clean up global environment====  
+sci_corr <- full_join(spi_decomp, sri_decomp,  
+                       by = c("date", "location")) %>%  
+  select(-contains("season_spi")) %>%  
+  select(-contains("season_sri")) %>%    
+  select(-contains("trend_spi"))  %>%  
+  select(-contains("trend_sri")) %>% 
+  select(sta, gage, location, group, ecoreg, date, everything())
+
+# * clean up global environment  
+rm(mclust_aug,  
+   gage_location,  
+   spi_decomp,  
+   sri_decomp)  
+
+```
+
+START HERE 
+```{r SCI-correlation}
+# [WORKING] 5 correlate SPI and SRI====  
+test2 <- sci_drought %>%  
+  select(-c(sta, date, location, gage, final_group)) %>%  
+#  column_to_rownames("final_group")  
+  correlate(method = "spearman") %>% 
+  mutate_if(is.numeric, round, 2) %>% 
+  filter(str_detect(rowname, "sri")) #%>% 
+    
+  select(rowname:spi_12mo) 
+  %>% 
+   gather(var, value, -rowname) %>% 
+   spread(rowname, value) %>% 
+  select(-sri_12mo, sri_12mo) %>% 
+  rownames_to_column() %>% 
+  mutate(rowname = case_when( 
+    rowname == "2" ~ "10", 
+    TRUE ~ rowname)) %>% 
+  mutate(rowname = as.integer(rowname)) %>% 
+  arrange(rowname) %>% 
+  select(-rowname)
+```
+
+<!--  
+
+```{r eda_plot_series} 
+# needs work!
+mon_plot <- sci_1mo %>%  
+  ggplot(aes(x = spi_length_12, y = sci_val)) + 
+  theme_bw() + 
+  facet_wrap(vars(sci_val), 
+             ncol =2) +
+  geom_jitter(size = .1) + 
+  geom_smooth() +
+  geom_abline(slope = 1 , intercept = 0)
+
+mon_plot
+eco_plot <- sci_1mo %>%  
+  ggplot(aes(x = spi_length_12, y = sci_val)) + 
+  theme_bw() + 
+  facet_wrap(vars(ecoreg), 
+             ncol =2) +
+  geom_jitter(size = .1) + 
+  geom_smooth() +
+  geom_abline(slope = 1 , intercept = 0) 
+
+```
+
+```{r create-models}
+# http://environmentalcomputing.net/intro-to-gams/ -- check this!
+# https://multithreaded.stitchfix.com/blog/2015/07/30/gam/ 
+
+# Consider that different months might behave differently!
+# Also consider that different drought lengths might behave differently!
+
+test <- sci %>% 
+  select(sci_length) %>% 
+  distinct() 
+
+# load gam model -- mgcv 
+library(mgcv) 
+
+# walk before you run 
+#sci_1mo_nest <- sci_1mo %>% 
+#  group_by(ecoreg) %>% 
+#  nest()  
+
+sci_1mo_input <- sci %>% 
+  filter(sci_length == 1) %>% 
+  group_by(sta, mon, spi_length) %>% 
+  nest()
+
+#define function for linear model
+sci_1mo_lm <-function(df) {
+  lm(sci_val ~ spi_val, data = df)
+}
+
+#define function for GAM 
+sci_1mo_gam <- function(df) {
+  gam(sci_val ~ s(spi_val), 
+                   method = "REML", 
+                   data = df)
+} 
+  
+# create columns for the models
+sci_models <- sci_1mo_input %>%
+        mutate(model_lm = map(data, sci_1mo_lm),
+               model_gam = map(data,sci_1mo_gam)
+               )
+
+# extract models 
+models_details<-sci_models %>%
+        mutate(
+                glance_lm  = model_lm %>% 
+                  map(glance),  #model summary 
+                AIC_lm     = glance_lm %>% 
+                  map_dbl("AIC"),  #extract AIC   
+                glance_gam = model_gam %>% 
+                  map(broom::glance), #GAM model summary  
+                AIC_gam    = glance_gam %>% 
+                  map_dbl("AIC"), #extract AIC
+                tidy_lm    = model_lm %>% 
+                  map(tidy), #model estimate: coeff...
+                tidy_gam    = model_gam %>% 
+                  map(tidy), #model estimate: coeff...
+                rsq_lm      = glance_lm %>% 
+                  map_dbl("r.squared"),  #extract rsquared 
+                augment_lm = model_lm %>% 
+                  map(augment), #observation stats: resid,hat...
+                res_lm        = augment_lm %>% 
+                  map(".resid") #extract resid
+               ) %>% 
+  mutate(AIC_diff = AIC_lm - AIC_gam) 
+
+test <- sci_models %>% 
+  mutate(R.square = map_dbl(model_gam, ~ summary(.)$r.sq)) %>% 
+  select(R.square)
+
+test2 <- test %>% 
+  group_by(ecoreg, spi_length) %>%  
+  summarize(rsq_mean     = mean(R.square),  
+            rsq_median   = median(R.square), 
+            rsq_75       = quantile(R.square, probs =.75), 
+            rsq_25       = quantile(R.square, probs =.25), 
+            rsq_min      = min(R.square), 
+            rsq_max      = max(R.square)          
+            ) %>% 
+  ungroup()
+  
+
+
+  
+out <- models_details %>% 
+  group_by(ecoreg, spi_length) %>%  
+  summarize(AIC_mean     = mean(AIC_diff),  
+            AIC_median   = median(AIC_diff), 
+            AIC_75       = quantile(AIC_diff, probs =.75), 
+            AIC_25       = quantile(AIC_diff, probs =.25), 
+            AIC_min      = min(AIC_diff), 
+            AIC_max      = max(AIC_diff) , 
+            deviance_gam = median(deviance_gam)           
+            ) %>% 
+  ungroup()
+
+out2 <- out %>% 
+  arrange(desc(deviance_gam)) 
+
+  summarize(deviance = ma)
+```
+
+```{r model-plot}
+# make a boxplot of the three models   
+
+out2 %>%
+  ggplot() +   
+  theme_bw() + 
+  facet_wrap(vars(spi_length), 
+             ncol = 3, 
+           scale = "free") +   
+#geom_point()
+  geom_boxplot(aes(x = factor(ecoreg),  
+#                   group = ecoreg,  
+                   lower = `AIC_25`,  
+                   upper = `AIC_75`,  
+                   middle = `AIC_median`,  
+                   ymin = `AIC_min`,  
+                   ymax = `AIC_max`),  
+               stat = "identity") 
+
+test2 %>%
+  ggplot() +   
+  theme_bw() + 
+  facet_wrap(vars(ecoreg), 
+             ncol = 3 #, 
+#           scale = "free"
+) +   
+  geom_boxplot(aes(x = factor(spi_length),  
+#                   group = ecoreg,  
+                   lower = `rsq_25`,  
+                   upper = `rsq_75`,  
+                   middle = `rsq_median`,  
+                   ymin = `rsq_min`,  
+                   ymax = `rsq_max`),  
+               stat = "identity") 
+
+
+```
+
+```{r time-series-correlation_join_sci}    
+#  start by walking ----  
+
+# keep only the 1-mo vals as a response variable -- checking step
+#sci_gage_1mo <- sci_gage %>%  
+ # filter(sci_length == 1)  
+  
+sci <- full_join(sci_gage, sci_sta,  
+                     by = c("group", "date")) %>%  
+  drop_na() %>%   
+#  spread(spi_length, spi_val, sep = "_") %>%  
+#  drop_na() %>%  
+  # reorder factors by ecoreg 
+  mutate(ecoreg = fct_relevel(ecoreg, 
+                              "Pierre Shale Plains", 
+                              "Pine Ridge Escarpment",  
+                              "White River Badlands", 
+                              "Black Hills Plateau", 
+                              "Keya Paha Tablelands", 
+                              "Sand Hills")) %>% 
+  mutate(year = year(date)) %>% 
+  mutate(mon = month(date))
+  
+# check for na values ====  
+# the '2' beelow refers to columns 
+indx <- sci %>%
+  apply(2, 
+        function(x) any(is.na(x) | is.infinite(x))
+        ) %>%   
+enframe()  
+
+rm(indx) 
+
+# make a 'biology' series====  
+# using april = 4, may = 5, june = 6 - idea --
+#sci_1mo_b <- sci_1mo %>% 
+#  filter(mon == 4 | 
+#           mon == 5 | 
+#           mon == 6)  
+  
+```
+
+```{r time-series-correlation_prepare_sci-old}    
+  
+# import gage group to fix the 'group' -- used for function call above====   
+gage_group <- import("data/gage_meta_seas.csv") %>%  
+ rename(gage = sta) %>%  
+  mutate(north_group = case_when(   
+    dec_lat_va > 43.5 ~ "N",   
+    TRUE ~ "S")   
+  ) %>%   
+  mutate(east_group = case_when(  
+    dec_long_va  > -100.67 ~ "E",  
+    dec_long_va  > -102.33 ~ "C",    
+    TRUE ~ "W")  
+  ) %>%  
+  mutate(group = str_c(north_group,  
+                       east_group,   
+                       sep = "")) %>%  
+  select(gage, group)   
+  
+# import gage & fix 'group' which was used above====    
+sci_gage <- import("data/sri_seas.csv") %>%    
+  mutate(date = ymd(date)) %>%  
+  rename(gage = sta) %>%  
+  select(-group)  
+
+# join group & spi data====    
+sci_gage <- full_join(gage_group, sci_gage, 
+                      by = "gage") %>%   
+  mutate(min_date_gage = min(date)) %>%    
+  mutate(max_date_gage = max(date)) %>%  
+  select(-c(log_q1_mon,  
+            season,  
+            trend,  
+            remainder,  
+            remainder_l1,  
+            remainder_l2,  
+            anomaly  
+  )) %>%  
+# arrange data from wide to long -- spi_length is used in the join below
+  gather(key   = sci_length,   
+         value = sci_val,   
+         -c(group,   
+            date,   
+            gage,   
+            ecoreg,   
+            min_date_gage,   
+            max_date_gage    
+         )) %>%    
+  ungroup() %>%   
+# prepare for joining by spi_length  
+  mutate(sci_length = str_remove_all(sci_length, "mo")) %>%     
+  mutate(sci_length = str_sub(sci_length, start = 5) %>% as.numeric)  
+  
+rm(gage_group)  
+```  
+
+```{r time-series-correlation_prepare_spi-old1}  
+
+# 1 get data====  
+#spi_seas  <- import("data/spi_seas.csv")   
+#sri_final <- import("data/sri_final.csv")   
+
+# 2 identify gage locations====     
+mclust_fin <- import("data/mclust_final.csv") %>%  
+    rename(gage = sta)  
+
+gage_location <- import("data/gage_meta.csv") %>%  
+    rename(gage = sta)  
+
+gage_location <- semi_join(gage_location, mclust_fin,  
+                       by = "gage") %>%  
+ # select(gage, dec_lat_va, dec_long_va) %>%   
+  mutate(north_group = case_when(   
+    dec_lat_va > 43.5 ~ "N",   
+    TRUE ~ "S")   
+  ) %>%   
+  mutate(east_group = case_when(  
+    dec_long_va  > -100.67 ~ "E",  
+    dec_long_va  > -102.33 ~ "C",    
+    TRUE ~ "W"))%>%  
+  mutate(location = str_c(north_group,  
+                       east_group,   
+                       sep = "")) %>%  
+  select(gage, location)  
+
+# * add location to mclust dataframe====  
+mclust_fin <- full_join(mclust_fin, gage_location,  
+                         by = "gage")  
+
+# 3 drop season & trend variables from SPI and SRI dataframes====  
+spi_corr <- spi_seas %>%  
+  select(-c(prcp,  
+            season:anomaly)) %>%  
+  pivot_longer(-c(sta, date, location)) %>%  
+  mutate(name = str_replace_all(name, "sci", "spi")) %>%   
+  pivot_wider()  
+
+# 3 join SRI and SRI by location and date====  
+# * add gage location to SRI dataframe====  
+sri_corr <- full_join(sri_final, gage_location,  
+                         by = c("sta" ="gage")) %>%  
+  select(-c(log_q1_mon,  
+            ecoreg,  
+            group,  
+            remainder_l1,  
+            remainder_l2,  
+            anomaly)) %>%  
+  select(sta, final_group, location, everything()) %>%  
+  rename(gage = sta) #%>%  
+  pivot_longer(-c(gage, date, location, final_group)) %>%  
+  mutate(name = str_replace_all(name, "sci", "sri")) %>%   
+  pivot_wider()  
+
+# * join SRI and SPI & clean up global environment====  
+sci_corr <- full_join(spi_corr, sri_corr)  
+
+rm(gage_location,  
+   spi_seas,  
+ #  sri_seas,  
+   sri_final,  
+   spi_corr,  
+   sri_corr)    
+
+# [WORKING] prepare to correlate SPI and SRI====  
+sci_drought <- sci_corr %>%  
+  pivot_longer(c(spi_1mo:spi_12mo)) %>%   
+  filter(value <= -0.8) %>%  
+  pivot_wider() %>%     
+  filter(final_group == "Black Hills Plateau") 
+  
+# [WORKING] 4 prepare to correlate SPI and SRI--filter SRI drought months====  
+#test <- sci_corr %>%  
+#  filter(final_group == "Black Hills Plateau") 
+#  
+#  rename(current = spi_1mo) %>%  
+#  mutate(spi_1mo = lag(current, 1)) %>%  
+#  select(sta:current, spi_1mo, everything())  
+
+ggplot(sci_drought, aes(spi_1mo, sri_2mo)) + 
+  geom_point() +  
+  geom_smooth()
+
+
+# [WORKING] 5 correlate SPI and SRI====  
+test2 <- sci_drought %>%  
+  select(-c(sta, date, location, gage, final_group)) %>%  
+#  column_to_rownames("final_group")  
+  correlate(method = "spearman") %>% 
+  mutate_if(is.numeric, round, 2) %>% 
+  filter(str_detect(rowname, "sri")) #%>% 
+    
+  select(rowname:spi_12mo) 
+  %>% 
+   gather(var, value, -rowname) %>% 
+   spread(rowname, value) %>% 
+  select(-sri_12mo, sri_12mo) %>% 
+  rownames_to_column() %>% 
+  mutate(rowname = case_when( 
+    rowname == "2" ~ "10", 
+    TRUE ~ rowname)) %>% 
+  mutate(rowname = as.integer(rowname)) %>% 
+  arrange(rowname) %>% 
+  select(-rowname)
+
+```
+
+```{r summarise_sri}
+
+# Get counts of high and low vals====  
+# * summarize high and low flow values====  
+summary_prop <- sci_gage %>%  
+    group_by(group) %>%  
+    summarise(n = n()) 
+
+summary_high <- sci_gage %>%  
+  filter(value >= 3.0) %>%  
+  mutate(year = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  group_by(group, type, year, month) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+summary_low <- sci_gage %>%  
+  filter(value <= -3.0) %>%  
+  mutate(year = year(date)) %>%  
+  mutate(month = month(date)) %>%  
+  group_by(group, type, year, month) %>%  
+  summarise(count = n()) %>%  
+  ungroup()   
+
+# * get high and low flow counts by year and month====  
+# * summarize year====  
+high_year <- summary_high %>%  
+  group_by(group, year) %>%  
+  summarise(high_year = sum(count)) %>%  
+  ungroup() 
+
+low_year <- summary_low %>%  
+  group_by(group, year) %>%  
+  summarise(low_year = sum(count)) %>%  
+  ungroup()  
+
+# join the high and low year values 
+exceed_year <- full_join(high_year, low_year,  
+                         by = c("group", "year")) %>%  
+  replace_na(list(low_year = 0, high_year = 0)) %>%  
+  mutate(low_year = -low_year) %>% 
+  pivot_longer(c(high_year, low_year),  
+               names_to = "key",  
+               values_to = "value")  
+
+# * create year proportations====  
+exceed_year <- full_join(exceed_year, summary_prop, 
+                         by = "group") %>%  
+  mutate(prop = 100 * value/n) %>%  
+  # relevel final groups for plotting  
+  mutate(group = factor(group)) %>% 
+  mutate(group = fct_relevel(group,  
+                             "GW control",  
+                             "Tertiary Clays",  
+                             "Pierre Shale High",  
+                             "Black Hills Plateau",  
+                             "Keya Paha Tablelands",  
+                             "Sand Hills",  
+                             "Pierre Shale Low"))  
+
+# * summarize month====  
+high_month <- summary_high %>%  
+  group_by(group, month) %>%  
+  summarise(high_month = sum(count)) %>%  
+  ungroup()  
+
+low_month <- summary_low %>%  
+  group_by(group, month) %>%  
+  summarise(low_month = sum(count)) %>%  
+  ungroup()  
+
+# join the high and low month values  
+exceed_month <- full_join(high_month, low_month,  
+                         by = c("group", "month")) %>%  
+  replace_na(list(low_month = 0, high_month = 0)) %>%  
+  mutate(low_month = -low_month) %>% 
+  pivot_longer(c(high_month, low_month),  
+               names_to = "key",  
+               values_to = "value")  
+
+# * create month proportations====  
+exceed_month <- full_join(exceed_month, summary_prop, 
+                         by = "group") %>%  
+  mutate(prop = 100 * value/n) %>%  
+  # relevel final groups for plotting  
+  mutate(group = factor(group)) %>%  
+  mutate(group = fct_relevel(group,  
+                             "GW control",  
+                             "Tertiary Clays",  
+                             "Pierre Shale High",  
+                             "Black Hills Plateau",  
+                             "Keya Paha Tablelands",  
+                             "Sand Hills",  
+                             "Pierre Shale Low"))  
+
+# * clean up global environment====  
+rm(summary_high,  
+   summary_low,  
+   summary_prop,  
+   high_year,  
+   low_year,  
+   high_month,  
+   low_month)  
+  
+``` 
 
 ```{r prepare_SRI-trend}  
-
-
 
 # 2 prepare input for SCI====    
 sri_input <- semi_join(gage_mon_sri, mclust_aug,  
@@ -6806,493 +7380,19 @@ rm(sci_bhp,
 
 ```
 
-```{r summarise_sri}
-
-# Get counts of high and low vals====  
-# * summarize high and low flow values====  
-summary_prop <- sci_gage %>%  
-    group_by(group) %>%  
-    summarise(n = n()) 
-
-summary_high <- sci_gage %>%  
-  filter(value >= 3.0) %>%  
-  mutate(year = year(date)) %>%  
-  mutate(month = month(date)) %>%  
-  group_by(group, type, year, month) %>%  
-  summarise(count = n()) %>%  
-  ungroup()  
-
-summary_low <- sci_gage %>%  
-  filter(value <= -3.0) %>%  
-  mutate(year = year(date)) %>%  
-  mutate(month = month(date)) %>%  
-  group_by(group, type, year, month) %>%  
-  summarise(count = n()) %>%  
-  ungroup()   
-
-# * get high and low flow counts by year and month====  
-# * summarize year====  
-high_year <- summary_high %>%  
-  group_by(group, year) %>%  
-  summarise(high_year = sum(count)) %>%  
-  ungroup() 
-
-low_year <- summary_low %>%  
-  group_by(group, year) %>%  
-  summarise(low_year = sum(count)) %>%  
-  ungroup()  
-
-# join the high and low year values 
-exceed_year <- full_join(high_year, low_year,  
-                         by = c("group", "year")) %>%  
-  replace_na(list(low_year = 0, high_year = 0)) %>%  
-  mutate(low_year = -low_year) %>% 
-  pivot_longer(c(high_year, low_year),  
-               names_to = "key",  
-               values_to = "value")  
-
-# * create year proportations====  
-exceed_year <- full_join(exceed_year, summary_prop, 
-                         by = "group") %>%  
-  mutate(prop = 100 * value/n) %>%  
-  # relevel final groups for plotting  
-  mutate(group = factor(group)) %>% 
-  mutate(group = fct_relevel(group,  
-                             "GW control",  
-                             "Tertiary Clays",  
-                             "Pierre Shale High",  
-                             "Black Hills Plateau",  
-                             "Keya Paha Tablelands",  
-                             "Sand Hills",  
-                             "Pierre Shale Low"))  
-
-# * summarize month====  
-high_month <- summary_high %>%  
-  group_by(group, month) %>%  
-  summarise(high_month = sum(count)) %>%  
-  ungroup()  
-
-low_month <- summary_low %>%  
-  group_by(group, month) %>%  
-  summarise(low_month = sum(count)) %>%  
-  ungroup()  
-
-# join the high and low month values  
-exceed_month <- full_join(high_month, low_month,  
-                         by = c("group", "month")) %>%  
-  replace_na(list(low_month = 0, high_month = 0)) %>%  
-  mutate(low_month = -low_month) %>% 
-  pivot_longer(c(high_month, low_month),  
-               names_to = "key",  
-               values_to = "value")  
-
-# * create month proportations====  
-exceed_month <- full_join(exceed_month, summary_prop, 
-                         by = "group") %>%  
-  mutate(prop = 100 * value/n) %>%  
-  # relevel final groups for plotting  
-  mutate(group = factor(group)) %>%  
-  mutate(group = fct_relevel(group,  
-                             "GW control",  
-                             "Tertiary Clays",  
-                             "Pierre Shale High",  
-                             "Black Hills Plateau",  
-                             "Keya Paha Tablelands",  
-                             "Sand Hills",  
-                             "Pierre Shale Low"))  
-
-# * clean up global environment====  
-rm(summary_high,  
-   summary_low,  
-   summary_prop,  
-   high_year,  
-   low_year,  
-   high_month,  
-   low_month)  
-  
-``` 
-
-# time series correlation
-```{r time-series-correlation_prepare_spi}  
-
-# 1 get data====  
-spi_seas  <- import("data/spi_seas.csv")   
-sri_final <- import("data/sri_final.csv")   
-
-# 2 identify gage locations====     
-mclust_fin <- import("data/mclust_final.csv") %>%  
-    rename(gage = sta)  
-
-gage_location <- import("data/gage_meta.csv") %>%  
-    rename(gage = sta)  
-
-gage_location <- semi_join(gage_location, mclust_fin,  
-                       by = "gage") %>%  
- # select(gage, dec_lat_va, dec_long_va) %>%   
-  mutate(north_group = case_when(   
-    dec_lat_va > 43.5 ~ "N",   
-    TRUE ~ "S")   
-  ) %>%   
-  mutate(east_group = case_when(  
-    dec_long_va  > -100.67 ~ "E",  
-    dec_long_va  > -102.33 ~ "C",    
-    TRUE ~ "W"))%>%  
-  mutate(location = str_c(north_group,  
-                       east_group,   
-                       sep = "")) %>%  
-  select(gage, location)  
-
-# * add location to mclust dataframe====  
-mclust_fin <- full_join(mclust_fin, gage_location,  
-                         by = "gage")  
-
-# 3 drop season & trend variables from SPI and SRI dataframes====  
-spi_corr <- spi_seas %>%  
-  select(-c(prcp,  
-            season:anomaly)) %>%  
-  pivot_longer(-c(sta, date, location)) %>%  
-  mutate(name = str_replace_all(name, "sci", "spi")) %>%   
-  pivot_wider()  
-
-# 3 join SRI and SRI by location and date====  
-# * add gage location to SRI dataframe====  
-sri_corr <- full_join(sri_final, gage_location,  
-                         by = c("sta" ="gage")) %>%  
-  select(-c(log_q1_mon,  
-            ecoreg,  
-            group,  
-            remainder_l1,  
-            remainder_l2,  
-            anomaly)) %>%  
-  select(sta, final_group, location, everything()) %>%  
-  rename(gage = sta) #%>%  
-  pivot_longer(-c(gage, date, location, final_group)) %>%  
-  mutate(name = str_replace_all(name, "sci", "sri")) %>%   
-  pivot_wider()  
-
-# * join SRI and SPI & clean up global environment====  
-sci_corr <- full_join(spi_corr, sri_corr)  
-
-rm(gage_location,  
-   spi_seas,  
- #  sri_seas,  
-   sri_final,  
-   spi_corr,  
-   sri_corr)    
-
-# [WORKING] prepare to correlate SPI and SRI====  
-sci_drought <- sci_corr %>%  
-  pivot_longer(c(spi_1mo:spi_12mo)) %>%   
-  filter(value <= -0.8) %>%  
-  pivot_wider() %>%     
-  filter(final_group == "Black Hills Plateau") 
-  
-# [WORKING] 4 prepare to correlate SPI and SRI--filter SRI drought months====  
-#test <- sci_corr %>%  
-#  filter(final_group == "Black Hills Plateau") 
-#  
-#  rename(current = spi_1mo) %>%  
-#  mutate(spi_1mo = lag(current, 1)) %>%  
-#  select(sta:current, spi_1mo, everything())  
-
-ggplot(sci_drought, aes(spi_1mo, sri_2mo)) + 
-  geom_point() +  
-  geom_smooth()
-
-
-# [WORKING] 5 correlate SPI and SRI====  
-test2 <- sci_drought %>%  
-  select(-c(sta, date, location, gage, final_group)) %>%  
-#  column_to_rownames("final_group")  
-  correlate(method = "spearman") %>% 
-  mutate_if(is.numeric, round, 2) %>% 
-  filter(str_detect(rowname, "sri")) #%>% 
-    
-  select(rowname:spi_12mo) 
-  %>% 
-   gather(var, value, -rowname) %>% 
-   spread(rowname, value) %>% 
-  select(-sri_12mo, sri_12mo) %>% 
-  rownames_to_column() %>% 
-  mutate(rowname = case_when( 
-    rowname == "2" ~ "10", 
-    TRUE ~ rowname)) %>% 
-  mutate(rowname = as.integer(rowname)) %>% 
-  arrange(rowname) %>% 
-  select(-rowname)
-
-
-
-
-```
-
-
-
-
-```{r time-series-correlation_prepare_sci-old}    
-  
-# import gage group to fix the 'group' -- used for function call above====   
-gage_group <- import("data/gage_meta_seas.csv") %>%  
- rename(gage = sta) %>%  
-  mutate(north_group = case_when(   
-    dec_lat_va > 43.5 ~ "N",   
-    TRUE ~ "S")   
-  ) %>%   
-  mutate(east_group = case_when(  
-    dec_long_va  > -100.67 ~ "E",  
-    dec_long_va  > -102.33 ~ "C",    
-    TRUE ~ "W")  
-  ) %>%  
-  mutate(group = str_c(north_group,  
-                       east_group,   
-                       sep = "")) %>%  
-  select(gage, group)   
-  
-# import gage & fix 'group' which was used above====    
-sci_gage <- import("data/sri_seas.csv") %>%    
-  mutate(date = ymd(date)) %>%  
-  rename(gage = sta) %>%  
-  select(-group)  
-
-# join group & spi data====    
-sci_gage <- full_join(gage_group, sci_gage, 
-                      by = "gage") %>%   
-  mutate(min_date_gage = min(date)) %>%    
-  mutate(max_date_gage = max(date)) %>%  
-  select(-c(log_q1_mon,  
-            season,  
-            trend,  
-            remainder,  
-            remainder_l1,  
-            remainder_l2,  
-            anomaly  
-  )) %>%  
-# arrange data from wide to long -- spi_length is used in the join below
-  gather(key   = sci_length,   
-         value = sci_val,   
-         -c(group,   
-            date,   
-            gage,   
-            ecoreg,   
-            min_date_gage,   
-            max_date_gage    
-         )) %>%    
-  ungroup() %>%   
-# prepare for joining by spi_length  
-  mutate(sci_length = str_remove_all(sci_length, "mo")) %>%     
-  mutate(sci_length = str_sub(sci_length, start = 5) %>% as.numeric)  
-  
-rm(gage_group)  
-```  
-
-```{r time-series-correlation_join_sci}    
-#  start by walking ----  
-
-# keep only the 1-mo vals as a response variable -- checking step
-#sci_gage_1mo <- sci_gage %>%  
- # filter(sci_length == 1)  
-  
-sci <- full_join(sci_gage, sci_sta,  
-                     by = c("group", "date")) %>%  
-  drop_na() %>%   
-#  spread(spi_length, spi_val, sep = "_") %>%  
-#  drop_na() %>%  
-  # reorder factors by ecoreg 
-  mutate(ecoreg = fct_relevel(ecoreg, 
-                              "Pierre Shale Plains", 
-                              "Pine Ridge Escarpment",  
-                              "White River Badlands", 
-                              "Black Hills Plateau", 
-                              "Keya Paha Tablelands", 
-                              "Sand Hills")) %>% 
-  mutate(year = year(date)) %>% 
-  mutate(mon = month(date))
-  
-# check for na values ====  
-# the '2' beelow refers to columns 
-indx <- sci %>%
-  apply(2, 
-        function(x) any(is.na(x) | is.infinite(x))
-        ) %>%   
-enframe()  
-
-rm(indx) 
-
-# make a 'biology' series====  
-# using april = 4, may = 5, june = 6 - idea --
-#sci_1mo_b <- sci_1mo %>% 
-#  filter(mon == 4 | 
-#           mon == 5 | 
-#           mon == 6)  
-  
-```
-
-```{r eda_plot_series} 
-# needs work!
-mon_plot <- sci_1mo %>%  
-  ggplot(aes(x = spi_length_12, y = sci_val)) + 
-  theme_bw() + 
-  facet_wrap(vars(sci_val), 
-             ncol =2) +
-  geom_jitter(size = .1) + 
-  geom_smooth() +
-  geom_abline(slope = 1 , intercept = 0)
-
-mon_plot
-eco_plot <- sci_1mo %>%  
-  ggplot(aes(x = spi_length_12, y = sci_val)) + 
-  theme_bw() + 
-  facet_wrap(vars(ecoreg), 
-             ncol =2) +
-  geom_jitter(size = .1) + 
-  geom_smooth() +
-  geom_abline(slope = 1 , intercept = 0) 
-
-```
-
-```{r create-models}
-# http://environmentalcomputing.net/intro-to-gams/ -- check this!
-# https://multithreaded.stitchfix.com/blog/2015/07/30/gam/ 
-
-# Consider that different months might behave differently!
-# Also consider that different drought lengths might behave differently!
-
-test <- sci %>% 
-  select(sci_length) %>% 
-  distinct() 
-
-# load gam model -- mgcv 
-library(mgcv) 
-
-# walk before you run 
-#sci_1mo_nest <- sci_1mo %>% 
-#  group_by(ecoreg) %>% 
-#  nest()  
-
-sci_1mo_input <- sci %>% 
-  filter(sci_length == 1) %>% 
-  group_by(sta, mon, spi_length) %>% 
-  nest()
-
-#define function for linear model
-sci_1mo_lm <-function(df) {
-  lm(sci_val ~ spi_val, data = df)
-}
-
-#define function for GAM 
-sci_1mo_gam <- function(df) {
-  gam(sci_val ~ s(spi_val), 
-                   method = "REML", 
-                   data = df)
-} 
-  
-# create columns for the models
-sci_models <- sci_1mo_input %>%
-        mutate(model_lm = map(data, sci_1mo_lm),
-               model_gam = map(data,sci_1mo_gam)
-               )
-
-# extract models 
-models_details<-sci_models %>%
-        mutate(
-                glance_lm  = model_lm %>% 
-                  map(glance),  #model summary 
-                AIC_lm     = glance_lm %>% 
-                  map_dbl("AIC"),  #extract AIC   
-                glance_gam = model_gam %>% 
-                  map(broom::glance), #GAM model summary  
-                AIC_gam    = glance_gam %>% 
-                  map_dbl("AIC"), #extract AIC
-                tidy_lm    = model_lm %>% 
-                  map(tidy), #model estimate: coeff...
-                tidy_gam    = model_gam %>% 
-                  map(tidy), #model estimate: coeff...
-                rsq_lm      = glance_lm %>% 
-                  map_dbl("r.squared"),  #extract rsquared 
-                augment_lm = model_lm %>% 
-                  map(augment), #observation stats: resid,hat...
-                res_lm        = augment_lm %>% 
-                  map(".resid") #extract resid
-               ) %>% 
-  mutate(AIC_diff = AIC_lm - AIC_gam) 
-
-test <- sci_models %>% 
-  mutate(R.square = map_dbl(model_gam, ~ summary(.)$r.sq)) %>% 
-  select(R.square)
-
-test2 <- test %>% 
-  group_by(ecoreg, spi_length) %>%  
-  summarize(rsq_mean     = mean(R.square),  
-            rsq_median   = median(R.square), 
-            rsq_75       = quantile(R.square, probs =.75), 
-            rsq_25       = quantile(R.square, probs =.25), 
-            rsq_min      = min(R.square), 
-            rsq_max      = max(R.square)          
-            ) %>% 
-  ungroup()
-  
-
-
-  
-out <- models_details %>% 
-  group_by(ecoreg, spi_length) %>%  
-  summarize(AIC_mean     = mean(AIC_diff),  
-            AIC_median   = median(AIC_diff), 
-            AIC_75       = quantile(AIC_diff, probs =.75), 
-            AIC_25       = quantile(AIC_diff, probs =.25), 
-            AIC_min      = min(AIC_diff), 
-            AIC_max      = max(AIC_diff) , 
-            deviance_gam = median(deviance_gam)           
-            ) %>% 
-  ungroup()
-
-out2 <- out %>% 
-  arrange(desc(deviance_gam)) 
-
-  summarize(deviance = ma)
-```
-
-```{r model-plot}
-# make a boxplot of the three models   
-
-out2 %>%
-  ggplot() +   
-  theme_bw() + 
-  facet_wrap(vars(spi_length), 
-             ncol = 3, 
-           scale = "free") +   
-#geom_point()
-  geom_boxplot(aes(x = factor(ecoreg),  
-#                   group = ecoreg,  
-                   lower = `AIC_25`,  
-                   upper = `AIC_75`,  
-                   middle = `AIC_median`,  
-                   ymin = `AIC_min`,  
-                   ymax = `AIC_max`),  
-               stat = "identity") 
-
-test2 %>%
-  ggplot() +   
-  theme_bw() + 
-  facet_wrap(vars(ecoreg), 
-             ncol = 3 #, 
-#           scale = "free"
-) +   
-  geom_boxplot(aes(x = factor(spi_length),  
-#                   group = ecoreg,  
-                   lower = `rsq_25`,  
-                   upper = `rsq_75`,  
-                   middle = `rsq_median`,  
-                   ymin = `rsq_min`,  
-                   ymax = `rsq_max`),  
-               stat = "identity") 
-
-
-```
-
-<!--  
-
 ```{r old-prepare-sri-deconvolution}
+
+
+# old identify seasonally intermittant streams (NEED TO FIX====  
+#sri_intermit <- sri_seas %>%  
+#  group_by(sta) %>%  
+#  summarise(group = first(group),  
+#            season_max = max(season)) %>%  
+#  ungroup() %>%  
+#  mutate(season_max = round(season_max, digits = 2)) %>%  
+#  arrange(desc(season_max))  
+
+#export(mclust_aug, "data/lmom_mclust_fit.csv")  
 
 # * calculate group median & MAD for plotting====   
 sri_seas_group <- sri_seas %>%  
