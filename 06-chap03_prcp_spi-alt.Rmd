@@ -963,11 +963,11 @@ rm(lmom_theo,
 
 ```{r 10_export-lmoment-table}
   
-# * set the numeric columns====   
+# 1  set the numeric columns====   
 col_key_num <- lmom_data %>%   
   names()  
 
-# * convert tibble to a flextable====    
+# 2 convert tibble to a flextable====    
 coef_table <- lmom_data %>%   
   # change factors to characters  
   mutate(flow_regime = as.character(flow_regime)) %>%  
@@ -1012,14 +1012,13 @@ coef_table <- lmom_data %>%
   autofit() %>%  
   theme_booktabs()   
 
-# * export a docx of flextables & clean up global environment====     
+# 3 export a docx of flextables & clean up global environment====     
 coef_table <- read_docx() %>%  
   body_add_flextable(value = coef_table)  
 print(coef_table, target = "output/lmom_table.docx")   
 
 rm(coef_table,  
-   col_key_num   
-)     
+   col_key_num)     
 
 ```
 
@@ -1239,7 +1238,7 @@ rm(mclust_plot)
 
 ```{r 13 export_mclust-table}
 
-# 1 arrange gage data====   
+# 1  arrange gage data====   
 mclust_aug <- mclust_aug %>%  
   select(sta,  
          ecoreg,  
@@ -1247,12 +1246,12 @@ mclust_aug <- mclust_aug %>%
          hydro_group) %>%  
   arrange(hydro_group, ecoreg)  
 
-# 2 prepare export table====  
-# * set the numeric columns====   
+# 2  prepare export table====  
+# 3  set the numeric columns====   
 col_key_num <- mclust_aug %>%   
   names()  
 
-# * convert tibble to a flextable====     
+# 4  convert tibble to a flextable====     
 coef_table <- mclust_aug %>%   
   # convert factors to characters   
   mutate(hydro_group = as.character(hydro_group)) %>%  
@@ -1273,7 +1272,7 @@ coef_table <- mclust_aug %>%
   align(align = "center") %>%   # not working!!!  
   theme_booktabs()   
 
-# * export a docx of flextables & clean up global environment====     
+# 5  export a docx of flextables & clean up global environment====     
 coef_table <- read_docx() %>%  
   body_add_flextable(value = coef_table)  
 print(coef_table, target = "output/lmom_mclust_table.docx")   
@@ -5101,11 +5100,6 @@ rm(spi_anom,
    sta_color,  
    sta_size)  
 
-```
-
-```{r prepare_sri_plot-DELETE} 
-```
-```{r prepare_sri_plot-DELETE} 
 ```
 
 ```{r prepare_sri_plot}
@@ -9309,7 +9303,7 @@ rm(spi_count,
 
 ```{r export_SPI-summary_table}
 
-# 1. arrange SPI-summary data for median station drought====   
+# 1.  arrange SPI-summary data for median station drought====   
 spi_sum_tab <- spi_summary %>%  
   select(threshold,  
          sci_n,  
@@ -9338,11 +9332,11 @@ spi_sum_tab <- spi_summary %>%
   mutate(sci_n = str_remove_all(sci_n, "SPI-")) %>%  
   mutate_if(is.numeric, round, 2)  
 
-# 2. prepare export table -- set the numeric columns====   
+# 2.  prepare export table -- set the numeric columns====   
 col_key_num <- spi_sum_tab %>%   
   names()  
 
-# 3. convert tibble to a flextable====     
+# 3.  convert tibble to a flextable====     
 coef_table <- spi_sum_tab %>%   
   # create flextable object  
   flextable() %>%   
@@ -9372,12 +9366,12 @@ coef_table <- spi_sum_tab %>%
   theme_booktabs() %>%  
   align(align = "center")    # not working!!!  
 
-# 4 export a docx of flextables====     
+# 4.  export a docx of flextables====     
 coef_table <- read_docx() %>%  
   body_add_flextable(value = coef_table)  
 print(coef_table, target = "output/SPI_summary_table.docx")   
 
-# clean up global environment====  
+# 5.  clean up global environment====  
 rm(coef_table,  
    col_key_num,  
    spi_sum_tab)       
@@ -13456,297 +13450,423 @@ ggsave("figure/sri_drought_comp.png",
                  width = 7,  
                  height = 4.5)  
 
-# 5 linear models of severity vs L1====    
-mod1_L1_sev <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(severity ~ L1 + threshold * sci_n, data = .) %>%  
-  glance() %>%  
-  mutate(model = "interaction") 
+rm(sri_dur, sri_sevy)  
 
-mod2_L1_sev <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(severity ~ L1 + threshold + sci_n, data = .) %>%  
+```
+
+```{r SRI_L1_OLS-regression}
+
+# 1.  prepare linear model inputs====  
+ols_input <- sri_events %>%  
+  mutate(sci_num = as.character(sci_n)) %>%  
+  mutate(sci_num = str_remove_all(sci_num, "SRI-")) %>%  
+  mutate(sci_num = as.numeric(sci_num)) %>%  
+  mutate(severity = severity + 0.001) %>%   # used to fix lm.fit error  
+  mutate(duration = duration + 0.001)       # used to fix lm.fit error  
+
+ck <- ols_input %>% 
+  select(duration) 
+
+ols_psl_input <- ols_input %>%  
+  filter(group == "Pierre Shale Low")  
+
+ols_input <- ols_input %>%  
+  filter(group != "Pierre Shale Low")  
+
+# 2.  prepare to select ols model -- sev====    
+ols1_sev <- ols_input %>%  
+  lm(log10(severity) ~ L1 + threshold * sci_num, data = .) %>%  
+  glance() %>%  
+  mutate(model = "interaction")  
+
+ols2_sev <- ols_input %>%  
+  lm(log10(severity) ~ L1 + threshold + sci_num, data = .) %>%  
   glance() %>%  
   mutate(model = "all")   
 
-mod3_L1_sev <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(severity ~ L1 + threshold, data = .) %>%  
+ols3_sev <- ols_input %>%  
+  mutate(severity = severity + 0.001) %>%  
+  lm(log(log10(severity)) ~ L1 + threshold + sci_num, data = .) %>%  
+  glance() %>%  
+  mutate(model = "ln-all")   
+
+ols4_sev <- ols_input %>%   
+  lm(log10(severity) ~ L1 + threshold, data = .) %>%  
   glance() %>%  
   mutate(model = "no sci_n")  
 
-mod4_L1_sev <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(severity ~ L1 + sci_n, data = .) %>%  
+ols5_sev <- ols_input %>% 
+  lm(log10(severity) ~ L1 + sci_num, data = .) %>%  
   glance() %>%  
   mutate(model = "no threshold")  
 
-mod5_L1_sev <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(severity ~ L1, data = .) %>%  
+ols6_sev <- ols_input %>% 
+  lm(log10(severity) ~ L1, data = .) %>%  
   glance() %>%  
   mutate(model = "only L1") 
 
-# 6 sum and test model fits====  
-# * AIC & BIC slightly different -- chose all to fit with below  
-mod_L1_sev_sum <- bind_rows(mod1_L1_sev,  
-                            mod2_L1_sev,  
-                            mod3_L1_sev,  
-                            mod4_L1_sev,  
-                            mod5_L1_sev) %>% 
-  mutate_if(is.numeric, round, 2)  
-
-rm(mod1_L1_sev,  
-   mod2_L1_sev,  
-   mod3_L1_sev,  
-   mod4_L1_sev,   
-   mod5_L1_sev)  
-
-# 7 linear models of duration vs L1====    
-mod1_L1_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(duration ~ L1 + threshold * sci_n, data = .) %>%  
+# 3.  prepare to select ols model -- dur====    
+ols1_dur <- ols_input %>%   
+  lm(log10(duration) ~ L1 + threshold * sci_num, data = .) %>%  
   glance() %>%  
   mutate(model = "interaction") 
 
-mod2_L1_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(duration ~ L1 + threshold + sci_n, data = .) %>%  
+ols2_dur <- ols_input %>%   
+  lm(log10(duration) ~ L1 + threshold + sci_num, data = .) %>%  
   glance() %>%  
   mutate(model = "all")   
 
-mod3_L1_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(duration ~ L1 + threshold, data = .) %>%  
+ols3_dur <- ols_input %>%   
+  lm(log(log10(duration)) ~ L1 + threshold + sci_num, data = .) %>%  
   glance() %>%  
-  mutate(model = "no sci_n")  
+  mutate(model = "ln-all")   
 
-mod4_L1_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(duration ~ L1 + sci_n, data = .) %>%  
+ols4_dur <- ols_input %>%   
+  lm(log10(duration) ~ L1 + threshold, data = .) %>%  
+  glance() %>%  
+  mutate(model = "no sci_num")  
+
+ols5_dur <- ols_input %>%   
+  lm(log10(duration) ~ L1 + sci_num, data = .) %>%  
   glance() %>%  
   mutate(model = "no threshold")  
 
-mod5_L1_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(duration ~ L1, data = .) %>%  
+ols6_dur <- ols_input %>%   
+  lm(log10(duration) ~ L1, data = .) %>%  
   glance() %>%  
   mutate(model = "only L1") 
 
-# 8 sum and test model fits====  
-# * AIC & BIC slightly different -- chose all to fit with above   
-mod_L1_dur_sum <- bind_rows(mod1_L1_dur,  
-                            mod2_L1_dur,  
-                            mod3_L1_dur,  
-                            mod4_L1_dur,  
-                            mod5_L1_dur) %>% 
+# 4.  examine ols models -- sev & dur====  
+# * AIC != BIC -- chose all vars -- interaction had non-significant terms  
+ols_summary_sev <- bind_rows(ols1_sev,  
+                             ols2_sev,  
+                             ols3_sev,  
+                             ols4_sev,  
+                             ols5_sev,  
+                             ols6_sev) %>%  
+  mutate(resp_var = "severity")  
+
+ols_summary_dur <- bind_rows(ols1_dur,  
+                             ols2_dur,  
+                             ols3_dur,  
+                             ols4_dur,  
+                             ols5_dur,  
+                             ols6_dur) %>%  
+  mutate(resp_var = "duration")  
+
+ols_model_summary <- bind_rows(ols_summary_sev,  
+                               ols_summary_dur) %>%  
   mutate_if(is.numeric, round, 2)  
 
-rm(mod1_L1_dur,  
-   mod2_L1_dur,  
-   mod3_L1_dur,  
-   mod4_L1_dur,   
-   mod5_L1_dur)  
+# 5.  filter the selected ols models & clean up global environment====  
+ols_model_summary %<>%  filter(model == "all")  
 
-# 8 sum and test model fits====  
-mod2_L1_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(duration ~ L1 + threshold + sci_n, data = .) %>%  
-  glance() %>%  
-  mutate(model = "all")   
+rm(ols1_sev,  
+   ols2_sev,  
+   ols3_sev,  
+   ols4_sev,  
+   ols5_sev,  
+   ols6_sev,  
+   ols1_dur,  
+   ols2_dur,  
+   ols3_dur,  
+   ols4_dur,  
+   ols5_dur,  
+   ols6_dur,  
+   ols_summary_sev,  
+   ols_summary_dur)  
 
+# 6.  prepare ols models -- sev & dur====  
+ols_sev <- ols_input %>%   
+  lm(log10(severity) ~ L1 + threshold + sci_num, data = .)  
 
+ols_dur <- ols_input %>%  
+  lm(log10(duration) ~ L1 + threshold + sci_num, data = .)  
 
-mod3_L1_sev_sum <- mod3_L1_sev %>%  
-  glance() %>%  
-  mutate(model = "no threshold") 
+ols_psl_sev <- ols_psl_input  %>%   
+  lm(log10(severity) ~ L1 + threshold + sci_num, data = .)  
 
-mod4_L1_sev_sum <- mod1_L1_sev %>%  
-  glance() %>%  
-  mutate(model = "no sci_n")  
+ols_psl_dur <- ols_psl_input  %>%  
+  lm(log10(duration) ~ L1 + threshold + sci_num, data = .)  
 
-
-
-mod1_L1_sev_tab <- mod1_L1_sev %>%  
+# 7.  get ols model table values====  
+ols_table_dur <- ols_dur %>%  
   tidy() %>%  
-  mutate(explan_var = "severity")  
+  mutate(explain_var = "Duration") %>%  
+  mutate(flow_type = "Perennial")  
 
-mod1_L1_sev_pts <- mod1_L1_sev %>%  
-  augment() #%>%  
-
-
-
-sri_l1_sev_mod1_pts %>%  
-ggplot(aes(x = L1, y = severity)) +  
-  facet_grid(vars(sci_n),  
-             vars(threshold)) +  
- # facet_g(~ iv, scales = "free_x") +
-  geom_smooth(method = "lm", se = FALSE, color = "lightgrey") +
-  geom_segment(aes(xend = L1, yend = .fitted), alpha = .2) +  # Note `.fitted`
-  geom_point(aes(alpha = abs(.resid))) +  # Note `.resid`
-  guides(alpha = FALSE) +
-  geom_point(aes(y = .fitted), shape = 1) +  # Note `.fitted`
-  theme_bw()
-
-sri_L1_sev2 <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(severity ~ L1 + threshold , data = .) %>%  
+ols_table_sev <- ols_sev %>%  
   tidy() %>%  
-  mutate(explan_var = "severity")  
+  mutate(explain_var = "Severity") %>%  
+  mutate(flow_type = "Perennial")    
 
-
-sri_L1_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
-  lm(duration ~ L1, data = .) %>%  
+ols_tab_psl_dur <- ols_psl_dur %>%  
   tidy() %>%  
-  mutate(explan_var = "duration")  
+  mutate(explain_var = "Duration") %>%  
+  mutate(flow_type = "Intermittant")  
 
-sri_L1_mod <-  bind_rows(sri_L1_sev, sri_L1_dur)
+ols_tab_psl_sev <- ols_psl_sev %>%  
+  tidy() %>%  
+  mutate(explain_var = "Severity") %>%  
+  mutate(flow_type = "Intermittant")  
 
-# 6 plot severity vs average streamflow L1====  
-sri_drought_sev <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
+# 8.  prepare ols table====  
+ols_table <- bind_rows(ols_table_dur,  
+                       ols_table_sev,  
+                       ols_tab_psl_dur,  
+                       ols_tab_psl_sev) %>% 
+  mutate_if(is.numeric, round, 2) %>%  
+  select(explain_var, everything()) %>%  
+  arrange(flow_type, explain_var, term) %>%  
+  mutate(term = case_when(  
+    term == "(Intercept)" ~ "Intercept",  
+    term == "sci_numSRI-18" ~ "SRI-18",  
+    term == "sci_numSRI-6" ~ "SRI-6",  
+    term == "thresholdextreme" ~ "Extreme drought",  
+    term == "thresholdsevere" ~ "Severe drought",  
+    TRUE ~ term)) %>%  
+  mutate(p.value = as.character(p.value)) %>%  
+  mutate(p.value = case_when(  
+    p.value == "0" ~ "< 0.005",  
+    TRUE ~ p.value))  
+
+# * clean up global environment  
+rm(ols_table_dur,  
+   ols_table_sev,  
+   ols_tab_psl_dur,  
+   ols_tab_psl_sev)     
+
+# 9.  get model points for plotting====  
+ols_pts_sev <- ols_sev %>%  
+  augment(data = ols_input) %>%  
+  mutate(explain_var = "Severity") %>%   
+  mutate(fitted_tr = 10^.fitted) %>%  
+  mutate(se.fit_tr = 10^.se.fit)  
+
+ols_pts_dur <- ols_dur %>%  
+  augment(data = ols_input) %>%  
+  mutate(explain_var = "Duration") %>%   
+  mutate(fitted_tr = 10^.fitted) %>%  
+  mutate(se.fit_tr = 10^.se.fit)     
+
+ols_psl_pts_sev <- ols_psl_sev %>%  
+  augment(data = ols_psl_input) %>%  
+  mutate(explain_var = "Severity") %>%   
+  mutate(fitted_tr = 10^.fitted) %>%  
+  mutate(se.fit_tr = 10^.se.fit)    
+
+ols_psl_pts_dur <- ols_psl_dur %>%  
+  augment(data = ols_psl_input) %>%  
+  mutate(explain_var = "Duration") %>%   
+  mutate(fitted_tr = 10^.fitted) %>%  
+  mutate(se.fit_tr = 10^.se.fit)    
+
+ols_pts_all_sev <- bind_rows(ols_pts_sev, ols_psl_pts_sev)  
+ols_pts_all_dur <- bind_rows(ols_pts_dur, ols_psl_pts_dur)  
+
+# * clean up global environment====  
+rm(ols_dur,  
+   ols_psl_dur,  
+   ols_sev,  
+   ols_psl_sev,  
+   ols_input,  
+   ols_psl_input)  
+
+# 10. plot ols -- severity====  
+ols_plot_sev <- ols_pts_all_sev %>%  
   ggplot(aes(L1, severity)) +  
   theme_bw() +  
   xlab("Average streamflow magnitude (L1)") +  
   ylab("Event severity (-)") +  
-  scale_y_log10() +  
-  scale_color_grey(start = 0.3) +  
+  facet_grid(vars(sci_n), 
+             vars(threshold)) +  
+  scale_color_grey() +  
+  # prepare legend   
+  theme(legend.position = "none") +  
 #  guides(color = guide_legend(title = "Hydrologic group")) +  
 #  guides(size = guides(size = FALSE)) +  
-  theme(legend.position = "none") +  
-  facet_grid(vars(sci_n), vars(threshold)) +  
-  geom_smooth(method = "lm",  
-              color = "gray40", 
-              linetype = 2)  +  
-  geom_hline(yintercept = 4,  
-             color = "gray70") +  
-  geom_jitter(aes(color = group))  
+  # plot observations  
+  geom_jitter(aes(color = group)) +  
+ # plot fitted line and error-bars for OLS -- most  
+  geom_line(data = ols_pts_sev, 
+            aes(x = L1, y = fitted_tr),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = ols_pts_sev,  
+                aes(ymin = fitted_tr - se.fit_tr,  
+                    ymax = fitted_tr + se.fit_tr),  
+                width = .2,  
+                color = "gray40") +  
+ # plot PSL fitted line and error-bars for OLS -- psl  
+  geom_line(data = ols_psl_pts_sev,  
+            aes(x = L1, y = fitted_tr),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = ols_psl_pts_sev,  
+                aes(ymin = fitted_tr - se.fit_tr,  
+                    ymax = fitted_tr + se.fit_tr),  
+                width = .3,  
+                color = "gray40")  
 
-sri_drought_sev  
+ols_plot_sev  
 
-# 6 plot duration vs average streamflow L1====  
-sri_drought_dur <- sri_events %>%  
-  filter(group != "Pierre Shale Low") %>%  
+# 11. plot ols -- duration====  
+ols_plot_dur <- ols_pts_all_dur %>%  
+  # set up the plotting environment  
   ggplot(aes(L1, duration)) +  
   theme_bw() +  
   xlab("Average streamflow magnitude (L1)") +  
   ylab("Event duration (months)") +  
-  scale_y_log10() +  
-  scale_color_grey(start = 0.3) +  
+  facet_grid(vars(sci_n), 
+             vars(threshold)) +  
+  scale_color_grey() +  
+  # prepare legend   
   guides(color = guide_legend(title = "Hydrologic group")) +  
   guides(size = guides(size = FALSE)) +  
   theme(legend.position = "bottom") +  
-  facet_grid(vars(sci_n),  
-             vars(threshold)) +  
-  geom_smooth(method = "lm",  
-              color = "gray40",  
-              linetype = 2)  +  
-  geom_hline(yintercept = 2.5,  
-             color = "gray70") +  
-  geom_jitter(aes(color = group))  
+  # plot observations  
+  geom_jitter(aes(color = group)) +    
+ # plot fitted line and error-bars for OLS -- most  
+  geom_line(data = ols_pts_dur, 
+            aes(x = L1, y = fitted_tr),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = ols_pts_dur,  
+                aes(ymin = fitted_tr - se.fit_tr,  
+                    ymax = fitted_tr + se.fit_tr),  
+                width = .2,  
+                color = "gray40") +    
+# plot PSL fitted line and error-bars for OLS -- psl  
+  geom_line(data = ols_psl_pts_dur,  
+            aes(x = L1, y = fitted_tr),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = ols_psl_pts_dur,  
+                aes(ymin = fitted_tr - se.fit_tr,  
+                    ymax = fitted_tr + se.fit_tr),  
+                width = .3,  
+                color = "gray40")    
 
-sri_drought_dur  
+ols_plot_dur
 
-# patchwork the plots & save====  
-sri_drought_sev / sri_drought_dur  
+# 12. patchwork the plots & save====  
+ols_plot_sev / ols_plot_dur  
 
 ggsave("figure/sri_drought_L1_comp.png",  
                  units = "in",  
                  width = 7,  
-                 height = 4.5)  
+                 height = 9)  
+
+# 13. prepare ols results tables====  
+ols_pts_table_sev <- ols_pts_all_sev %>%  
+  select(group, threshold, sci_n, fitted_tr, se.fit_tr) %>%  
+  mutate(fit_hi = fitted_tr + se.fit_tr) %>%  
+  mutate(fit_lo = fitted_tr - se.fit_tr) %>%  
+  select(-c(fitted_tr, se.fit_tr)) %>%  
+  mutate_if(is.numeric, round, 2) %>%  
+  distinct() %>%  
+  pivot_wider(names_from = c(group),  
+              values_from = c(fit_hi, fit_lo),  
+              names_repair = "unique") %>%  
+  mutate(hi_diff = `fit_hi_Tertiary Clays` - `fit_hi_Sand Hills`) %>%  
+  mutate(lo_diff = `fit_lo_Tertiary Clays` - `fit_lo_Sand Hills`) %>%  
+  select(threshold, sci_n, hi_diff, lo_diff, everything())  
+
+ols_pts_table_dur <- ols_pts_all_dur %>%  
+  select(group, threshold, sci_n, fitted_tr, se.fit_tr) %>% 
+  mutate(fit_hi = fitted_tr + se.fit_tr) %>%  
+  mutate(fit_lo = fitted_tr - se.fit_tr) %>%  
+  select(-c(fitted_tr, se.fit_tr)) %>%  
+  mutate_if(is.numeric, round, 2) %>%  
+  distinct() %>%  
+  pivot_wider(names_from = c(group), 
+              values_from = c(fit_hi, fit_lo),  
+              names_repair = "unique") %>%  
+  mutate(hi_diff = `fit_hi_Tertiary Clays` - `fit_hi_Sand Hills`) %>%  
+  mutate(lo_diff = `fit_lo_Tertiary Clays` - `fit_lo_Sand Hills`) %>% 
+  select(threshold, sci_n, hi_diff, lo_diff, everything())
+
+# 14. clean up global environment====   
+rm(ols_plot_sev,  
+   ols_plot_dur,  
+   ols_psl_pts_sev,  
+   ols_psl_pts_dur, 
+   ols_pts_sev,  
+   ols_pts_dur,  
+   ols_pts_all_sev,  
+   ols_pts_all_dur)
+
+
+
+
+```  
+# 11 clean up global environment====  
+rm(mod_L1_dur_tab,  
+   mod_L1_sev_tab,  
+   mod_L1_dur,  
+   mod_L1_sev,  
+   mod_L1_sev_pts,  
+   mod_L1_dur_pts,  
+   mod1_L1_dur,  
+   mod2_L1_dur,  
+   mod3_L1_dur,  
+   mod4_L1_dur,   
+   mod5_L1_dur,  
+   mod6_L1_dur,  
+   mod1_L1_sev,  
+   mod2_L1_sev,  
+   mod3_L1_sev,  
+   mod4_L1_sev,   
+   mod5_L1_sev,  
+   mod6_L1_sev,  
+   mod_L1_dur_sum,   
+   mod_L1_sev_sum,  
+   psl_L1_dur,  
+   psl_L1_sev,  
+   psl_L1_dur,  
+   psl_L1_dur_pts,  
+   psl_L1_dur,  
+   psl_L1_dur_pts,  
+   psl_drought_sev,  
+   psl_L1_dur_tab)  
+
+# plot PSL fitted line and error-bars
+  geom_line(data = psl_L1_sev_pts, 
+            aes(x = L1, y = .fitted),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = psl_L1_sev_pts, 
+                aes(ymin = .fitted - .se.fit, 
+                    ymax = .fitted + .se.fit), 
+                width = .3, 
+                color = "gray40")   
+  # plot fitted line and error-bars
+  geom_line(data = mod_L1_dur_pts, 
+            aes(x = L1, y = .fitted),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = mod_L1_dur_pts, 
+                aes(ymin = .fitted - .se.fit, 
+                    ymax = .fitted + .se.fit), 
+                width = .1, 
+                color = "gray40") +
 
 ```
 
-```{r export_SPI-summary_table}
 
-# 1. arrange SPI-summary data for median station drought====   
-sri_sum_tab <- sri_summary %>%  
-  select(group,  
-         threshold,  
-         sci_n,  
-         proportion,  
-         mean.d,  
-         median.d,  
-         max.d,  
-         mean.s,  
-         median.s,  
-         max.s) %>%  
-  group_by(group, threshold, sci_n) %>%  
-  summarise(proportion = sum(proportion),  
-            mean.d_all = median(mean.d),  
-            median.d_all = median(median.d),  
-            max.d_all = median(max.d),     
-            mean.s_all = median(mean.s),  
-            median.s_all = median(median.s),  
-            max.s_all = median(max.s)) %>%  
-  ungroup() %>%  
-  arrange(threshold, sci_n, group) %>%  
-  mutate(threshold = case_when(  
-    threshold == "moderate" ~ -1.0,  
-    threshold == "severe"   ~ -1.5,  
-    threshold == "extreme"  ~ -2.0)) %>%  
-  mutate_if(is.factor, as.character) %>%  
-#  mutate(sci_n = as.character(sci_n)) %>%  
-#  mutate(threshold = as.character(threshold)) %>%  
-  mutate(sci_n = str_remove_all(sci_n, "SPI-")) %>%  
-  mutate_if(is.numeric, round, 2)  
 
-# 2. prepare export table -- set the numeric columns====   
-col_key_num <- sri_sum_tab %>%   
-  names()  
-
-# 3. convert tibble to a flextable====     
-coef_table <- sri_sum_tab %>%   
-  # create flextable object  
-  flextable() %>%   
-  fontsize(size = 5, part = "all") %>%  
-  colformat_num(col_keys = col_key_num,   
-                big.mark=",",   
-                digits = 1, na_str = "") %>%  
-  # rename header labels  
-  set_header_labels(group = "",  
-                    threshold = "",  
-                    sci_n = "SPI accumulation period (months)",  
-                    proportion   = "Average number of events per station",  
-                    mean.d_all   = "Mean",  
-                    median.d_all = "Median",  
-                    max.d_all    = "Max.",     
-                    mean.s_all   = "Mean",  
-                    median.s_all = "Median",  
-                    max.s_all    = "Max.") %>%  
-  add_header(group = "Hydrologic group",  
-             threshold = "Threshold", 
-             sci_n        = "",  
-             proportion        = "", 
-             mean.d_all   = "",  
-             median.d_all = "Duration (months)",  
-             max.d_all    = "",     
-             mean.s_all   = "",  
-             median.s_all = "Severity (-)",  
-             max.s_all    = "") %>%  
-  autofit() %>%  
-  theme_booktabs() %>%  
-  align(align = "center")    # not working!!!  
-
-# 4 export a docx of flextables====     
-coef_table <- read_docx() %>%  
-  body_add_flextable(value = coef_table)  
-print(coef_table, target = "output/SRI_summary_table.docx")   
-
-# clean up global environment====  
-rm(coef_table,  
-   col_key_num,  
-   spi_sum_tab)       
-
+```{r prepare_sri_plot-DELETE} 
 ```
+```{r prepare_sri_plot-DELETE} 
+```
+
 
 # drought propogation  
 Drought propagation
 Streamflow integrates hydrogeological processes at the watershed catchment-scale.  Comparison of SPI and SSI provides an indication of how long it takes for precipitation deficits to propagate through the hydrological cycle and appear as streamflow deficits. {Barker:2016ua}.  The 1-month SSI also provides a good description of low flows, similar to the 30-day mean flow, which is often used in studies of annual minimum flows {Gustard:1992vo, Barker:2016ua}.  We cross-correlated SPI accumulation periods of 1– 24 months and 1-month SSI (SSI-1) time series using the Spearman coefficient to analyze the most appropriate accumulation period of SPI to characterize to SSI- 1. 
 ```{r prepare-SCI-correlation}
 
-# 1 pivot SPI wider and drop non-important vars====  
+# 1.  pivot SPI wider and drop non-important vars====   
 spi_decomp <- spi_decomp_long %>%  
   group_by(sta, date) %>%  
   mutate(seas_trend = season + trend) %>%  
@@ -13757,18 +13877,18 @@ spi_decomp <- spi_decomp_long %>%
               values_from = c(value, season, trend, seas_trend)) %>%  
   rename_at(vars(starts_with('value_')), ~ str_remove_all(., "value_"))  
 
-# 2 pivot SRI wider and drop non-important vars====  
+# 2.  pivot SRI wider and drop non-important vars====   
 sri_decomp <- sri_decomp_long %>%  
   group_by(sta, date) %>%  
   mutate(seas_trend = season + trend) %>%  
   ungroup() %>%  
   select(sta:date, name, value, season, trend, seas_trend) %>%  
   mutate_if(is.numeric, round, digits = 2) %>%  
-  pivot_wider(names_from = name, 
+  pivot_wider(names_from = name,  
               values_from = c(value, season, trend, seas_trend)) %>%  
   rename_at(vars(starts_with('value_')), ~ str_remove_all(., "value_"))  
 
-# 3 add location to mclust dataframe====  
+# 3.  add location to mclust dataframe====  
 # * identify gage locations    
 mclust_aug <- import("data/lmom_mclust_fit.csv") %>%  
     rename(gage = sta)  
@@ -13795,14 +13915,14 @@ mclust_fin <- full_join(mclust_aug, gage_location,
                          by = "gage") %>% 
   mutate(hydro_group = case_when(  
     hydro_group == "GW control" ~ "GW Control",  
-    TRUE ~ hydro_group))
+    TRUE ~ hydro_group))  
 
 # * add location to SRI dataframe  
 sri_decomp <- full_join(sri_decomp, gage_location,  
                         by = c("sta" ="gage")) %>%  
   rename(gage = sta)  
 
-# 4 prepare for joining SCI dfs====   
+# 4.  prepare for joining SCI dfs====   
 spi_decomp <- spi_decomp %>%  
   rename_at(vars(contains('sci')), ~ str_replace_all(., "sci", "spi")) %>%  
   mutate(location = as.character(location))  
@@ -13810,7 +13930,7 @@ spi_decomp <- spi_decomp %>%
 sri_decomp <- sri_decomp %>%  
   rename_at(vars(contains('sci')), ~ str_replace_all(., "sci", "sri"))  
 
-# * join SRI and SPI====  
+# 5.  join SRI and SPI====  
 sci_decomp <- full_join(spi_decomp, sri_decomp,  
                        by = c("date", "location")) %>%  
   select(-contains("season_spi")) %>%  
@@ -13819,10 +13939,10 @@ sci_decomp <- full_join(spi_decomp, sri_decomp,
   select(-contains("trend_sri")) %>%  
   select(sta, gage, location, group, ecoreg, date, everything())  
 
-# 5 lag the SSI-1 values====  
+# 6.  lag the SSI-1 values====  
 #cross-correlations calculated for SSI-1 series which were lagged by 0 to 6  
 # after the SPI series. In this case, the SPI accumulation period with the   
-# strongest correlation with SSI-1 was denoted as the lagged SPI-n.
+# strongest correlation with SSI-1 was denoted as the lagged SPI-n.  
 
 sci_cross_corr <- sci_decomp %>%  
   select(-c(prcp, sri_2mo:sri_24mo)) %>%  
@@ -13834,7 +13954,7 @@ sci_cross_corr <- sci_decomp %>%
   mutate(sri_lag5 = lag(sri_lag0, 5)) %>%  
   mutate(sri_lag6 = lag(sri_lag0, 6))     
 
-# make sci longer for plotting as points====  
+# make sci longer for plotting as points====   
 sci_ccor_long <- sci_cross_corr %>%  
   pivot_longer(cols = spi_1mo:spi_24mo,  
                names_to = "spi_length",  
@@ -13858,14 +13978,14 @@ sci_ccor_long <- sci_cross_corr %>%
                              "Keya Paha Tablelands",  
                              "Sand Hills"))   
 
-# * clean up global environment====  
+# * clean up global environment====   
 rm(mclust_aug,  
    gage_location,  
    spi_decomp,  
-   sri_decomp, 
-   seas_group_max, 
-   seas_group_med, 
-   seas_group_min, 
+   sri_decomp,  
+   seas_group_max,  
+   seas_group_med,  
+   seas_group_min,  
    spi_decomp_long)  
 
 ```
