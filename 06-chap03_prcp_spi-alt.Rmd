@@ -13391,9 +13391,9 @@ ggsave("figure/sri_droughts.png",
 
 ```
 
-```{r plot_SRI-duration_vs_severity}
+```{r plot_SRI-duration_vs_severity} 
 
-# 1 join sri_events====  
+# 1 join sri_events====   
 sri_events <- full_join(sri_sevy, sri_dur,  
                   by = c("group",  
                          "threshold",  
@@ -13463,9 +13463,6 @@ ols_input <- sri_events %>%
   mutate(sci_num = as.numeric(sci_num)) %>%  
   mutate(severity = severity + 0.001) %>%   # used to fix lm.fit error  
   mutate(duration = duration + 0.001)       # used to fix lm.fit error  
-
-ck <- ols_input %>% 
-  select(duration) 
 
 ols_psl_input <- ols_input %>%  
   filter(group == "Pierre Shale Low")  
@@ -13590,12 +13587,12 @@ ols_psl_dur <- ols_psl_input  %>%
   lm(log10(duration) ~ L1 + threshold + sci_num, data = .)  
 
 # 7.  get ols model table values====  
-ols_table_dur <- ols_dur %>%  
+ols_results_tab_dur <- ols_dur %>%  
   tidy() %>%  
   mutate(explain_var = "Duration") %>%  
   mutate(flow_type = "Perennial")  
 
-ols_table_sev <- ols_sev %>%  
+ols_results_tab_sev <- ols_sev %>%  
   tidy() %>%  
   mutate(explain_var = "Severity") %>%  
   mutate(flow_type = "Perennial")    
@@ -13611,8 +13608,8 @@ ols_tab_psl_sev <- ols_psl_sev %>%
   mutate(flow_type = "Intermittant")  
 
 # 8.  prepare ols table====  
-ols_table <- bind_rows(ols_table_dur,  
-                       ols_table_sev,  
+ols_results_tab <- bind_rows(ols_results_tab_dur,  
+                       ols_results_tab_sev,  
                        ols_tab_psl_dur,  
                        ols_tab_psl_sev) %>% 
   mutate_if(is.numeric, round, 2) %>%  
@@ -13631,8 +13628,8 @@ ols_table <- bind_rows(ols_table_dur,
     TRUE ~ p.value))  
 
 # * clean up global environment  
-rm(ols_table_dur,  
-   ols_table_sev,  
+rm(ols_results_tab_dur,  
+   ols_results_tab_sev,  
    ols_tab_psl_dur,  
    ols_tab_psl_sev)     
 
@@ -13661,8 +13658,8 @@ ols_psl_pts_dur <- ols_psl_dur %>%
   mutate(fitted_tr = 10^.fitted) %>%  
   mutate(se.fit_tr = 10^.se.fit)    
 
-ols_pts_all_sev <- bind_rows(ols_pts_sev, ols_psl_pts_sev)  
-ols_pts_all_dur <- bind_rows(ols_pts_dur, ols_psl_pts_dur)  
+ols_pts_sev <- bind_rows(ols_pts_sev, ols_psl_pts_sev)  
+ols_pts_dur <- bind_rows(ols_pts_dur, ols_psl_pts_dur)  
 
 # * clean up global environment====  
 rm(ols_dur,  
@@ -13673,7 +13670,7 @@ rm(ols_dur,
    ols_psl_input)  
 
 # 10. plot ols -- severity====  
-ols_plot_sev <- ols_pts_all_sev %>%  
+ols_plot_sev <- ols_pts_sev %>%  
   ggplot(aes(L1, severity)) +  
   theme_bw() +  
   xlab("Average streamflow magnitude (L1)") +  
@@ -13691,7 +13688,7 @@ ols_plot_sev <- ols_pts_all_sev %>%
   geom_line(data = ols_pts_sev, 
             aes(x = L1, y = fitted_tr),  
             color = "gray40",  
-              linetype = 2) +  
+              linetype = 1) +  
   geom_errorbar(data = ols_pts_sev,  
                 aes(ymin = fitted_tr - se.fit_tr,  
                     ymax = fitted_tr + se.fit_tr),  
@@ -13711,7 +13708,7 @@ ols_plot_sev <- ols_pts_all_sev %>%
 ols_plot_sev  
 
 # 11. plot ols -- duration====  
-ols_plot_dur <- ols_pts_all_dur %>%  
+ols_plot_dur <- ols_pts_dur %>%  
   # set up the plotting environment  
   ggplot(aes(L1, duration)) +  
   theme_bw() +  
@@ -13730,7 +13727,7 @@ ols_plot_dur <- ols_pts_all_dur %>%
   geom_line(data = ols_pts_dur, 
             aes(x = L1, y = fitted_tr),  
             color = "gray40",  
-              linetype = 2) +  
+              linetype = 1) +  
   geom_errorbar(data = ols_pts_dur,  
                 aes(ymin = fitted_tr - se.fit_tr,  
                     ymax = fitted_tr + se.fit_tr),  
@@ -13747,7 +13744,7 @@ ols_plot_dur <- ols_pts_all_dur %>%
                 width = .3,  
                 color = "gray40")    
 
-ols_plot_dur
+ols_plot_dur  
 
 # 12. patchwork the plots & save====  
 ols_plot_sev / ols_plot_dur  
@@ -13757,108 +13754,122 @@ ggsave("figure/sri_drought_L1_comp.png",
                  width = 7,  
                  height = 9)  
 
-# 13. prepare ols results tables====  
-ols_pts_table_sev <- ols_pts_all_sev %>%  
-  select(group, threshold, sci_n, fitted_tr, se.fit_tr) %>%  
-  mutate(fit_hi = fitted_tr + se.fit_tr) %>%  
-  mutate(fit_lo = fitted_tr - se.fit_tr) %>%  
-  select(-c(fitted_tr, se.fit_tr)) %>%  
-  mutate_if(is.numeric, round, 2) %>%  
-  distinct() %>%  
-  pivot_wider(names_from = c(group),  
-              values_from = c(fit_hi, fit_lo),  
-              names_repair = "unique") %>%  
-  mutate(hi_diff = `fit_hi_Tertiary Clays` - `fit_hi_Sand Hills`) %>%  
-  mutate(lo_diff = `fit_lo_Tertiary Clays` - `fit_lo_Sand Hills`) %>%  
-  select(threshold, sci_n, hi_diff, lo_diff, everything())  
-
-ols_pts_table_dur <- ols_pts_all_dur %>%  
-  select(group, threshold, sci_n, fitted_tr, se.fit_tr) %>% 
-  mutate(fit_hi = fitted_tr + se.fit_tr) %>%  
-  mutate(fit_lo = fitted_tr - se.fit_tr) %>%  
-  select(-c(fitted_tr, se.fit_tr)) %>%  
-  mutate_if(is.numeric, round, 2) %>%  
-  distinct() %>%  
-  pivot_wider(names_from = c(group), 
-              values_from = c(fit_hi, fit_lo),  
-              names_repair = "unique") %>%  
-  mutate(hi_diff = `fit_hi_Tertiary Clays` - `fit_hi_Sand Hills`) %>%  
-  mutate(lo_diff = `fit_lo_Tertiary Clays` - `fit_lo_Sand Hills`) %>% 
-  select(threshold, sci_n, hi_diff, lo_diff, everything())
-
-# 14. clean up global environment====   
-rm(ols_plot_sev,  
-   ols_plot_dur,  
-   ols_psl_pts_sev,  
-   ols_psl_pts_dur, 
-   ols_pts_sev,  
-   ols_pts_dur,  
-   ols_pts_all_sev,  
-   ols_pts_all_dur)
-
-
-
+# * clean up global environment  
+rm(ols_plot_dur,  
+   ols_plot_sev,  
+   ols_psl_pts_dur,  
+   ols_psl_pts_sev)  
 
 ```  
-# 11 clean up global environment====  
-rm(mod_L1_dur_tab,  
-   mod_L1_sev_tab,  
-   mod_L1_dur,  
-   mod_L1_sev,  
-   mod_L1_sev_pts,  
-   mod_L1_dur_pts,  
-   mod1_L1_dur,  
-   mod2_L1_dur,  
-   mod3_L1_dur,  
-   mod4_L1_dur,   
-   mod5_L1_dur,  
-   mod6_L1_dur,  
-   mod1_L1_sev,  
-   mod2_L1_sev,  
-   mod3_L1_sev,  
-   mod4_L1_sev,   
-   mod5_L1_sev,  
-   mod6_L1_sev,  
-   mod_L1_dur_sum,   
-   mod_L1_sev_sum,  
-   psl_L1_dur,  
-   psl_L1_sev,  
-   psl_L1_dur,  
-   psl_L1_dur_pts,  
-   psl_L1_dur,  
-   psl_L1_dur_pts,  
-   psl_drought_sev,  
-   psl_L1_dur_tab)  
 
-# plot PSL fitted line and error-bars
-  geom_line(data = psl_L1_sev_pts, 
-            aes(x = L1, y = .fitted),  
-            color = "gray40",  
-              linetype = 2) +  
-  geom_errorbar(data = psl_L1_sev_pts, 
-                aes(ymin = .fitted - .se.fit, 
-                    ymax = .fitted + .se.fit), 
-                width = .3, 
-                color = "gray40")   
-  # plot fitted line and error-bars
-  geom_line(data = mod_L1_dur_pts, 
-            aes(x = L1, y = .fitted),  
-            color = "gray40",  
-              linetype = 2) +  
-  geom_errorbar(data = mod_L1_dur_pts, 
-                aes(ymin = .fitted - .se.fit, 
-                    ymax = .fitted + .se.fit), 
-                width = .1, 
-                color = "gray40") +
+```{r export_OLS_tables}
+
+# 1. prepare ols points table====  
+ols_pts_table <- bind_rows(ols_pts_sev, ols_pts_dur) %>%  
+  mutate(explain_var = as.factor(explain_var)) %>%  
+  mutate(explain_var = fct_relevel(explain_var,  
+                                   "Severity",  
+                                   "Duration")) %>%  
+  select(-c(severity, duration, drought_id,  
+         L1:.std.resid)) %>%  
+  mutate_if(is.numeric, round, 2) %>%  
+  distinct() %>%    
+    rename_at(vars(ends_with("_tr")),  
+            list(~str_replace(., "_tr", ""))) %>%  
+  pivot_longer(cols = c(fitted, se.fit), 
+               names_to = "scratch", values_to = "value") %>%  
+  pivot_wider(names_from = c(group, scratch),  
+              values_from = value)  %>%    
+  select(explain_var,  
+         sci_n,  
+         threshold,  
+         `Pierre Shale Low_fitted`,  
+         `Pierre Shale Low_se.fit`,  
+         `Tertiary Clays_fitted`,  
+         `Tertiary Clays_se.fit`,  
+         `Pierre Shale High_fitted`,  
+         `Pierre Shale High_se.fit`,  
+         `Black Hills Plateau_fitted`,  
+         `Black Hills Plateau_se.fit`,  
+         `Keya Paha Tablelands_fitted`,  
+         `Keya Paha Tablelands_se.fit`,  
+         `GW Control_fitted`,  
+         `GW Control_se.fit`,  
+         `Sand Hills_fitted`,  
+         `Sand Hills_se.fit`)  
+
+# 2. prepare export table -- set the numeric columns====   
+col_key_num <- ols_pts_table %>%   
+  names()  
+
+# 3.  convert tibble to a flextable====     
+coef_table <- ols_pts_table %>%   
+  arrange(explain_var, sci_n, threshold) %>%  
+  mutate_if(is.factor, as.character) %>%  
+  # create flextable object  
+  flextable() %>%   
+  colformat_num(col_keys = col_key_num,   
+                big.mark=",",   
+                digits = 1, na_str = "") %>%  
+  # rename header labels  
+  set_header_labels(explain_var = "",  
+                    sci_n = "SPI accumulation period (months)",   
+                    threshold = "Threshold",   
+                    `Pierre Shale Low_fitted` = "Fitted",  
+                    `Pierre Shale Low_se.fit`= "SE +/-",  
+                    `Tertiary Clays_fitted` =  "Fitted",   
+                    `Tertiary Clays_se.fit`= "SE +/-",  
+                    `Pierre Shale High_fitted` =  "Fitted",   
+                    `Pierre Shale High_se.fit` = "SE +/-",  
+                    `Black Hills Plateau_fitted` = "Fitted",    
+                    `Black Hills Plateau_se.fit` = "SE +/-",  
+                    `Keya Paha Tablelands_fitted` = "Fitted",    
+                    `Keya Paha Tablelands_se.fit` = "SE +/-",  
+                    `GW Control_fitted` =  "Fitted",   
+                    `GW Control_se.fit` = "SE +/-",  
+                    `Sand Hills_fitted` = "Fitted",    
+                    `Sand Hills_se.fit` = "SE +/-") %>%  
+  add_header(explain_var = "",  
+                    sci_n = "",   
+                    threshold = "",   
+                    `Pierre Shale Low_fitted` = "Pierre Shale Low",  
+                    `Pierre Shale Low_se.fit`= "",  
+                    `Tertiary Clays_fitted` =  "Tertiary Clays",   
+                    `Tertiary Clays_se.fit`= "",  
+                    `Pierre Shale High_fitted` =  "Pierre Shale High",   
+                    `Pierre Shale High_se.fit` = "",  
+                    `Black Hills Plateau_fitted` = "Black Hills Plateau",    
+                    `Black Hills Plateau_se.fit` = "",  
+                    `Keya Paha Tablelands_fitted` = "Keya Paha Tablelands",    
+                    `Keya Paha Tablelands_se.fit` = "",  
+                    `GW Control_fitted` =  "GW Control",   
+                    `GW Control_se.fit` = "",  
+                    `Sand Hills_fitted` = "Sand Hills",    
+                    `Sand Hills_se.fit` = "") %>%  
+  autofit()  %>%  
+  theme_booktabs() #%>%  
+#  merge_v(target = explain_var, part = "body") %>%  
+#  align(align = "center", part = "all") %>%   
+#  fontsize(ft, size = 6, part = "all")  
+
+# 4.  export a docx of flextables====     
+coef_table <- read_docx() %>%  
+  body_add_flextable(value = coef_table)  
+print(coef_table, target = "output/ols_pts_table.docx")   
+
+# 5.  clean up global environment====  
+rm(coef_table,  
+   col_key_num,  
+   ols_pts_table,  
+   ols_model_summary,  
+   ols_pts_sev,  
+   ols_pts_dur,  
+   ols_results_tab)  
 
 ```
 
 
 
-```{r prepare_sri_plot-DELETE} 
-```
-```{r prepare_sri_plot-DELETE} 
-```
 
 
 # drought propogation  
@@ -14193,6 +14204,30 @@ geom_smooth()
 
 
 <!--  
+
+```{r dleteee-plot}
+# plot PSL fitted line and error-bars
+  geom_line(data = psl_L1_sev_pts, 
+            aes(x = L1, y = .fitted),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = psl_L1_sev_pts, 
+                aes(ymin = .fitted - .se.fit, 
+                    ymax = .fitted + .se.fit), 
+                width = .3, 
+                color = "gray40")   
+  # plot fitted line and error-bars
+  geom_line(data = mod_L1_dur_pts, 
+            aes(x = L1, y = .fitted),  
+            color = "gray40",  
+              linetype = 2) +  
+  geom_errorbar(data = mod_L1_dur_pts, 
+                aes(ymin = .fitted - .se.fit, 
+                    ymax = .fitted + .se.fit), 
+                width = .1, 
+                color = "gray40") +
+
+```
 
 ```{r prepare-SPI1-summary-statistics-old}
 
