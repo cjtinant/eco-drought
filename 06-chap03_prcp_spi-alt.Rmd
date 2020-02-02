@@ -1278,8 +1278,7 @@ coef_table <- read_docx() %>%
 print(coef_table, target = "output/lmom_mclust_table.docx")   
 
 rm(coef_table,  
-   col_key_num,  
-   hydro_group)       
+   col_key_num)       
 
 ```
 
@@ -13380,14 +13379,11 @@ ggsave("figure/sri_droughts.png",
                  height = 9)  
 
 # 5 clean up global environment====  
-#rm(sri_count,  
-#   sri_dur,  
-#   sri_duration,  
-#   sri_summary_dur,  
-#   sri_sev,  
-#   sri_sevy,  
-#   sri_severity,  
-#   sri_summary_sev)  
+rm(sri_count,  
+   sri_duration,  
+   sri_summary_dur,  
+   sri_severity,  
+   sri_summary_sev)  
 
 ```
 
@@ -13401,18 +13397,16 @@ sri_events <- full_join(sri_sevy, sri_dur,
                          "sci_n"))  
 
 # 2 this needs some work.. prepare to plot L1-magnitude vs duration====  
-test <- hydro_group %>%  
-#  select(-c(ecoreg, hydro_group)) #%>%  
-  distinct() %>% 
-  as.matrix() %>% as.tibble() %>%      # gets rid of hidden grouping var
-#  mutate(group = as.character(hydro_group)) #%>%  
-#  select(-c(ecoreg, hydro_group)) #%>%  
-  mutate(group = case_when(  
-    group == "GW control" ~ "GW Control",  
-    TRUE ~ group)) %>%   
-  unique()  
+hydro_group <- hydro_group %>%  
+  distinct() %>%  
+  as.matrix() %>% as.tibble() %>%      # gets rid of hidden grouping var  
+  mutate(hydro_group = case_when(  
+    hydro_group == "GW control" ~ "GW Control",  
+    TRUE ~ hydro_group)) %>%   
+  unique() %>% 
+  rename(group = hydro_group)  
 
-sri_events <- left_join(sri_events, test,  
+sri_events <- left_join(sri_events, hydro_group,  
                           by = "group") %>%  
   mutate_at(vars(starts_with("L")), as.numeric) %>%  
     mutate(group = as.factor(group)) %>%     
@@ -13425,7 +13419,6 @@ sri_events <- left_join(sri_events, test,
                              "GW Control",  
                              "Sand Hills")) %>%  
   mutate(severity = -1 * severity)  
-
 
 # 3 plot severity vs duration====  
 sri_events %>%  
@@ -13450,6 +13443,7 @@ ggsave("figure/sri_drought_comp.png",
                  width = 7,  
                  height = 4.5)  
 
+# clean up global environment====  
 rm(sri_dur, sri_sevy)  
 
 ```
@@ -13754,7 +13748,7 @@ ggsave("figure/sri_drought_L1_comp.png",
                  width = 7,  
                  height = 9)  
 
-# * clean up global environment  
+# * clean up global environment====  
 rm(ols_plot_dur,  
    ols_plot_sev,  
    ols_psl_pts_dur,  
@@ -13847,7 +13841,8 @@ coef_table <- ols_pts_table %>%
                     `Sand Hills_fitted` = "Sand Hills",    
                     `Sand Hills_se.fit` = "") %>%  
   autofit()  %>%  
-  theme_booktabs() #%>%  
+  theme_booktabs() 
+#%>%  
 #  merge_v(target = explain_var, part = "body") %>%  
 #  align(align = "center", part = "all") %>%   
 #  fontsize(ft, size = 6, part = "all")  
@@ -13864,17 +13859,15 @@ rm(coef_table,
    ols_model_summary,  
    ols_pts_sev,  
    ols_pts_dur,  
-   ols_results_tab)  
+   ols_results_tab,  
+   sri_events)  
 
 ```
-
-
-
-
 
 # drought propogation  
 Drought propagation
 Streamflow integrates hydrogeological processes at the watershed catchment-scale.  Comparison of SPI and SSI provides an indication of how long it takes for precipitation deficits to propagate through the hydrological cycle and appear as streamflow deficits. {Barker:2016ua}.  The 1-month SSI also provides a good description of low flows, similar to the 30-day mean flow, which is often used in studies of annual minimum flows {Gustard:1992vo, Barker:2016ua}.  We cross-correlated SPI accumulation periods of 1– 24 months and 1-month SSI (SSI-1) time series using the Spearman coefficient to analyze the most appropriate accumulation period of SPI to characterize to SSI- 1. 
+
 ```{r prepare-SCI-correlation}
 
 # 1.  pivot SPI wider and drop non-important vars====   
@@ -13899,9 +13892,8 @@ sri_decomp <- sri_decomp_long %>%
               values_from = c(value, season, trend, seas_trend)) %>%  
   rename_at(vars(starts_with('value_')), ~ str_remove_all(., "value_"))  
 
-# 3.  add location to mclust dataframe====  
-# * identify gage locations    
-mclust_aug <- import("data/lmom_mclust_fit.csv") %>%  
+# 3.  add location to sri dataframe====  
+mclust_aug <- mclust_aug %>%     # import("data/lmom_mclust_fit.csv") %>%  
     rename(gage = sta)  
 
 gage_location <- import("data/gage_meta.csv") %>%  
@@ -13921,22 +13913,18 @@ gage_location <- semi_join(gage_location, mclust_aug,
                        sep = "")) %>%  
   select(gage, location)  
 
-# * add location to mclust dataframe   
-mclust_fin <- full_join(mclust_aug, gage_location,  
-                         by = "gage") %>% 
-  mutate(hydro_group = case_when(  
-    hydro_group == "GW control" ~ "GW Control",  
-    TRUE ~ hydro_group))  
+# * add location to mclust and SRI dataframes   
+mclust_aug <- full_join(mclust_aug, gage_location,  
+                         by = "gage") 
 
-# * add location to SRI dataframe  
 sri_decomp <- full_join(sri_decomp, gage_location,  
                         by = c("sta" ="gage")) %>%  
   rename(gage = sta)  
 
 # 4.  prepare for joining SCI dfs====   
 spi_decomp <- spi_decomp %>%  
-  rename_at(vars(contains('sci')), ~ str_replace_all(., "sci", "spi")) %>%  
-  mutate(location = as.character(location))  
+  mutate(location = as.character(location)) %>%   
+  rename_at(vars(contains('sci')), ~ str_replace_all(., "sci", "spi")) 
 
 sri_decomp <- sri_decomp %>%  
   rename_at(vars(contains('sci')), ~ str_replace_all(., "sci", "sri"))  
@@ -13948,7 +13936,13 @@ sci_decomp <- full_join(spi_decomp, sri_decomp,
   select(-contains("season_sri")) %>%    
   select(-contains("trend_spi"))  %>%  
   select(-contains("trend_sri")) %>%  
-  select(sta, gage, location, group, ecoreg, date, everything())  
+  select(sta,  
+         gage,  
+         location,  
+         group,  
+         ecoreg,  
+         date,  
+         everything())  
 
 # 6.  lag the SSI-1 values====  
 #cross-correlations calculated for SSI-1 series which were lagged by 0 to 6  
@@ -13965,7 +13959,7 @@ sci_cross_corr <- sci_decomp %>%
   mutate(sri_lag5 = lag(sri_lag0, 5)) %>%  
   mutate(sri_lag6 = lag(sri_lag0, 6))     
 
-# make sci longer for plotting as points====   
+# 7.  make sci longer for plotting as points====   
 sci_ccor_long <- sci_cross_corr %>%  
   pivot_longer(cols = spi_1mo:spi_24mo,  
                names_to = "spi_length",  
@@ -13990,14 +13984,12 @@ sci_ccor_long <- sci_cross_corr %>%
                              "Sand Hills"))   
 
 # * clean up global environment====   
-rm(mclust_aug,  
-   gage_location,  
+rm(gage_location,  
    spi_decomp,  
    sri_decomp,  
-   seas_group_max,  
-   seas_group_med,  
-   seas_group_min,  
-   spi_decomp_long)  
+   sri_decomp_long,  
+   spi_decomp_long,  
+   hydro_group)  
 
 ```
 
