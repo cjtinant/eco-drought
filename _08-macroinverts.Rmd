@@ -1,0 +1,1881 @@
+---
+title: "Untitled"
+author: "CJ Tinant"
+date: "2/18/2020"
+output: html_document
+---
+
+
+<!--  
+Y = b1x + b2x2 
+
+let x1 = normalized family differential index 
+    x2 = days from June 1
+
+
+-->
+
+```{r setup_&_library, message=FALSE}    
+  
+knitr::opts_chunk$set(echo = FALSE)      
+options(tibble.print_max = 70) # sets tibble output for printing          
+   
+# increase memory allocation for dabest()   
+# usethis::edit_r_environ("project")   
+  
+# Get API key (aka, token) for downloading precip data at   http://www.ncdc.noaa.gov/cdo-web/token  
+# token for NOAA API tied to jtinant@olc.edu -- see 'rnoaa' for details  
+options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")  
+   
+# Sets up the library of packages====    
+library("conflicted")        # An alternative conflict resolution strategy  
+library("here")              # identifies where to save work  
+library("rio")           # more robust I/O - to import and clean data  
+library("lubridate")     # easier dates   
+library("broom")         # tidies linear models   
+library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot  
+library("scales")        # graphical scales map data to aesthetics,  
+                         #   & methods for determining breaks and labels  
+                         #   for axes and legends   
+library("mclust")        # model-based clustering & density estimation  
+library("flextable")     # functions for tabular reporting  
+library("officer")       # facilitates '.docx' access for table export  
+library("patchwork")     # the 'composer of plots'  
+library("EflowStats")    # reimplementation of the Hydrologic Index Tool  
+library("factoextra")    # quickly visualize Mclust plots  
+library("SCI")           # calculates SPI & SSI   
+library("janitor")
+library("tidyverse")  
+  
+# resolve conflicted packages====   
+conflict_prefer("filter", "dplyr")  
+conflict_prefer("select", "dplyr")  
+conflict_prefer("as.dist", "stats")  
+conflict_prefer("first", "dplyr")  
+conflict_prefer("map", "purrr")  
+conflict_prefer("lag", "dplyr")  
+
+# other packages I have thought about====   
+#library("rnoaa")             # R wrapper for NOAA data inc. NCDC  
+#library("lmomco")        # lmoments to find distribution   
+#library('deldir')        # for Vorononi tesselation - Theissen polygons  
+
+#library("forecast")      # using the BoxCox function   
+#library("anomalize")     # detect anomalies using the tidyverse   
+#library("dabestr")       # data analysis using bootstrap estimation    
+#library("cowplot")       # multiple plots with plot_grid()  
+#library("timetk")        # tool kit for working with time series in R   
+#library("tidyquant")     # integrate quant. analysis tools w/ tidyverse  
+#library("corrr")         # Tidy correlation tables and correlation plotting  
+#library("cranlogs")      # For inspecting package downloads over time  
+# for GLMs                    
+# library("doMC")          # parallelization for caret  
+# library("caret")         # classification and regression training  
+# library("glmnet")        # fit a GLM with lasso or elasticnet regularization  
+# library("Metrics")       # evaluation metrics for machine learning  
+# library("ggfortify")        # data vis tools for statistical analysis  
+# library("ggpubr")           # easy ggplot wrappers for publication ready  
+#                             #   'ggplot2'- based plots  
+# library("standardize")      # tools for controlling continuous variable   
+#  scaling and factor contrasts for linear models   
+# library("pdftools")         # utilities for extracting text, fonts,  
+#   attachments and metadata from a pdf file.  
+
+# packages for spatial data====   
+#library("biogeo")            # Functions for error detection & correction  
+#   in point-data datasets; includes functions   
+#   to parse & convert coords to decimal-degrees  
+#library("maps")              # Outlines: countries, states & counties  
+#library("mapdata")           # higher-resolution outlines  
+#library('ggmap')             # Spatial visualization with ggplot2   
+#library("sf")                # Simple features--spatial geometries for R  
+#library("RColorBrewer")      # map color schemes -- http://colorbrewer2.org  
+# packages for colors====   
+#library("colorspace")        # Manipulate & assess colors & palettes  
+#library("munsell")           # Access & manipulate munsell system colours  
+#   https://github.com/cwickham/munsell  
+
+# packages for lists and urls====   
+#library("jsonlite")          # Convert between JSON data and R objects  
+#library("curl")              # Drop-in replacement for base url  
+#library("listviewer")        # htmlwidget for interactive views of R lists  
+#library("forecast")         # for BoxCox.lambda   
+#library("magrittr") # provides aliases for easier reading  
+#library("workflowr") # creates a research website  
+#library("bookdown") #  
+#library(unpivotr) # fix nasty Excel files  
+#library("friendlyeval")  
+#library("mathpix")                # support for 'Mathpix' image to 'LaTeX'    
+#library("grateful") - not yet ready for R 3.5.0  
+#lmomco <- citation("lmomco")  
+#toBibtex(lmomco)  
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+why_to_write <- function()   
+{today <- today(tzone = "")  
+paper3 <- ymd("2020-04-15")  
+until <- paper3 - today  
+print(paste("You have", until, "days until the third paper is due"))   
+}   
+why_to_write()  
+
+```
+
+```{r functions}
+# 1. this function takes in a dataframe,  
+#   changes names to snake_case,   
+#   changes any blank character columns to NA  
+#   drops the NA values   
+#   drops empty columns  
+
+clean_fun <- function(df) {  
+  new_df <- clean_names(df) %>%  
+  mutate_if(is.character, list(~na_if(., ""))) %>%  
+    remove_empty("rows") %>%  
+  select(-c(benthic_tolerance,  
+            functional_feeding_designation)) %>%  
+  mutate_if(is.numeric, replace_na, 0) %>%  
+  mutate(sums = rowSums(select(., -c(order, family, notes))))  %>%  
+  filter(sums > 0) %>%  
+  mutate_if(is.numeric, na_if, 0) %>%  
+  select(-sums) %>%  
+  mutate(notes = as.character(notes))  
+#  unite("family_notes", c(family, notes))    
+  return(new_df)  
+}  
+```
+
+```{r import_macros-post2000}
+
+# 1 import and clean data saved from Excel worksheets as .csv  
+#   importing from 'xlsx': 2015/04/09_OB   
+
+AMH1_2014 <- import("data/AMH1_2014.csv") %>%  
+  clean_fun()  
+
+BEA1_2013 <- import("data/BEA1_2013.csv") %>%  
+  clean_fun()  
+
+BEA2_2013 <- import("data/BEA2_2013.csv") %>%  
+  clean_fun()  
+
+BEA3_2013 <- import("data/BEA3_2013.csv") %>%  
+  clean_fun()  
+
+BEL1_2013 <- import("data/BEL1_2013.csv") %>%  
+  clean_fun()  
+
+BEL2_2013 <- import("data/BEL2_2013.csv") %>%  
+  clean_fun()  
+
+BLP1_2013 <- import("data/BLP1_2013.csv") %>%  
+  clean_fun()  
+
+BUZ1_2013 <- import("data/BUZ1_2013.csv") %>%  
+  clean_fun()  
+
+CHE1_2011 <- import("data/CHE1_2011.csv") %>%  
+  clean_fun()  
+
+CHE2_2011 <- import("data/CHE2_2011.csv") %>%  
+  clean_fun()  
+
+COR1_2013 <- import("data/COR1_2013.csv") %>%  
+  clean_fun()  
+
+CRA1_2013 <- import("data/CRA1_2013.csv") %>%  
+  clean_fun()  
+
+EAN1_2013 <- import("data/EAN1_2013.csv") %>%  
+  clean_fun()  
+
+EAN2_2013 <- import("data/EAN2_2013.csv") %>%  
+  clean_fun()  
+
+LOD1_prior <- import("data/LOD1_prior2000.csv") %>%  
+  clean_fun()  
+
+LON1_2013 <- import("data/LON1_2013.csv") %>%  
+  clean_fun()  
+
+LWR1_2014 <- import("data/LWR1_2014.csv") %>%  
+  clean_fun()  
+
+LWR2_2014 <- import("data/LWR2_2014.csv") %>%  
+  clean_fun()  
+
+LWR3_2014 <- import("data/LWR3_2014.csv") %>%  
+  clean_fun()  
+
+LWR4_2012 <- import("data/LWR4_2012.csv") %>%  
+  clean_fun()  
+
+MER1_2014 <- import("data/MER1_2014.csv") %>%  
+  clean_fun()  
+
+MER3_2014 <- import("data/MER3_2014.csv") %>%  
+  clean_fun()  
+
+MER4_2014 <- import("data/MER4_2014.csv") %>%  
+  clean_fun()  
+
+NFL1_2014 <- import("data/NFL1_2014.csv") %>%  
+  clean_fun()  
+
+PAS1_2013 <- import("data/PAS1_2013.csv") %>%   
+  clean_fun()  
+
+PAS2_2013 <- import("data/PAS2_2013.csv") %>%  
+  clean_fun()  
+
+PAS3_2013 <- import("data/PAS3_2013.csv") %>%  
+  clean_fun()  
+
+POR1_2010 <- import("data/POR1_2010.csv") %>%  
+  clean_fun()  
+
+POR2_2014 <- import("data/POR2_2014.csv") %>%  
+  clean_fun()  
+
+POR3_2014 <- import("data/POR3_2014.csv") %>%  
+  clean_fun()  
+
+POT1_2013 <- import("data/POT1_2013.csv") %>%  
+  clean_fun()  
+
+RED1_2014 <- import("data/RED1_2014.csv") %>%  
+  clean_fun()  
+
+WCC1_2012 <- import("data/WCC1_2012.csv") %>%  
+  clean_fun()  
+
+WCC2_2012 <- import("data/WCC2_2012.csv") %>%  
+  clean_fun()  
+
+WCC3_2012 <- import("data/WCC3_2012.csv") %>%  
+  clean_fun()  
+
+WHI1_2011 <- import("data/WHI1_2011.csv") %>%  
+  clean_fun()  
+
+WHI2_2011 <- import("data/WHI2_2011.csv") %>%  
+  clean_fun()  
+
+WHI3_2008 <- import("data/WHI3_2008.csv") %>%  
+  clean_fun()  
+
+WHI4_prior <- import("data/WHI4_prior2000.csv") %>%  
+  clean_fun()  
+
+WHI5_2013 <- import("data/WHI5_2013.csv") %>%  
+  clean_fun()  
+
+WOL1_2011 <- import("data/WOL1_2011.csv") %>%  
+  clean_fun()  
+
+WOK1_2012 <- import("data/WOK1_2012.csv") %>%  
+  clean_fun()  
+
+WOK2_2014 <- import("data/WOK2_2014.csv") %>%  
+  clean_fun()  
+
+WOK3_2012 <- import("data/WOK3_2012.csv") %>%  
+  clean_fun()  
+
+WOK4_2014 <- import("data/WOK4_2014.csv") %>%  
+  clean_fun()  
+
+
+```
+
+```{r join_macros-post2000}
+
+# joins columns by putting the dfs into a list,  
+#   then merging, and reducing to a dataframe  
+
+scratch <- full_join(AMH1_2014,  
+                      BEA1_2013) %>%  
+  full_join(., BEA2_2013) %>%  
+  full_join(., BEA3_2013) %>%  
+  full_join(., BEL1_2013) %>%  
+  full_join(., BEL2_2013) %>%  
+  full_join(., BLP1_2013) %>%  
+  full_join(., BUZ1_2013) %>%  
+  full_join(., CHE1_2011) %>%  
+  full_join(., CHE2_2011) %>%  
+  full_join(., COR1_2013) %>%  
+  full_join(., CRA1_2013) %>%  
+  full_join(., EAN1_2013) %>%  
+  full_join(., EAN2_2013) %>%  
+  full_join(., LOD1_prior) %>%  
+  full_join(., LON1_2013) %>%  
+  full_join(., LWR1_2014) %>%  
+  full_join(., LWR2_2014) %>%  
+  full_join(., LWR3_2014) %>%  
+  full_join(., LWR4_2012) %>%  
+  full_join(., MER1_2014) %>%  
+  full_join(., MER3_2014) %>%  
+  full_join(., MER4_2014) %>%  
+  full_join(., NFL1_2014) %>%  
+  full_join(., PAS1_2013) %>%  
+  full_join(., PAS2_2013) %>%  
+  full_join(., PAS3_2013) %>%  
+  full_join(., POR1_2010) %>%   
+  full_join(., POR2_2014) %>%  
+  full_join(., POR3_2014) %>%  
+  full_join(., POT1_2013) %>%  
+  full_join(., RED1_2014) %>%  
+  full_join(., WCC1_2012) %>%  
+  full_join(., WCC2_2012) %>%  
+  full_join(., WCC3_2012) %>%  
+  full_join(., WHI1_2011) %>%  
+  full_join(., WHI2_2011) %>%  
+  full_join(., WHI3_2008) %>%  
+  full_join(., WHI4_prior) %>%  
+  full_join(., WHI5_2013) %>%  
+  full_join(., WOL1_2011) %>%  
+  full_join(., WOK1_2012) %>%  
+  full_join(., WOK2_2014) %>%  
+  full_join(., WOK3_2012) %>%  
+  full_join(., WOK4_2014)      
+
+rm(AMH1_2014,  
+   BEA1_2013,  
+   BEA2_2013,  
+   BEA3_2013,  
+   BEL1_2013,  
+   BEL2_2013,   
+   BLP1_2013,  
+   BUZ1_2013,  
+   CHE1_2011,  
+   CHE2_2011,  
+   COR1_2013,  
+   CRA1_2013,  
+   EAN1_2013,  
+   EAN2_2013,  
+   LOD1_prior,  
+   LON1_2013,  
+   LWR1_2014,  
+   LWR2_2014,  
+   LWR3_2014,  
+   LWR4_2012,  
+   MER1_2014,  
+   MER3_2014,  
+   MER4_2014,   
+   NFL1_2014,  
+   PAS1_2013,   
+   PAS2_2013,   
+   PAS3_2013,   
+   POR1_2010,   
+   POR2_2014,  
+   POR3_2014,  
+   POT1_2013,  
+   RED1_2014,  
+   WCC1_2012,  
+   WCC2_2012,  
+   WCC3_2012,  
+   WHI1_2011,  
+   WHI2_2011,  
+   WHI3_2008,  
+   WHI4_prior,  
+   WHI5_2013,  
+   WOL1_2011,  
+   WOK1_2012,  
+   WOK2_2014,  
+   WOK3_2012,  
+   WOK4_2014)  
+
+```
+
+```{r fix_taxa_names-prep}
+
+# organize taxa by taxonomy  
+# 1.   remove difficult characters==== 
+macros <- scratch %>%  
+  rename(genus = notes) %>%  
+  arrange(genus) %>%  
+  mutate(genus = str_remove_all(genus, "\\(")) %>%  
+  mutate(genus = str_remove_all(genus, "\\)")) %>%  
+  mutate(genus = str_remove_all(genus, "\\*")) %>%  
+  mutate(genus = str_remove_all(genus, "\\:"))  
+
+# 2    split into genus and no genus -- and clean non-year specific genera====  
+macros_noGen <- macros %>%  
+  filter(is.na(genus))  
+
+macros_Gen <- macros %>%  
+  filter(!is.na(genus)) %>%  
+  mutate(genus = case_when(  
+    str_detect(genus, "Acerpenna sp.") ~ "Acerpenna spp",  
+    str_detect(genus, "Ambrysus sp.") ~ "Ambrysus spp",  
+    str_detect(genus, "Chrysops sp.") ~ "Chrysops spp",  
+    str_detect(genus, "^Culicoides sp.") ~ "Culicoides spp",  
+    str_detect(genus, "^Dicranota sp.") ~ "Dicranota spp",  
+    str_detect(genus, "Class Arachnida; Eylaoidea sp.") ~ "Eylaoidea spp",  
+    str_detect(genus, "Class Gastropoda; Ferrissia sp.") ~ "Ferrissia spp",  
+    str_detect(genus, "Assumed same values as Elmidae") ~ "NA",  
+    str_detect(genus, "Adult") ~ "NA",  
+    str_detect(genus, "2 adults included in this count") ~ "NA",  
+    str_detect(genus, "2011 -1 pupae") ~ "NA",  
+    str_detect(genus, "3 pupa") ~ "NA",  
+    str_detect(genus, "4 adults in 2011") ~ "NA",  
+    str_detect(genus, "4 Pupae 2012") ~ "NA",  
+    str_detect(genus, "Class Bivalvia formerly Pelecypoda") ~ "NA",  
+    str_detect(genus, "Class Arachnida") ~ "NA",  
+    str_detect(genus, "ClassArachnida") ~ "NA",    
+    str_detect(genus, "Crawdad marked on datasheet") ~ "NA",  
+    str_detect(genus, "Class Gastropoda") ~ "NA",  
+    str_detect(genus, "Variable") ~ "NA",  
+    str_detect(genus, "Extremely rare") ~ "NA",  
+    str_detect(genus, "^Ferrissia sp.") ~ "Ferrissia spp", 
+    str_detect(genus, "^From") ~ "NA",  
+    str_detect(genus, "^from") ~ "NA", 
+    str_detect(genus, "Larval; adults excluded") ~ "NA",  
+    str_detect(genus, "^Lebertia sp.") ~ "Lebertia spp", 
+    str_detect(genus, "Microcylloepus sp.") ~ "Microcylloepus spp", 
+    str_detect(genus, "^Nectopsyche sp.") ~ "Nectopsyche spp",  
+    str_detect(genus, "Ochrotichia sp.") ~ "Ochrotichia spp", 
+    str_detect(genus, "^ONE PUPA") ~ "NA",  
+    str_detect(genus, "Paraleptophlebia sp.") ~ "Paraleptophlebia spp", 
+    str_detect(genus, "Procloeon sp.") ~ "Procloeon spp",  
+    str_detect(genus, "Sp = Ephoron") ~ "Ephoron spp",  
+    str_detect(genus, "Stenelmis sp.") ~ "Stenelmis spp",  
+    str_detect(genus, "Tolerance unknown") ~ "NA",  
+    str_detect(genus, "undetermaned tolerence") ~ "NA",  
+    str_detect(genus, "Undetermined") ~ "NA",  
+    str_detect(genus, "U") ~ "NA",  
+    str_detect(genus, "Undetermined Tolerance") ~ "NA",  
+    str_detect(genus, "Undetermined tolerance values") ~ "NA",  
+    str_detect(genus, "Undetermined values") ~ "NA",  
+    str_detect(genus, "Tanypodinae sp.") ~ "Tanypodinae spp",  
+    TRUE ~ genus)) %>%  
+    na_if("NA")  
+
+macros_Gen <- macros_Gen %>%  
+  mutate(scratch = case_when(  
+    genus == "Acerpenna spp" ~ "y",  
+    genus == "Ambrysus spp" ~ "y",  
+    genus == "Chrysops spp" ~ "y",  
+    genus == "Eylaoidea spp"~ "y",  
+    genus == "Ferrissia spp" ~ "y",  
+    genus == "Culicoides spp" ~ "y",  
+    genus == "Dicranota spp" ~ "y",  
+    genus == "Lebertia spp" ~ "y",  
+    genus == "Microcylloepus spp" ~ "y",  
+    genus == "Nectopsyche spp" ~ "y",  
+    genus == "Ochrotichia spp" ~ "y",  
+    genus == "Paraleptophlebia spp" ~ "y",  
+    genus == "Procloeon spp" ~ "y",  
+    genus == "Ephoron spp "~ "y",  
+    genus == "Stenelmis spp" ~ "y",  
+    genus == "Tanypodinae spp" ~ "y",  
+    is.na(genus) ~ "y",  
+    TRUE ~ "n")) %>%  
+  select(scratch, everything())
+
+# 3    add finished genus to other set of data genus ====
+macros_GenFin <- macros_Gen %>%  
+  filter(scratch == "y") %>%  
+  select(-scratch)  
+
+macros_Gen <- macros_Gen %>%  
+  filter(scratch == "n") %>%  
+  select(-scratch)  
+
+macros_noGen <- bind_rows(macros_noGen,  
+                          macros_GenFin)  
+
+rm(macros_GenFin)  
+
+# 4.0  fix individual year data in genus====  
+# 4.1  Procladius sp.'96====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Procladius sp.'96") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "mer1d8" ~ "Procladius spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(scratch)  
+
+# 4.2  Stienelmis sp. '96====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Stienelmis sp. '96") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "bea1d7" ~ "Stienelmis spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.3  Stienelmis sp.'93====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Stienelmis sp.'93") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "mer1a7" ~ "Stienelmis spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.4  Hagenius spp====  
+scratch <- macros_Gen %>% 
+  filter(genus == "1996 sp = hagenius") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "lwr2d7" ~ "Hagenius spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.5  Hygrobatoidae sp.'12====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Hygrobatoidae sp.'12") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "mer1t8" ~ "Hygrobatoidae spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.6  Hygrobatoidae sp.'12====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Hygrobatoidea sp.") %>%  
+  mutate(genus = "Hygrobatoidea spp")  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.7  Symphitopsyche sp. '96====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Symphitopsyche sp. '96") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "bea1d7" ~ "Symphitopsyche spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.8  Limnodrilus spp====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Limnodrilus udekemian'94; Enchytraeidae sp.'96") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "mer1b6" ~ "Limnodrilus udekemian",  
+    name == "mer1d8" ~ "Enchytraeidae sp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.9  Naididae Family====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Naididae Family") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(family = "Naididae") %>%  
+  mutate(genus = "NA") %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.10 Polycentrous cinereus '96====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Polycentrous cinereus '96") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "bea1d7" ~ "Polycentrous cinereus",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.11 Ephoron spp====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Ephoron spp") 
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.12 Simulium sp.'96====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Simulium sp.'96") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "mer1d8" ~ "Simulium spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.13 Tipula sp.b5; Subfamily Limoniinaer6====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Tipula sp.b5; Subfamily Limoniinaer6") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "wdk4b5" ~ "Tipula spp",  
+    name == "wok4r6_7" ~ "Limoniinae",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.14 Tricorythodes sp. 1996====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Tricorythodes sp. 1996") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "lwr4d7" ~ "Tricorythodes spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 4.15 Tipula sp.'94====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Tipula sp.'94") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "mer1b6" ~ "Tipula spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+# 5    join back cleaned genera====  
+macros <- bind_rows(macros_new, macros_noGen)  
+
+rm(macros_Gen,  
+   macros_new,  
+   macros_noGen,  
+   scratch)  
+
+```
+
+```{r fix_taxa_names-genus}
+
+macros <- macros %>%  
+  mutate(genus = case_when(  
+    str_detect(genus, "Enchytraeidae sp") ~ "Enchytraeidae spp",  
+    str_detect(family, "Athericidae") ~ "Atherix spp",  
+    str_detect(family, "Culicoides sp.") ~ "Culicoides spp",  
+    str_detect(family, "Culicoides sp.") ~ "Culicoides spp",  
+    str_detect(family, "Dicranota sp.") ~ "Dicranota spp",  
+    str_detect(family, "Ferrissia sp.") ~ "Ferrissia spp",  
+    str_detect(family, "Gammaridae") ~ "Gammarus spp",  
+    str_detect(family, "Heloridae") ~ "Helorus spp",  
+    str_detect(family, "Talitridae") ~ "Hyalella azteca",  
+    str_detect(family, "Taltridae") ~ "Hyalella azteca",  
+    str_detect(family, "Isoperla sp.") ~ "Isoperla spp",  
+    str_detect(family, "Psychodidae") ~ "Pericoma spp",  
+    str_detect(family, "Pisidiidae") ~ "Pisidium spp",  
+    str_detect(family, "pisidiidae") ~ "Pisidium spp",  
+    str_detect(family, "Potamanthus") ~ "Potamanthus spp",  
+    str_detect(family, "Cossidae") ~ "Prionoxystus spp",  
+    str_detect(family, "Pteronarcyidae") ~ "Pteronarcys spp",  
+    str_detect(family, "Simulium sp.") ~ "Simulium spp",  
+    str_detect(family, "Simulidae") ~ "Simulium spp",  
+    str_detect(family, "Simuliidae") ~ "Simulium spp",  
+    str_detect(family, "Elmid. Stienelmis") ~ "Stienelmis spp",  
+    str_detect(family, "Heloridae") ~ "Tricorythodes spp",  
+    TRUE ~ genus)) %>%  
+  arrange(genus) %>%  
+    na_if("NA")  
+
+```
+
+```{r fix_taxa_names-family}
+
+macros <- macros %>%  
+  mutate(family = case_when(  
+    str_detect(genus, "Culicoides spp") ~ "Ceratopogonidae",   
+    str_detect(genus, "Simulium spp") ~ "Simuliidae",  
+    str_detect(genus, "Isoperla spp") ~ "Perlodidae",  
+    str_detect(genus, "Dicranota spp") ~ "Pediciidae",  
+    str_detect(family, "Ancyclidae") ~ "Planorbidae",  
+    str_detect(family, "Ancylidae") ~ "Planorbidae",  
+    str_detect(family, "corydalidae") ~ "Corydalidae",  
+    str_detect(family, "Culcidae") ~ "Culicidae",  
+    str_detect(family, "Curulionidae") ~ "Curculionidae",  
+    str_detect(family, "Drysticidae") ~ "Dytiscidae",  
+    str_detect(family, "Elmid. Stienelmis") ~ "Elmidae",  
+    str_detect(family, "Ephyridae") ~ "Ephydridae",  
+    str_detect(family, "Nematomorpha") ~ "Gordioida",  
+    str_detect(family, "Hirudina") ~ "Glossiphoniidae",  
+    str_detect(family, "Hirudinea") ~ "Glossiphoniidae",  
+    str_detect(family, "Hirudinidea") ~ "Glossiphoniidae",  
+    str_detect(family, "Hirudinidae") ~ "Glossiphoniidae",  
+    str_detect(family, "hebridae") ~ "Hebridae",  
+    str_detect(family, "hydracarina") ~ "Hydracarina",  
+    str_detect(family, "Hydrocarina") ~ "Hydracarina",  
+    str_detect(family, "Hydrobidae") ~ "Hydrobiidae",  
+    str_detect(family, "Tubificidae") ~ "Naididae",  
+    str_detect(family, "^Naididae") ~ "Naididae",    
+    str_detect(family, "Nematoda") ~ "Nematomorpha",    
+    str_detect(family, "notonectidae") ~ "Notonectidae",  
+    str_detect(family, "Notonectdae") ~ "Notonectidae",  
+    str_detect(family, "Ferrissia sp.") ~ "Planorbidae",  
+    str_detect(family, "piscicolidae") ~ "Piscicolidae",  
+    str_detect(family, "Polymitarcidae") ~ "Polymitarcyidae",  
+    str_detect(family, "Polymitoreyidae") ~ "Polymitarcyidae",  
+    str_detect(family, "Potamanthus") ~ "Potamanthidae",  
+    str_detect(family, "Ptilodactylia") ~ "Ptilodactylidae",  
+    str_detect(family, "pisidiidae") ~ "Sphaeriidae",  
+    str_detect(family, "Pisidiidae") ~ "Sphaeriidae",  
+    str_detect(family, "Sailidae") ~ "Sialidae",  
+    str_detect(family, "Simulidae") ~ "Simuliidae",  
+    str_detect(family, "Taltridae") ~ "Talitridae", 
+    str_detect(family, "^Tipula sp.") ~ "Tipulidae",  
+    str_detect(family, "Tupulidae") ~ "Tipulidae",  
+    str_detect(family, "^Tricorythodes sp.") ~ "Tricorythodes sp.", 
+    str_detect(family, "Notostraca") ~ "Triopsidae",  
+    str_detect(family, "viviparidae") ~ "Viviparidae",  
+    str_detect(family, "Unclassified") ~ "NA",  
+    str_detect(family, "Unknown") ~ "NA",  
+    str_detect(family, "needs a look") ~ "NA",  
+    str_detect(order, "Conchostraca") ~ "Conchostraca",  
+    str_detect(order, "Nematomorpha") ~ "Gordioida",  
+    TRUE ~ family)) %>%  
+  arrange(order) %>%  
+    na_if("NA")    
+
+```
+
+```{r fix_taxa_names-order}
+
+macros <- macros %>%  
+  mutate(order = case_when(  
+    str_detect(family, "Viviparidae") ~ "Architaenioglossa",   
+    str_detect(family, "Tricorythidae") ~ "Ephemeroptera",   
+    str_detect(family, "Conchostraca") ~ "Crustacea",   
+    str_detect(family, "Gordioida") ~ "Gordioida",  
+    str_detect(family, "Enchytraeidae") ~ "Haplotaxida",   
+    str_detect(family, "Naididae") ~ "Haplotaxida",    
+    str_detect(family, "Lymnaeidae") ~ "Hygrophila",   
+    str_detect(family, "Physidae") ~ "Hygrophila",   
+    str_detect(family, "Planorbidae") ~ "Hygrophila",   
+    str_detect(family, "Hydrobiidae") ~ "Littorinimorpha",   
+    str_detect(family, "Triopsidae") ~ "Notostraca",  
+    str_detect(family, "Glossiphoniidae") ~ "Rhynchobdellida",  
+    str_detect(family, "Sphaeriidae") ~ "Sphaeriida",   
+    str_detect(family, "Hydracarina") ~ "Trombidiformes",  
+    str_detect(family, "Unionidae") ~ "Unionida",  
+    str_detect(family, "Corbiculidae") ~ "Venerida",  
+    str_detect(order, "Col. Elmidae") ~ "Coleoptera",  
+    str_detect(order, "Coleptera") ~ "Coleoptera",   
+    str_detect(order, "^Dip.") ~ "Diptera",  
+    str_detect(order, "Nematomorpha") ~ "Gordioida",  
+    str_detect(order, "^Ann") ~ "Haplotaxida",   
+    str_detect(order, "megaloptera") ~ "Megaloptera",       
+    str_detect(order, "Platyhelminthes") ~ "Tricladida",  
+    str_detect(order, "^Acari") ~ "Trombidiformes",   
+    str_detect(order, "Trombidforms") ~ "Trombidiformes",   
+    str_detect(order, "Venoroidea") ~ "Venerida",   
+    str_detect(order, "Unknown in the data") ~ "NA",  
+    TRUE ~ order)) %>%  
+  arrange(order) %>%  
+    na_if("NA")   
+
+```
+
+```{r fix_taxa_names-class}
+
+macros <- macros %>%  
+    mutate(class = case_when(  
+    str_detect(order, "Trombidiformes") ~ "Arachnida",
+    str_detect(order, "Sphaeriida") ~ "Bivalvia",  
+    str_detect(order, "Unionida") ~ "Bivalvia",  
+    str_detect(order, "Venerida") ~ "Bivalvia",  
+    str_detect(order, "Notostraca") ~ "Branchiopoda",  
+    str_detect(order, "Haplotaxida") ~ "Clitellata",  
+    str_detect(order, "Rhynchobdellida") ~ "Clitellata",  
+    str_detect(order, "Crustacea") ~ "Crustacea",  
+    str_detect(order, "Decapoda") ~ "Crustacea",  
+    str_detect(order, "Collembola") ~ "Entognatha",  
+    str_detect(order, "Architaenioglossa") ~ "Gastropoda",  
+    str_detect(order, "Anthomedusae") ~ "Hydrozoa",  
+    str_detect(order, "Coleoptera") ~ "Insecta",  
+    str_detect(order, "Diptera") ~ "Insecta",  
+    str_detect(order, "Ephemeroptera") ~ "Insecta",  
+    str_detect(order, "Hemiptera") ~ "Insecta",  
+    str_detect(order, "Hymenoptera") ~ "Insecta",  
+    str_detect(order, "Lepidoptera") ~ "Insecta",  
+    str_detect(order, "Megaloptera") ~ "Insecta",  
+    str_detect(order, "Odonata") ~ "Insecta",  
+    str_detect(order, "Plecoptera") ~ "Insecta",  
+    str_detect(order, "Trichoptera") ~ "Insecta",  
+    str_detect(order, "Gastropoda") ~ "Gastropoda",  
+    str_detect(order, "Hygrophila") ~ "Gastropoda",  
+    str_detect(order, "Littorinimorpha") ~ "Gastropoda",  
+    str_detect(order, "Amphipoda") ~ "Malacostraca",  
+    str_detect(order, "Gordioida") ~ "Nematomorpha",  
+    str_detect(order, "Nematoda") ~ "Nematoda",  
+    str_detect(order, "Nematodes") ~ "Nematoda",  
+    str_detect(order, "Tricladida") ~ "Rhabditophora")) %>%  
+  select(class, everything()) %>%  
+  arrange(class, order, family, genus) %>%  
+    na_if("NA")  %>%    
+  filter(!is.na(class))  
+
+```
+
+```{r stuff}
+
+# 1 make last taxon fix====  
+macros <- macros %>%  
+  mutate(genus = case_when(  
+    str_detect(family, "Polymitarcyidae") ~ "Ephoron sp.",  
+    TRUE ~ genus)) 
+
+# 2 clean up duplicated names created by the name cleaning above====   
+macros_cleaned <- macros %>%  
+  pivot_longer(-c(class, order, family, genus)) %>%  
+  group_by(class, order, family, genus, name) %>%  
+  summarise(value = sum(value, na.rm = TRUE)) %>%  
+  ungroup() %>%  
+  mutate_if(is_numeric, na_if, 0) %>%  
+  filter(!is.na(value)) %>% 
+  pivot_wider() 
+
+# 3 unit test to check if clean-up is ok====  
+test <- macros_cleaned %>%  
+  select(class:genus, mer1d8, bea1d7) %>%  
+  arrange(mer1d8, bea1d7)
+
+test2 <- macros_cleaned %>%  
+  select(class:genus, mer1d8, bea1d7) %>%  
+  arrange(mer1d8, bea1d7)
+
+# 3a looks ok -- the test and test 2 have identical non-NA observations  
+macros <- macros_cleaned  
+
+rm(test, test2, macros_cleaned)  
+
+# 4 arrange site names, dates, notes====  
+macros_wide <- macros  
+
+macros <- macros_wide %>%  
+  pivot_longer(-c(class, order, family, genus),  
+               values_to = "count") %>%  
+  # make a watershed codes  
+  separate(name, c("wtshd","scratch"), 3, remove = FALSE) %>%  
+  mutate(wtshd = toupper(wtshd)) %>%  
+  # make site codes  
+  separate(scratch, c("site_cd", "scratch"), 1) %>%  
+  unite("site", wtshd:site_cd, remove = FALSE, sep = "") %>%  
+  # make year codes  
+  separate(scratch, c("yr_cd", "scratch"), 1) %>%  
+  # make month codes  
+  separate(scratch, c("month", "notes"), 1) %>%  
+  mutate(notes = case_when(  
+    notes == "" ~ "NA",  
+    TRUE ~ notes)) %>%  
+  na_if("NA")  
+
+# 5 create year variable====   
+# make a look-up table for year  
+yr_look_up <- macros %>%  
+  select(yr_cd) %>%  
+  distinct() %>%  
+  arrange(yr_cd) %>%  
+  mutate(year = case_when(  
+    yr_cd == "a" ~ 1993,  
+    yr_cd == "b" ~ 1994,  
+    yr_cd == "d" ~ 1996,  
+    yr_cd == "p" ~ 2008,  
+    yr_cd == "r" ~ 2010,  
+    yr_cd == "s" ~ 2011,  
+    yr_cd == "t" ~ 2012,  
+    yr_cd == "u" ~ 2013,  
+    yr_cd == "v" ~ 2014))  
+
+# join look-up table  
+macros <- left_join(macros, yr_look_up,  
+                     by = "yr_cd") %>%  
+  select(class:genus, site, year, month, notes, count, name)  
+
+rm(yr_look_up)  
+
+# 6 get list of sites====  
+site_list <- macros %>%  
+  select(year, site, month, notes, name) %>%  
+  distinct() %>%  
+  arrange(year, site)  
+
+site_hist <- site_list %>%  
+  filter(year < 2000) %>%  
+  arrange(name)  
+
+export(site_hist, "site_hist_ck.csv")  
+
+
+# 2 separate parasites and mesoinvertebrates -- not useful for water quality  
+macros <- macros %>%  
+  mutate(type = case_when(
+ order == "Trombidiformes" ~ "mesoinvertebrate",  
+ class == "Bivalvia" ~ "macroinvertebrate",  
+ class == "Branchiopoda" ~ "mesoinvertebrate",  
+ class == "Clitellata"~ "macroinvertebrate",  
+ class == "Crustacea"~ "macroinvertebrate",  
+ class == "Entognatha"~ "macroinvertebrate",  
+ class == "Gastropoda"~ "macroinvertebrate",  
+ class == "Hydrozoa"~ "parasite",  
+ class == "Insecta"~ "macroinvertebrate",  
+ class == "Malacostraca" ~ "macroinvertebrate",  
+ class == "Nematoda" ~ "parasite",  
+ class == "Nematomorpha" ~ "parasite",  
+ class == "Rhabditophora"~ "parasite"))
+
+# 3 separate types  
+mesoinv<- macros %>% 
+  filter(type == "mesoinvertebrate") %>%  
+  select(-type) %>%  
+ pivot_longer(names_to = "site", values_to = "count",  
+              -c(class, order, family, genera))  %>%  
+ filter(!is.na(count))  
+
+parasites <- macros %>% 
+  filter(type == "parasite") %>%  
+  select(-type) %>%  
+ pivot_longer(names_to = "site", values_to = "count",  
+              -c(class, order, family, genera))  %>%  
+ filter(!is.na(count))  
+
+macroinv <- macros %>% 
+  filter(type == "macroinvertebrate") 
+
+macros2 <- macros %>% 
+  filter(type == "macroinvertebrate") %>%  
+  select(-type) %>%  
+ pivot_longer(names_to = "site", values_to = "count",  
+              -c(class, order, family, genera))  %>%  
+ filter(!is.na(count))  
+
+# TO DO
+#  mutate(family = str_detect(order, "Trichoptera") &  
+#           str_detect(order, "Hydrophilidae" 
+#                      ~ "Hydropsychidae")) %>%  
+
+
+
+
+
+
+# 1.4.8 Symphitopsyche sp. '96====  
+scratch <- macros_Gen %>% 
+  filter(genus == "Symphitopsyche sp. '96") %>% 
+  pivot_longer(-c(order, family, genus)) %>%  
+  arrange(value) %>%  
+  mutate(genus = case_when(  
+    name == "bea1d7" ~ "Symphitopsyche spp",  
+    TRUE ~ "NA")) %>%  
+  na_if("NA") %>%  
+  pivot_wider()  
+
+macros_new <- bind_rows(macros_new, scratch)  
+
+
+
+
+
+
+
+```
+Hygrobatoidae sp.'12		
+Hygrobatoidea sp.
+Naididae Family		
+#    str_detect(genus, "1996 sp = hagenius") ~ "Hagenius spp",  
+#    str_detect(genus, "Limnodrilus udekemian'94; Enchytraeidae sp.'96") ~ 
+#      "Limnodrilus udekemian, Enchytraeidae spp",  
+
+
+
+  mutate(genus = str_remove_all(genus, "Variable")) #%>%  
+
+  mutate(genus = str_remove_all(genus, "Class: ")) #%>%  
+    
+  mutate(class = case_when(  
+    str_detect(notes, "^Class") ~ notes)) %>%  
+  mutate(family = case_when(  
+    str_detect(notes, "^Nai") ~ notes,  
+    TRUE ~ family)) %>%  
+  mutate(genera = case_when(  
+    str_detect(notes, "\\w*93$") ~ notes,  
+    str_detect(notes, "\\w*94$") ~ notes,  
+    str_detect(notes, "\\w*96$") ~ notes,  
+    str_detect(notes, "\\w*12$") ~ notes,  
+    str_detect(notes, "\\w*3r7$") ~ notes,  
+    str_detect(notes, "\\w*sp.$") ~ notes,  
+    str_detect(notes, "\\w*96\\)$") ~ notes,  
+    str_detect(notes, "^Sp") ~ notes, 
+    str_detect(notes, "^Tipu") ~ notes)) %>%  
+  mutate(genera = str_remove_all(genera, "Class: ")) %>%  
+  mutate(genera = str_remove_all(genera, "Arachnida; ")) %>%  
+  mutate(genera = str_remove_all(genera, "In 1993")) %>%  
+  mutate(genera = str_remove_all(genera, "In 1994")) %>%  
+  mutate(genera = str_remove_all(genera, ":'93,'96")) %>%  
+  mutate(genera = str_remove_all(genera, ":'94,'96")) %>%  
+  mutate(genera = str_remove_all(genera, ":'93")) %>%  
+  mutate(genera = str_remove_all(genera, ":'94")) %>%  
+  mutate(genera = str_remove_all(genera, ":'96")) %>%  
+  mutate(genera = str_remove_all(genera, "'96")) %>%  
+  mutate(genera = str_remove_all(genera, "Gastropoda; ")) %>%  
+  mutate(genera = str_remove_all(genera, ":'12")) %>%  
+separate(class, c(NA, "class", sep = ":", extra = "right")) %>%  
+  mutate(genera = case_when(  
+    str_detect(genera, "^4") ~ "NA",  
+    str_detect(genera, "^Ambrysus sp.") ~ "Ambrysus sp.",  
+    str_detect(family, "Gammaridae") ~ "Gammarus sp.",  
+    str_detect(family, "Talitridae") ~ "Hyalella azteca",  
+    str_detect(family, "Taltridae") ~ "Hyalella azteca",  
+    str_detect(genera, "Sp = Ephoron") ~ "Ephoron sp.",  
+    str_detect(genera, "^Tipula sp.") ~ "Tipula sp.",  
+    str_detect(genera, "^Tricorythodes sp.") ~ "Tricorythodes sp.",  
+    str_detect(genera, "Brachycentridae") ~ "Brachycentrus sp.",  
+    str_detect(family, "Athericidae") ~ "Atherix sp.",  
+    str_detect(family, "Culicoides sp.") ~ "Culicoides sp.",  
+    str_detect(family, "Culicoides sp.") ~ "Culicoides sp.",  
+    str_detect(family, "Cossidae") ~ "Prionoxystus sp.",  
+    str_detect(family, "Dicranota sp.") ~ "Dicranota sp.",  
+    str_detect(family, "Isoperla sp.") ~ "Isoperla sp.",  
+    str_detect(family, "Simulium sp.") ~ "Simulium sp.",  
+    str_detect(family, "Elmid. Stienelmis") ~ "Stienelmis sp.",  
+    str_detect(family, "Ferrissia sp.") ~ "Ferrissia sp.",  
+    str_detect(family, "Heloridae") ~ "Helorus sp.",  
+    str_detect(family, "Heloridae") ~ "Tricorythodes sp.",  
+    str_detect(family, "Pisidiidae") ~ "Pisidium sp.",  
+    str_detect(family, "pisidiidae") ~ "Pisidium sp.",  
+    str_detect(family, "Psychodidae") ~ "Pericoma sp.",  
+    str_detect(family, "Potamanthus") ~ "Potamanthus sp.",  
+    str_detect(family, "Pteronarcyidae") ~ "Pteronarcys sp.",  
+    str_detect(family, "Simulidae") ~ "Simulium sp.",  
+    str_detect(family, "Simuliidae") ~ "Simulium sp.",  
+    TRUE ~ genera)) %>%  
+  mutate(family = case_when(  
+    str_detect(genera, "Culicoides sp.") ~ "Ceratopogonidae",  
+    str_detect(genera, "Simulium sp.") ~ "Simuliidae",  
+    str_detect(genera, "Isoperla sp.") ~ "Perlodidae",  
+    str_detect(genera, "Dicranota sp.") ~ "Pediciidae",  
+    str_detect(family, "Ancyclidae") ~ "Planorbidae",  
+    str_detect(family, "Ancylidae") ~ "Planorbidae",  
+    str_detect(family, "corydalidae") ~ "Corydalidae",  
+    str_detect(family, "Culcidae") ~ "Culicidae",  
+    str_detect(family, "Curulionidae") ~ "Curculionidae",  
+    str_detect(family, "Drysticidae") ~ "Dytiscidae",  
+    str_detect(family, "Elmid. Stienelmis") ~ "Elmidae",  
+    str_detect(family, "Ephyridae") ~ "Ephydridae",  
+    str_detect(family, "Nematomorpha") ~ "Gordioida",  
+    str_detect(family, "Hirudina") ~ "Glossiphoniidae",  
+    str_detect(family, "Hirudinea") ~ "Glossiphoniidae",  
+    str_detect(family, "Hirudinidea") ~ "Glossiphoniidae",  
+    str_detect(family, "Hirudinidae") ~ "Glossiphoniidae",  
+    str_detect(family, "hebridae") ~ "Hebridae",  
+    str_detect(family, "hydracarina") ~ "Hydracarina",  
+    str_detect(family, "Hydrocarina") ~ "Hydracarina",  
+    str_detect(family, "Hydrobidae") ~ "Hydrobiidae",  
+    str_detect(family, "Tubificidae") ~ "Naididae",  
+    str_detect(family, "^Naididae") ~ "Naididae",    
+    str_detect(family, "Nematoda") ~ "Nematomorpha",    
+    str_detect(family, "notonectidae") ~ "Notonectidae",  
+    str_detect(family, "Notonectdae") ~ "Notonectidae",  
+    str_detect(family, "Ferrissia sp.") ~ "Planorbidae",  
+    str_detect(family, "piscicolidae") ~ "Piscicolidae",  
+    str_detect(family, "Polymitarcidae") ~ "Polymitarcyidae",  
+    str_detect(family, "Polymitoreyidae") ~ "Polymitarcyidae",  
+    str_detect(family, "Potamanthus") ~ "Potamanthidae",  
+    str_detect(family, "Ptilodactylia") ~ "Ptilodactylidae",  
+    str_detect(family, "pisidiidae") ~ "Sphaeriidae",  
+    str_detect(family, "Pisidiidae") ~ "Sphaeriidae",  
+    str_detect(family, "Sailidae") ~ "Sialidae",  
+    str_detect(family, "Simulidae") ~ "Simuliidae",  
+    str_detect(family, "Taltridae") ~ "Talitridae", 
+    str_detect(family, "^Tipula sp.") ~ "Tipulidae",  
+    str_detect(family, "Tupulidae") ~ "Tipulidae",  
+    str_detect(family, "^Tricorythodes sp.") ~ "Tricorythodes sp.", 
+    str_detect(family, "Notostraca") ~ "Triopsidae",  
+    str_detect(family, "viviparidae") ~ "Viviparidae",  
+    str_detect(family, "Unclassified") ~ "NA",  
+    str_detect(family, "Unknown") ~ "NA",  
+    str_detect(family, "needs a look") ~ "NA",  
+    str_detect(order, "Conchostraca") ~ "Conchostraca",  
+    str_detect(order, "Nematomorpha") ~ "Gordioida",  
+    TRUE ~ family)) %>%  
+  mutate(order = case_when(  
+    str_detect(family, "Viviparidae") ~ "Architaenioglossa",   
+    str_detect(family, "Tricorythidae") ~ "Ephemeroptera",   
+    str_detect(family, "Conchostraca") ~ "Crustacea",   
+    str_detect(family, "Gordioida") ~ "Gordioida",  
+    str_detect(family, "Enchytraeidae") ~ "Haplotaxida",   
+    str_detect(family, "Naididae") ~ "Haplotaxida",    
+    str_detect(family, "Lymnaeidae") ~ "Hygrophila",   
+    str_detect(family, "Physidae") ~ "Hygrophila",   
+    str_detect(family, "Planorbidae") ~ "Hygrophila",   
+    str_detect(family, "Hydrobiidae") ~ "Littorinimorpha",   
+    str_detect(family, "Triopsidae") ~ "Notostraca",  
+    str_detect(family, "Glossiphoniidae") ~ "Rhynchobdellida",  
+    str_detect(family, "Sphaeriidae") ~ "Sphaeriida",   
+    str_detect(family, "Hydracarina") ~ "Trombidiformes",  
+    str_detect(family, "Unionidae") ~ "Unionida",  
+    str_detect(family, "Corbiculidae") ~ "Venerida",  
+    str_detect(order, "Col. Elmidae") ~ "Coleoptera",  
+    str_detect(order, "Coleptera") ~ "Coleoptera",   
+    str_detect(order, "^Dip.") ~ "Diptera",  
+    str_detect(order, "Nematomorpha") ~ "Gordioida",  
+    str_detect(order, "^Ann") ~ "Haplotaxida",   
+    str_detect(order, "megaloptera") ~ "Megaloptera",       
+    str_detect(order, "Platyhelminthes") ~ "Tricladida",  
+    str_detect(order, "^Acari") ~ "Trombidiformes",   
+    str_detect(order, "Trombidforms") ~ "Trombidiformes",   
+    str_detect(order, "Venoroidea") ~ "Venerida",   
+    str_detect(order, "Unknown in the data") ~ "NA",  
+    TRUE ~ order)) %>%                     
+    mutate(class = case_when(  
+    str_detect(order, "Trombidiformes") ~ "Arachnida",  
+    str_detect(order, "Sphaeriida") ~ "Bivalvia",  
+    str_detect(order, "Unionida") ~ "Bivalvia",  
+    str_detect(order, "Venerida") ~ "Bivalvia",  
+    str_detect(order, "Notostraca") ~ "Branchiopoda",  
+    str_detect(order, "Haplotaxida") ~ "Clitellata",  
+    str_detect(order, "Rhynchobdellida") ~ "Clitellata",  
+    str_detect(order, "Crustacea") ~ "Crustacea",  
+    str_detect(order, "Decapoda") ~ "Crustacea",  
+    str_detect(order, "Collembola") ~ "Entognatha",  
+    str_detect(order, "Architaenioglossa") ~ "Gastropoda",  
+    str_detect(order, "Anthomedusae") ~ "Hydrozoa",  
+    str_detect(order, "Coleoptera") ~ "Insecta",  
+    str_detect(order, "Diptera") ~ "Insecta",  
+    str_detect(order, "Ephemeroptera") ~ "Insecta",  
+    str_detect(order, "Hemiptera") ~ "Insecta",  
+    str_detect(order, "Hymenoptera") ~ "Insecta",  
+    str_detect(order, "Lepidoptera") ~ "Insecta",  
+    str_detect(order, "Megaloptera") ~ "Insecta",  
+    str_detect(order, "Odonata") ~ "Insecta",  
+    str_detect(order, "Plecoptera") ~ "Insecta",  
+    str_detect(order, "Trichoptera") ~ "Insecta",  
+    str_detect(order, "Gastropoda") ~ "Gastropoda",  
+    str_detect(order, "Hygrophila") ~ "Gastropoda",  
+    str_detect(order, "Littorinimorpha") ~ "Gastropoda",  
+    str_detect(order, "Amphipoda") ~ "Malacostraca",  
+    str_detect(order, "Gordioida") ~ "Nematomorpha",  
+    str_detect(order, "Nematoda") ~ "Nematoda",  
+    str_detect(order, "Nematodes") ~ "Nematoda",  
+    str_detect(order, "Tricladida") ~ "Rhabditophora",  
+    TRUE ~ class)) %>%  
+  mutate(notes = case_when(  
+    str_detect(family, "Notonectidae") ~ "Undetermined tolerance values",  
+    TRUE ~ notes)) %>%  
+  mutate(genera = case_when(  
+    str_detect(family, "Polymitarcyidae") ~ "Ephoron sp.",  
+    TRUE ~ genera)) %>%  
+  na_if("NA") %>%  
+  filter(!is.na(class)) %>%  
+  arrange(class, order, family, genera) %>%  
+  select(class, order, family, genera, notes, everything()) %>%  
+  select(-c(':', right))  
+
+# 2 separate notes -- don't appear to be useful  
+notes <- macros %>% 
+ select(genera, notes) %>% 
+  distinct()  
+
+macros <- macros %>%  
+  select(-notes)  
+
+# 3 clean up duplicated names created by the name cleaning above  
+macros2 <- macros %>%  
+ pivot_longer(-c(class, order, family, genera)) #
+
+test <- macros %>%  
+  filter(genera == "Limnodrilus udekemian; Enchytraeidae sp.") %>% 
+   pivot_longer(-c(class, order, family, genera)) %>% 
+   filter(!is.na(value))
+#%>% 
+  group_by(class, order, family, genera, name) %>%  
+  summarise(value = sum(value, na.rm = FALSE)) %>%  
+  ungroup() %>%  
+  pivot_wider()  
+
+test <- macros %>%  
+  filter(genera == "Limnodrilus udekemian; Enchytraeidae sp.") %>% 
+   pivot_longer(-c(class, order, family, genera)) %>% 
+   filter(!is.na(value))
+
+# 2 separate parasites and mesoinvertebrates -- not useful for water quality  
+macros <- macros %>%  
+  mutate(type = case_when(
+ order == "Trombidiformes" ~ "mesoinvertebrate",  
+ class == "Bivalvia" ~ "macroinvertebrate",  
+ class == "Branchiopoda" ~ "mesoinvertebrate",  
+ class == "Clitellata"~ "macroinvertebrate",  
+ class == "Crustacea"~ "macroinvertebrate",  
+ class == "Entognatha"~ "macroinvertebrate",  
+ class == "Gastropoda"~ "macroinvertebrate",  
+ class == "Hydrozoa"~ "parasite",  
+ class == "Insecta"~ "macroinvertebrate",  
+ class == "Malacostraca" ~ "macroinvertebrate",  
+ class == "Nematoda" ~ "parasite",  
+ class == "Nematomorpha" ~ "parasite",  
+ class == "Rhabditophora"~ "parasite"))
+
+# 3 separate types  
+mesoinv<- macros %>% 
+  filter(type == "mesoinvertebrate") %>%  
+  select(-type) %>%  
+ pivot_longer(names_to = "site", values_to = "count",  
+              -c(class, order, family, genera))  %>%  
+ filter(!is.na(count))  
+
+parasites <- macros %>% 
+  filter(type == "parasite") %>%  
+  select(-type) %>%  
+ pivot_longer(names_to = "site", values_to = "count",  
+              -c(class, order, family, genera))  %>%  
+ filter(!is.na(count))  
+
+macroinv <- macros %>% 
+  filter(type == "macroinvertebrate") 
+
+macros2 <- macros %>% 
+  filter(type == "macroinvertebrate") %>%  
+  select(-type) %>%  
+ pivot_longer(names_to = "site", values_to = "count",  
+              -c(class, order, family, genera))  %>%  
+ filter(!is.na(count))  
+
+# TO DO
+#  mutate(family = str_detect(order, "Trichoptera") &  
+#           str_detect(order, "Hydrophilidae" 
+#                      ~ "Hydropsychidae")) %>%  
+
+
+
+
+
+```
+
+
+```{r}
+
+
+test <- macros %>% 
+  filter(is.na(class)) %>%  
+  pivot_longer(cols = 6:208) #%>% 
+
+test <- macros %>%   
+  filter(family == "Hydrophilidae")  %>%  
+  select(-c(':', right)) %>% 
+  pivot_longer(cols = 6:208) %>% 
+  filter(order == "Trichoptera") 
+    str_detect(family, "Haplotaxida") ~ "NA",  
+	Hydrophilidae
+
+   mutate(order = case_when(  
+    # fix abbreviations  
+    str_detect(order, "^Ann") ~ "Annelida",  
+    str_detect(order, "^Col") ~ "Coleoptera",  
+    str_detect(order, "^Dip") ~ "Diptera",  
+    str_detect(order, "^Eph") ~ "Ephemeroptera",  
+    str_detect(order, "^Gas") ~ "Gastropoda",  
+    str_detect(order, "^Odo") ~ "Odonata",  
+    str_detect(order, "^Pel") ~ "Pelecypoda",  
+    str_detect(order, "^Tri") ~ "Trichoptera",  
+    str_detect(taxon3, "^Lebertia") ~ "Trombidiformes",    
+  
+  
+#  mutate(notes = case_when(  
+#    str_detect(notes, "^Nai") ~ "NA",  
+#    str_detect(notes, "\\w*12$") ~ "NA",  
+#    str_detect(notes, "\\w*3r7$") ~ "NA",  
+#    str_detect(notes, "\\w*96$") ~ "NA",  
+#    str_detect(notes, "\\w*1993$") ~ "NA",  
+#    str_detect(notes, "\\w*1996$") ~ "NA",  
+#    str_detect(notes, "^1996") ~ "NA", 
+#    str_detect(notes, "^Class") ~ "NA",  
+#    str_detect(notes, "\\w*sp.$") ~ "NA",  
+#    str_detect(notes, "^Craw") ~ "NA",  
+#    str_detect(notes, "^\\(") ~ "variable tolerance",  
+#    TRUE ~ notes)) %>%  
+    
+    
+  mutate(order = case_when(  
+    # fix abbreviations  
+    str_detect(order, "^Amp") ~ "Amphipoda",  
+    str_detect(order, "^Ann") ~ "Annelida",  
+    str_detect(order, "^Col") ~ "Coleoptera",  
+    str_detect(order, "^Dip") ~ "Diptera",  
+    str_detect(order, "^Eph") ~ "Ephemeroptera",  
+    str_detect(order, "^Gas") ~ "Gastropoda",  
+    str_detect(order, "^Odo") ~ "Odonata",  
+    str_detect(order, "^Pel") ~ "Pelecypoda",  
+    str_detect(order, "^Tri") ~ "Trichoptera",  
+    str_detect(taxon3, "^Lebertia") ~ "Trombidiformes",    
+    # change to current orders -- correct spelling  
+    taxon3 == "Nematomorpha" ~ "Gordioidea", 
+    order  == "Pelecypoda" ~ "Sphaeriida",  
+    order  == "Platyhelminthes" ~ "Tricladida",  
+
+    TRUE ~ order)) %>%  
+  mutate(order = case_when(  
+    str_detect(order, "^Annelida") ~ "Haplotaxida",     
+    str_detect(order, "^Pelecypoda") ~ "Sphaeriida",     
+    TRUE ~ order)) %>%  
+  # group families into a single column  
+  mutate(family = case_when(  
+    # the regex below is "word ending with ae" - moves families in bulk  
+    str_detect(taxon2, "\\w*ae$") ~ taxon2,  
+    str_detect(taxon3, "\\w*ae$") ~ taxon3)) %>%  
+  select(-taxon2)  %>%  
+  # clean up families  
+  mutate(family = case_when(  
+    str_detect(taxon3, "^Macronychus") ~ "Elmidae",  
+    str_detect(taxon3, "^Microcylloepus") ~ "Elmidae",  
+    str_detect(taxon3, "^Ptilodactylia") ~ "Ptilodactylidae",  
+    str_detect(taxon3, "^Atherix") ~ "Athericidae",  
+    str_detect(taxon3, "^Dicranota") ~ "Pediciidae",  
+    str_detect(taxon3, "^Tipula") ~ "Tipulidae",  
+    str_detect(taxon3, "^Limnodrilus") ~ "Tubificidae",  
+    str_detect(taxon3, "^Hirudinea-Glossiphoniidae") ~ "Glossiphoniidae",  
+    str_detect(taxon3, "^Hirudinea sub-class") ~ "Hirudinea subclass",  
+    str_detect(taxon3, "^Gom") ~ "Gomphidae",    
+    str_detect(taxon3, "^Isoperla") ~ "Perlodidae",  
+    str_detect(taxon3, "^Ithytrichia") ~ "Hydroptilidae",  
+    str_detect(taxon3, "^Limnephilus") ~ "Limnephilidae",   
+    str_detect(taxon3, "^Nectopsyche") ~ "Leptoceridae",  
+    str_detect(taxon3, "^Oecetis") ~ "Leptoceridae",  
+    str_detect(taxon3, "^Hygrobates") ~ "Hygrobatidae",  
+    str_detect(taxon3, "^Sperchon") ~ "Sperchontidae",  
+    str_detect(taxon3, "^Hydrachnida") ~ "Hydrachnellae",  
+    str_detect(taxon3, "^Lebertia") ~ "Lebertiidae",  
+    TRUE ~ family)) %>%  
+  mutate(family = case_when(  
+    str_detect(taxon3, "^Hirudidae") ~ "Hirudinidae",  
+    TRUE ~ family)) %>%  
+  mutate(order = case_when(  
+    str_detect(family, "^Lymnaeidae") ~ "Lymnaeoidea",  
+    str_detect(family, "^Physidae") ~ "Planorboidea",  
+    str_detect(family, "^Pleuroceridae") ~ "Cerithioidea",  
+    TRUE ~ order)) %>%  
+  arrange(order, family) %>%  
+  select(order, family, everything())  
+
+# export sample id -- use this to get sample info  
+sample_id <- macros %>%  
+  select(-c(order, family, taxon3)) %>%  
+  names() %>%  
+  enframe(name = NULL) %>%  
+  rename(id = value) %>%  
+  separate(id, into = c("site", "period"), sep = 4) %>% 
+  separate(period, into = c("yr", "mon"), sep = 1)  
+```
+
+
+
+
+```{r}
+
+macros <- Reduce(function(...) merge(...,  
+                                     by = c("order", "family_notes"),  
+                                     all.x=TRUE),  
+                 list(AMH1_2014,  
+                      BEA1_2013,  
+                      BEA2_2013,  
+                      BEA3_2013,  
+                      BEL1_2013,  
+                      BEL2_2013,   
+                      BLP1_2013,  
+                      BUZ1_2013,  
+                      CHE1_2011,  
+                      CHE2_2011,  
+                      COR1_2013,  
+                      CRA1_2013,  
+                      EAN1_2013,  
+                      EAN2_2013,  
+                      LOD1_prior,  
+                      LON1_2013,  
+                      LWR1_2014,  
+                      LWR2_2014,  
+                      LWR3_2014,  
+                      LWR4_2012,  
+                      MER1_2014,  
+                      MER3_2014,  
+                      MER4_2014,   
+                      NFL1_2014,  
+                      PAS1_2013,   
+                      PAS2_2013,   
+                      PAS3_2013,   
+                      POR1_2010,   
+                      POR2_2014,  
+                      POR3_2014,  
+                      POT1_2013,  
+                      RED1_2014,  
+                      WCC1_2012,  
+                      WCC2_2012,  
+                      WCC3_2012,  
+                      WHI1_2011,  
+                      WHI2_2011,  
+                      WHI3_2008,  
+                      WHI4_prior,  
+                      WHI5_2013,  
+                      WOL1_2011,  
+                      WOK1_2012,  
+                      WOK2_2014,  
+                      WOK3_2012,  
+                      WOK4_2014))  %>%  
+  distinct()  
+
+
+```
+
+
+
+```
+
+```{r join_macros-prior2000}
+
+# joins columns by putting the dfs into a list,  
+#   then merging, and reducing to a dataframe  
+macros <- Reduce(function(...) merge(...,  
+                                     by = c("order", "family"),  
+                                     all.x=TRUE),  
+                 list(AMH1_prior,  
+                      BEA1_prior,  
+                      BEA2_prior,  
+                      BEA3_prior,  
+                      BLC1_prior,  
+                      BLC2_prior,  
+                      BLP1_prior,  
+                      BUZ1_prior,  
+                      CHE1_prior,  
+                      COR1_prior,  
+                      CRA1_prior,  
+                      EAN1_prior,  
+                      EAN2_prior,  
+                      LOD1_prior,  
+                      LON1_prior,  
+                      LWR1_prior,  
+                      LWR2_prior,  
+                      LWR3_prior,  
+                      LWR4_prior,  
+                      MER1_prior,  
+                      MER3_prior,  
+                      MER4_prior,  
+                      NFL1_prior,  
+                      PAS1_prior,  
+                      PAS2_prior,  
+                      PAS3_prior,  
+                      POR1_prior,  
+                      POR2_prior,  
+                      POR3_prior,  
+                      POT1_prior,  
+                      RED1_prior,  
+                      WCC1_prior,  
+                      WCC2_prior,  
+                      WCC3_prior,  
+                      WHR1_prior,  
+                      WHR2_prior,  
+                      WHR4_prior,  
+                      WOL1_prior,  
+                      WOK1_prior,  
+                      WOK2_prior,  
+                      WOK3_prior,  
+                      WOK4_prior))  
+
+rm(AMH1_prior,  
+   BEA1_prior,  
+   BEA2_prior,  
+   BEA3_prior,  
+   BLC1_prior,  
+   BLC2_prior,  
+   BLP1_prior,  
+   BUZ1_prior,  
+   CHE1_prior,  
+   COR1_prior,  
+   CRA1_prior,  
+   EAN1_prior,  
+   EAN2_prior,  
+   LOD1_prior,  
+   LON1_prior,  
+   LWR1_prior,  
+   LWR2_prior,  
+   LWR3_prior,  
+   LWR4_prior,  
+   MER1_prior,  
+   MER3_prior,  
+   MER4_prior,  
+   NFL1_prior,  
+   PAS1_prior,  
+   PAS2_prior,  
+   PAS3_prior,  
+   POR1_prior,  
+   POR2_prior,  
+   POR3_prior,  
+   POT1_prior,  
+   RED1_prior,  
+   WCC1_prior,  
+   WCC2_prior,  
+   WCC3_prior,  
+   WHR1_prior,  
+   WHR2_prior,  
+   WHR4_prior,  
+   WOL1_prior,  
+   WOK1_prior,  
+   WOK2_prior,  
+   WOK3_prior,   
+   WOK4_prior)  
+
+```
+
+```{r} 
+AMH1 <- full_join(AMH1_2014, AMH1_prior) 
+
+AMH1_ck1 <- anti_join(AMH1, AMH1_prior)  
+
+
+AMH1_ck2 <- anti_join(AMH1, AMH1_2014) 
+AMH1_ck <- bind_rows(AMH1_ck1, AMH1_ck2)
+AMH1_test <- anti_join(AMH1, AMH1_ck)
+
+```
+
+```{r}
+
+
+
+```
+
+
+#export(sample_id, "data/sample_id2.csv")  
+
+```
+
+```{r organize samples}  
+samp_2014 <- sample_id %>%  
+  filter(yr == "v")  
+
+samp_2013 <- sample_id %>%  
+  filter(yr == "u")  
+
+samp_2012 <- sample_id %>%  
+  filter(yr == "t")  
+
+samp_2011 <- sample_id %>%  
+  filter(yr == "s")  
+
+samp_2010 <- sample_id %>%  
+  filter(yr == "r")  
+
+samp_2008 <- sample_id %>%  
+  filter(yr == "p")  
+
+samp_older <- sample_id %>%  
+  filter(yr == "a" | 
+         yr == "b" | 
+         yr == "d")  
+
+# missing in my scanned records -- 
+# 2014 --  
+# Need copies of the following:  
+#     AMH1, LWR1, NFL1 
+#  check rekick MER4  
+# 2013 -- 
+# Need copies of the following:  
+#     BEA1, BEA3, BLC2, CRA1,  LON1,  MER4, PAS2, PAS3, POT1, POR2, POR3  
+#  check -- BUZ1 looks like 2 datasheets  
+# 2012 -- 
+# LWR2 has 2 samples -- ok but think about random sampling  
+# CHECK MER4 & MER3 sample
+#     bea1, bea2, bea3, bel1, mer4(3), mer4, pas1, pas2, pas3, por2, por3,  
+#     wcc1, wcc2, wcc3, wok1, wok2, wok3, wok4  
+# 2011 --  
+#     lwr1a, lwr1b,lwr2, lwr3, lwr4	, por2, por3a, por3b,  
+#     wcc1, wcc2, wcc3, wok1, wok2a, wok2b, wok3, wok4  
+# 2010 --  
+#     lwr1,lwr3a, lwr3b, lwr3c, por1, por2, por3, wok1, wok2, wok3, wok4  
+# 2008 --  
+#     mer4  
+
+
+
+
+
+
+
+```
+
+```{r organize_macros-prior2000}  
+
+# 1. organize taxa identification  
+macros <- macros %>%  
+  rename(taxon1 = order)  %>%  
+  rename(taxon3 = family) %>%  
+  separate(taxon1, c("order", "taxon2"), sep = " ", fill = "right") %>%  
+  mutate(order = case_when(  
+    # fix abbreviations  
+    str_detect(order, "^Amp") ~ "Amphipoda",  
+    str_detect(order, "^Ann") ~ "Annelida",  
+    str_detect(order, "^Col") ~ "Coleoptera",  
+    str_detect(order, "^Dip") ~ "Diptera",  
+    str_detect(order, "^Eph") ~ "Ephemeroptera",  
+    str_detect(order, "^Gas") ~ "Gastropoda",  
+    str_detect(order, "^Odo") ~ "Odonata",  
+    str_detect(order, "^Pel") ~ "Pelecypoda",  
+    str_detect(order, "^Tri") ~ "Trichoptera",  
+    str_detect(taxon3, "^Lebertia") ~ "Trombidiformes",    
+    # change to current orders -- correct spelling  
+    taxon3 == "Nematomorpha" ~ "Gordioidea", 
+    order  == "Pelecypoda" ~ "Sphaeriida",  
+    order  == "Platyhelminthes" ~ "Tricladida",  
+    str_detect(order, "^Acari") ~ "Trombidiformes",    
+    TRUE ~ order)) %>%  
+  mutate(order = case_when(  
+    str_detect(order, "^Annelida") ~ "Haplotaxida",     
+    str_detect(order, "^Pelecypoda") ~ "Sphaeriida",     
+    TRUE ~ order)) %>%  
+  # group families into a single column  
+  mutate(family = case_when(  
+    # the regex below is "word ending with ae" - moves families in bulk  
+    str_detect(taxon2, "\\w*ae$") ~ taxon2,  
+    str_detect(taxon3, "\\w*ae$") ~ taxon3)) %>%  
+  select(-taxon2)  %>%  
+  # clean up families  
+  mutate(family = case_when(  
+    str_detect(taxon3, "^Macronychus") ~ "Elmidae",  
+    str_detect(taxon3, "^Microcylloepus") ~ "Elmidae",  
+    str_detect(taxon3, "^Ptilodactylia") ~ "Ptilodactylidae",  
+    str_detect(taxon3, "^Atherix") ~ "Athericidae",  
+    str_detect(taxon3, "^Dicranota") ~ "Pediciidae",  
+    str_detect(taxon3, "^Tipula") ~ "Tipulidae",  
+    str_detect(taxon3, "^Limnodrilus") ~ "Tubificidae",  
+    str_detect(taxon3, "^Hirudinea-Glossiphoniidae") ~ "Glossiphoniidae",  
+    str_detect(taxon3, "^Hirudinea sub-class") ~ "Hirudinea subclass",  
+    str_detect(taxon3, "^Gom") ~ "Gomphidae",    
+    str_detect(taxon3, "^Isoperla") ~ "Perlodidae",  
+    str_detect(taxon3, "^Ithytrichia") ~ "Hydroptilidae",  
+    str_detect(taxon3, "^Limnephilus") ~ "Limnephilidae",   
+    str_detect(taxon3, "^Nectopsyche") ~ "Leptoceridae",  
+    str_detect(taxon3, "^Oecetis") ~ "Leptoceridae",  
+    str_detect(taxon3, "^Hygrobates") ~ "Hygrobatidae",  
+    str_detect(taxon3, "^Sperchon") ~ "Sperchontidae",  
+    str_detect(taxon3, "^Hydrachnida") ~ "Hydrachnellae",  
+    str_detect(taxon3, "^Lebertia") ~ "Lebertiidae",  
+    TRUE ~ family)) %>%  
+  mutate(family = case_when(  
+    str_detect(taxon3, "^Hirudidae") ~ "Hirudinidae",  
+    TRUE ~ family)) %>%  
+  mutate(order = case_when(  
+    str_detect(family, "^Lymnaeidae") ~ "Lymnaeoidea",  
+    str_detect(family, "^Physidae") ~ "Planorboidea",  
+    str_detect(family, "^Pleuroceridae") ~ "Cerithioidea",  
+    TRUE ~ order)) %>%  
+  arrange(order, family) %>%  
+  select(order, family, everything())  
+
+# export sample id -- use this to get sample info  
+sample_id <- macros %>%  
+  select(-c(order, family, taxon3)) %>%  
+  names() %>%  
+  enframe(name = NULL) %>%  
+  rename(id = value)  
+
+export(sample_id, "data/sample_id2.csv")  
+
+```
+
+
+```{r drop-maybe}
+
+
+
+#clean_fun <- function(df) {  
+  new_df <- clean_names(df) %>%  
+  mutate_if(is.character, list(~na_if(., ""))) %>%  
+    remove_empty("rows") %>%  
+  select(-c(benthic_tolerance,  
+            functional_feeding_designation, notes)) %>%  
+  mutate_if(is.numeric, replace_na, 0) %>%  
+  mutate(sums = rowSums(select(., -c(order, family))))  %>%  
+  filter(sums > 0) %>%  
+  mutate_if(is.numeric, na_if, 0) %>%  
+  select(-sums)  
+  return(new_df)  
+}  
+
+
+note_fun <- function(df) {  
+    df %>%  
+    select(-c(order, family)) %>%  
+  pivot_longer(-c(notes)) %>%  
+  select(-value) %>%  
+  distinct() %>%  
+  separate(name, into = c("site", NA), sep = 4) %>%  
+    drop_na() %>%  
+  distinct()   
+}  
+
+```
+
+```{r import_macros-prior2000}  
+
+# 2 import and clean data saved from Excel worksheets as .csv  
+AMH1_prior <- import("data/AMH1_prior2000.csv") %>%  
+  clean_fun()  
+
+BEA1_prior <- import("data/BEA1_prior2000.csv") %>%  
+  clean_fun()  
+
+BEA2_prior <- import("data/BEA2_prior2000.csv")  %>%  
+  clean_fun()  
+
+BEA3_prior <- import("data/BEA3_prior2000.csv") %>%  
+  clean_fun()  
+
+BLC1_prior <- import("data/BLC1_prior2000.csv")  %>%  
+  clean_fun()  
+
+BLC2_prior <- import("data/BLC2_prior2000.csv")  %>%  
+  clean_fun()  
+
+BLP1_prior <- import("data/BLP1_prior2000.csv") %>%  
+  clean_fun()  
+
+BUZ1_prior <- import("data/BUZ1_prior2000.csv")  %>%  
+  clean_fun()  
+
+CHE1_prior <- import("data/CHE1_prior2000.csv")  %>%  
+  clean_fun()  
+
+COR1_prior <- import("data/COR1_prior2000.csv") %>%   
+  clean_fun()  
+
+CRA1_prior <- import("data/CRA1_prior2000.csv") %>%  
+  clean_fun()  
+
+EAN1_prior <- import("data/EAN1_prior2000.csv") %>%  
+  clean_fun()  
+
+EAN2_prior <- import("data/EAN2_prior2000.csv") %>%  
+  clean_fun()  
+
+LWR1_prior <- import("data/LWR1_prior2000.csv") %>%  
+  clean_fun()  
+
+LWR2_prior <- import("data/LWR2_prior2000.csv")%>%  
+  clean_fun()  
+
+LWR3_prior <- import("data/LWR3_prior2000.csv") %>%  
+  clean_fun()  
+
+LWR4_prior <- import("data/LWR4_prior2000.csv") %>%  
+  clean_fun()  
+
+LON1_prior <- import("data/LON1_prior2000.csv") %>%  
+  clean_fun()  
+
+LOD1_prior <- import("data/LOD1_prior2000.csv") %>%  
+  clean_fun()  
+
+MER1_prior <- import("data/MER1_prior2000.csv") %>%  
+  clean_fun()  
+
+MER3_prior <- import("data/MER3_prior2000.csv") %>%  
+  clean_fun()  
+
+MER4_prior <- import("data/MER4_prior2000.csv") %>%  
+  clean_fun()  
+
+NFL1_prior <- import("data/NFL1_prior2000.csv") %>%  
+  clean_fun()  
+
+PAS1_prior <- import("data/PAS1_prior2000.csv") %>%  
+  clean_fun()  
+
+PAS2_prior <- import("data/PAS2_prior2000.csv") %>%  
+  clean_fun()  
+
+PAS3_prior <- import("data/PAS3_prior2000.csv") %>%  
+  clean_fun()  
+
+POR1_prior <- import("data/POR1_prior2000.csv") %>%  
+  clean_fun()  
+
+POR1_2010 <- import("data/POR1_2010.csv") %>%  
+  clean_fun()  
+
+POR2_prior <- import("data/POR2_prior2000.csv") %>%  
+  clean_fun()  
+
+POR2_2010 <- import("data/POR2_2010.csv") %>%  
+  clean_fun()  
+
+POR3_prior <- import("data/POR3_prior2000.csv") %>%  
+  clean_fun()  
+
+POT1_prior <- import("data/POT1_prior2000.csv")%>%  
+  clean_fun()  
+
+RED1_prior <- import("data/RED1_prior2000.csv") %>%  
+  clean_fun()  
+
+WCC1_prior <- import("data/WCC1_prior2000.csv") %>%  
+  clean_fun()  
+
+WCC2_prior <- import("data/WCC2_prior2000.csv") %>%  
+  clean_fun()  
+
+WCC3_prior <- import("data/WCC3_prior2000.csv") %>%  
+  clean_fun()  
+
+WHR1_prior <- import("data/WHR1_prior2000.csv") %>%  
+  clean_fun()  
+
+WHR2_prior <- import("data/WHR2_prior2000.csv") %>%  
+  clean_fun()  
+
+WHR4_prior <- import("data/WHR4_prior2000.csv") %>%  
+  clean_fun()  
+
+WOL1_prior <- import("data/WOL1_prior2000.csv") %>%  
+  clean_fun()  
+
+WOK1_prior <- import("data/WOK1_prior2000.csv") %>%  
+  clean_fun()  
+
+WOK2_prior <- import("data/WOK2_prior2000.csv") %>%  
+  clean_fun()  
+
+WOK3_prior <- import("data/WOK3_prior2000.csv") %>%  
+  clean_fun()  
+
+WOK4_prior <- import("data/WOK4_prior2000.csv") %>%  
+  clean_fun()  
+
+```
