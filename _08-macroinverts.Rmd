@@ -206,16 +206,18 @@ LWR2_2014 <- import("data/LWR2_2014.csv") %>%
   clean_fun()  
 
 LWR3_2014 <- import("data/LWR3_2014.csv") %>%  
-  clean_fun()  
+  clean_fun() %>%  
+  rename(lwr2r6 = lwr3r6)  # fixed mislabled data  based on similiarity  
 
 LWR4_2012 <- import("data/LWR4_2012.csv") %>%  
-  clean_fun()  
+  clean_fun() 
 
 MER1_2014 <- import("data/MER1_2014.csv") %>%  
   clean_fun()  
 
 MER3_2014 <- import("data/MER3_2014.csv") %>%  
-  clean_fun()  
+  clean_fun() %>%  
+  rename(mer3t8 = mer4t8)  
 
 MER4_2014 <- import("data/MER4_2014.csv") %>%  
   clean_fun()  
@@ -232,7 +234,7 @@ PAS2_2013 <- import("data/PAS2_2013.csv") %>%
 PAS3_2013 <- import("data/PAS3_2013.csv") %>%  
   clean_fun()  
 
-POR1_2010 <- import("data/POR1_2010.csv") %>%  
+POR1_2012 <- import("data/POR1_2012.csv") %>%  
   clean_fun()  
 
 POR2_2014 <- import("data/POR2_2014.csv") %>%  
@@ -286,7 +288,6 @@ WOK3_2012 <- import("data/WOK3_2012.csv") %>%
 WOK4_2014 <- import("data/WOK4_2014.csv") %>%  
   clean_fun()  
 
-
 ```
 
 ```{r join_macros}
@@ -323,7 +324,8 @@ scratch <- full_join(AMH1_2014,
   full_join(., PAS1_2013, by = c("order", "family", "notes")) %>%  
   full_join(., PAS2_2013, by = c("order", "family", "notes")) %>%  
   full_join(., PAS3_2013, by = c("order", "family", "notes")) %>%  
-  full_join(., POR1_2010, by = c("order", "family", "notes")) %>%   
+#  full_join(., POR1_prior, by = c("order", "family", "notes")) %>%   
+  full_join(., POR1_2012, by = c("order", "family", "notes")) %>%   
   full_join(., POR2_2014, by = c("order", "family", "notes")) %>%  
   full_join(., POR3_2014, by = c("order", "family", "notes")) %>%  
   full_join(., POT1_2013, by = c("order", "family", "notes")) %>%  
@@ -340,18 +342,21 @@ scratch <- full_join(AMH1_2014,
   full_join(., WOK1_2012, by = c("order", "family", "notes")) %>%  
   full_join(., WOK2_2014, by = c("order", "family", "notes")) %>%  
   full_join(., WOK3_2012, by = c("order", "family", "notes")) %>%  
-  full_join(., WOK4_2014, by = c("order", "family", "notes"))      
+  full_join(., WOK4_2014, by = c("order", "family", "notes")) 
+
 ```
 
 ```{r check_count}
 
 # check the count of the samples====  
+# should be 12 samples  
 count_ck <- scratch %>%  
   select(-c(order:notes)) %>%  
   count_fun() %>%  
   filter(sum < 79)  
 
 # 2.1 check individual samples - count====  
+# these are the samples identified above
 check_amh1p <- scratch %>%  
   select(starts_with("amh1p")) %>%  
   count_fun()  
@@ -370,6 +375,10 @@ check_mer3d <- scratch %>%
 
 check_por2a <- scratch %>%  
   select(starts_with("por2a")) %>%  
+  count_fun()  
+
+check_por1c <- scratch %>%  
+  select(starts_with("por1c")) %>%  
   count_fun()  
 
 check_red1b <- scratch %>%  
@@ -396,10 +405,12 @@ check_wtr4a <- scratch %>%
   select(starts_with("wtr4a")) %>%  
   count_fun()  
 
+# should be 12 count 
 count_ck <- bind_rows(check_amh1p,  
                       check_lwr2a,  
                       check_lwr4a,  
                       check_mer3d,  
+                      check_por1c,  
                       check_por2a,  
                       check_red1b,  
                       check_wcc2a,  
@@ -412,13 +423,14 @@ rm(check_amh1p,
    check_lwr2a,  
    check_lwr4a,  
    check_mer3d,  
+   check_por1c,  
    check_por2a,  
    check_red1b,  
    check_wcc2a,  
    check_wcc3d,  
    check_wdk4b,  
-   check_wok3a,  
-   check_wtr4a)  
+   check_wok3a,   
+   check_wtr4a)   
 
 ```
 
@@ -426,6 +438,18 @@ rm(check_amh1p,
 
 # 1.0 check site names for duplicates or other errors====  
 # 1.1 get sites with suffixes====   
+# check_vars should be n = 13 -- but below is n = 9  
+# 1   lwr1s7,  
+# 2   lwr2t6 = lwr2t6,  
+# 3   lwr3r6 = lwr3r6,  
+# 4   me	ra7,          # didn't include -- fix name below
+# 5   mer4t8 = mer4t8,  
+# 6   por2d7,  
+# 7   por3s6,  
+# 8   wcc2a6	7,  
+# 9   wok2s6,   
+# 10  wok4r6  
+
 check_vars <- scratch %>%  
   names() %>%  
   enframe(name = NULL) %>%  
@@ -491,6 +515,7 @@ rm(check_lwr1s,
    check_wcc2a,  
    check_wok2s,  
    check_wok4r)  
+
 ```
 
 ```{r fix_names}
@@ -501,12 +526,9 @@ scratch <- scratch %>%
   rename(lwr1s7 = lwr1s7_2) %>%   
   rename(lwr2t6_dup = lwr2t6_b) %>%  
   rename(lwr2t6 = lwr2t6_a) %>%  
-  rename(lwr3r6_dup1 = lwr3r6) %>%  
-  rename(lwr3r6_dup2 = lwr3r6_2) %>%  
+  rename(lwr3r6_dup = lwr3r6_2) %>%  
   rename(lwr3r6 = lwr3r6_3)  %>%  
   rename(mer3a7 = me_ra7) %>%  
-  rename(mer4t8_dup = mer4t8.y) %>%  
-  rename(mer4t8 = mer4t8.x) %>%   
   rename(por2d7_dup = por2d7_2) %>%  
   rename(por3s6_dup = por3s6) %>%  
   rename(por3s6 = por3s6_b)  
@@ -538,7 +560,7 @@ rm(AMH1_2014,
    PAS1_2013,   
    PAS2_2013,   
    PAS3_2013,   
-   POR1_2010,   
+   POR1_2012,   
    POR2_2014,  
    POR3_2014,  
    POT1_2013,  
@@ -627,7 +649,7 @@ macros_Gen <- macros %>%
     na_if("NA")  
 
 # data check----  
-# macros is length 258 & macros_Gen + macros_noGen is length 258  
+# macros is length 259 & macros_Gen + macros_noGen is length 259  
 
 # 3.3 clean non-year specific genera cont.====   
 macros_Gen <- macros_Gen %>%  
@@ -650,7 +672,7 @@ macros_Gen <- macros_Gen %>%
     genus == "Tanypodinae spp" ~ "y",  
     is.na(genus) ~ "y",  
     TRUE ~ "n")) %>%  
-  select(scratch, everything())
+  select(scratch, everything())  
 
 # 3.4    add finished genus to other set of data genus ====
 macros_GenFin <- macros_Gen %>%  
@@ -665,7 +687,7 @@ macros_Gen <- macros_Gen %>%
   select(-scratch)  
 
 # data check----  
-# macros is length 258 & macros_Gen + macros_noGen is length 258  
+# macros is length 259 & macros_Gen + macros_noGen is length 259  
 rm(macros_GenFin) 
 
 ```
@@ -677,8 +699,8 @@ rm(macros_GenFin)
 # purpose is to separate rows with two levels of taxonomic classification  
 #   recycling scratch var from above  
 
-# 1.1.  Procladius sp.'96====  
-scratch <- macros_Gen %>% 
+# 1.1.  Procladius sp.'96====   
+scratch <- macros_Gen %>%  
   filter(genus == "Procladius sp.'96") %>% 
   pivot_longer(-c(order, family, genus)) %>%  
   arrange(value) %>%  
@@ -864,7 +886,7 @@ macros_new <- bind_rows(macros_new, scratch)
 macros <- bind_rows(macros_new, macros_noGen)  
 
 # data check----  
-# macros is now length 272 & macros_new + macros_noGen is length 272  
+# macros is now length 273 & macros_new + macros_noGen is length 273  
 # number of sites is unchanged  
 
 rm(macros_Gen,  
@@ -876,7 +898,7 @@ rm(macros_Gen,
 
 ```{r fix_taxa_names-genus}
 
-# looked at data to look for cases where there might be multiple genera
+# looked at data to look for cases where there might be multiple genera  
 
 macros <- macros %>%  
   mutate(genus = case_when(  
@@ -968,7 +990,7 @@ macros <- macros %>%
 
 ```{r fix_taxa_names-order}
 
-# used internet to look up order from families below  
+# used internet to look up order from families below   
 macros <- macros %>%  
   mutate(order = case_when(  
     str_detect(family, "Viviparidae") ~ "Architaenioglossa",   
@@ -1010,7 +1032,7 @@ macros <- macros %>%
 
 macros <- macros %>%  
     mutate(class = case_when(  
-    str_detect(order, "Trombidiformes") ~ "Arachnida",
+    str_detect(order, "Trombidiformes") ~ "Arachnida",  
     str_detect(order, "Sphaeriida") ~ "Bivalvia",  
     str_detect(order, "Unionida") ~ "Bivalvia",  
     str_detect(order, "Venerida") ~ "Bivalvia",  
@@ -1049,24 +1071,25 @@ macros <- macros %>%
 
 ```{r fix_taxa_names-that-were-missed}
 
-# make last taxon fix====  
+# make last taxon fix====   
 macros <- macros %>%  
   mutate(genus = case_when(  
     str_detect(family, "Polymitarcyidae") ~ "Ephoron sp.",  
-    TRUE ~ genus)) 
+    TRUE ~ genus))  
+
 ```
 
 ```{r clean_duplicate_taxa_names}
 
-# 1. clean up duplicated names created by the name cleaning above====   
+# 1. clean up duplicated names created by the name cleaning above====    
 macros_cleaned <- macros %>%  
   pivot_longer(-c(class, order, family, genus)) %>%  
   group_by(class, order, family, genus, name) %>%  
   summarise(value = sum(value, na.rm = TRUE)) %>%  
   ungroup() %>%  
   mutate_if(is_numeric, na_if, 0) %>%  
-  filter(!is.na(value)) %>% 
-  pivot_wider() 
+  filter(!is.na(value)) %>%  
+  pivot_wider()  
 
 # 2. unit tests to check if clean-up is ok====  
 test <- macros_cleaned %>%  
@@ -1079,7 +1102,7 @@ test2 <- macros %>%
 
 # looks ok -- the test and test 2 have identical non-NA observations  
 
-# 3. update data and clean up====
+# 3. update data and clean up====  
 macros <- macros_cleaned  
 
 rm(test,  
@@ -1090,7 +1113,7 @@ rm(test,
 
 ```{r clean_year}
 
-# 1. arrange site names, dates, notes====  
+# 1. arrange site names, dates, notes====   
 # pivot the df longer to fix year variable  
 macros_wide <- macros  
 
@@ -1121,7 +1144,9 @@ yr_look_up <- macros %>%
   mutate(year = case_when(  
     yr_cd == "a" ~ 1993,  
     yr_cd == "b" ~ 1994,  
+    yr_cd == "c" ~ 1995,  
     yr_cd == "d" ~ 1996,  
+    yr_cd == "e" ~ 1997,  
     yr_cd == "p" ~ 2008,  
     yr_cd == "r" ~ 2010,  
     yr_cd == "s" ~ 2011,  
@@ -1185,7 +1210,7 @@ site_hist <- site_list %>%
 
 ```
 
-```{r clean dates-historical}
+```{r clean_dates-historical}
 
 # 1. get historical data to get sampling dates====  
 sample_id_dates_hist <- import("data/sample_id_dates.csv") %>%  
@@ -1258,6 +1283,7 @@ site_hist <- full_join(site_hist, sample_id_dates_hist,
   mutate(site = case_when(  
     site == "WDK4" ~ "WOK4",  
     site == "WTR4" ~ "WHI4",  
+    site == "BCR2" ~ "BEA2",  
     TRUE ~ site)) %>%  
   mutate(site_dups = case_when(  
     site == "WCC1" ~ "NA",  
@@ -1337,34 +1363,65 @@ rm(sample_id_dates_hist)
 
 ```
 
-```{r}
+```{r check_dates-historical}
 
-# 1. get list of post-1999 sites====  
-site_post2 <- site_list %>%  
-  filter(year >= 2000) %>%  
-  rename(id = name) %>%  
-  mutate(notes = case_when(  
-    notes == "_2_separate_count_keep" ~ "_dup",  
-    TRUE ~ notes)) %>%  
+# 1. clean prior_2000 data====  
+#    note -- joined below and cleaned up these data  
+site_hist <- site_hist %>%  
+  mutate(site = case_when(  
+    site == "CHR1"  ~ "CHE1",  
+    site == "CHR2"  ~ "CHE2",  
+    TRUE ~ site)) %>%  
   mutate(id = case_when(  
-    id == "wok2s6_2_separate_count_keep" ~ "wok2s6_dup",  
-    TRUE ~ id)) #%>%  
+    id == "mer1b6" ~ "mer1b7",  
+#    id == "nfl1b6" ~ "nfl1b7",  
+    TRUE ~ id)) %>%  
+  mutate(date = case_when(  
+    id == "lwr2a6" ~ as.Date("1993-06-16"),  
+    id == "wcc2a6" ~ as.Date("1993-06-20"),  
+    id == "wol1a6" ~ as.Date("1993-06-04"),  
+    id == "lon1b7" ~ as.Date("1994-07-25"),  
+    id == "lwr2d7" ~ as.Date("1996-07-18"),  
+    id == "mer1b7" ~ as.Date("1994-07-15"),  
+    id == "wcc2d7" ~ as.Date("1996-07-02"),  
+    id == "wcc2b6" ~ as.Date("1994-06-14"),  
+    id == "wol1b5" ~ as.Date("1994-05-25"),  
+    id == "wol1d7" ~ as.Date("1996-07-16"),  
+    TRUE ~ date)) %>%  
+  mutate(notes = case_when(  
+    id == "lwr2a6" ~ "",  
+    id == "wcc2a6" ~ "split date between two dates",  
+    id == "lon1b7" ~ "",  
+    id == "lwr2d7" ~ "",  
+    id == "nfl1b7" ~ "two samples takes a few days apart",  
+    TRUE ~ notes))   
 
-# 2. get list of dates for post-1999 sites====  
+# 2. prepare list of historical dates & clean data====  
 site_dates <- import("data/macro_dates.csv") %>% 
   clean_names() %>%  
   select(station:day) %>%  
-  rename(site = station) %>% 
+  rename(site = station) %>%  
+  mutate(site = toupper(site)) %>%  
   mutate(scratch = case_when(  
     year == "1993" ~ "a",  
     year == "1994" ~ "b",  
+    year == "1995" ~ "c",  
     year == "1996" ~ "d",  
+    year == "1997" ~ "e",  
     year == "2008" ~ "p",  
     year == "2010" ~ "r",  
     year == "2011" ~ "s",  
     year == "2012" ~ "t",  
     year == "2013" ~ "u",  
     year == "2014" ~ "v")) %>%  
+  mutate(site = case_when(  
+    site == "CHR1"  ~ "CHE1",  
+    site == "PASS1" ~ "PAS1",  
+    site == "PASS2" ~ "PAS2",  
+    site == "PASS3" ~ "PAS3",  
+    site == "WHR1" ~ "WHI1",  
+    site == "WHR2" ~ "WHI2",  
+    TRUE ~ site)) %>%  
   separate(site, c("watsd", "loc"), 3,  
            remove = FALSE) %>%  
   mutate(watsd = tolower(watsd)) %>%  
@@ -1376,22 +1433,267 @@ site_dates <- import("data/macro_dates.csv") %>%
   unite("date", year, month, day) %>%  
   mutate(date = ymd(date)) %>%  
   select(date, site, id, ecoregion, watershed) %>%  
-  filter(id != "NA")  
+  filter(id != "NA") %>%  
+  # fix names  
+  mutate(id = case_when(  
+    date == as.Date("1994-06-27") & id == "nfl1b6" ~ "nfl1b7",  
+    id == "wcc2a6 or 7" ~ "wcc2a6",  
+    TRUE ~ id)) %>%   
+  # fix names  
+  mutate(date = case_when(  
+    id == "wcc2a6" ~ as.Date("1993-06-20"),  
+    id == "buz1d8" ~ as.Date("1996-08-13"),  
+    TRUE ~ date))  
 
-# 3. check hist dates  
+# 3. check prior_2000 data====   
 site_hist_ck <- site_dates %>% 
-  filter(date < as.Date("2000-01-01")) %>%  
-  
-site
-  mutate(site = case_when(  
-    site == "BCR2" ~ "BEL2",  
-    TRUE ~ site 
-    ))
+  filter(date < as.Date("2000-01-01")) 
 
-site_hist_ck2 <- full_join(site_hist, site_hist_ck)
+site_hist_ck1 <- anti_join(site_hist, site_hist_ck,  
+                            by = c("date", "site", "id")) %>%  
+  select(site:id) %>%  
+  mutate(check = case_when(  
+    site =="LDC1" ~ "checked",  
+    id == "lwr4a6" ~ "checked",  
+    id == "wcc1a6" ~ "orig wcc1a67",  
+    id == "whi4a8" ~ "small samp size n = 31",  
+    id == "pas2d8" ~ "checked",  
+    id == "por2d7_dup" ~ "ok",  
+    TRUE ~ ""))  
+
+site_hist_ck2 <- anti_join(site_hist_ck, site_hist,  
+                            by = c("date", "site", "id")) %>%  
+  select(site:id) %>%  
+  mutate(check = case_when(  
+    id == "bel2a6" ~ "small samp size n = 10",  
+    id == "lwr4b7" ~ "small samp size n = 48",  
+    id == "por2d7" ~ "ok - duplicated",  
+    TRUE ~ ""))  
+
+# 4. join data and check====  
+site_hist_fin <- full_join(site_hist, site_hist_ck, 
+                           by = c("date", "site", "id")) %>%  
+#  filter(id !=  "whi4a8") %>%  
+  filter(id !=  "bel2a6") %>%  
+  filter(id !=  "lwr4b7")  
+
+# checked -- looks good  
+site_hist <- site_hist_fin  
+
+# 5. clean up====  
+rm(site_hist_ck,  
+   site_hist_ck1,  
+   site_hist_ck2,  
+   site_hist_fin)  
 
 ```
 
+```{r check_dates-post2000}
+
+# 1. clean post-1999 data====  
+site_post <- site_list %>%  
+  filter(year >= 2000) %>%  
+  rename(id = name) %>%  
+  mutate(site = case_when(  
+    site =="CHR1" ~ "CHE1",  
+    site =="CHR2" ~ "CHE2",  
+    site =="WTR3" ~ "WHI3",  
+    site =="WHR5" ~ "WHI5",  
+    TRUE ~ site)) %>%  
+  mutate(id = case_when(  
+    id == "chr1s6" ~ "che1s6",  
+    id == "chr2s6" ~ "che2s6",  
+    id == "lwr3t" ~ "lwr3t6",  
+    id == "lwr1v6" ~ "lwr1v8",  
+    id == "mer4v6" ~ "mer4v7",  
+    id == "wtr3p6" ~ "whi3p6",  
+    id == "whr5t6" ~ "whi5t6",  
+    id == "whr5u6" ~ "whi5u6",  
+    id == "wok3r7" ~ "wok3r6",  
+    id == "wok4r6_7" ~ "wok4r6",  
+    id == "lwr3r6_dup" ~ "delete",  
+    id == "lwr1s7_dup" ~ "delete",  
+    id == "lwr2t6_dup" ~ "delete",  
+    id == "por3s6_dup" ~ "delete",  
+    id == "wok2s6_2_separate_count_keep" ~ "delete",  
+    TRUE ~ id)) %>%  
+  mutate(notes = case_when(  
+    notes == "_2_separate_count_keep" ~ "_dup",  
+    TRUE ~ notes)) %>%  
+  filter(id != "delete")  
+
+# 2. prepare a check list & clean data====  
+site_post_ck <- site_dates %>% 
+  filter(date > as.Date("2000-01-01")) %>%   
+  mutate(site = case_when(  
+    site =="WHIT" ~ "WHI3",  
+    site =="CHR2" ~ "CHE2",  
+    site =="WHR5" ~ "WHI5",  
+    id == "lwr3r6" & date == as.Date("2010-06-23") ~ "LWR2",  
+    TRUE ~ site)) %>%  
+  mutate(id = case_when(  
+    id == "chr2s6" ~ "che2s6",  
+    id == "lwr2NA6" ~ "lwr2t6",  
+    id == "lwr3r6" & date == as.Date("2010-06-23") ~ "lwr2r6",  
+    id == "whiTp6" ~ "whi3p6",  
+    id == "whr5t6" ~ "whi5t6",  
+    id == "whr5u6" ~ "whi5u6",  
+    id == "wok4r6 or 7" ~ "wok4r6",  
+    TRUE ~ id)) %>%  
+  distinct()  
+
+# 3. add missing dates to data====
+site_dates_extra <- read_csv("data/macro_dates_xtra.csv") %>%  
+  clean_names() %>%  
+  select(date:watershed) %>%  
+  drop_na() %>%  
+  mutate(date = ymd(date))  
+
+site_post_ck <- bind_rows(site_post_ck, site_dates_extra)
+
+# 3. check data & join====  
+site_post_ck1 <- anti_join(site_post, site_post_ck,  
+                            by = c("site", "id")) %>%  
+  select(site:id)  
+
+site_post_ck2 <- anti_join(site_post_ck, site_post, 
+                            by = c("site", "id")) %>%  
+  select(site:id)  
+
+site_post_fin <- full_join(site_post, site_post_ck, 
+                           by = c("site", "id")) %>%  
+  select(date, site, id, notes, ecoregion, watershed)  
+
+# checked -- looks good  -- WHI4 - whi4a8 count - n = 31 
+site_post <- site_post_fin  
+
+# 5. clean up====  
+rm(site_post_ck,  
+   site_post_ck1,  
+   site_post_ck2,  
+   site_post_fin)  
+
+```
+
+```{r join_dates_validate_names}
+
+# 1. bind partially cleaned data and munge a bit more====  
+site_list1 <- bind_rows(site_hist, site_post) %>%   
+  mutate(site = case_when(  
+    site == "WHR5" ~ "WHI5",  
+     TRUE ~ site)) %>%  
+  mutate(notes = case_when(  
+    notes == "" ~ "NA",  
+    notes == "_7" ~ "NA",  
+    TRUE ~ notes)) %>%  
+  mutate(site = case_when(  
+    site == "LDC1" ~ "LOD1",  
+     TRUE ~ site)) %>%  
+  mutate(id = case_when(  
+    id == "blp1t" ~ "blp1t6",  
+    id == "ldc1a6" ~ "lod1a6",  
+    id == "lwr2t6" & date == as.Date("2012-06-23") ~ "delete",  
+    id == "por2d7_dup" ~ "delete",  
+    id == "wok2s6" & date == as.Date("2011-06-14") ~ "delete",  
+    id == "por2d7" & date == as.Date("1996-07-30") ~ "por2d8",  
+     TRUE ~ id)) %>%  
+  filter(id != "delete") %>%  
+  mutate(watershed = case_when(  
+    site == "LWR4" ~ "LWR",  
+    site == "LOD1" ~ "MER",  
+    site == "PAS2" ~ "PAS",  
+    site == "POR2" ~ "WOK",  
+    site == "WCC1" ~ "upper WHR",  
+    watershed == "WHR/WOK" ~ "WOK",  
+     TRUE ~ watershed)) %>%  
+  mutate(ecoregion = case_when(  
+    site == "LOD1" ~ "Great Plains",  
+    site == "PAS2" ~ "Great Plains",  
+    site == "POR2" ~ "Great Plains",  
+    site == "WCC1" ~ "Great Plains",  
+    site == "LWR4" ~ "Sandhills",  
+     TRUE ~ ecoregion)) %>%  
+  mutate(notes = na_if(notes, "NA"))  
+
+# 2. create a checklist & munge a bit====    
+site_list2 <- site_list %>%  
+  rename(id = name) %>%  
+  mutate(site = case_when(  
+    site == "BCR2" ~ "BEA2",  
+    site == "CHR1" ~ "CHE1",  
+    site == "CHR2" ~ "CHE2",  
+    site == "LDC1" ~ "LOD1",  
+    site == "WDK4" ~ "WOK4",
+    site == "WTR3" ~ "WHI3",  
+    site == "WTR4" ~ "WHI4",  
+    site == "WHR5" ~ "WHI5",  
+    TRUE ~ site)) %>%  
+  mutate(id = case_when(  
+    id == "bea2d6" ~ "bea2d7",  
+    id == "bcr2b6" ~ "bea2b6",  
+    id == "bcr2d7" ~ "bea2d7",  
+    id == "blp1t"  ~ "blp1t6",  
+    id == "chr1b7" ~ "che1b7",  
+    id == "chr1d8" ~ "che1d8",  
+    id == "chr1s6" ~ "che1s6",  
+    id == "chr2s6" ~ "che2s6",  
+    id == "ean2d7" ~ "ean2d8",  
+    id == "ldc1a6" ~ "lod1a6",  
+    id == "ldc1d7" ~ "lod1d7",  
+    id == "lwr1v6" ~ "lwr1v8",  
+    id == "lwr3t" ~ "lwr3t6",  
+    id == "mer1b6" ~ "mer1b7",  
+    id == "mer4v6" ~ "mer4v7",  
+    id == "por2d7_dup" ~ "por2d8",  
+    id == "wcc1a67" ~ "wcc1a6",  
+    id == "wcc2a6_7" ~ "wcc2a6",  
+    id == "wok3r7" ~ "wok3r6",  
+    id == "wdk4a6" ~ "wok4a6",  
+    id == "wdk4b5" ~ "wok4b5",  
+    id == "wdk4d7" ~ "wok4d7",      
+    id == "wtr4a8" ~ "whi4a8",  
+    id == "wtr3p6" ~ "whi3p6",  
+    id == "wtr3p6" ~ "whi3p6",  
+    id == "whr5t6" ~ "whi5t6",  
+    id == "whr5u6" ~ "whi5u6",  
+    id == "wok4r6_7" ~ "wok4r6",  
+    id == "lwr1s7_dup" ~ "delete",  
+    id == "lwr2t6_dup" ~ "delete",  
+    id == "lwr3r6_dup" ~ "delete",  
+    id == "por3s6_dup" ~ "delete",  
+    id == "wok2s6_2_separate_count_keep" ~ "delete",  
+    TRUE ~ id)) %>%  
+  filter(id != "delete")  
+
+# 3. check for differences between datasets--should equal zero====  
+site_list_ck1 <- anti_join(site_list1, site_list2, 
+                            by = c("site", "id"))  
+site_list_ck2 <- anti_join(site_list2, site_list1, 
+                           by = c("site", "id"))  
+
+# 4. join the two datasets & check notes -- shouldnt have anything useful====  
+site_list_fin <- full_join(site_list1, site_list2, 
+                           by = c("site", "id")) %>%  
+  select(date, site, id, watershed, ecoregion, notes.x, notes.y)  
+
+# 5. make final list & clean up====  
+site_list_fin <- site_list_fin %>%  
+  select(date:ecoregion)  
+
+rm(site_dates,  
+   site_dates_extra,  
+   site_hist,  
+   site_list,  
+   site_list_check,  
+   site_list_ck1,  
+   site_list_ck2,  
+   site_list1,  
+   site_list2,  
+   site_post,  
+   clean_fun,  
+   count_fun)  
+
+```
 
 
 
@@ -1628,7 +1930,6 @@ rm(AMH1_prior,
    WOK4_prior)  
 
 ```
-
 
 ```{r things}
 
@@ -1995,7 +2296,6 @@ macros2 <- macros %>%
 
 ```
 
-
 ```{r}
 
 
@@ -2108,93 +2408,6 @@ sample_id <- macros %>%
   rename(id = value) %>%  
   separate(id, into = c("site", "period"), sep = 4) %>% 
   separate(period, into = c("yr", "mon"), sep = 1)  
-```
-
-
-
-
-```{r}
-
-macros <- Reduce(function(...) merge(...,  
-                                     by = c("order", "family_notes"),  
-                                     all.x=TRUE),  
-                 list(AMH1_2014,  
-                      BEA1_2013,  
-                      BEA2_2013,  
-                      BEA3_2013,  
-                      BEL1_2013,  
-                      BEL2_2013,   
-                      BLP1_2013,  
-                      BUZ1_2013,  
-                      CHE1_2011,  
-                      CHE2_2011,  
-                      COR1_2013,  
-                      CRA1_2013,  
-                      EAN1_2013,  
-                      EAN2_2013,  
-                      LOD1_prior,  
-                      LON1_2013,  
-                      LWR1_2014,  
-                      LWR2_2014,  
-                      LWR3_2014,  
-                      LWR4_2012,  
-                      MER1_2014,  
-                      MER3_2014,  
-                      MER4_2014,   
-                      NFL1_2014,  
-                      PAS1_2013,   
-                      PAS2_2013,   
-                      PAS3_2013,   
-                      POR1_2010,   
-                      POR2_2014,  
-                      POR3_2014,  
-                      POT1_2013,  
-                      RED1_2014,  
-                      WCC1_2012,  
-                      WCC2_2012,  
-                      WCC3_2012,  
-                      WHI1_2011,  
-                      WHI2_2011,  
-                      WHI3_2008,  
-                      WHI4_prior,  
-                      WHI5_2013,  
-                      WOL1_2011,  
-                      WOK1_2012,  
-                      WOK2_2014,  
-                      WOK3_2012,  
-                      WOK4_2014))  %>%  
-  distinct()  
-
-
-```
-
-
-
-```
-
-
-
-```{r} 
-AMH1 <- full_join(AMH1_2014, AMH1_prior) 
-
-AMH1_ck1 <- anti_join(AMH1, AMH1_prior)  
-
-
-AMH1_ck2 <- anti_join(AMH1, AMH1_2014) 
-AMH1_ck <- bind_rows(AMH1_ck1, AMH1_ck2)
-AMH1_test <- anti_join(AMH1, AMH1_ck)
-
-```
-
-```{r}
-
-
-
-```
-
-
-#export(sample_id, "data/sample_id2.csv")  
-
 ```
 
 ```{r organize samples}  
@@ -2329,7 +2542,6 @@ sample_id <- macros %>%
 export(sample_id, "data/sample_id2.csv")  
 
 ```
-
 
 ```{r drop-maybe}
 
