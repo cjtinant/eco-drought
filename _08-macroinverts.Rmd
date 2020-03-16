@@ -23,19 +23,19 @@ library("conflicted")        # An alternative conflict resolution strategy
 library("here")              # identifies where to save work  
 library("rio")           # more robust I/O - to import and clean data  
 library("lubridate")     # easier dates   
-library("broom")         # tidies linear models   
-library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot  
-library("scales")        # graphical scales map data to aesthetics,  
-                         #   & methods for determining breaks and labels  
+#library("broom")         # tidies linear models   
+#library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot  
+#library("scales")        # graphical scales map data to aesthetics,  
+#                         #   & methods for determining breaks and labels 
                          #   for axes and legends   
-library("mclust")        # model-based clustering & density estimation  
-library("flextable")     # functions for tabular reporting  
-library("officer")       # facilitates '.docx' access for table export  
-library("patchwork")     # the 'composer of plots'  
-library("EflowStats")    # reimplementation of the Hydrologic Index Tool  
-library("factoextra")    # quickly visualize Mclust plots  
-library("SCI")           # calculates SPI & SSI   
-library("janitor")
+#library("mclust")        # model-based clustering & density estimation  
+#library("flextable")     # functions for tabular reporting  
+#library("officer")       # facilitates '.docx' access for table export  
+#library("patchwork")     # the 'composer of plots'  
+#library("EflowStats")    # reimplementation of the Hydrologic Index Tool  
+#library("factoextra")    # quickly visualize Mclust plots  
+#library("SCI")           # calculates SPI & SSI   
+library("janitor")  
 library("tidyverse")  
   
 # resolve conflicted packages====   
@@ -142,7 +142,6 @@ count_fun <- function(df) {
   summarise(count = n(),  
             sum = sum(value, na.rm = TRUE))  
 }  
-
 
 ```
 
@@ -324,7 +323,6 @@ scratch <- full_join(AMH1_2014,
   full_join(., PAS1_2013, by = c("order", "family", "notes")) %>%  
   full_join(., PAS2_2013, by = c("order", "family", "notes")) %>%  
   full_join(., PAS3_2013, by = c("order", "family", "notes")) %>%  
-#  full_join(., POR1_prior, by = c("order", "family", "notes")) %>%   
   full_join(., POR1_2012, by = c("order", "family", "notes")) %>%   
   full_join(., POR2_2014, by = c("order", "family", "notes")) %>%  
   full_join(., POR3_2014, by = c("order", "family", "notes")) %>%  
@@ -430,7 +428,8 @@ rm(check_amh1p,
    check_wcc3d,  
    check_wdk4b,  
    check_wok3a,   
-   check_wtr4a)   
+   check_wtr4a,  
+   clean_fun)   
 
 ```
 
@@ -514,7 +513,8 @@ rm(check_lwr1s,
    check_por3s,  
    check_wcc2a,  
    check_wok2s,  
-   check_wok4r)  
+   check_wok4r, 
+   count_fun)  
 
 ```
 
@@ -898,7 +898,7 @@ rm(macros_Gen,
 
 ```{r fix_taxa_names-genus}
 
-# looked at data to look for cases where there might be multiple genera  
+# looked at data to look for cases where there might be multiple genera   
 
 macros <- macros %>%  
   mutate(genus = case_when(  
@@ -1069,45 +1069,743 @@ macros <- macros %>%
 
 ```
 
-```{r fix_taxa_names-that-were-missed}
+```{r fix_missed_taxa_names}
 
 # make last taxon fix====   
 macros <- macros %>%  
   mutate(genus = case_when(  
     str_detect(family, "Polymitarcyidae") ~ "Ephoron sp.",  
-    TRUE ~ genus))  
+    TRUE ~ genus)) %>%  
+  # rename misnamed samples   
+  rename(bea2b6 = bcr2b6) %>%  
+  rename(bea2d7 = bcr2d7) %>%  
+  rename(wok4a6 = wdk4a6) %>%  
+  rename(wok4b5 = wdk4b5) %>%  
+  rename(wok4d7 = wdk4d7) %>%  
+  rename(whi5t6 = whr5t6) %>%  
+  rename(whi5u6 = whr5u6) %>%  
+  rename(whi3p6 = wtr3p6) %>%  
+  rename(whi4a8 = wtr4a8)   
 
 ```
 
-```{r clean_duplicate_taxa_names}
+```{r data_check-manual}
 
-# 1. clean up duplicated names created by the name cleaning above====    
-macros_cleaned <- macros %>%  
-  pivot_longer(-c(class, order, family, genus)) %>%  
-  group_by(class, order, family, genus, name) %>%  
-  summarise(value = sum(value, na.rm = TRUE)) %>%  
-  ungroup() %>%  
-  mutate_if(is_numeric, na_if, 0) %>%  
-  filter(!is.na(value)) %>%  
-  pivot_wider()  
+# 1. get sample names====  
+samples <- macros %>%  
+  pivot_longer(-c(class, order, family, genus),  
+               names_to = "samples",   
+               values_to = "count") %>%   
+  select(samples) %>%  
+  distinct()  %>%  
+  arrange(samples)  
 
-# 2. unit tests to check if clean-up is ok====  
-test <- macros_cleaned %>%  
-  select(class:genus, mer1d8, bea1d7) %>%  
-  arrange(mer1d8, bea1d7)  
+# 2. create macros_check====  
+# note this is a manual approach to checking data  
+macro_ck <- macros %>%  
+  select(class:genus, starts_with("wol")) %>%  
+  distinct() %>%  
+   mutate(total = select(., wol1a6:wol1s6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0)  
 
-test2 <- macros %>%  
-  select(class:genus, mer1d8, bea1d7) %>%  
-  arrange(mer1d8, bea1d7)  
+count_ck <- macros_ck %>%  
+  select(-total) %>%  
+  summarise_if(is.numeric, sum, na.rm = TRUE) %>%  
+  mutate(scratch = "scratch") %>%  
+  pivot_longer(-scratch, names_to = "station", values_to = "count") %>%  
+  select(-scratch) %>%  
+  arrange(station)  
 
-# looks ok -- the test and test 2 have identical non-NA observations  
+# manual check of data vs spreadsheets used to produce the data====  
+# sample  data/validated count  
+# amh1a7  122    
+# amh1b6   97     
+# amh1d7   98      
+# amh1p6   58     
+# amh1v6  107     
+# bea1a6  120     
+# bea1b6  108     
+# bea1d7  100     
+# bea1t6  372    
+# bea1u6  871     
+# bea2b6  105    
+# bea2d7  100     
+# bea2t6  137     
+# bea2u6   58      
+# bea3a6   77     
+# bea3d8  100    
+# bea3t6  132    
+# bea3u6   97     
+# bel1a6	120  
+# bel1b6	 90  
+# bel1d8	100  
+# bel1t6	156  
+# bel1u6	 87  
+# bel2b6	 92  
+# bel2d8	 97  
+# bel2t6	141  
+# bel2u6	 85  
+# blp1a7	149  
+# blp1b7	102  
+#	blp1d8	100  
+#	blp1r6	113  
+#	blp1t	  159  
+#	blp1u6	103  
+# buz1a7	168  
+#	buz1d8	100  
+#	buz1r6	144  
+#	buz1u6	 98  
+# chr1b7	 99  
+#	chr1d8	 93  
+#	chr1s6	104  
+#	chr2s6	104  
+# cor1b7	 93  
+#	cor1d7	 93  
+#	cor1u6	 92  
+# cra1a6	148  error n=160  
+#	cra1b6	 96  
+#	cra1d8	 95  
+#	cra1t6	177  
+#	cra1u6	127  
+# ean1b7	112  
+#	ean1d8	104  
+#	ean1t6	270 error n=265  
+#	ean1u6	137 error n=121  
+#	ean2d7	 98  
+# ean2u6	 95  
+# ldc1a6	111 check historical  
+#	ldc1d7	 92 check historical  
+# lon1b7	110  
+#	lon1u6	207 error n=213  
+# lwr1a6	206  
+#	lwr1b5	 95   
+#	lwr1d8	101  
+#	lwr1r6	167  
+#	lwr1s7	100  
+#	lwr1s7_dup   find this one
+#	lwr1t6	117  
+#	lwr1v6	 85  
+#	lwr2a6	 65  
+#	lwr2d7	110  
+#	lwr2r6	 97  error missing!  
+#	lwr2s7	181  
+#	lwr2t6	128  
+#	lwr2t6_dup	125  
+#	lwr2v6	 94  
+#	lwr3a6	168  
+#	lwr3d7	103  
+#	lwr3r6	113  
+#	lwr3r6_dup	106  
+#	lwr3s8	121  
+#	lwr3t	   91  
+#	lwr3v6	113  
+#	lwr4a6	 48  
+#	lwr4d7	100  
+#	lwr4s8	165  
+#	lwr4t6	220  
 
-# 3. update data and clean up====  
-macros <- macros_cleaned  
+# mer1a7	189  
+#	mer1b6	 95  
+#	mer1d8	 71 error n=102  
+#	mer1p6	134  
+#	mer1t8	397  
+#	mer1v6	124  
+#	mer3a7	 83  
+#	mer3d7	 76  
+#	mer3p6	 83  
+#	mer3t8	 92  
+#	mer3u6	134  
+#	mer3v6	207  
+#	mer4p6	 76  
+#	mer4t8	182  
+#	mer4u6	129  
+#	mer4v6	177  
+# nfl1a7	152  
+#	nfl1b6	 98  
+#	nfl1b7	 84  
+#	nfl1d8	 78  
+#	nfl1p6	139  
+#	nfl1v6	204  
+# pas1a7	132  
+#	pas1d8	100  
+#	pas1r6	118  
+#	pas1t6	154  
+#	pas1u6	196  
+#	pas2a6	138  
+#	pas2b7	117  
+#	pas2d8	 99  
+#	pas2r6	115 # error n=116  
+#	pas2t6	183  
+#	pas2u6	114  
+#	pas3a8	158  
+#	pas3b7	107  
+# pas3d8	103  
+#	pas3r6	 73   
+#	pas3t6	107  
+#	pas3u6	 98  
+# por1a6	110  
+#	por1b7	61  error n=67  
+#	por1c8	54  
+#	por1e7	107  
+#	por1r6	87  error n=90  
+#	por1s6	111  
+#	por1t6	96  error n=104  
+#	por2a6	70  
+#	por2b6	92  
+#	por2d7	100  
+#	por2d7_dup	99  
+#	por2r6	107  
+#	por2s6	124  
+#	por2t6	101  
+#	por2u6	302  
+#	por2v6	116  
+#	por3a7	127  
+#	por3b5	110  
+#	por3r6	115  
+#	por3s6	104  
+#	por3s6_dup	98  
+#	por3t6	146  
+#	por3u6	184  
+#	por3v6	129  
+# pot1a7	102 error n=103   
+#	pot1b6	 98  
+#	pot1d7	 97  
+#	pot1u6	159  
+# red1a7	223  
+#	red1b8	 46  
+#	red1d7	100  
+#	red1p6	107  
+#	red1v6	109  
+#	wcc1a67	89  
+#	wcc1d7	91  
+#	wcc1s6	80  
+#	wcc1t6	92  
+#	wcc2a6_7	19  
+#	wcc2b6	91  
+#	wcc2d7	90  
+#	wcc2s6	85  
+#	wcc2t6	451  
+#	wcc3d7	32  
+#	wcc3s6	94  
+#	wcc3t6	99  
+# whi1a7	109 # error n=146  
+#	whi1b6	118  
+#	whi1d7	100  
+#	whi1s6	122  
+#	whi2a7	74  
+#	whi2b5	108  
+#	whi2s6	145  
+#	whi3p6	96  
+#	whi4a8	35 check historical  
+#	whi5t6	91  
+#	whi5u6	105  
+# wok1a6	139  
+#	wok1b5	115  
+#	wok1r6	319  
+#	wok1s6	113  
+#	wok1t6	102  
+#	wok2a7	121  
+#	wok2b6	 96  
+#	wok2r6	114  
+#	wok2s6	154  
+#	wok2s6_2_separate_count_keep	95  
+#	wok2t6	173  
+#	wok2u6	645  
+#	wok2v6	178  
+#	wok3a6	 31  
+#	wok3b7	 94  
+#	wok3r7	 95  
+#	wok3s6	166  
+#	wok3t6	136  
+#	wok4a6	 92  
+#	wok4b5	 23  
+#	wok4d7	 99  
+#	wok4r6_7	102  
+#	wok4s6	 77  
+#	wok4t6	132  
+#	wok4u6	 94  
+#	wok4v6	 90  
+# wol1a6	147
+#	wol1b5	92
+#	wol1d7	95
+#	wol1s6	198
 
-rm(test,  
-   test2,  
-   macros_cleaned)  
+```
+
+```{r split_by_stream}
+
+# need to get the right count -- split by stream   
+
+# 1. american_horse split====  
+amh <- macros %>%  
+  select(class:genus, starts_with("amh")) %>%  
+   mutate(total = select(., amh1a7:amh1v6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 2. bear creek split====  
+bea <- macros %>%  
+  select(class:genus, starts_with("bea")) %>%  
+   mutate(total = select(., bea1a6:bea3u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 3. bear in the lodge split====  
+bel <- macros %>%  
+  select(class:genus, starts_with("bel")) %>%  
+   mutate(total = select(., bel1a6:bel2u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 4. black pipe split====  
+blp <- macros %>%  
+  select(class:genus, starts_with("blp")) %>%  
+   mutate(total = select(., blp1a7:blp1u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 5. bear in the lodge split====  
+buz <- macros %>%  
+  select(class:genus, starts_with("buz")) %>%  
+   mutate(total = select(., buz1a7:buz1u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 6. cheyenne river split====  
+chr <- macros %>%  
+  select(class:genus, starts_with("chr")) %>%  
+   mutate(total = select(., chr1b7:chr2s6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 7. buzzard creek split====  
+buz <- macros %>%  
+  select(class:genus, starts_with("buz")) %>%  
+   mutate(total = select(., buz1a7:buz1u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 8. cheyenne river split====  
+chr <- macros %>%  
+  select(class:genus, starts_with("chr")) %>%  
+   mutate(total = select(., chr1b7:chr2s6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 9. corn creek split====  
+cor <- macros %>%  
+  select(class:genus, starts_with("cor")) %>%  
+   mutate(total = select(., cor1b7:cor1u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 10. craven creek split====  
+cra <- macros %>%  
+  select(class:genus, starts_with("cra")) %>%  
+   mutate(total = select(., cra1a6:cra1u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 11. eagle nest creek split====  
+ean <- macros %>%  
+  select(class:genus, starts_with("ean")) %>%  
+   mutate(total = select(., ean1b7:ean2u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 12. lost dog creek split====  
+ldc <- macros %>%  
+  select(class:genus, starts_with("ldc")) %>%  
+   mutate(total = select(., ldc1a6:ldc1d7) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 13. long creek split====  
+lon <- macros %>%  
+  select(class:genus, starts_with("lon")) %>%  
+   mutate(total = select(., lon1b7:lon1u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 14. little white river split====  
+lwr <- macros %>%  
+  select(class:genus, starts_with("lwr")) %>%  
+   mutate(total = select(., lwr1a6:lwr4t6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 15. medicine root split====  
+mer <- macros %>%  
+  select(class:genus, starts_with("mer")) %>%  
+   mutate(total = select(., mer1a7:mer4v6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 16. no flesh split====  
+nfl <- macros %>%  
+  select(class:genus, starts_with("nfl")) %>%  
+   mutate(total = select(., nfl1a7:nfl1v6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 17. pass creek split====  
+pas <- macros %>%  
+  select(class:genus, starts_with("pas")) %>%  
+   mutate(total = select(., pas1a7:pas3u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 18. porcupine creek split====  
+por <- macros %>%  
+  select(class:genus, starts_with("por")) %>%  
+   mutate(total = select(., por1a6:por3v6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 19. potato creek split====  
+pot <- macros %>%  
+  select(class:genus, starts_with("pot")) %>%  
+   mutate(total = select(., pot1a7:pot1u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 20. redwater split====  
+red <- macros %>%  
+  select(class:genus, starts_with("red")) %>%  
+   mutate(total = select(., red1a7:red1v6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 21. white clay creek split====  
+wcc <- macros %>%  
+  select(class:genus, starts_with("wcc")) %>%  
+   mutate(total = select(., wcc1a67:wcc3t6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 22. redwater split====  
+whi <- macros %>%  
+  select(class:genus, starts_with("whi")) %>%  
+   mutate(total = select(., whi1a7:whi5u6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 23. wounded knee creek split====  
+wok <- macros %>%  
+  select(class:genus, starts_with("wok")) %>%  
+   mutate(total = select(., wok1a6:wok4v6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+# 24. wolf creek split====  
+wol <- macros %>%  
+  select(class:genus, starts_with("wol")) %>%  
+   mutate(total = select(., wol1a6:wol1s6) %>%  
+            rowSums(na.rm = TRUE)) %>%  
+  filter(total != 0) %>%  
+  select(-total) %>%  
+  group_by(class, order, family, genus) %>%  
+  summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
+  ungroup()  
+
+```
+
+```{r join_splits1}
+
+# need to join splits sequentially -- otherwise duplicates  
+join1 <- full_join(amh, bea,  
+                  by = c("class", "order", "family", "genus"))  
+
+join2 <- full_join(bel, blp,  
+                  by = c("class", "order", "family", "genus"))  
+
+join3 <- full_join(buz, chr,  
+                  by = c("class", "order", "family", "genus"))  
+
+join4 <- full_join(cor, cra,  
+                  by = c("class", "order", "family", "genus"))  
+
+join5 <- full_join(ean, ldc,  
+                  by = c("class", "order", "family", "genus"))  
+
+join6 <- full_join(lon, lwr,  
+                  by = c("class", "order", "family", "genus"))  
+
+join7 <- full_join(mer, nfl,  
+                  by = c("class", "order", "family", "genus"))  
+
+join8 <- full_join(pas, por,  
+                  by = c("class", "order", "family", "genus"))  
+
+join9 <- full_join(pot, red,  
+                  by = c("class", "order", "family", "genus"))  
+
+join10 <- full_join(wcc, whi, 
+                  by = c("class", "order", "family", "genus"))  
+
+join11 <- full_join(wok, wol,  
+                  by = c("class", "order", "family", "genus"))  
+
+# clean up global environment====  
+rm(amh,  
+   bea,  
+   bel,  
+   blp,  
+   buz,  
+   chr,  
+   cor,  
+   cra,  
+   ean,  
+   ldc,  
+   lon,  
+   lwr,  
+   mer,  
+   nfl,  
+   pas,  
+   por,  
+   pot,  
+   red,  
+   wcc,  
+   whi,  
+   wok,  
+   wol)  
+
+```
+
+```{r join_splits2}
+
+# contininue to join splits sequentially   
+join12 <- full_join(join1, join2,  
+                    by = c("class", "order", "family", "genus"))  
+
+join13 <- full_join(join3, join4,  
+                    by = c("class", "order", "family", "genus"))   
+
+join14 <- full_join(join5, join6,  
+                    by = c("class", "order", "family", "genus"))  
+
+join15 <- full_join(join7, join8,  
+                    by = c("class", "order", "family", "genus"))   
+
+join16 <- full_join(join9, join10,  
+                    by = c("class", "order", "family", "genus"))  
+
+rm(join1,  
+   join2,  
+   join3,  
+   join4,  
+   join5,  
+   join6,  
+   join7,  
+   join8,  
+   join9,  
+   join10)  
+
+```
+
+```{r join_splits3}
+
+# continue to join splits sequentially  
+join17 <- full_join(join11, join12,  
+                    by = c("class", "order", "family", "genus"))  
+
+join18 <- full_join(join13, join14,  
+                    by = c("class", "order", "family", "genus"))   
+
+join19 <- full_join(join15, join16,  
+                    by = c("class", "order", "family", "genus"))  
+
+rm(join11,  
+   join12,  
+   join13,  
+   join14,  
+   join15,  
+   join16)  
+
+```
+
+```{r join_splits4}
+
+# 1. final sequential joins====  
+join20 <- full_join(join17, join18,  
+                    by = c("class", "order", "family", "genus"))  
+
+macro_ck <- full_join(join19, join20,  
+                    by = c("class", "order", "family", "genus"))  
+
+# 2. check results====  
+count_ck <- macro_ck %>%  
+  summarise_if(is.numeric, sum, na.rm = TRUE) %>%  
+  mutate(scratch = "scratch") %>%  
+  pivot_longer(-scratch, names_to = "station", values_to = "count") %>%  
+  select(-scratch) %>%  
+  arrange(station)  
+
+# results -- looks ok  
+
+macros <- macro_ck  
+
+# clean up results====  
+rm(join17,  
+   join18,  
+   join19,  
+   join20)  
+
+```
+
+```{r fix_counts}
+
+# 1. import count data from original Excel spreadsheets====  
+macro_ck <- import("data/macro_count.csv") %>%  
+  mutate(sample_id = str_remove_all(sample_id, "\\#")) %>%  
+  mutate(sample_id = str_trim(sample_id))  
+
+count_ck <- full_join(macro_ck, count_ck,  
+                       by = c("sample_id" = "station")) %>%  
+  rename(count_orig = count.x) %>%  
+  rename(count_cleaned = count.y) %>%  
+  mutate(diff = count_cleaned - count_orig)  %>%  
+  filter(diff != 0)  
+
+# count_ck results  
+# sample_id  count_orig  count_cleaned  diff  checked  
+#	 pas2r6	      115	      111.5	        -3.5  
+#	 por1a6	      110	      108.5	        -1.5  
+
+# 2. check errors against Excel spreadsheets  
+macro_ck <- macros %>%  
+  select(class:genus,  
+         pas2r6,  
+         por1a6) %>%  
+  arrange(pas2r6,  
+          por1a6)  
+
+# 3. update macros as test data  
+macro_ck <- macros %>%  
+  # arrange by station ids 
+  select(class:genus,  
+         amh1a7:lwr4t6,  
+         mer1a7, mer1b6,  
+         mer1d8,  
+         mer1p6: wol1s6) %>%  
+  # fix errors in data   
+  mutate(pas2r6 = case_when(  
+    family == "Baetidae" ~ 7,  
+    TRUE ~ pas2r6)) %>%  
+  mutate(por1a6 = case_when(  
+    family == "Glossiphoniidae" ~ 3,  
+    TRUE ~ por1a6)) %>%  
+  # remove NaN & decimals  
+  mutate_if(is.numeric, as.integer)  
+
+# 4. save final results & clean up  
+macros <- macro_ck  
+
+rm(check_vars,  
+   count_ck,  
+   macro_ck,  
+   samples)  
+
+```
+
+```{r data_check-duplicates}
+
+# test for duplicates  
+dups_ck <- macros %>%  
+  distinct()  
 
 ```
 
@@ -1684,18 +2382,129 @@ rm(site_dates,
    site_dates_extra,  
    site_hist,  
    site_list,  
-   site_list_check,  
+#   site_list_check,  
    site_list_ck1,  
    site_list_ck2,  
    site_list1,  
    site_list2,  
-   site_post,  
-   clean_fun,  
-   count_fun)  
+   site_post)  
 
 ```
 
+```{r join_dates-macros}
 
+# 1. prepare for join -- create a bridge df====  
+site_id <- macros_wide %>%  
+  select(-c(class:genus)) %>%  
+  names() %>%  
+  enframe() %>%  
+  select(-name) %>%  
+# variable names are to reuse code above  
+  rename(id = value) %>%  
+  mutate(id_new = case_when(  
+    id == "bea2d6" ~ "bea2d7",  
+    id == "bcr2b6" ~ "bea2b6",  
+    id == "bcr2d7" ~ "bea2d7",  
+    id == "blp1t"  ~ "blp1t6",  
+    id == "chr1b7" ~ "che1b7",  
+    id == "chr1d8" ~ "che1d8",  
+    id == "chr1s6" ~ "che1s6",  
+    id == "chr2s6" ~ "che2s6",  
+    id == "ean2d7" ~ "ean2d8",  
+    id == "ldc1a6" ~ "lod1a6",  
+    id == "ldc1d7" ~ "lod1d7",  
+    id == "lwr1v6" ~ "lwr1v8",  
+    id == "lwr3t" ~ "lwr3t6",  
+    id == "mer1b6" ~ "mer1b7",  
+    id == "mer4v6" ~ "mer4v7",  
+    id == "por2d7_dup" ~ "por2d8",  
+    id == "wcc1a67" ~ "wcc1a6",  
+    id == "wcc2a6_7" ~ "wcc2a6",  
+    id == "wok3r7" ~ "wok3r6",  
+    id == "wdk4a6" ~ "wok4a6",  
+    id == "wdk4b5" ~ "wok4b5",  
+    id == "wdk4d7" ~ "wok4d7",      
+    id == "wtr4a8" ~ "whi4a8",  
+    id == "wtr3p6" ~ "whi3p6",  
+    id == "wtr3p6" ~ "whi3p6",  
+    id == "whr5t6" ~ "whi5t6",  
+    id == "whr5u6" ~ "whi5u6",  
+    id == "wok4r6_7" ~ "wok4r6",  
+    id == "lwr1s7_dup" ~ "delete",  
+    id == "lwr2t6_dup" ~ "delete",  
+    id == "lwr3r6_dup" ~ "delete",  
+    id == "por3s6_dup" ~ "delete",  
+    id == "wok2s6_2_separate_count_keep" ~ "delete",  
+    TRUE ~ id)) %>%  
+  filter(id_new != "delete") %>%  
+  mutate(check = id_new == id) %>%  
+  # var names are to join site_list_fin to macros  
+  rename(name = id) %>%  
+  rename(id = id_new)  
+
+# 2. add bridge to site list====  
+site_id <- full_join(site_id, site_list_fin,  
+                     by = "id") %>%  
+  select(-check)  
+
+# 3. prepare to join date and macros data====  
+macros_fin <- macros %>%  
+  mutate(site = case_when(  
+    site == "BCR2" ~ "BEA2",  
+    site == "CHR1" ~ "CHE1",  
+    site == "CHR2" ~ "CHE2",  
+    site == "LDC1" ~ "LOD1",  
+    site == "WDK4" ~ "WOK4",  
+    site == "WTR3" ~ "WHI3",  
+    site == "WTR4" ~ "WHI4",  
+    site == "WHR5" ~ "WHI5",  
+    TRUE ~ site))  
+
+# 4. join data and macros data===
+macros_fin <- full_join(macros_fin, site_id,  
+                        by = c("site", "name")) %>%  
+  select(site, id, date, class:genus, count, watershed, ecoregion)  
+
+# looks good: macros N = 32,130 & macros_fin N = 32,130  
+
+# 5. check data -- remove duplicated samples====  
+macros_ck <- macros_fin %>%  
+  select(site, id) %>%  
+  distinct()  
+
+macros_ck <- macros_fin %>%  
+  filter(is.na(id)) %>%  
+  filter(!is.na(count)) %>%  
+  arrange(site) %>%  
+  mutate(note = case_when(  
+    site == "LWR1" ~ "duplicate sample from 2011-07-01",  
+    site == "LWR2" ~ "duplicate sample from 2012-06-18",  
+    site == "LWR3" ~ "duplicate sample from 2010-06-24",  
+    site == "POR3" ~ "duplicate sample from 2011-06-13",  
+    site == "WOK2" ~ "near duplicate sample 2011-06-17"))  
+
+macros_ck2 <- macros_fin %>%  
+  filter(is.na(id)) %>%  
+  filter(is.na(count)) 
+  
+macros_fin <- macros_fin %>%  
+  filter(!is.na(id))  
+
+# clean up global environment  
+rm(dups_ck,  
+   macros,  
+   macros_ck,  
+   macros_ck2,  
+   macros_wide,  
+   site_id)  
+
+```
+
+```{r export_cleaned_data}
+export(site_list_fin, "data/station_id_list.csv")  
+export(macros_fin, "data/macros_tidy.csv")  
+
+```
 
 
 
