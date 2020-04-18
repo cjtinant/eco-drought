@@ -52,12 +52,12 @@ conflict_prefer("filter", "dplyr")
 
 # Import weather station data----    
 sta_meta_orig <- import("data/sta_meta_orig.csv")   
-sta_meta_plus <- import("data/sta_meta_plus.csv")  # seems deleted... 
+sta_meta_plus <- import("data/sta_meta_plus.csv")   
 sta_meta_fin  <- import("data/sta_meta_fin.csv")  
 
 # Import stream gage data====  
 wsd_summary <- import("data/wsd_summary.csv") #%>%  
-#  rename(sta = sta_id)
+#  rename(sta = sta_id)  
 
 gage_full <- import("data/gage_mon_full.csv")  
 
@@ -68,9 +68,9 @@ gage_full <- semi_join(wsd_summary, gage_full,
   mutate(type = "gaged") %>%  
   select(sta, type, complete)  
 
-wsd_summary <- full_join(wsd_summary, gage_full, 
-                          by = c("type", "sta")
-                          ) %>% 
+wsd_summary <- full_join(wsd_summary, gage_full,  
+                          by = c("type", "sta") 
+                          ) %>%  
   select(sta,  
          type,  
          ecoreg,  
@@ -80,13 +80,13 @@ wsd_summary <- full_join(wsd_summary, gage_full,
          ) %>%   
   mutate(type2 = case_when(  
     complete   == "yes" ~ "complete",  
-    type       == "gaged" ~ "incomplete", 
-    TRUE ~ type
-    ))  %>% 
-  select(-c(complete, type)) %>% 
-  rename(type = type2)
+    type       == "gaged" ~ "incomplete",  
+    TRUE ~ type  
+    ))  %>%  
+  select(-c(complete, type)) %>%  
+  rename(type = type2)  
 
-rm(gage_full)
+rm(gage_full)  
 
 ```
 
@@ -96,16 +96,7 @@ rm(gage_full)
 # Create Theissen line segments====      
 voronoi        <- deldir(sta_meta_fin$lon, sta_meta_fin$lat)    
 
-# Oorder stations for plotting====   
-sta_meta_plus <- sta_meta_plus %>%  
-  mutate(group = fct_relevel(group,   
-                             "NW",  
-                             "NC",  
-                             "NE",  
-                             "SW",  
-                             "SC",  
-                             "SE"))   
-
+# Order stations for plotting====   
 sta_meta_orig <- sta_meta_orig %>%  
   mutate(group = fct_relevel(group,   
                              "NW",  
@@ -115,6 +106,15 @@ sta_meta_orig <- sta_meta_orig %>%
                              "SC",  
                              "SE" ))   
 
+sta_meta_plus <- sta_meta_plus %>%  
+  mutate(group = fct_relevel(group,   
+                             "NW",  
+                             "NC",  
+                             "NE",  
+                             "SW",  
+#                             "SC",  # not sure why no SC  
+                             "SE"))   
+
 sta_meta_fin <- sta_meta_fin %>%  
   mutate(group = fct_relevel(group,   
                              "NW",  
@@ -123,6 +123,10 @@ sta_meta_fin <- sta_meta_fin %>%
                              "SW",  
                              "SC",  
                              "SE"))   
+
+# prepare full gages for plotting  
+gage_full_pl <- wsd_summary %>%  
+  filter(type == "complete")  
 
 # Define the study area using data from the 'maps' package-----   
 # Import polygon data for maps====   
@@ -191,7 +195,7 @@ ne_bound <- subset(counties,
                        "todd",   
                        "tripp")) %>%  
   filter(lat < 43.1)      
-  
+
 wy_bound <- subset(counties,   
                    subregion %in%  
                      c("butte",      
@@ -236,7 +240,8 @@ gages <- wsd_summary %>%
                              "White River Badlands",    
                              "Black Hills Plateau",   
                              "Keya Paha Tablelands",   
-                             "Sand Hills")) 
+                             "Sand Hills"))  
+
 ```
 
 ```{r prepare_USA-grob}
@@ -260,11 +265,12 @@ usmap <- ggplot() +
                color = "gray30") +   
   xlab("") +   
   ylab("")   
-     
+
 # change the US map into a grob####   
 usmap <- as_grob(usmap, device = NULL)  
   
 rm(usa)  
+
 ```
 
 ```{r prepare_data_duplicated-above, eval=FALSE}
@@ -455,7 +461,7 @@ rm(usa)
 #   coordinates of the legend box between 0 and 1.  
 #     c(0,0) corresponds to the “bottom left” and   
 #     c(1,1) corresponds to the “top right” position.  
-  
+
 ggplot() +   
   theme_classic() +  
   coord_fixed(1.3) +  
@@ -487,14 +493,23 @@ ggplot() +
                 group = group),  
             color = "gray60") +    
   # add stream gaging stations     
-  geom_point(data = wsd_summary,  
+geom_point(data = gage_full_pl,  
              aes(dec_lon, dec_lat,   
-                 fill = factor(wsd_summary$type)),   
-             shape    = 24,  
-             size     = 0.8,    
+                 fill = factor(gage_full_pl$type)),   
+             shape    = 17,  
+             size     = 1.5,    
              stroke   = 0.5,  
              color    = "gray50") +      
-  scale_fill_grey(start = 0.5,    
+  
+# edited out the short-record gaging stations====  
+#  geom_point(data = wsd_summary,  
+#             aes(dec_lon, dec_lat,   
+#                 fill = factor(wsd_summary$type)),   
+ #            shape    = 24,  
+ #            size     = 0.8,    
+#             stroke   = 0.5,  
+#             color    = "gray50") +      
+  scale_fill_grey(start = 1.0,    
                   end   = 1.0,    
                   na.value   = "red",   
                   aesthetics = "fill",    
@@ -504,7 +519,7 @@ ggplot() +
   geom_point(data = sta_meta_orig,   
              aes(x = longitude, y = latitude,   
                  color = factor(sta_meta_orig$group)),    
-             size = 1) +       
+             size = 1.5) +       
   # add plus stations    
   geom_point(data = sta_meta_plus,  
              aes(x = longitude, y = latitude,   
@@ -528,9 +543,10 @@ ggplot() +
                size     = 1,    
                linetype = 1,    
                color    = "gray35") +   
+  # add labels to stations  
   geom_text(data = sta_meta_fin,    
             aes(x = longitude, y = latitude,  
-                label = sta),    
+                label = group),    
             vjust         = -0.8,  
             check_overlap = TRUE) +      
   # add the US map as a grob    
@@ -538,8 +554,7 @@ ggplot() +
                     xmin = -99.3, xmax = -97.6,   
                     ymin =  44.5, ymax = 45.5)    
 
-#rm(bbox,   
-#   counties,   
+#rm(bbox, counties,   
 #   sta_meta_fin,  
 #   wsd_summary,  
 #   ne_bound,  
@@ -551,6 +566,15 @@ ggplot() +
 #   sta_meta_orig)    
 
 ```
+
+```{r plot-map}
+# export map & clean up   
+ggplot2::ggsave(filename = "figure/sta-map.png",    
+                width    = 7.5,  
+                height   = 4.5,  
+                units    = "in")     
+```
+
 
 ```{r plot_stream-gages-map}
 # plot  station map====    
