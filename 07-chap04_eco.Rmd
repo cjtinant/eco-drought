@@ -222,11 +222,13 @@ macros  -- tibbles for macros data
 3.2 -- find goodness of fit -- cumulative proportion of inertia  
 3.3 -- find ordination distances vs original dissimilarities -- Shepard plot  
 3.4 -- MRPP   
+3.5 -- explore pairs plots  
+3.6 -- plot final ordination with convex hulls  
+
 --> 
 
 
 ```{r setup_&_library, message=FALSE}    
-
 knitr::opts_chunk$set(echo = FALSE)      
 options(tibble.print_max = 70) # sets tibble output for printing  
 
@@ -409,11 +411,12 @@ basic_eda <- function(data)
 }     
 
 # check variables  
-# basic_eda(input)    
+# basic_eda(input)     
 
 ```
 
 ```{r pairs_plot}
+
 rm(basic_eda)  
 
 ```
@@ -521,6 +524,7 @@ rm(lambda,
 ```
 
 ```{r 01c_split_data}
+
 # subset data into gaged and ungaged   
 input_tr <- bind_cols(input_names, input_tr)  
 
@@ -528,12 +532,13 @@ input_gage_nm <- input_tr %>%
   filter(type == "gaged")  
 
 input_gaged <- input_gage_nm %>%  
-  select(cat_area_l:TWI_inv)  
+  select(drain_dens:TWI)  
 
 ```
 
 # ordination of gages by 'watershed storage' parameters  
 ```{r 2a_find_num_ordination_axes}  
+
 kval <- 4                        # number of axes   
 wshedNMS_4 <- input_gaged %>%  
   metaMDS(.,  
@@ -574,7 +579,7 @@ wshedNMS_1 <- input_gaged %>%
           wasscores     = TRUE,  
           noshare       = FALSE)  
 
-# get stress  
+# Get stress -- to plot below  
 stressNMS_4 <- wshedNMS_4$stress %>%  
   enframe(name = NULL,  
           value = "stress") %>%  
@@ -609,7 +614,7 @@ rm(stressNMS_4,
 
 ```{r 2b_plot_stress}
 
-plot_stress <- ggplot(stressNMS,   
+plot_stress <- ggplot(stressNMS,    
             aes(x = dimensions, y = stress)) +   
   geom_path() +   
   labs(title = "Scree plot",  
@@ -636,7 +641,7 @@ rm(wshedNMS_4,
 
 ```{r 2c_find_goodness_of_fit}
 
-gof <- goodness(wshedNMS,   
+gof <- goodness(wshedNMS,     
                 display = "sites")  %>%  
   enframe(name = "site",  
           value = "gof")  %>%  
@@ -651,11 +656,11 @@ data_scores <- as_tibble(scores(wshedNMS))  # Use the scores function from
                                             #   vegan to extract the site  
                                             #   scores and convert to tibble  
 data_scores$site <- rownames(data_scores)   # create a column of site names,  
-                                            #   from the rownames.
+                                            #   from the rownames.  
 
-# add non-numeric data back to scores  
+# add non-numeric data & goodness of fit back to scores  
 data_scores <- left_join(input_gage_nm, data_scores,  
-                  by = "site") 
+                  by = "site")  
 
 data_scores <-  left_join(data_scores, gof,  
                   by = "site") %>%  
@@ -685,27 +690,29 @@ plot_gof <- ggplot() +
   geom_point(data = data_scores,  
              aes(x = NMDS1, y = NMDS2,    
                  size = gof),    
-             alpha = 0.5) +  
+             alpha = 0.5) +   
   scale_size_continuous(guide = guide_legend()) +  
   #  coord_equal() +  
   scale_x_reverse() +       # show hills to plains  
   labs(title = "Goodness of fit") +   
-       #       subtitle = "Cumulative proportion of inertia"
+       #       subtitle = "Cumulative proportion of inertia"  
   xlab("NMS1") +  
   ylab("NMS2") +   
   theme_classic()  +  
   theme(legend.position =  "bottom") +  
-  guides(size = guide_legend(title = "", 
+  guides(size = guide_legend(title = "",   
                              nrow = 2))   
 
+# check the plot  
 plot_gof  
 
 ```
 
 ```{r 2g_plot_shepard} 
 
-dist_orig <- data_scores  %>%   
-  select(cat_area_l:TWI_inv)  %>%   
+# get distance values in original and nms space  
+dist_orig <- data_scores  %>%    
+  select(area:TWI)  %>%   
   get_dist(., method = "euclidean")  
 
 dist_nms <- get_dist(select(data_scores,  
@@ -715,30 +722,32 @@ dist_nms <- get_dist(select(data_scores,
 data_dist <- tibble(org_distance = as.vector(dist_orig),  
                     nms_distance = as.vector(dist_nms))  
 
-plot_shep <- ggplot(data_dist, 
-                    aes(x = org_distance, y = nms_distance)) +  
+# plot values   
+plot_shep <- ggplot(data_dist,  
+                    aes(x = org_distance,  
+                        y = nms_distance)) +  
        geom_hex(binwidth = .5) +   
        geom_smooth(color = "grey20") +  
        scale_fill_distiller(palette = "Greys", direction = 1) +  
-       coord_equal(c) +  
        labs(title = "Shepard plot",  
                subtitle = "Original vs NMS distances") +  
   xlab("Original distance") +  
   ylab("NMS distance") +  
-  theme_classic() + 
+  theme_classic() +  
   theme(legend.position = "bottom")  
 
 rm(dist_nms,   
-   dist_orig)  
+   dist_orig, 
+   data_dist)  
 
+# check results  
 plot_shep  
 
 ```
 
 ```{r 2h_plot_2d_ordination}
-# note -- final plot should be with -NMS1 axis 
 
-plot_ord <- ggplot() +  
+ggplot() +  
 # plot the sites     
   geom_point(data   = data_scores,  
              aes(x  = NMDS1, y = NMDS2,    
@@ -764,31 +773,23 @@ plot_ord <- ggplot() +
                 label = sta),  
             size = 2,  
             vjust = 2) +  
-  coord_equal() +  
+  coord_equal() +   
   theme_classic()  +  
   theme(legend.position =  "bottom") +  
 guides(color = guide_legend(title = "", nrow = 2))   
 
-plot_ord  
 ```
 
 ```{r 2g_mrpp}
 
 mrpp_in <- input_gage_nm %>%  
-  select(cat_area_l:TWI_inv)  
+  select(drain_dens:TWI)  
 
 mrpp_group <- input_gage_nm %>%  
-  select(sta, gage_group) %>%  
-  mutate(gage_gp_mrpp = case_when(  
-  sta == "plu_hay" |  
-  sta == "bad_fpi" |  
-  sta == "whi_oac" |  
-  sta == "brsf_co" ~ "Pierre Shale East",   
-  gage_group == "Pierre Shale" ~ "Pierre Shale West",   
-  TRUE ~ gage_group))  
+  select(sta, gage_group)  
 
 mrpp_out <- with(mrpp_group,  
-                  mrpp(mrpp_in, gage_gp_mrpp))    
+                  mrpp(mrpp_in, gage_group))    
 
 mrpp_out  
 
@@ -796,16 +797,15 @@ mrpp_out
 mrpp_in_ck <- input_gage_nm %>%  
   filter(ecoreg == "Sand Hills" |  
          ecoreg == "Black Hills Plateau") %>%  
-  select(cat_area_l:TWI_inv)  
+  select(drain_dens:TWI)  
 
 mrpp_group_ck <- input_gage_nm %>%  
   filter(ecoreg == "Sand Hills" |  
          ecoreg == "Black Hills Plateau") %>%  
-  select(sta, gage_group) %>%  
-  mutate(gage_gp_mrpp = gage_group)  
+  select(sta, gage_group)  
 
 mrpp_ck <- with(mrpp_group_ck,  
-                  mrpp(mrpp_ck, gage_gp_mrpp))    
+                  mrpp(mrpp_in_ck, gage_group))    
 
 mrpp_ck  
 
@@ -813,23 +813,20 @@ mrpp_ck
 
 ```{r 2h_explore_pairs-plots}
 
-plot_pairs <- ggpairs(data_scores,   
-                columns = 6:14)  
-
-plot_pairs   
+ggpairs(data_scores, columns = 6:14)  
 
 ```
 
 ```{r 2i_get_convex-hulls}
 
-# chull functions from: 
-#  https://ggplot2.tidyverse.org/articles/extending-ggplot2.html
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+# chull functions from:   
+#  https://ggplot2.tidyverse.org/articles/extending-ggplot2.html  
+
 StatChull <- ggproto("StatChull", Stat,  
   compute_group = function(data, scales) {  
     data[chull(data$x, data$y), , drop = FALSE]   
   },  
-  
+
   required_aes = c("x", "y")  
 )  
 
@@ -842,12 +839,12 @@ stat_chull <- function(mapping = NULL, data = NULL, geom = "polygon",
     params = list(na.rm = na.rm, ...)
   )  
 }  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
 ```  
 
-```{r plot_ordination-chulls}
+```{r plot_ordination_with-chulls}
 
-plot_ord <- ggplot(data = data_scores, 
+plot_ord <- ggplot(data = data_scores,  
        aes(x = NMDS1, y = NMDS2)) +  
 # plot the sites     
   geom_point(data = data_scores,  
@@ -860,7 +857,7 @@ plot_ord <- ggplot(data = data_scores,
   stat_chull(fill = NA,  
              alpha = 0.7,  
              aes(colour = gage_group)   
-             ) + 
+             ) +  
   scale_color_discrete(guide = guide_legend())  +  
  # add the variable labels   
   geom_text(data = species_scores,  
@@ -891,10 +888,9 @@ plot_ord
 
 ```{r construct_ord-plot}
 
-plot_out <- plot_ord / 
-  (plot_stress + plot_gof + plot_shep) + 
-#  plot_layout(guides = 'collect') + 
-  plot_annotation(tag_levels = 'A') & 
+plot_out <- plot_ord / (plot_stress + plot_gof + plot_shep) +  
+#  plot_layout(guides = 'collect') +  
+  plot_annotation(tag_levels = 'A') &  
   theme(text = element_text(size = 8))  
 
 ggsave("figure/ord_plot.png",  
@@ -914,17 +910,19 @@ rm(mrpp_ck,
    mrpp_group,  
    mrpp_group_ck,  
    plot_gof,  
-   plot_ord,  
    plot_pairs,  
    plot_shep,  
    plot_stress,  
    plot_out,  
-   data_dist,  
    input_gage_nm,  
    input_gaged,  
-   input_names)  
-```
+   input_names,   
+   input_tr,  
+   species_names,  
+   species_scores,  
+   wshedNMS)  
 
+```
 
 # GAM for streamflow vs. NMS axes  
 ```{r 04a_import_munge_data_for_stats}     
@@ -934,12 +932,13 @@ gage_meta <- import("data/gage_meta.csv") %>%
   select(sta,  
          years_rec:apparent_yrs,  
          dec_lat_va,  
-         dec_long_va) 
+         dec_long_va)  
 
 gage_meta <- full_join(gage_meta, data_scores, 
                  by = "sta") %>%  
   filter(!is.na(years_rec))  %>%   # remove ungaged watsheds  
-  filter(!is.na(ecoreg))           # remove gw controlled streams  
+  filter(!is.na(ecoreg)) %>%           # remove gw controlled streams  
+  select(-gof)   
 
 # 2 find stations for analyzing flow vs NMS axes====  
 sta_old <- gage_meta %>%  
@@ -954,9 +953,6 @@ sta_flow <- bind_rows(sta_old, sta_new) %>%
   distinct() %>%  
   filter(sta != "che_buf")  # now all stations have min 20 yr record.  
 
-
-
-
 # 2 get gage depths & join ecoreg data====   
 gage_dep_orig   <- import("data/gage_depth.csv") %>%  
   mutate(date = ymd(Date)) %>%  
@@ -965,7 +961,7 @@ gage_dep_orig   <- import("data/gage_depth.csv") %>%
   ungroup() %>%  
   select(-site_no)  
 
-gage_dep_orig <- right_join(gage_dep_orig, grp_gaged,  
+gage_dep_orig <- right_join(gage_dep_orig, gage_meta,  
                         by = "sta") %>%   
   select(sta,  
          date,  
@@ -980,15 +976,27 @@ gage_dep_orig <- right_join(gage_dep_orig, grp_gaged,
 gage_dep <- gage_dep_orig %>%  
   filter(count > 364)  
 
-
-
-gage_check <- gage_dep %>%  
+# unit test of gage_dep  
+gage_ck <- gage_dep %>%  
   filter(sta == "whi_sta") %>%  
   group_by(sta, waterYear) %>%  
   summarise(count = n(),  
             min = min(date),  
             max = max(date))  %>%  
   ungroup()  
+
+input_flow <- semi_join(gage_dep, sta_flow,  
+                        by = "sta")  
+
+# unit test of input_flow  
+gage_ck <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))  %>%  
+  ungroup() %>%  
+  group_by(sta) %>%  
+  summarise(count = n())  
 
 ```
 
