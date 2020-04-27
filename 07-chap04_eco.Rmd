@@ -1,135 +1,110 @@
 ---
-title: "Untitled"
-author: "CJ Tinant"
-date: "2/10/2020"
-output: html_document
----
+title: "Untitled"  
+author: "CJ Tinant"  
+date: "2/10/2020"  
+output: html_document  
+---  
 
-```{r setup_&_library, message=FALSE}    
-  
-knitr::opts_chunk$set(echo = FALSE)      
-options(tibble.print_max = 70) # sets tibble output for printing          
-   
-# increase memory allocation for dabest()   
-# usethis::edit_r_environ("project")   
-  
-# Get API key (aka, token) for downloading precip data at   http://www.ncdc.noaa.gov/cdo-web/token  
-# token for NOAA API tied to jtinant@olc.edu -- see 'rnoaa' for details  
-options(noaakey = "VpcuARumMpCfFyclKHPfvskEYnaiLJHD")  
-   
-# Sets up the library of packages====    
-library("conflicted")        # An alternative conflict resolution strategy  
-library("here")              # identifies where to save work  
-library("rio")           # more robust I/O - to import and clean data  
-library("lubridate")     # easier dates   
-library("broom")         # tidies linear models   
-library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot  
-library("scales")        # graphical scales map data to aesthetics,  
-                         #   & methods for determining breaks and labels  
-                         #   for axes and legends   
-library("mclust")        # model-based clustering & density estimation  
-library("flextable")     # functions for tabular reporting  
-library("officer")       # facilitates '.docx' access for table export  
-library("patchwork")     # the 'composer of plots'  
-library("EflowStats")    # reimplementation of the Hydrologic Index Tool  
-library("factoextra")    # quickly visualize Mclust plots  
-library("SCI")           # calculates SPI & SSI   
-library("tidyverse")  
-  
-# resolve conflicted packages====   
-conflict_prefer("filter", "dplyr")  
-conflict_prefer("select", "dplyr")  
-conflict_prefer("as.dist", "stats")  
-conflict_prefer("first", "dplyr")  
-conflict_prefer("map", "purrr")  
-conflict_prefer("lag", "dplyr")  
+# Overview  
+<!--  
+Purpose:  
+This R markdown file prepares macroinvertebrate data for analysis.  
 
-# other packages I have thought about====   
-#library("rnoaa")             # R wrapper for NOAA data inc. NCDC  
-#library("lmomco")        # lmoments to find distribution   
-#library('deldir')        # for Vorononi tesselation - Theissen polygons  
-
-#library("forecast")      # using the BoxCox function   
-#library("anomalize")     # detect anomalies using the tidyverse   
-#library("dabestr")       # data analysis using bootstrap estimation    
-#library("cowplot")       # multiple plots with plot_grid()  
-#library("timetk")        # tool kit for working with time series in R   
-#library("tidyquant")     # integrate quant. analysis tools w/ tidyverse  
-#library("corrr")         # Tidy correlation tables and correlation plotting  
-#library("cranlogs")      # For inspecting package downloads over time  
-# for GLMs                    
-# library("doMC")          # parallelization for caret  
-# library("caret")         # classification and regression training  
-# library("glmnet")        # fit a GLM with lasso or elasticnet regularization  
-# library("Metrics")       # evaluation metrics for machine learning  
-# library("ggfortify")        # data vis tools for statistical analysis  
-# library("ggpubr")           # easy ggplot wrappers for publication ready  
-#                             #   'ggplot2'- based plots  
-# library("standardize")      # tools for controlling continuous variable   
-#  scaling and factor contrasts for linear models   
-# library("pdftools")         # utilities for extracting text, fonts,  
-#   attachments and metadata from a pdf file.  
-
-# packages for spatial data====   
-#library("biogeo")            # Functions for error detection & correction  
-#   in point-data datasets; includes functions   
-#   to parse & convert coords to decimal-degrees  
-#library("maps")              # Outlines: countries, states & counties  
-#library("mapdata")           # higher-resolution outlines  
-#library('ggmap')             # Spatial visualization with ggplot2   
-#library("sf")                # Simple features--spatial geometries for R  
-#library("RColorBrewer")      # map color schemes -- http://colorbrewer2.org  
-# packages for colors====   
-#library("colorspace")        # Manipulate & assess colors & palettes  
-#library("munsell")           # Access & manipulate munsell system colours  
-#   https://github.com/cwickham/munsell  
-
-# packages for lists and urls====   
-#library("jsonlite")          # Convert between JSON data and R objects  
-#library("curl")              # Drop-in replacement for base url  
-#library("listviewer")        # htmlwidget for interactive views of R lists  
-#library("forecast")         # for BoxCox.lambda   
-#library("magrittr") # provides aliases for easier reading  
-#library("workflowr") # creates a research website  
-#library("bookdown") #  
-#library(unpivotr) # fix nasty Excel files  
-#library("friendlyeval")  
-#library("mathpix")                # support for 'Mathpix' image to 'LaTeX'    
-#library("grateful") - not yet ready for R 3.5.0  
-#lmomco <- citation("lmomco")  
-#toBibtex(lmomco)  
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-why_to_write <- function()   
-{today <- today(tzone = "")  
-paper3 <- ymd("2020-04-15")  
-until <- paper3 - today  
-print(paste("You have", until, "days until the third paper is due"))   
-}   
-why_to_write()  
-
-```
-
-# model-based clustering  
-<!-- 
-Uses a DIANA approach to creates gage groups based on environmental vars.  
-Creates initial clusters with a goal of grouping ungaged catchments with  
-nearest neighbors.  
 -->  
 
-## initial clusters -- reference gages
-```{r 1_import_data_for_clustering}    
+# Some considerations  
+<!--
+Some thoughts based on NON-METRIC MULTIDIMENSIONAL SCALING (NMS) by  
+  Steven M. Holland  
+  Department of Geology, University of Georgia, Athens, GA  
+  revised December 2019  
 
-# 1 import gage metadata====    
-wsd_summary <- import("data/wsd_summary.csv")  
+Introduction  
+Nonmetric multidimensional scaling (NMS) is an ordination technique that differs in important ways from nearly all other ordination methods:  
 
-mclust_input <- import("data/mclust_final.csv")  
+1) Most ordination methods calculate many axes, but they display only a few of those for reasons of practicality. In contrast, NMS calculates a limited number of axes explicitly chosen prior to the analysis. As a result, there are no hidden axes of variation.  
+
+2) Most ordination methods are analytical and therefore result in a single unique solution to a set of data. In contrast, NMS is a numerical technique that iteratively seeks a solution and stops computation when an acceptable solution has been found, or it stops after some pre-specified number of attempts. As a result, an NMS ordination is not a unique solution; a subsequent NMS of the same data will likely result in a somewhat different ordination.  
+
+3) NMS is not an eigenanalysis technique like principal components analysis or correspondence analysis. As a result, the axes cannot be interpreted such that axis 1 explains the greatest amount of variance, axis 2 explains the next greatest amount of variance, and so on. As a result, an NMS ordination can be rotated, inverted, or centered to any desired configuration.  
+
+4) NMS makes few assumptions about the nature of the data. For example, principal components analysis assumes linear relationships, and reciprocal averaging assumes modal relationships. NMS makes neither of these assumptions, making it well-suited for a wide variety of data.  
+
+5) NMS allows the use of any distance measure, unlike other methods which specify particular measures, such as covariance or correlation in PCA or the implied chi-squared measure in correspondence analysis.  
+
+Although NMS is a highly flexible and widely applicable technique, it suffers from two principal drawbacks. First, NMS is slow, particularly for large data sets. Second, because NMS is a numerical optimization technique, it can fail to find the true best solution because it can become stuck on local minima, that is, solutions that are not the best solution but that are better than all nearby solutions. Increasing computational speed is solving both of these problems: large data sets can now be run relatively quickly, and multiple restarts can be used to lessen the chances of a solution remaining on a local minimum.  
+
+NMS Computation  
+The method underlying NMS is straightforward, but computationally demanding. 
+1) NMS starts with a matrix of data consisting of n rows of samples and p columns of variables (species or taxa in ecological data). There should be no missing values: every variable should have a value for every sample, and this value may be zero. From this, a n x n symmetrical matrix of all pairwise distances among samples is calculated with an appropriate distance measure, such as Euclidean distance, Manhattan distance (city block distance), or Bray (Sorenson) distance. The NMS ordination is performed on this distance matrix.  
+
+2) a desired number of k dimensions is chosen for the ordination. The resulting ordination can be greatly sensitive to this number of chosen dimensions. For example, a k-dimensional ordination is not equivalent to the first k dimensions of a k+1-dimensional ordination.  
+
+3) NMS begins by constructing an initial configuration of the samples in the k dimensions. This initial configuration could be based on another ordination or it could consist of an entirely random placement of the samples. The final ordination is partly dependent on this initial configuration, so a variety of approaches are used to avoid the problem of local minima. One approach is to perform several ordinations, each starting from a different random placement of points, and to select the ordination with the best fit. Another approach is to perform a different type of ordination, such as a principal components analysis or a higher-order NMS, and to use k axes from that ordination as the initial configuration. **A third approach, useful for data thought to be geographically arrayed, is to use the geographic locations of samples as a starting configuration.**  
+
+4) Distances among samples in the starting configuration are calculated, typically with a Euclidean metric. These distances are regressed against the original distance matrix and the predicted ordination distances for each pair of samples is calculated. A variety of regression methods can be used, including linear, polynomial, and non-parametric approaches, the last of which stipulates only that the regression consistently increases from left to right. In any case, the regression is fitted by least-squares. In a perfect ordination, all ordinated distances would fall exactly on the regression, that is, they would match the rank order of distances in the original distance matrix. The goodness of fit of the regression is measured as the sum of squared differences between ordination-based distances and the distances predicted by the regression. This goodness of fit is called stress and can be calculated in several ways, with one of the most common being Kruskal’s Stress.  
+
+The configuration is improved by moving the positions of samples in ordination space by a small amount in the direction of steepest descent, the direction in which stress changes most rapidly. The ordination distance matrix is recalculated, the regression is performed again, and stress is recalculated. These steps are performed repeatedly until some small specified tolerance value is achieved or until the procedure converges by failing to achieve any lower values of stress, which indicates that a minimum (perhaps local) has been found.  
+
+Considerations  
+The ordination is sensitive to the number of dimensions that is chosen, so this choice must be made with care. Choosing too few dimensions will force multiple axes of variation to be expressed on a single ordination dimension. Choosing too many dimensions is no better in that it can cause a single source of variation to be expressed on more than one dimension. One way to choose an appropriate number of dimensions is perform ordinations of progressively higher numbers of dimensions. A scree diagram (stress versus number of dimensions) can then be plotted, on which one can identify the point beyond which additional dimensions do not substantially lower the stress value. A second criterion for the appropriate number of dimensions is the interpretability of the ordination, that is, whether the results make sense.  
+
+The stress value reflects how well the ordination summarizes the observed distances among the samples. Stress increases both with the number of samples and with the number of variables. For the same underlying data structure, a larger data set will necessarily result in a higher stress value, so use caution when comparing stress among data sets. **Stress can also be highly influenced by one or a few poorly fit samples, so it is important to check the contributions to stress among samples in an ordination.** Several guidelines for a “good” value of stress have been proposed, but all have been criticized for being simplistic.  
+
+Although NMS seeks to preserve the distance relationships among the samples, it is still necessary to perform any data transformations to obtain a meaningful ordination. For example, in ecological data, samples should be standardized by sample size to avoid ordinations that reflect primarily sample size, which is generally not of interest.  
+
+NMS in R   
+R has several NMS functions available. Two are part of the MASS library, so they are automatically installed with R: monoMDS() and isoMDS(). Both of these will produce a simple NMS. A better solution is metaMDS(), which solves several of the problems inherent to NMS; metaMDS() is part of the vegan library. The first problem it solves (usually) is the problem of local minima, which it does by restarting the ordination process repeatedly from a different starting configuration, in search of a better solution. The second problem it solves is the arbitrary orientation of the ordinated point cloud, which it does by performing a principal components analysis on the final set of ordinated points. Although this may sound complicated, perhaps even suspicious, it isn’t when you remember that PCA is simply a rotation of set of data. **In this case, the ordinated points are rotated such that axis 1 now expresses the greatest amount of variation, followed by axis two, etc.**  The metaMDS() function automates all of this. By default, it uses the monoMDS() function to perform the actual ordinations.  
+
+It is important to remember that although the ordinated points produced by metaMDS() have a specific orientation and a specific ordering of axes in terms of explained variance, most NMS implementations do not do this. As a result, the NMS axes from other implementations commonly lack any labeling or scales. This lack of scale or meaninful orientation greatly complicates interpretation of ordinations not produced by metaMDS(), so use caution in interpreting their results.  
+
+  metaMDS() is included in the vegan package  
+
+NMS of non-ecological data   
+NMS can also be performed on non-ecological data, but with four main differences:  
+1) the default distance metric (bray) is appropriate only for ecological data, in which species show a modal (not linear) response to environmental variables. In most cases with non-ecological data, the distance parameter should be set to euclidean.  
+
+2)  the default data transformation that are appropriate for ecological data need to be turned off by setting autotransform = FALSE and noshare =  FALSE.  
+
+3)  to calculate variable scores (called species scores), all of your data must be positive. If they are not, you will need to add a constant so that they are.
+Fourth, to get variable scores, set wasscores = TRUE.  
+
+-->  
+
+# further metaMDS considerations   
+<!--  
+The function metaMDS performs Nonmetric Multidimensional Scaling (NMDS), and tries to find a stable solution using several random starts. In addition, it standardizes the scaling in the result, so that the configurations are easier to interpret, and adds species scores to the site ordination. The metaMDS function does not provide actual NMDS, but it calls another function for the purpose. Currently monoMDS is the default choice, and it is also possible to call the isoMDS (MASS package).
+<--  
+
+# Codebook  
+<!--
+# Code chunks====  
+# collapse                        Cmd+Option+L  
+# expand                          Cmd+Shift+Option+L  
+# collapse all                    Cmd+Option+O  
+# expand all                      Cmd+Shift+Option+O  
+-->  
+
+<!--  
+Input data:  
+"data/wsd_summary.csv"  -- watershed summary data from prior work  
+"data/mclust_final.csv" -- summary data from mclust  
+
 
 # 2 prepare data for mclust====   
-mclust_input <- full_join(wsd_summary, mclust_input,  
-                          by = c("sta", "ecoreg")) %>% 
-  select(sta:ecoreg,                            # initial variable selection  
-         type:watshed,  
+mclust_input -- 
+  "sta"     - station name
+  "ecoreg"  - Level IV ecoregion  
+  "type"    - binary: gaged or ungaged  
+  "watshed" - watershed membership  
+  "drain_dens"   
+  "fc_mean"     
+ [7] "gage_group"   "jul_temp_sq" 
+ [9] "area_inv"     "TWI_sq"      
+[11] "cat_out_sqrt" "slope_ln" 
+         
+         
+         
          dec_lat:final_group) %>%  
   select(sta:dec_lon,                           # final variable selection  
          cat_area_l,  
@@ -164,1159 +139,825 @@ mclust_in <- mclust_input %>%
 mclust_input_all <- mclust_input   
 mclust_in_all    <- mclust_in  
 
-```
+# Analysis variables:  
+Macroinvertebrete inputs are in the format:  
+xxxz_yyyy  
+
+  where  xxx is stream name abreviation  
+           z is an integer -- 1 is furthest upsteam station  
+             White River 5 is unique -- it's between WHI3 and WHI4.  
+        yyyy is 4-digit year of the sample.  
+
+Stream name abbreviations are as follows:  
+AMH -- American Horse Creek  
+BEA -- Bear Creek  
+BEL -- Bear in the Lodge Creek (lower Bear Creek)  
+BLP -- Black Pipe Creek   
+BUZ -- Buzzard Creek  
+CHE -- Cheyenne River  ## IS THIS CHE OR CHR??  
+COR -- Corn Creek  
+CRA -- Craven Creek  
+EAN -- Eagle Nest Creek  
+LOD -- Lost Dog Creek  
+LON -- Long Creek    ## IS THIS LOD OR LDC ??  
+LWR -- Little White River  
+MER -- Medicine Root Creek  
+NFL -- No Flesh Creek  
+PAS -- Pass Creek  
+POR -- Porcupine Creek  
+POT -- Potato Creek  
+RED -- Redwater Creek  
+WCC -- White Clay Creek  
+WHI -- White River  
+WOK -- Wounded Knee Creek  
+WOL -- Wolf Creek  
+
+Macroinvertebrate years in input files are as follows:  
+prior -- samples prior to 2011 not included below   
+2011  
+2012  
+2013  
+2014  
+The input files also include prior years including: 1993-1997, 2008.  
+
+Individual years in the variables are described using a letter where:  
+  "a" ~ 1993  
+  "b" ~ 1994  
+  "c" ~ 1995  
+  "d" ~ 1996  
+  "e" ~ 1997  
+  "p" ~ 2008  
+  "r" ~ 2010  
+  "s" ~ 2011  
+  "t" ~ 2012  
+  "u" ~ 2013  
+  "v" ~ 2014  
+
+
+wsd_summary  -- 
+mclust_input -- 
+
+
+scratch -- an intermediate tibble that is reused in the analysis  
+check   -- an intermediate tibble for checking data  
+xxx_ck  -- an intermediate tibble for checking data  
+
+macros  -- tibbles for macros data  
+  _Gen    -- intermediate tibble for fixing data - has genus  
+  _noGen  -- intermediate tibble for fixing data - doesn't have genus  
+  _wide   -- intermediate tibble for fixing data to wide  
 
-```{r 2a_Mclust-model_bhp}   
-
-# 1 make clustering inputs -- bhplat====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create a bhplat group from list based on high slope  
-grp_bhp <- mclust_aug %>%  
-  filter(.class == 2) %>%  
-  mutate(class = "BH Plateau") %>%  
-  filter(ecoreg == "Black Hills Plateau")   
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_bhp,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_bhp,  
-                       by = "sta")  
-
-```
-
-```{r 2b_Mclust-model_sndV}
-
-# 1 make clustering inputs -- sndV     
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 Create a SH Vetal group from list  
-grp_sndV <- mclust_aug %>%  
-  filter(.class == 4) %>%  
-  mutate(class = "SH Vetal")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_sndV,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_sndV,  
-                       by = "sta")  
-
-```
-
-```{r 2c_Mclust-model_chey}
-
-# 1 make clustering inputs   
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust====    
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model====    
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create a Cheyenne River gages from list  
-grp_che <- mclust_aug %>%  
-  filter(.class == 3) %>%  
-  mutate(class = "Cheyenne River")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_che,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_che,  
-                       by = "sta")  
-
-```
-
-```{r 2d_Mclust-model_whrl}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create a White River Lower from list  
-grp_whrl <- mclust_aug %>%  
-  filter(.class == 4) %>%  
-  mutate(class = "White River Lower")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_whrl,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_whrl,  
-                       by = "sta")  
-
-```
-
-```{r 2e_Mclust-model_whru}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create White River upper group 
-grp_whru <- mclust_aug %>%  
-  filter(.class == 4) %>%  
-  mutate(class = "White River Upper")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_whru,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_whru,  
-                       by = "sta")  
-
-```
-
-```{r 2f_Mclust-model_kpt}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create Keya Paha group  
-grp_kpt <- mclust_aug %>%  
-  filter(.class == 3) %>%  
-  mutate(class = "Keya Paha")  
-
-# 5 update list 
-mclust_in <- anti_join(mclust_in, grp_kpt,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_kpt,  
-                       by = "sta")  
-
-```
-
-```{r 2g_Mclust-model_med}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create a medicine root group  
-grp_med <- mclust_aug %>%  
-  filter(.class == 3) %>%  
-  mutate(class = "Porcupine Medicine Root")  
-
-# update list of gages  
-mclust_in <- anti_join(mclust_in, grp_med,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_med,  
-                       by = "sta")  
-
-```
-
-```{r 2h_Mclust-model_pshale}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust 
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create a Pierre Shale High group 
-grp_psh <- mclust_aug %>%  
-  filter(.class == 1) %>%  
-  mutate(class = "Pierre Shale High")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_psh,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_psh,  
-                       by = "sta")  
-
-# 6 create a Pierre Shale Low group 
-grp_psl <- mclust_aug %>%  
-  filter(.class == 4) %>%  
-  mutate(class = "Pierre Shale Low")  
-
-# 7 update list 
-mclust_in <- anti_join(mclust_in, grp_psl,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_psl,  
-                       by = "sta")  
-
-```
-
-```{r 2i_Mclust-model_bad}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust 
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 remove Badlands gages from list  
-grp_bad <- mclust_aug %>%  
-  filter(.class == 2) %>%  
-  mutate(class = "Badlands")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_bad,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_bad,  
-                       by = "sta")  
-
-```
-
-```{r 2j_Mclust-model_outliers}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create an outlier gage group 
-grp_psh1 <- mclust_aug %>%  
-  filter(.class == 1) %>%  
-  mutate(class = "Pierre Shale Out")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_psh1,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_psh1,  
-                       by = "sta")  
-
-# 6 create an outlier gage group  
-grp_snd1 <- mclust_aug %>%  
-  filter(.class == 9 |  
-         .class == 2 |  
-         .class == 3) %>%  
-  mutate(class = "Sand Hills Out")  
-
-# 7 update list  
-mclust_in <- anti_join(mclust_in, grp_snd1,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_snd1,  
-                       by = "sta")  
-
-```
-
-```{r 2k_Mclust-model_remainder}
-
-# 1 make initial clustering inputs====       
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust  
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 create Wounded Knee gage group  
-grp_wok <- mclust_aug %>%  
-  filter(.class == 1) %>%  
-  mutate(class = "Wounded Knee")  
-
-# 5 update list  
-mclust_in <- anti_join(mclust_in, grp_wok,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_wok,  
-                       by = "sta")  
-
-# 6 create a sandhills fringe group  
-grp_snd2 <- mclust_aug %>%  
-  filter(.class == 2 |  
-         .class == 3) %>%  
-  mutate(class = "Sandhills Fringe")  
-
-# 7 update list  
-mclust_in <- anti_join(mclust_in, grp_snd2,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_snd2,  
-                       by = "sta")  
-
-# 8 create a keya paha outlier group  
-grp_kpt1 <- mclust_aug %>%  
-  filter(.class == 5 |  
-         .class == 6 |  
-         .class == 8) %>%  
-  mutate(class = "Keya Paha Outlier")  
-
-# update list 
-mclust_in <- anti_join(mclust_in, grp_kpt1,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_kpt1,  
-                       by = "sta")  
-
-# create an outlier group  
-grp_out <- mclust_aug %>%  
-  filter(.class == 4 |  
-         .class == 9) %>%  
-  mutate(class = "Outlier")  
-
-# update list  
-mclust_in <- anti_join(mclust_in, grp_out,  
-                       by = "sta")  
-
-mclust_input <- anti_join(mclust_input, grp_out,  
-                       by = "sta")  
-
-# create a keya paha outlier group  
-grp_kpt2 <- mclust_aug %>%  
-  filter(.class == 7) %>%  
-  mutate(class = "Keya Paha Outlier")  
-
-```
-
-## final clusters -- reference gages  
-<!-- 
-Create final clusters with a goal of grouping ungaged catchments with  
-nearest neighbors.  
 -->  
 
-```{r 3a_Mclust-final_badlands}
+# Analysis steps  
+<!--  
+1.0 -- set up the library and settings  
+2.0 -- import watershed variables data & keep important values identified in a  
+         regression analysis -- the 'watershed storage' variables  
+2.1 -- transform data using BoxCox lambda vals to approach a normal dist.  
+2.2 -- standardize by  'scale' -- mean = 0, sd = 1  
+2.3 -- shift so minimum value equals zero  
+3.0 -- choose the best ordination solution.  
+3.1 -- select the correct number of axes -- scree plot  
+3.2 -- find goodness of fit -- cumulative proportion of inertia  
+3.3 -- find ordination distances vs original dissimilarities -- Shepard plot  
+3.4 -- MRPP   
+--> 
 
-# 1 bind the badlands values for reclustering====   
-grp_badlands <- bind_rows(grp_bad,  
-                          grp_whrl,  
-                          grp_whru)  %>%  
-  select(class, everything()) %>%   
-  select(-c(.class, .uncertainty))   
 
-# 2 make final clustering inputs, find BIC and run Mclust====       
-mclust_input <- grp_badlands  
+```{r setup_&_library, message=FALSE}    
 
-clust_input <- mclust_input %>%  
-  select(-c(class:gage_group)) # get rid of cat data   
+knitr::opts_chunk$set(echo = FALSE)      
+options(tibble.print_max = 70) # sets tibble output for printing  
 
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
+# Sets up the library of packages====    
+library("conflicted")        # An alternative conflict resolution strategy  
+library("here")              # identifies where to save work  
+library("rio")           # more robust I/O - to import and clean data  
+library("lubridate")     # easier dates   
+library("vegan")         # Community Ecology Package:  
+                         # Ordination, Diversity and Dissimilarities  
+library("mgcv")          # Mixed GAM Computation Vehicle with
+#                            Auto Smoothness Estimation -- Generalized additive  
+#                            (mixed) models, some of their extensions and  
+#                            other generalized ridge regression with multiple  
+#                            smoothing parameter estimation by (Restricted)  
+#                            Marginal Likelihood, Generalized Cross Validation  
+#                            and similar.  
+library("EflowStats")    # reimplementation of the Hydrologic Index Tool  
+library("SCI")           # calculates SPI & SSI   
+library("ggrepel")       # Provides geoms for 'ggplot2' to avoid overlapping  
+                         #   text labels.  
+library("patchwork")     # the 'composer of plots'  
+library("GGally")        # GGally' extends 'ggplot2' by adding functions   
+#                            to reduce the complexity of combining geometric  
+#                            objects with transformed data, including a  
+#                            pairwise plot matrix, a two-group pairwise plot  
+#                            matrix, a parallel coordinates plot, a survival   
+#                            plot, and functions to plot networks.  
+library("flextable")     # functions for tabular reporting  
+library("officer")       # facilitates '.docx' access for table export  
+library("tidyverse")  
 
-mod <- Mclust(clust_input, x = BIC)   
+#library("mclust")        # model-based clustering & density estimation  
+#library("factoextra")    # quickly visualize Mclust plots  
+#library("broom")         # tidies linear models   
+#library("funModeling")   # EDA, data preparation and model performance  
+#library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot  
+#library("scales")        # graphical scales map data to aesthetics,  
+                         #   & methods for determining breaks and labels  
+                         #   for axes and legends   
 
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
+# resolve conflicted packages====   
+conflict_prefer("filter", "dplyr")  
+conflict_prefer("select", "dplyr")  
+conflict_prefer("as.dist", "stats")  
+conflict_prefer("first", "dplyr")  
+conflict_prefer("map", "purrr")  
+conflict_prefer("lag", "dplyr")  
 
-# 4 quick visual results  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
+# #library("forecast")      # using the BoxCox function   
+# other packages I have thought about====    
+#library("rnoaa")             # R wrapper for NOAA data inc. NCDC  
+#library("lmomco")        # lmoments to find distribution   
+#library('deldir')        # for Vorononi tesselation - Theissen polygons  
+#library("anomalize")     # detect anomalies using the tidyverse   
+#library("dabestr")       # data analysis using bootstrap estimation    
+#library("cowplot")       # multiple plots with plot_grid()  
+#library("timetk")        # tool kit for working with time series in R   
+#library("tidyquant")     # integrate quant. analysis tools w/ tidyverse  
+#library("corrr")         # Tidy correlation tables and correlation plotting  
+#library("cranlogs")      # For inspecting package downloads over time  
+#                           for GLMs                    
+# library("doMC")          # parallelization for caret  
+# library("caret")         # classification and regression training  
+# library("glmnet")        # fit GLM with lasso or elasticnet regularization  
+# library("Metrics")       # evaluation metrics for machine learning  
+# library("ggfortify")        # data vis tools for statistical analysis  
+# library("ggpubr")           # easy ggplot wrappers for publication ready  
+#                             #   'ggplot2'- based plots  
+# library("standardize")      # tools for controlling continuous variable   
+#  scaling and factor contrasts for linear models   
+# library("pdftools")         # utilities for extracting text, fonts,  
+#   attachments and metadata from a pdf file.  
 
-# 5 make final choices====    
-grp_badlands <- mclust_aug %>%  
-  filter(watshed == "White Riv") %>%    
-  mutate(gage = case_when(  
-    .class == 1 ~ "blc_wan",  
-    .class == 2 ~ "blp_bel",  
-    sta == "WHR4" ~ "whi_kad",  
-    sta == "WHR5" ~ "whi_int",  
-    sta == "WHR3" ~ "whi_int",  
-    sta == "WHR2" ~ "whi_ogl",      
-    sta == "WHR1" ~ "whi_sta"))  %>%  
-  filter(!is.na(gage))   
+# packages for spatial data====   
+#library("biogeo")            # Functions for error detection & correction  
+#   in point-data datasets; includes functions   
+#   to parse & convert coords to decimal-degrees  
+#library("maps")              # Outlines: countries, states & counties  
+#library("mapdata")           # higher-resolution outlines  
+#library('ggmap')             # Spatial visualization with ggplot2   
+#library("sf")                # Simple features--spatial geometries for R  
+#library("RColorBrewer")      # map color schemes -- http://colorbrewer2.org  
+# packages for colors====   
+#library("colorspace")        # Manipulate & assess colors & palettes  
+#library("munsell")           # Access & manipulate munsell system colours  
+#   https://github.com/cwickham/munsell  
 
-# * clean up global values  
-rm(grp_bad,  
-   grp_whrl,  
-   grp_whru)  
+# packages for lists and urls====   
+#library("jsonlite")          # Convert between JSON data and R objects  
+#library("curl")              # Drop-in replacement for base url  
+#library("listviewer")        # htmlwidget for interactive views of R lists  
+#library("forecast")         # for BoxCox.lambda   
+#library("magrittr") # provides aliases for easier reading  
+#library("workflowr") # creates a research website  
+#library("bookdown") #  
+#library(unpivotr) # fix nasty Excel files  
+#library("friendlyeval")  
+#library("mathpix")                # support for 'Mathpix' image to 'LaTeX'  
+#library("grateful") - not yet ready for R 3.5.0  
+#lmomco <- citation("lmomco")  
+#toBibtex(lmomco)  
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+why_to_write <- function()   
+{today <- today(tzone = "")  
+paper3 <- ymd("2020-05-15")  
+until <- paper3 - today  
+print(paste("You have", until, "days until the third paper is due"))   
+}   
+why_to_write()   
 
 ```
 
-```{r 3b_Mclust-final_cheyenne}
+# get and transform data  
+```{r 01_import_data_for_clustering}     
+# 1 import gage metadata====    
+wsd_summary <- import("data/wsd_summary.csv") %>%   
+  mutate(ecoreg = case_when(   
+    sta == "bat_bhr" ~ "Black Hills Plateau",  # this was a judgement call:  
+    TRUE ~ ecoreg))                            # and I think I got it wrong.  
 
-grp_che <- grp_che %>%  
-  mutate(gage = case_when(  
-    type == 'ungaged' ~ "che_red")) %>%  
-  filter(!is.na(gage))  
+mclust <- import("data/mclust_final.csv") %>%   
+  mutate(ecoreg = case_when(   
+    sta == "bat_bhr" ~ "Black Hills Plateau",  # upstream is BH Plateau   
+    TRUE ~ ecoreg))  %>%                       # downstream is Pierre Shale  
+  mutate(final_group = case_when(   
+    sta == "bat_bhr" ~ "Black Hills Plateau",  
+    TRUE ~ final_group)) %>%  
+  mutate(final_group = case_when(  
+    final_group == "Pierre Shale High" ~ "Pierre Shale",  
+    final_group == "Pierre Shale Low" ~ "Pierre Shale",  
+    final_group == "Pierre Shale Plains" ~ "Pierre Shale",  
+    TRUE ~ final_group))                              
 
-```
+# 2 prepare data ====   
+input_ord <- full_join(wsd_summary, mclust,  
+                          by = c("sta", "ecoreg")) %>%  
+  select(sta:ecoreg,                            # initial variable selection  
+         type:watshed,  
+         dec_lat:final_group) %>%  
+  select(sta:dec_lon,                           # final variable selection  
+         cat_area_l,  
+         drain_dens,  
+         t07_mean,  
+         cat_out,  
+         slop_med,  
+         TWI_mean,  
+         fc_mean,  
+         L_CV:final_group) %>%  
+  rename(gage_group = final_group) %>%           # update group names  
+  mutate(gage_group = case_when(  
+    is.na(gage_group) ~ ecoreg,  
+    TRUE ~ gage_group)) %>%  
+  filter(gage_group != "GW loss") %>%            # remove GW control stations  
+  filter(gage_group != "GW gain") %>%  
+  mutate(gage_group = case_when(  
+    gage_group == "Pierre Shale Plains" ~ "Pierre Shale",  
+    gage_group == "Pine Ridge Escarpment" ~ "Tertiary Clays",  
+    gage_group == "White River Badlands" ~ "Tertiary Clays",  
+    TRUE ~ gage_group))       
 
-```{r 3c_Mclust-final_sand-hills1}
-
-# 1 bind the sandhills observations for reclustering====   
-grp_sndhil <- bind_rows(grp_snd1,  
-                        grp_snd2,  
-                        grp_sndV) %>%  
-  select(class, gage_group, everything()) %>%   
-  select(-c(.class, .uncertainty))    
-
-# 2 make final clustering inputs, find BIC and run Mclust====       
-mclust_input <- grp_sndhil  
-
-clust_input <- mclust_input %>%  
-  select(-c(class:watshed)) # get rid of cat data   
-
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model  
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 quick visual results  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 5 final choices for sandhills and outliers====    
-grp_sndhil <- mclust_aug %>%  
-  mutate(gage = case_when(  
-    .class == 3 ~ "lwr_mar",  
-    .class == 8 ~ "lwr_mar",  
-    .class == 9 ~ "lwr_mar",  
-    .class == 4 ~ "lwr_vet")) %>%  
-    filter(!is.na(gage))  
-
-rm(grp_snd1,  
-   grp_snd2,  
-   grp_sndV)  
-
-```
-
-```{r 3d_Mclust-final_wok}
-
-grp_wok <- grp_wok %>%  
-  mutate(gage = case_when(  
-    type == 'ungaged' ~ "wkc_wok")) %>%  
-  filter(!is.na(gage))  
+rm(mclust,  
+   wsd_summary)  
 
 ```
 
-```{r 3e_Mclust-final_wcc_&_blc}
+```{r 01a_check_data}
+# Create eda function ----     
+# basic EDA function from  
+# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/    
+basic_eda <- function(data)       
+{                                  
+  glimpse(data)  
+  df_status(data)  
+  freq(data)   
+  profiling_num(data)  
+  plot_num(data)  
+  describe(data)  
+}     
 
-#  it's difficult to identify the remaining values; so reshuffling gaged and 
-#  remaining ungaged values and reclassifying   
+# check variables  
+# basic_eda(input)    
 
-# 1 split data into selected and unselected====   
-grp_selected <- bind_rows(grp_badlands,  
-                          grp_che,  
-                          grp_sndhil,  
-                          grp_wok) %>%  
-  filter(type == "ungaged")  
+```
 
-grp_unselected <- anti_join(mclust_input_all, grp_selected,  
-                            by = "sta")  
+```{r pairs_plot}
+rm(basic_eda)  
 
-# 2 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_unselected  
+```
 
-mclust_in <- mclust_input %>%  
+```{r 01b_transform_data}
+
+# check lambda vals for transformation  -- uses Box Cox lambda   
+lambda <- input_ord %>%  
+  select(-c(sta:watshed, gage_group)) %>%   # get rid of cat vars  
+  select(-c(dec_lat:dec_lon, L_CV:L_kurtosis))  
+  
+lambda <- enframe(  
+  sapply(lambda, forecast::BoxCox.lambda) ) %>%   
+  rename(sta = name) %>%   
+  rename(lambda_val = value) %>%   
+  arrange(sta)    
+
+# BoxCox results  
+# A tibble: 7 x 2  
+#      sta        lambda_val    transformation
+#     <chr>           <dbl>       <mine>  
+# 1 cat_area_l     0.954           none  
+# 2 cat_out        1.73            x^2    
+# 3 drain_dens     0.437           sqrt x  
+# 4 fc_mean        0.219           log x  
+# 5 slop_med       0.0442          log x  
+# 6 t07_mean       2.00            nothing helps  
+# 7 TWI_mean      -1.00            1/x^2  
+
+# transform based on BoxCox vals  
+input_ord <- input_ord %>%  
+  select(-c(L_CV:L_kurtosis)) %>%                # remove vars with NA  
+  select(-c(dec_lat:dec_lon)) %>%  
+  mutate(area = cat_area_l) %>%            # no transformation    
+  mutate(elev = cat_out^2) %>%  
+  mutate(drain_dens = sqrt(drain_dens)) %>%   
+  mutate(field_cap = sqrt(fc_mean)) %>%  
+  mutate(slope = log(slop_med)) %>%           #   
+  mutate(jul_temp = t07_mean) %>%           # nothing helps  
+  mutate(TWI = 1/TWI_mean^2)  %>%   
+  select(sta:watshed, gage_group, drain_dens, area:TWI)  
+
+#  select(-c(cat_out, drain_dens, fc_mean, t07_mean, slop_med, TWI_mean)) %>%  
+
+
+# check lambda vals after transformation  
+lambda <- input_ord %>%  
+  select(-c(sta:watshed, gage_group))    # get rid of cat vars  
+
+lambda <- enframe(  
+  sapply(lambda, forecast::BoxCox.lambda) ) %>%   
+  rename(sta = name) %>%   
+  rename(lambda_val = value) %>%   
+  arrange(sta)    
+
+# A tibble: 7 x 2  
+# area        0.954  
+# drain_dens  1.11  
+# elev        0.776  
+# field_cap   1.48  
+# jul_temp    2.00   
+# slope       1.14  
+# TWI         1.06  
+
+# 3 standardize data====    
+input_tr <- input_ord %>%  
   mutate_if(is.numeric, scale) %>%  
   select(sta:watshed, gage_group, everything())  
 
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
+# 4 shift the data for analysis -- metaMDS() needs the values to be positive  
+#    The shiftByMin() function adds the minimum value for each variable to all   
+#      values for that variable.   
+#    The apply() function performs shiftByMin() on every column in the data.  
+#       need to separate and put back the catagorical data.  
 
-# 3 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+shiftByMin <- function(x) {  
+  x + abs(min(x))  
+}  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 
-mod <- Mclust(clust_input, x = BIC)   
+# remove catagorical data prior to shifting values  
+input_names <- input_ord %>%                    # get gage names  
+  select(sta:gage_group) %>% 
+  rownames_to_column(var = "site")  
 
-# 4 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
+input_tr <- input_tr %>%  
+  select(-c(sta:gage_group)) %>%   # removes non-numeric data  
+  apply(., 2, shiftByMin) %>%  
+  as_tibble()  
 
-# 5 quick visual results====  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
+species_names <- input_tr %>%      # get "species" names -- variable names   
+  names() %>%   
+  enframe(name = "species") %>%  
+  mutate(species = as.character(species))  
 
-# 6 final choices for upper White River tributary sitees  ====    
-grp_uppr_tribs <- mclust_aug %>%  
-  mutate(gage = case_when(  
-    .class == 3 ~ "blc_wan",  
-    .class == 8 ~ "wcc_ogl")) %>%  
-  filter(!is.na(gage))  
+# unit test --  manual  
+# check watershed size :  
+# LOD is smallest for both the 'input' & 'input_tr' data  
+# Cheyenne River at Plankington is largest for both.  
 
-# 7 prepare to look at some sandhills stations by themselves====   
-grp_sndhil <- mclust_aug %>%  
-  filter(.class == 6)  
-
-# * clean up global environment  
-rm(grp_badlands,  
-   grp_che,  
-   grp_wok)  
-
-```
-
-```{r 3f_add_Mclust_sand-hills2}
-
-# 1 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_sndhil  
-
-mclust_in <- mclust_input %>%  
-  select(sta:watshed, gage_group, everything())  %>%  
-  select(-c(.class:.uncertainty))  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 final choices for sandhills====    
-grp_sndhil <- mclust_aug %>%  
-  mutate(gage = case_when(  
-    sta == "LWR3" ~ "lwr_mar",  
-    sta == "LWR4" ~ "lwr_vet")) %>%   
-  filter(!is.na(gage))  
-
-# * clean up global environment  
-rm(grp_bhp, 
-   grp_kpt,  
-   grp_kpt1,  
-   grp_kpt2,  
-   grp_med,  
-   grp_out,  
-   grp_psh,  
-   grp_psh1,  
-   grp_psl)  
+rm(lambda,  
+   shiftByMin)  
 
 ```
 
-```{r 3g_check_Mclust-vals1}
-
-#  it's difficult to identify the remaining values, so reshuffling  
-#  gaged and remaining ungaged values and reclassifying   
-
-# 1 split data into selected and unselected====   
-grp_selected <- bind_rows(grp_selected,  
-                          grp_uppr_tribs,  
-                          grp_sndhil) %>%  
-  filter(type == "ungaged")  
-
-grp_unselected <- anti_join(mclust_input_all, grp_selected,  
-                            by = "sta")  
-
-# 2 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_unselected  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 3 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 4 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 5 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 6 redo some sandhills fringe stations by themselves====   
-grp_sndhil <- mclust_aug %>%  
-  filter(.class == 7)  
-
-# * clean up global environment  
-rm(grp_uppr_tribs)  
-
-```
-
-```{r 3h_add_Mclust_sand-hills_fringe}
-
-# 1 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_sndhil  
-
-mclust_in <- mclust_input %>%  
-  select(sta:watshed, gage_group, everything()) %>%  
-  select(-c(.class:.uncertainty))  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 quick visual results====  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 5 final choices for sandhills and outliers====    
-grp_med_tribs <- mclust_aug %>%  
-  mutate(gage = case_when(  
-    sta == "LOD1" ~ "wkc_wok",  
-    sta == "CRA1" ~ "wkc_wok")) %>%    
-  filter(!is.na(gage))   
-
-```
-
-```{r 3i_check_Mclust-vals2}
-
-#   it's difficult to identify the remaining values, so reshuffling  
-#   the gaged and remaining ungaged values and reclassifying   
-
-# 1 split data into selected and unselected====   
-grp_selected <- bind_rows(grp_selected,  
-                          grp_med_tribs) %>%  
-  filter(type == "ungaged")  
-
-grp_unselected <- anti_join(mclust_input_all, grp_selected,  
-                            by = "sta") %>%  
-  filter(watshed != "Bad River") %>%  
-  filter(watshed != "Cheyenne") %>%  
-  filter(watshed != "Niobrara")   
-
-# 2 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_unselected  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 3 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 4 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 5 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 6 redo some badlands & sandhills fringe stations by themselves  
-grp_badl <- mclust_aug %>%  
-  filter(.class == 1)  
-
-grp_sndhil <- mclust_aug %>%  
-  filter(.class == 2)  
-
-rm(grp_med_tribs)  
-
-```
-
-```{r 3j_add_Mclust_final_badlands_fringe}
-
-# 1 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_badl  
-
-mclust_in <- mclust_input %>%  
-  select(sta:watshed, gage_group, everything())  %>%  
-  select(-c(.class:.uncertainty))  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 5 final choices for badlands fringe====    
-grp_badl <- mclust_aug %>%  
-  mutate(gage = case_when(  
-    sta == "PAS2" ~ "blc_wan")) %>%   
-  filter(!is.na(gage))  
-
-```
-
-```{r 3k_check_Mclust-vals3}
-
-#   it's difficult to identify the remaining values, so reshuffling  
-#   the gaged and remaining ungaged values and reclassifying   
-
-# 1 split data into selected and unselected====   
-grp_selected <- bind_rows(grp_selected,  
-                          grp_badl) %>%  
-  filter(type == "ungaged")  
-
-# 2 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_sndhil %>%  
-  select(-c(.class, .uncertainty))  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 3 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 4 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 5 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 6 redo some sandhills fringe stations by themselves  
-grp_sndhil <- mclust_aug %>%  
-  filter(.class == 4)  
-
-# * clean up global environment  
-rm(grp_badl)  
-
-```
-
-```{r 3l_add_Mclust_sand-hills_fringe}
-
-# 1 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_sndhil  
-
-mclust_in <- mclust_input %>%  
-  select(sta:watshed, gage_group, everything()) %>%  
-  select(-c(.class:.uncertainty))  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 2 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 3 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 4 quick visual results====  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 5 drop furthest out station  
-grp_sndhil <- mclust_aug %>%  
-  filter(.class != 1)  
-
-# 6 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_sndhil  
-
-mclust_in <- mclust_input %>%  
-  select(sta:watshed, gage_group, everything()) %>%  
-  select(-c(.class:.uncertainty))  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 7 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 8 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 9 quick visual results====  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 10 drop furthest out station  
-grp_sndhil <- mclust_aug %>%  
-  filter(.class != 2)  
-
-# 11 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_sndhil  
-
-mclust_in <- mclust_input %>%  
-  select(sta:watshed, gage_group, everything()) %>%  
-  select(-c(.class:.uncertainty))  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 12 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 13 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 14 quick visual results====  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 15 drop furthest out station  
-grp_sndhil <- mclust_aug %>%  
-  filter(.class != 2)  
-
-# 16 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_sndhil  
-
-mclust_in <- mclust_input %>%  
-  select(sta:watshed, gage_group, everything()) %>%  
-  select(-c(.class:.uncertainty))  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 17 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 18 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 19 quick visual results====  
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 20 final choices for badlands fringe====    
-grp_sndhil <- mclust_aug %>%  
-  mutate(gage = case_when(  
-    .class == "1" ~ "ros_ros")) %>%   
-  filter(!is.na(gage))  
-
-``` 
-
-```{r 3m_add-Mclust_keya-final}
-
-#   it's difficult to identify the remaining values, so reshuffling  
-#   the gaged and remaining ungaged values and reclassifying   
-
-# 1 split data into selected and unselected  
-grp_selected <- bind_rows(grp_selected,  
-                          grp_sndhil) %>%  
-  filter(type == "ungaged")  
-
-grp_unselected <- anti_join(mclust_input_all, grp_selected,  
-                            by = "sta")  
-
-# 2 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_unselected  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 3 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 4 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 5 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 6 redo some badlands & sandhills fringe stations by themselves  
-grp_keya <- mclust_aug %>%  
-  filter(.class == 8 |  
-         .class == 3)  
-
-# 7 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_keya %>%  
-  select(-c(.class, .uncertainty))  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 8 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 9 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 10 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 11 filter to get stations by themselves  
-grp_keya <- mclust_aug %>%  
-  filter(.class != "4" &  
-         .class != "5")  
-
-# 12 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_keya %>%  
-  select(-c(.class, .uncertainty))  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 8 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 9 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 10 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 11 filter to get stations by themselves  
-grp_keya <- mclust_aug %>%  
-  filter(.class != "2" &  
-         .class != "3" &  
-         .class != "4" &  
-         .class != "6")   
-
-# 12 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_keya %>%  
-  select(-c(.class, .uncertainty))  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 13 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 14 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 15 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 16 filter to get stations by themselves  
-grp_keya <- mclust_aug %>%  
-  filter(.class != "1")   
-
-# 17 standardize data for mclust & make final clustering inputs====     
-mclust_input <- grp_keya %>% 
-  select(-c(.class, .uncertainty))  
-
-mclust_in <- mclust_input %>%  
-  mutate_if(is.numeric, scale) %>%  
-  select(sta:watshed, gage_group, everything())  
-
-clust_input <- mclust_in  %>%  
-  select(-c(sta:gage_group)) # get rid of cat data   
-
-# 18 find Bayesian Information Criterion and run Mclust====   
-BIC <- mclustBIC(clust_input, verbose = FALSE)  
-
-mod <- Mclust(clust_input, x = BIC)   
-
-# 19 get Mclust model results and tidy the Mclust model====   
-mclust_fit <-glance(mod)  
-mclust_aug <- augment(mod, mclust_input)   
-mclust_means <- tidy(mod)  
-
-# 20 quick visual results====   
-#fviz_mclust(mod, "classification", geom = "point",  
-#            pointsize = 1.5, palette = "jco")  
-
-# 21 choose final locations  
-grp_keya <- mclust_aug %>%  
-  mutate(gage = "wkc_wok") %>%   
-  filter(!is.na(gage))  
-
-# 22 add keya paha to selected gages & rename unselected as gaged====   
-grp_selected <- bind_rows(grp_selected,  
-                          grp_keya) %>%  
-  filter(type == "ungaged")  
-
-grp_gaged <- grp_unselected %>%  
+```{r 01c_split_data}
+# subset data into gaged and ungaged   
+input_tr <- bind_cols(input_names, input_tr)  
+
+input_gage_nm <- input_tr %>%   
   filter(type == "gaged")  
 
-# * clean up global environment  
-rm(clust_input,  
-   grp_keya,  
-   grp_sndhil,  
-   grp_unselected,  
-   mclust_aug,  
-   mclust_fit,  
-   mclust_in,  
-   mclust_in_all, 
-   mclust_input, 
-   mclust_input_all,  
-   mclust_means,  
-   mod,  
-   BIC)  
+input_gaged <- input_gage_nm %>%  
+  select(cat_area_l:TWI_inv)  
 
 ```
 
-# fill missing data  
-```{r 4a_import_munge_data_for_stats}     
+# ordination of gages by 'watershed storage' parameters  
+```{r 2a_find_num_ordination_axes}  
+kval <- 4                        # number of axes   
+wshedNMS_4 <- input_gaged %>%  
+  metaMDS(.,  
+          distance      = 'euclidean',      # distance measure  
+          k             = kval,                       # number of axes  
+          trymax        = 200,                 # number of times to check  
+          autotransform = FALSE,  
+          wasscores     = TRUE,  
+          noshare       = FALSE)   
 
-# 1 import gage metadata & join ecoreg data====   
+kval <- 3                        # number of axes  
+wshedNMS_3 <- input_gaged %>%  
+  metaMDS(.,  
+          distance      = 'euclidean',      # distance measure  
+          k             = kval,                       # number of axes  
+          trymax        = 200,                 # number of times to check  
+          autotransform = FALSE,  
+          wasscores     = TRUE,  
+          noshare       = FALSE)  
+
+kval <- 2                        # number of axes  
+wshedNMS_2 <- input_gaged %>%  
+  metaMDS(.,  
+          distance      = 'euclidean',      # distance measure  
+          k             = kval,                       # number of axes  
+          trymax        = 200,                 # number of times to check  
+          autotransform = FALSE,  
+          wasscores     = TRUE,  
+          noshare       = FALSE)  
+
+kval <- 1                        # number of axes  
+wshedNMS_1 <- input_gaged %>%  
+  metaMDS(.,  
+          distance      = 'euclidean',      # distance measure  
+          k             = kval,                       # number of axes  
+          trymax        = 200,                 # number of times to check  
+          autotransform = FALSE,  
+          wasscores     = TRUE,  
+          noshare       = FALSE)  
+
+# get stress  
+stressNMS_4 <- wshedNMS_4$stress %>%  
+  enframe(name = NULL,  
+          value = "stress") %>%  
+  mutate(dimensions = 4)  
+
+stressNMS_3 <- wshedNMS_3$stress %>%  
+  enframe(name = NULL,  
+          value = "stress") %>%  
+  mutate(dimensions = 3)  
+
+stressNMS_2 <- wshedNMS_2$stress %>%  
+  enframe(name = NULL,  
+          value = "stress") %>%  
+  mutate(dimensions = 2)  
+
+stressNMS_1 <- wshedNMS_1$stress %>%  
+  enframe(name = NULL,  
+          value = "stress") %>%  
+  mutate(dimensions = 1)  
+
+stressNMS <- bind_rows(stressNMS_4,   
+                       stressNMS_3,  
+                       stressNMS_2,  
+                       stressNMS_1)  
+
+rm(stressNMS_4,  
+   stressNMS_3,  
+   stressNMS_2,  
+   stressNMS_1)  
+
+```
+
+```{r 2b_plot_stress}
+
+plot_stress <- ggplot(stressNMS,   
+            aes(x = dimensions, y = stress)) +   
+  geom_path() +   
+  labs(title = "Scree plot",  
+       subtitle = "Final stress vs number of dimensions",  
+       tag = "B")  +  
+  xlab("Dimensions") +  
+  ylab("Stress") +    
+  theme_classic()  
+
+# check plot  
+plot_stress  
+
+# Results -- the stress plot shows a 2d solution is the best fit.  
+wshedNMS <- wshedNMS_2  
+
+rm(wshedNMS_4,  
+   wshedNMS_3,   
+   wshedNMS_2,  
+   wshedNMS_1,  
+   stressNMS,  
+   kval)  
+
+```
+
+```{r 2c_find_goodness_of_fit}
+
+gof <- goodness(wshedNMS,   
+                display = "sites")  %>%  
+  enframe(name = "site",  
+          value = "gof")  %>%  
+  mutate(site = as.character(site))  
+
+```
+
+```{r 2d_extract_scores}
+
+# extract scores for plotting   
+data_scores <- as_tibble(scores(wshedNMS))  # Use the scores function from  
+                                            #   vegan to extract the site  
+                                            #   scores and convert to tibble  
+data_scores$site <- rownames(data_scores)   # create a column of site names,  
+                                            #   from the rownames.
+
+# add non-numeric data back to scores  
+data_scores <- left_join(input_gage_nm, data_scores,  
+                  by = "site") 
+
+data_scores <-  left_join(data_scores, gof,  
+                  by = "site") %>%  
+  select(-site)  
+
+# extract scores for plotting   
+species_scores <- as_tibble(scores(wshedNMS,  
+                                   "species"))  # Use the scores function from  
+                                            #   vegan to extract the "species"  
+                                            #   scores and convert to tibble  
+species_scores$species <- rownames(  
+  species_scores) # create a column of site names, from the rownames.  
+
+# add non-numeric data back to scores  
+species_scores <- left_join(species_names, species_scores,  
+                  by = "species") %>%  
+  select(-species)  
+
+rm(gof)  
+
+```
+
+```{r 2f_plot_goodness-fit}
+
+plot_gof <- ggplot() +   
+  # plot the sites  
+  geom_point(data = data_scores,  
+             aes(x = NMDS1, y = NMDS2,    
+                 size = gof),    
+             alpha = 0.5) +  
+  scale_size_continuous(guide = guide_legend()) +  
+  #  coord_equal() +  
+  scale_x_reverse() +       # show hills to plains  
+  labs(title = "Goodness of fit") +   
+       #       subtitle = "Cumulative proportion of inertia"
+  xlab("NMS1") +  
+  ylab("NMS2") +   
+  theme_classic()  +  
+  theme(legend.position =  "bottom") +  
+  guides(size = guide_legend(title = "", 
+                             nrow = 2))   
+
+plot_gof  
+
+```
+
+```{r 2g_plot_shepard} 
+
+dist_orig <- data_scores  %>%   
+  select(cat_area_l:TWI_inv)  %>%   
+  get_dist(., method = "euclidean")  
+
+dist_nms <- get_dist(select(data_scores,  
+                           NMDS1, NMDS2),  
+                           method = "euclidean")  
+
+data_dist <- tibble(org_distance = as.vector(dist_orig),  
+                    nms_distance = as.vector(dist_nms))  
+
+plot_shep <- ggplot(data_dist, 
+                    aes(x = org_distance, y = nms_distance)) +  
+       geom_hex(binwidth = .5) +   
+       geom_smooth(color = "grey20") +  
+       scale_fill_distiller(palette = "Greys", direction = 1) +  
+       coord_equal(c) +  
+       labs(title = "Shepard plot",  
+               subtitle = "Original vs NMS distances") +  
+  xlab("Original distance") +  
+  ylab("NMS distance") +  
+  theme_classic() + 
+  theme(legend.position = "bottom")  
+
+rm(dist_nms,   
+   dist_orig)  
+
+plot_shep  
+
+```
+
+```{r 2h_plot_2d_ordination}
+# note -- final plot should be with -NMS1 axis 
+
+plot_ord <- ggplot() +  
+# plot the sites     
+  geom_point(data   = data_scores,  
+             aes(x  = NMDS1, y = NMDS2,    
+             color = gage_group,  
+#             shape  = gage_group  
+             ),   
+             alpha = 0.7,  
+             size   = 3) +  
+  labs(title = "",  
+       tag = "A")  +  
+  xlab("NMS1") +  
+  ylab("NMS2") +  
+  scale_color_discrete(guide = guide_legend())  +  
+  # add the variable labels   
+  geom_text(data = species_scores,  
+            aes(x = NMDS1, y = NMDS2,  
+                label = value),  
+            alpha = 0.5,  
+            size = 2.5) +            # add the species labels  
+# add the labels for the sites  
+  geom_text_repel(data = data_scores,  
+            aes(x = NMDS1, y = NMDS2,  
+                label = sta),  
+            size = 2,  
+            vjust = 2) +  
+  coord_equal() +  
+  theme_classic()  +  
+  theme(legend.position =  "bottom") +  
+guides(color = guide_legend(title = "", nrow = 2))   
+
+plot_ord  
+```
+
+```{r 2g_mrpp}
+
+mrpp_in <- input_gage_nm %>%  
+  select(cat_area_l:TWI_inv)  
+
+mrpp_group <- input_gage_nm %>%  
+  select(sta, gage_group) %>%  
+  mutate(gage_gp_mrpp = case_when(  
+  sta == "plu_hay" |  
+  sta == "bad_fpi" |  
+  sta == "whi_oac" |  
+  sta == "brsf_co" ~ "Pierre Shale East",   
+  gage_group == "Pierre Shale" ~ "Pierre Shale West",   
+  TRUE ~ gage_group))  
+
+mrpp_out <- with(mrpp_group,  
+                  mrpp(mrpp_in, gage_gp_mrpp))    
+
+mrpp_out  
+
+#  unit test of MRPP  
+mrpp_in_ck <- input_gage_nm %>%  
+  filter(ecoreg == "Sand Hills" |  
+         ecoreg == "Black Hills Plateau") %>%  
+  select(cat_area_l:TWI_inv)  
+
+mrpp_group_ck <- input_gage_nm %>%  
+  filter(ecoreg == "Sand Hills" |  
+         ecoreg == "Black Hills Plateau") %>%  
+  select(sta, gage_group) %>%  
+  mutate(gage_gp_mrpp = gage_group)  
+
+mrpp_ck <- with(mrpp_group_ck,  
+                  mrpp(mrpp_ck, gage_gp_mrpp))    
+
+mrpp_ck  
+
+```
+
+```{r 2h_explore_pairs-plots}
+
+plot_pairs <- ggpairs(data_scores,   
+                columns = 6:14)  
+
+plot_pairs   
+
+```
+
+```{r 2i_get_convex-hulls}
+
+# chull functions from: 
+#  https://ggplot2.tidyverse.org/articles/extending-ggplot2.html
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+StatChull <- ggproto("StatChull", Stat,  
+  compute_group = function(data, scales) {  
+    data[chull(data$x, data$y), , drop = FALSE]   
+  },  
+  
+  required_aes = c("x", "y")  
+)  
+
+stat_chull <- function(mapping = NULL, data = NULL, geom = "polygon",   
+                       position = "identity", na.rm = FALSE, show.legend = NA,  
+                       inherit.aes = TRUE, ...) {  
+  layer(  
+    stat = StatChull, data = data, mapping = mapping, geom = geom,  
+    position = position, show.legend = show.legend, inherit.aes = inherit.aes,  
+    params = list(na.rm = na.rm, ...)
+  )  
+}  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+```  
+
+```{r plot_ordination-chulls}
+
+plot_ord <- ggplot(data = data_scores, 
+       aes(x = NMDS1, y = NMDS2)) +  
+# plot the sites     
+  geom_point(data = data_scores,  
+             size = 3,  
+             alpha = 0.7,   
+             aes(colour = gage_group)   
+#            shape  = gage_group  
+             ) +  
+# plot the convex hulls   
+  stat_chull(fill = NA,  
+             alpha = 0.7,  
+             aes(colour = gage_group)   
+             ) + 
+  scale_color_discrete(guide = guide_legend())  +  
+ # add the variable labels   
+  geom_text(data = species_scores,  
+            aes(x = NMDS1, y = NMDS2,  
+                label = value),  
+            alpha = 0.5,  
+            size = 2.5) +            # add the species labels  
+# add the labels for the sites  
+  geom_text_repel(data = data_scores,  
+            aes(x = NMDS1, y = NMDS2,  
+                label = sta),  
+            size  = 2,  
+            vjust = 1) +  
+  scale_x_reverse() +                # shows hills to plains  
+# add the title and axes labels   
+  labs(title = "",  
+       tag = "A")  +  
+  xlab("NMS1") +  
+  ylab("NMS2") +  
+#  coord_equal(expand = FALSE) +  
+  theme_classic()  +  
+  theme(legend.position =  "bottom") +  
+guides(color = guide_legend(title = "", nrow = 2))   
+
+plot_ord  
+
+```
+
+```{r construct_ord-plot}
+
+plot_out <- plot_ord / 
+  (plot_stress + plot_gof + plot_shep) + 
+#  plot_layout(guides = 'collect') + 
+  plot_annotation(tag_levels = 'A') & 
+  theme(text = element_text(size = 8))  
+
+ggsave("figure/ord_plot.png",  
+       plot = plot_out,  
+                 units = "in",  
+                 width = 7,  
+                 height = 9)  
+
+```
+
+```{r prepare_for_GAM}
+
+rm(mrpp_ck,  
+   mrpp_out,  
+   mrpp_in,  
+   mrpp_in_ck,  
+   mrpp_group,  
+   mrpp_group_ck,  
+   plot_gof,  
+   plot_ord,  
+   plot_pairs,  
+   plot_shep,  
+   plot_stress,  
+   plot_out,  
+   data_dist,  
+   input_gage_nm,  
+   input_gaged,  
+   input_names)  
+```
+
+
+# GAM for streamflow vs. NMS axes  
+```{r 04a_import_munge_data_for_stats}     
+
+# 1 import gage metadata & join ordination data====    
 gage_meta <- import("data/gage_meta.csv") %>%  
   select(sta,  
          years_rec:apparent_yrs,  
          dec_lat_va,  
-         dec_long_va)  
+         dec_long_va) 
 
-gage_eco <- wsd_summary %>%  
-  select(sta, ecoreg) %>%  
-  filter(ecoreg != "")  
+gage_meta <- full_join(gage_meta, data_scores, 
+                 by = "sta") %>%  
+  filter(!is.na(years_rec))  %>%   # remove ungaged watsheds  
+  filter(!is.na(ecoreg))           # remove gw controlled streams  
 
-gage_meta <- right_join(gage_meta, gage_eco,  
-                        by = "sta")  
+# 2 find stations for analyzing flow vs NMS axes====  
+sta_old <- gage_meta %>%  
+  filter(max_year >= 2000) %>%  
+  filter(min_year == 1980)   
 
-# 2 get gage depts & join ecoreg data====   
+sta_new <- gage_meta %>%  
+  filter(max_year == 2018) %>%  
+  filter(min_year < 2000)  
+
+sta_flow <- bind_rows(sta_old, sta_new) %>%  
+  distinct() %>%  
+  filter(sta != "che_buf")  # now all stations have min 20 yr record.  
+
+
+
+
+# 2 get gage depths & join ecoreg data====   
 gage_dep_orig   <- import("data/gage_depth.csv") %>%  
   mutate(date = ymd(Date)) %>%  
   group_by(sta, waterYear) %>%  
@@ -1339,36 +980,7 @@ gage_dep_orig <- right_join(gage_dep_orig, grp_gaged,
 gage_dep <- gage_dep_orig %>%  
   filter(count > 364)  
 
-# 4 prepare ungaged and reference gage dfs====   
-grp_selected <- grp_selected %>%  
-  select(sta, gage)  
 
-ref_gage <- grp_selected %>%  
-  select(gage) %>%  
-  distinct()  
-
-ref_gage <- semi_join(gage_meta, ref_gage,  
-                  by = c("sta" = "gage")) %>%  
-  rename(dec_lat = dec_lat_va) %>%  
-  rename(dec_lon = dec_long_va)  
-
-# 5 find gages to fill incomplete reference gage====   
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-# taking a look at ref_gage -- there's 13 gages representing the 45 ungaged  
-# EMAP stations.    
-#   Cheyenne River stas (n = 2) are represented by che_red -- WY 2000-2018  
-#   Sandhills stations (n = 6) are represented by lwr_mar & lwr_vet --  
-#       lwr_mar & lwr_vet are complete for the period of record.  
-#   Tertiary stations (n = 37) are represented by 10 stations  
-#       the longest incomplete station is whi_sta -- WY 1988-2018  
-#   We are going to use this period of record for SSI calculations  
-#   the next shortest record is:   
-#         blp_bel -- WY 1992-2018 -> fit with whi_kad,  
-#   then, blc_wan -- WY 1995-2018 -> fit with key_wew,  
-#   then, ros_ros -- WY 1980-2004 -> fit with lwr_ros,  
-#   then, whi_int -- WY 2004-2018 -> fit with blp_bel,  
-#   then, wcc_ogl -- WY 1988-1998 -> fit with whi_sta,  
-#   then, wkc_wok -- WY 1992-1997 -> fit with wcc_ogl  
 
 gage_check <- gage_dep %>%  
   filter(sta == "whi_sta") %>%  
@@ -1380,7 +992,11 @@ gage_check <- gage_dep %>%
 
 ```
 
-```{r 4b_calculate_magSeven_statistics--blp_bel92-18}
+
+
+
+
+```{r 04b_calculate_magSeven_statistics--blp_bel92-18}
 
 # group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
 #  the 'magnificant seven'    
@@ -1670,7 +1286,7 @@ rm(mag_blc_wan,
 
 ```
 
-```{r 4c_Mclust--blp_bel92-18}
+```{r 04c_Mclust--blp_bel92-18}
 
 # 1 make clustering inputs, find BIC and run Mclust====         
 mclust_input <- magSev  
@@ -1724,7 +1340,7 @@ rm(magSev,
 
 ```
 
-```{r 4d_add_best-fit_to--blp_bel92-18}
+```{r 04d_add_best-fit_to--blp_bel92-18}
 
 # 1 subset 'to' and 'from' gages   
 sta_to <- "blp_bel"  
@@ -1777,7 +1393,3874 @@ rm(gage_from,
 
 ```
 
-```{r 4e_calculate_magSeven_statistics--blc_wan95-18}
+```{r 04e_calculate_magSeven_statistics--blc_wan95-18}
+
+# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
+#  the 'magnificant seven'   
+# Should get below into a purrr loop, but...   
+
+# 1    prepare EflowStats Input  -- for blc_wan95-18====    
+magSev_in <- gage_dep %>%  
+  filter(between(date,  
+                 as.Date("1994-10-01"),  
+                 as.Date("2018-09-30"))) %>%  
+  as.data.frame() %>%  
+  select(sta,  
+         date,  
+         discharge = q1_depth,  
+         gage_group,  
+         ecoreg)  
+
+magSev_sta <- magSev_in %>%  
+  select(sta, ecoreg) %>%  
+  distinct() %>%  
+  filter(ecoreg != "Pierre Shale Plains" &  
+         ecoreg != "Black Hills Plateau") %>%  
+  arrange(sta)  
+
+# 2.1  calculate magnificant seven -- blc_wan====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blc_wan") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_blc_wan <- magSev_out %>%  
+  rename(blc_wan = statistic)  
+
+# 2.2  calculate magnificant seven -- blp_bel====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blp_bel") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_blp_bel <- magSev_out %>%  
+  rename(blp_bel = statistic)  
+
+# 2.3  calculate magnificant seven -- key_key====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_key") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_key <- magSev_out %>%  
+  rename(key_key = statistic)  
+
+# 2.4  calculate magnificant seven -- key_wew====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_wew") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_wew <- magSev_out %>%  
+  rename(key_wew = statistic)  
+
+# 2.5  calculate magnificant seven -- ros_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "ros_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_ros_ros <- magSev_out %>%  
+  rename(ros_ros = statistic)  
+
+# 2.6  calculate magnificant seven -- wcc_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wcc_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_ogl <- magSev_out %>%  
+  rename(wcc_ogl = statistic)  
+
+# 2.7  calculate magnificant seven -- whi_int====    
+magSev_out <- magSev_in %>%     # doesn't intersect with WY 1992-1997  
+  filter(sta == "whi_int") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_int <- magSev_out %>%  
+  rename(whi_int = statistic)  
+
+# 2.8  calculate magnificant seven -- whi_kad====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_kad") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_kad <- magSev_out %>%  
+  rename(whi_kad = statistic)  
+
+# 2.9  calculate magnificant seven -- whi_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_ogl <- magSev_out %>%  
+  rename(whi_ogl = statistic)  
+
+# 2.10 calculate magnificant seven -- whi_slm====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_slm") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_slm <- magSev_out %>%  
+  rename(whi_slm = statistic)  
+
+# 2.11 calculate magnificant seven -- whi_sta====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_sta") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_sta <- magSev_out %>%  
+  rename(whi_sta = statistic)  
+
+# 2.12 calculate magnificant seven -- whi_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_whi <- magSev_out %>%  
+  rename(whi_whi = statistic)  
+
+# 2.13 calculate magnificant seven -- wkc_wok====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wkc_wok") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_wok <- magSev_out %>%  
+  rename(wkc_wok = statistic)  
+
+# 2.14 calculate magnificant seven -- lon_riv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lon_riv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lon_riv <- magSev_out %>%  
+  rename(lon_riv = statistic)  
+
+# 2.15 calculate magnificant seven -- lwr_aro====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_aro") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_aro <- magSev_out %>%  
+  rename(lwr_aro = statistic)  
+
+# 2.16 calculate magnificant seven -- lcr_abv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lcr_abv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lcr_abv <- magSev_out %>%  
+  rename(lcr_abv = statistic)  
+
+# 2.17 calculate magnificant seven -- lwr_mar====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_mar") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_mar <- magSev_out %>%  
+  rename(lwr_mar = statistic)  
+
+# 2.18 calculate magnificant seven -- lwr_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_ros <- magSev_out %>%  
+  rename(lwr_ros = statistic)  
+
+# 2.19 calculate magnificant seven -- lwr_vet====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_vet") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_vet <- magSev_out %>%  
+  rename(lwr_vet = statistic)  
+
+# 2.20 calculate magnificant seven -- lwr_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_whi <- magSev_out %>%  
+  rename(lwr_whi = statistic)  
+
+# 2.21 calculate magnificant seven -- nio_spa====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "nio_spa") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_nio_spa <- magSev_out %>%  
+  rename(nio_spa = statistic)  
+
+# 3    join magnificant seven and transpose matrix====    
+magSev <- bind_cols(mag_blc_wan,  
+                    mag_blp_bel,  
+                    mag_key_key,  
+                    mag_key_wew,  
+                    mag_ros_ros,  
+                    mag_wcc_ogl,  
+                    mag_whi_int,  
+                    mag_whi_kad,  
+                    mag_whi_ogl,  
+                    mag_whi_slm,  
+                    mag_whi_sta,  
+                    mag_whi_whi,  
+                    mag_wcc_wok,  
+                    mag_lon_riv,  
+                    mag_lwr_aro,  
+                    mag_lcr_abv,  
+                    mag_lwr_mar,   
+                    mag_lwr_ros,   
+                    mag_lwr_vet,   
+                    mag_lwr_whi,   
+                    mag_nio_spa) %>%  
+  # drop the duplicate indices  
+  select(-c(indice1,  
+            indice2,  
+            indice3,  
+            indice4,  
+            indice5,  
+            indice6,  
+            indice7,  
+            indice8,  
+            indice9,  
+            indice10,  
+            indice11,  
+            indice12,  
+            indice13,  
+            indice14,  
+            indice15,  
+            indice16,  
+            indice17,  
+            indice18,  
+            indice19,  
+            indice20)) %>%  
+  # transpose the matrix  
+  gather(sta, variable, blc_wan:nio_spa) %>%  
+  spread(indice, variable)  
+
+# * clean up global environment====    
+rm(mag_blc_wan,  
+   mag_blp_bel,  
+   mag_key_key,  
+   mag_key_wew,  
+   mag_ros_ros,  
+   mag_wcc_ogl,  
+   mag_whi_int,  
+   mag_whi_kad,  
+   mag_whi_ogl,  
+   mag_whi_slm,  
+   mag_whi_sta,  
+   mag_whi_whi,  
+   mag_wcc_wok,  
+   mag_lon_riv,  
+   mag_lwr_aro,  
+   mag_lcr_abv,  
+   mag_lwr_mar,   
+   mag_lwr_ros,   
+   mag_lwr_vet,   
+   mag_lwr_whi,   
+   mag_nio_spa,  
+   magSev_out,  
+   magSev_in,  
+   magSev_sta)  
+
+```
+
+```{r 4f_Mclust--blc_wan95-18}
+
+# 1 make clustering inputs, find BIC and run Mclust====       
+mclust_input <- magSev  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 make clustering inputs, find BIC and run Mclust====   
+mclust_input <- mclust_aug %>%  
+  filter(.class == 1) %>%   # this is the blc_wan group  
+  select(-c(.class, .uncertainty))  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",  
+#           pointsize = 1.5, palette = "jco")  
+
+# results----  
+# nearest neighbor for blc_wan is key_wew - which is complete  
+
+# * clean up global environment  
+rm(magSev,  
+   clust_input,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_input,  
+   mclust_means,  
+   mod,  
+   BIC)  
+
+```
+
+```{r 4d_add_best-fit_to--blc_wan95-18}
+
+# 1 subset 'to' and 'from' gages   
+sta_to <- "blc_wan"  
+sta_fr <- "key_wew"  
+Ecoreg <- "Keya Paha Tablelands"  
+Watshd <- "White Riv"  
+
+gage_to <- gage_dep %>%  
+  filter(sta %in% sta_to)  
+
+gage_from <- gage_dep %>%  
+  filter(sta %in% sta_fr) %>%  
+  mutate(sta = sta_to) %>%  
+  mutate(ecoreg = Ecoreg) %>%  
+  mutate(watshed = Watshd)   
+
+# 2 add any incomplete years  
+gage_poss <- gage_dep_orig %>%  
+  filter(sta %in% sta_to)  
+
+gage_to <- bind_rows(gage_poss, gage_to) %>%  
+  distinct()  
+
+# 2 make distinct records, check, join, and double-check   
+gage_check <- gage_to %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()   
+
+gage_from <- anti_join(gage_from, gage_to,  
+                        by = "date")  
+
+gage_mixed <- bind_rows(gage_from, gage_to)  
+
+gage_check <- gage_mixed %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+# 3 add records to 'gage_dep' and check  
+gage_dep <- bind_rows(gage_mixed, gage_dep) %>%  
+  distinct()  
+
+gage_check <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  
+
+# * clean up global environment   
+rm(gage_from,  
+   gage_mixed,  
+   gage_poss,  
+   gage_to,  
+   sta_fr,  
+   sta_to,  
+   Ecoreg,  
+   Watshd)  
+
+```
+
+```{r 4h_calculate_magSeven_statistics--ros_ros88-04}
+
+# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
+#  the 'magnificant seven'   
+# Should get below into a purrr loop, but...  
+
+# 1    prepare EflowStats Input  -- for ros_ros88-04====    
+magSev_in <- gage_dep %>%  
+  filter(between(date,  
+                 as.Date("1988-10-01"),  
+                 as.Date("1997-09-30"))) %>%  
+  as.data.frame() %>%  
+  select(sta,  
+         date,  
+         discharge = q1_depth, 
+         gage_group,  
+         ecoreg)  
+
+magSev_sta <- magSev_in %>%  
+  select(sta, gage_group, ecoreg) %>%  
+  distinct() %>%  
+  filter(ecoreg != "Pierre Shale Plains" &  
+         ecoreg != "Black Hills Plateau") %>%  
+  arrange(sta)  
+
+# 2.1  calculate magnificant seven -- blc_wan====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blc_wan") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_blc_wan <- magSev_out %>%  
+  rename(blc_wan = statistic)  
+
+# 2.2  calculate magnificant seven -- blp_bel====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blp_bel") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_blp_bel <- magSev_out %>%  
+  rename(blp_bel = statistic)  
+
+# 2.3  calculate magnificant seven -- key_key====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_key") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_key <- magSev_out %>%  
+  rename(key_key = statistic)  
+
+# 2.4  calculate magnificant seven -- key_wew====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_wew") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_wew <- magSev_out %>%  
+  rename(key_wew = statistic)  
+
+# 2.5  calculate magnificant seven -- ros_ros====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "ros_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_ros_ros <- magSev_out %>%  
+  rename(ros_ros = statistic)  
+
+# 2.6  calculate magnificant seven -- wcc_ogl====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "wcc_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_ogl <- magSev_out %>%  
+  rename(wcc_ogl = statistic)  
+
+# 2.7  calculate magnificant seven -- whi_int====  
+#magSev_out <- magSev_in %>%     # doesn't intersect with WY 1992-1997  
+#  filter(sta == "whi_int") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_whi_int <- magSev_out %>%  
+#  rename(whi_int = statistic)  
+
+# 2.8  calculate magnificant seven -- whi_kad====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_kad") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_kad <- magSev_out %>%  
+  rename(whi_kad = statistic)  
+
+# 2.9  calculate magnificant seven -- whi_ogl====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_ogl <- magSev_out %>%  
+  rename(whi_ogl = statistic)  
+
+# 2.10 calculate magnificant seven -- whi_slm====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_slm") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_slm <- magSev_out %>%  
+  rename(whi_slm = statistic)  
+
+# 2.11 calculate magnificant seven -- whi_sta====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_sta") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_sta <- magSev_out %>%  
+  rename(whi_sta = statistic)  
+
+# 2.12 calculate magnificant seven -- whi_whi====  
+#magSev_out <- magSev_in %>%  
+#  filter(sta == "whi_whi") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_whi_whi <- magSev_out %>%  
+#  rename(whi_whi = statistic)  
+
+# 2.13 calculate magnificant seven -- wkc_wok====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "wkc_wok") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_wok <- magSev_out %>%  
+  rename(wkc_wok = statistic)  
+
+# 2.14 calculate magnificant seven -- lon_riv====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "lon_riv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lon_riv <- magSev_out %>%  
+  rename(lon_riv = statistic)  
+
+# 2.15 calculate magnificant seven -- lwr_aro====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_aro") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_aro <- magSev_out %>%  
+  rename(lwr_aro = statistic)  
+
+# 2.16 calculate magnificant seven -- lcr_abv====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "lcr_abv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lcr_abv <- magSev_out %>%  
+  rename(lcr_abv = statistic)  
+
+# 2.17 calculate magnificant seven -- lwr_mar====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_mar") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_lwr_mar <- magSev_out %>%  
+  rename(lwr_mar = statistic)  
+
+# 2.18 calculate magnificant seven -- lwr_ros====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_ros <- magSev_out %>%  
+  rename(lwr_ros = statistic)  
+
+# 2.19 calculate magnificant seven -- lwr_vet====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_vet") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_vet <- magSev_out %>%  
+  rename(lwr_vet = statistic)  
+
+# 2.20 calculate magnificant seven -- lwr_whi====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_whi <- magSev_out %>%  
+  rename(lwr_whi = statistic)  
+
+# 2.21 calculate magnificant seven -- nio_spa====  
+magSev_out <- magSev_in %>%  
+  filter(sta == "nio_spa") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_nio_spa <- magSev_out %>%  
+  rename(nio_spa = statistic)  
+
+# 3    join magnificant seven and transpose matrix====    
+magSev <- bind_cols(mag_blc_wan,  
+                    mag_blp_bel,  
+                    mag_key_key,  
+                    mag_key_wew,  
+                    mag_ros_ros,  
+                    mag_wcc_ogl,  
+                    mag_whi_kad,  
+                    mag_whi_ogl,  
+                    mag_whi_slm,  
+                    mag_whi_sta,  
+                    mag_wcc_wok,  
+                    mag_lon_riv,  
+                    mag_lwr_aro,  
+                    mag_lcr_abv,  
+                    mag_lwr_mar,   
+                    mag_lwr_ros,   
+                    mag_lwr_vet,   
+                    mag_lwr_whi,   
+                    mag_nio_spa) %>%  
+  # drop the duplicate indices  
+  select(-c(indice1,  
+            indice2,  
+            indice3,  
+            indice4,  
+            indice5,  
+            indice6,  
+            indice7,  
+            indice8,  
+            indice9,  
+            indice10,  
+            indice11,  
+            indice12,  
+            indice13,  
+            indice14,  
+            indice15,  
+            indice16,  
+            indice17,  
+            indice18)) %>%  
+  # transpose the matrix  
+  gather(sta, variable, blc_wan:nio_spa) %>%  
+  spread(indice, variable)  
+
+# * clean up global environment====  
+rm(mag_blc_wan,  
+   mag_blp_bel,  
+   mag_key_key,  
+   mag_key_wew,  
+   mag_ros_ros,  
+   mag_wcc_ogl,  
+   mag_whi_kad,  
+   mag_whi_ogl,  
+   mag_whi_slm,  
+   mag_whi_sta,  
+   mag_wcc_wok,  
+   mag_lon_riv,  
+   mag_lwr_aro,  
+   mag_lcr_abv,  
+   mag_lwr_mar,   
+   mag_lwr_ros,   
+   mag_lwr_vet,   
+   mag_lwr_whi,   
+   mag_nio_spa,  
+   magSev_out,  
+   magSev_in)  
+
+```
+
+```{r 4i_Mclust--ros_ros88-04}
+
+# 1 make clustering inputs, find BIC and run Mclust====        
+mclust_input <- magSev  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)  
+
+# 2 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 3 make clustering inputs, find BIC and run Mclust====  
+mclust_input <- mclust_aug %>%  
+  filter(between(lam1, 100, 200)) %>%      # keep nearby magnitude lam1  
+  select(-c(.class, .uncertainty))  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 4 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 make clustering inputs, find BIC and run Mclust====   
+mclust_input <- mclust_aug %>%  
+  filter(.class != 2 &  
+         .class != 3) %>%   # this is the blc_wan group  
+  select(-c(.class, .uncertainty))  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 6 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",   
+#           pointsize = 1.5, palette = "jco")  
+
+# results----  
+# nearest neighbor for ros_ros is lwr_ros -- BUT need to filter by lam1  
+
+# * clean up global environment  
+rm(magSev,  
+   clust_input,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_input,  
+   mclust_means,  
+   mod,  
+   BIC)  
+
+```
+
+```{r 4j_add_best-fit_to--ros_ros88-04}
+
+# 1 subset 'to' and 'from' gages   
+sta_to <- "ros_ros"  
+sta_fr <- "lwr_ros"  
+Ecoreg <- "Keya Paha Tablelands"  
+Watshd <- "Lit White"  
+
+gage_to <- gage_dep %>%  
+  filter(sta %in% sta_to)  
+
+gage_from <- gage_dep %>%  
+  filter(sta %in% sta_fr) %>%  
+  mutate(sta = sta_to) %>%  
+  mutate(ecoreg = Ecoreg) %>%  
+  mutate(watshed = Watshd)   
+
+# 2 add any incomplete years  
+gage_poss <- gage_dep_orig %>%  
+  filter(sta %in% sta_to)  
+
+gage_to <- bind_rows(gage_poss, gage_to) %>%  
+  distinct()  
+
+# 2 make distinct records, check, join, and double-check   
+gage_check <- gage_to %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()   
+
+gage_from <- anti_join(gage_from, gage_to,  
+                        by = "date")  
+
+gage_mixed <- bind_rows(gage_from, gage_to)  
+
+gage_check <- gage_mixed %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+# 3 add records to 'gage_dep' and check  
+gage_dep <- bind_rows(gage_mixed, gage_dep) %>%  
+  distinct()  
+
+gage_check <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  
+
+# * clean up global environment   
+rm(gage_from,  
+   gage_mixed,  
+   gage_poss,  
+   gage_to,  
+   sta_fr,  
+   sta_to,  
+   Ecoreg,  
+   Watshd)  
+
+```
+
+```{r 4k_calculate_magSeven_statistics--whi_int04-18}
+
+# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
+#  the 'magnificant seven'   
+# Should get below into a purrr loop, but...  
+
+# 1    prepare EflowStats Input  -- for whi_int04-18====    
+magSev_in <- gage_dep %>%  
+  filter(between(date,  
+                 as.Date("2003-10-01"),  
+                 as.Date("2018-09-30"))) %>%  
+  as.data.frame() %>%  
+  select(sta,  
+         date,  
+         discharge = q1_depth, 
+         gage_group,  
+         ecoreg)  
+
+magSev_sta <- magSev_in %>%  
+  select(sta, ecoreg) %>%  
+  distinct() %>%  
+  filter(ecoreg != "Pierre Shale Plains" &  
+         ecoreg != "Black Hills Plateau") %>%  
+  arrange(sta)  
+
+# 2.1  calculate magnificant seven -- blc_wan====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blc_wan") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_blc_wan <- magSev_out %>%  
+  rename(blc_wan = statistic)  
+
+# 2.2  calculate magnificant seven -- blp_bel====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blp_bel") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_blp_bel <- magSev_out %>%  
+  rename(blp_bel = statistic)  
+
+# 2.3  calculate magnificant seven -- key_key====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_key") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_key <- magSev_out %>%  
+  rename(key_key = statistic)  
+
+# 2.4  calculate magnificant seven -- key_wew====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_wew") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_wew <- magSev_out %>%  
+  rename(key_wew = statistic)  
+
+# 2.5  calculate magnificant seven -- ros_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "ros_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_ros_ros <- magSev_out %>%  
+  rename(ros_ros = statistic)  
+
+# 2.6  calculate magnificant seven -- wcc_ogl====    
+#magSev_out <- magSev_in %>%  
+#  filter(sta == "wcc_ogl") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_wcc_ogl <- magSev_out %>%  
+#  rename(wcc_ogl = statistic)  
+
+# 2.7  calculate magnificant seven -- whi_int====    
+magSev_out <- magSev_in %>%     # doesn't intersect with WY 1992-1997  
+  filter(sta == "whi_int") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_int <- magSev_out %>%  
+  rename(whi_int = statistic)  
+
+# 2.8  calculate magnificant seven -- whi_kad====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_kad") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_kad <- magSev_out %>%  
+  rename(whi_kad = statistic)  
+
+# 2.9  calculate magnificant seven -- whi_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_ogl <- magSev_out %>%  
+  rename(whi_ogl = statistic)  
+
+# 2.10 calculate magnificant seven -- whi_slm====    
+#magSev_out <- magSev_in %>%  
+#  filter(sta == "whi_slm") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_whi_slm <- magSev_out %>%  
+#  rename(whi_slm = statistic)  
+
+# 2.11 calculate magnificant seven -- whi_sta====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_sta") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_sta <- magSev_out %>%  
+  rename(whi_sta = statistic)  
+
+# 2.12 calculate magnificant seven -- whi_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_whi <- magSev_out %>%  
+  rename(whi_whi = statistic)  
+
+# 2.13 calculate magnificant seven -- wkc_wok====    
+#magSev_out <- magSev_in %>%  
+#  filter(sta == "wkc_wok") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_wcc_wok <- magSev_out %>%  
+#  rename(wkc_wok = statistic)  
+
+# 2.14 calculate magnificant seven -- lon_riv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lon_riv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lon_riv <- magSev_out %>%  
+  rename(lon_riv = statistic)  
+
+# 2.15 calculate magnificant seven -- lwr_aro====    
+#magSev_out <- magSev_in %>%  
+#  filter(sta == "lwr_aro") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_lwr_aro <- magSev_out %>%  
+#  rename(lwr_aro = statistic)  
+
+# 2.16 calculate magnificant seven -- lcr_abv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lcr_abv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lcr_abv <- magSev_out %>%  
+  rename(lcr_abv = statistic)  
+
+# 2.17 calculate magnificant seven -- lwr_mar====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_mar") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_mar <- magSev_out %>%  
+  rename(lwr_mar = statistic)  
+
+# 2.18 calculate magnificant seven -- lwr_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_ros <- magSev_out %>%  
+  rename(lwr_ros = statistic)  
+
+# 2.19 calculate magnificant seven -- lwr_vet====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_vet") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_vet <- magSev_out %>%  
+  rename(lwr_vet = statistic)  
+
+# 2.20 calculate magnificant seven -- lwr_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_whi <- magSev_out %>%  
+  rename(lwr_whi = statistic)  
+
+# 2.21 calculate magnificant seven -- nio_spa====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "nio_spa") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_nio_spa <- magSev_out %>%  
+  rename(nio_spa = statistic)  
+
+# 3    join magnificant seven and transpose matrix====    
+magSev <- bind_cols(mag_blc_wan,  
+                    mag_blp_bel,  
+                    mag_key_key,  
+                    mag_key_wew,  
+                    mag_lcr_abv,  
+                    mag_lon_riv,  
+                    mag_lwr_mar,   
+                    mag_lwr_ros,   
+                    mag_lwr_vet,   
+                    mag_lwr_whi,   
+                    mag_nio_spa,  
+                    mag_ros_ros,  
+                    mag_whi_int,  
+                    mag_whi_kad,  
+                    mag_whi_ogl,  
+                    mag_whi_sta,  
+                    mag_whi_whi) %>%  
+  # drop the duplicate indices  
+  select(-c(indice1,  
+            indice2,  
+            indice3,  
+            indice4,  
+            indice5,  
+            indice6,  
+            indice7,  
+            indice8,  
+            indice9,  
+            indice10,  
+            indice11,  
+            indice12,  
+            indice13,  
+            indice14,  
+            indice15,  
+            indice16)) %>%  
+  # transpose the matrix  
+  gather(sta, variable, blc_wan:whi_whi) %>%  
+  spread(indice, variable)  
+
+# * clean up global environment====    
+rm(mag_blc_wan,  
+   mag_blp_bel,  
+   mag_key_key,  
+   mag_key_wew,  
+   mag_lcr_abv,  
+   mag_lon_riv,  
+   mag_lwr_mar,   
+   mag_lwr_ros,   
+   mag_lwr_vet,   
+   mag_lwr_whi,   
+   mag_nio_spa,  
+   mag_ros_ros,  
+   mag_whi_int,  
+   mag_whi_kad,  
+   mag_whi_ogl,  
+   mag_whi_sta,  
+   mag_whi_whi,  
+   magSev_in,  
+   magSev_sta)  
+
+```
+
+```{r 4l_Mclust--whi_int04-18}
+
+# 1 make clustering inputs, find BIC and run Mclust====   
+mclust_input <- magSev  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 2 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 3 make clustering inputs, find BIC and run Mclust====          
+mclust_input <- mclust_aug %>%  
+  filter(between(lam1, 30, 70)) %>%      # keep nearby magnitude lam1  
+  select(-c(.class, .uncertainty))  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 4 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",  
+#           pointsize = 1.5, palette = "jco")   
+
+# results ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+# nearest neighbor for whi_int is whi_kad - WY1990-2018  
+
+# * clean up global environment  
+rm(magSev,  
+   clust_input,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_input,  
+   mclust_means,  
+   mod,  
+   BIC)  
+
+```
+
+```{r 4m_add_best-fit_to--whi_int04-18}
+
+# 1 subset 'to' and 'from' gages   
+sta_to <- "whi_int"  
+sta_fr <- "whi_kad"  
+Ecoreg <- "White River Badlands"  
+Watshd <- "White Riv"  
+
+gage_to <- gage_dep %>%  
+  filter(sta %in% sta_to)  
+
+gage_from <- gage_dep %>%  
+  filter(sta %in% sta_fr) %>%  
+  mutate(sta = sta_to) %>%  
+  mutate(ecoreg = Ecoreg) %>%  
+  mutate(watshed = Watshd)   
+
+# 2 add any incomplete years  
+gage_poss <- gage_dep_orig %>%  
+  filter(sta %in% sta_to)  
+
+gage_to <- bind_rows(gage_poss, gage_to) %>%  
+  distinct()  
+
+# 2 make distinct records, check, join, and double-check   
+gage_check <- gage_to %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()   
+
+gage_from <- anti_join(gage_from, gage_to,  
+                        by = "date")  
+
+gage_mixed <- bind_rows(gage_from, gage_to)  
+
+gage_check <- gage_mixed %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+# 3 add records to 'gage_dep' and check  
+gage_dep <- bind_rows(gage_mixed, gage_dep) %>%  
+  distinct()  
+
+gage_check <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  
+
+# * clean up global environment   
+rm(gage_from,  
+   gage_mixed,  
+   gage_poss,  
+   gage_to,  
+   sta_fr,  
+   sta_to,  
+   Ecoreg,  
+   Watshd)  
+
+```
+
+```{r 4n_calculate_magSeven_statistics--wcc_ogl-88-98}
+
+# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
+#  the 'magnificant seven'   
+# Should get below into a purrr loop, but...  
+
+# 1    prepare EflowStats Input  -- for wcc_ogl-88-98====    
+magSev_in <- gage_dep %>%  
+  filter(between(date,  
+                 as.Date("1987-10-01"),  
+                 as.Date("1998-09-30"))) %>%  
+  as.data.frame() %>%  
+  select(sta,  
+         date,  
+         discharge = q1_depth, 
+         gage_group,  
+         ecoreg)  
+
+magSev_sta <- magSev_in %>%  
+  select(sta, ecoreg) %>%  
+  distinct() %>%  
+  filter(ecoreg != "Pierre Shale Plains" &  
+         ecoreg != "Black Hills Plateau") %>%  
+  arrange(sta)  
+
+# 2.1  calculate magnificant seven -- blc_wan====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blc_wan") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_blc_wan <- magSev_out %>%  
+  rename(blc_wan = statistic)  
+
+# 2.2  calculate magnificant seven -- blp_bel====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blp_bel") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_blp_bel <- magSev_out %>%  
+  rename(blp_bel = statistic)  
+
+# 2.3  calculate magnificant seven -- key_key====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_key") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_key <- magSev_out %>%  
+  rename(key_key = statistic)  
+
+# 2.4  calculate magnificant seven -- key_wew====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_wew") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_wew <- magSev_out %>%  
+  rename(key_wew = statistic)  
+
+# 2.5  calculate magnificant seven -- ros_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "ros_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_ros_ros <- magSev_out %>%  
+  rename(ros_ros = statistic)  
+
+# 2.6  calculate magnificant seven -- wcc_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wcc_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_ogl <- magSev_out %>%  
+  rename(wcc_ogl = statistic)  
+
+# 2.7  calculate magnificant seven -- whi_int====    
+magSev_out <- magSev_in %>%     # doesn't intersect with WY 1992-1997  
+  filter(sta == "whi_int") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_int <- magSev_out %>%  
+  rename(whi_int = statistic)  
+
+# 2.8  calculate magnificant seven -- whi_kad====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_kad") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_kad <- magSev_out %>%  
+  rename(whi_kad = statistic)  
+
+# 2.9  calculate magnificant seven -- whi_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_ogl <- magSev_out %>%  
+  rename(whi_ogl = statistic)  
+
+# 2.10 calculate magnificant seven -- whi_slm====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_slm") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_slm <- magSev_out %>%  
+  rename(whi_slm = statistic)  
+
+# 2.11 calculate magnificant seven -- whi_sta====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_sta") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_sta <- magSev_out %>%  
+  rename(whi_sta = statistic)  
+
+# 2.12 calculate magnificant seven -- whi_whi====    
+#magSev_out <- magSev_in %>%  
+#  filter(sta == "whi_whi") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_whi_whi <- magSev_out %>%  
+#  rename(whi_whi = statistic)  
+
+# 2.13 calculate magnificant seven -- wkc_wok====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wkc_wok") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wkc_wok <- magSev_out %>%  
+  rename(wkc_wok = statistic)  
+
+# 2.14 calculate magnificant seven -- lon_riv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lon_riv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lon_riv <- magSev_out %>%  
+  rename(lon_riv = statistic)  
+
+# 2.15 calculate magnificant seven -- lwr_aro====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_aro") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_aro <- magSev_out %>%  
+  rename(lwr_aro = statistic)  
+
+# 2.16 calculate magnificant seven -- lcr_abv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lcr_abv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lcr_abv <- magSev_out %>%  
+  rename(lcr_abv = statistic)  
+
+# 2.17 calculate magnificant seven -- lwr_mar====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_mar") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_mar <- magSev_out %>%  
+  rename(lwr_mar = statistic)  
+
+# 2.18 calculate magnificant seven -- lwr_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_ros <- magSev_out %>%  
+  rename(lwr_ros = statistic)  
+
+# 2.19 calculate magnificant seven -- lwr_vet====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_vet") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_vet <- magSev_out %>%  
+  rename(lwr_vet = statistic)  
+
+# 2.20 calculate magnificant seven -- lwr_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_whi <- magSev_out %>%  
+  rename(lwr_whi = statistic)  
+
+# 2.21 calculate magnificant seven -- nio_spa====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "nio_spa") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_nio_spa <- magSev_out %>%  
+  rename(nio_spa = statistic)  
+
+# 3    join magnificant seven and transpose matrix====    
+magSev <- bind_cols(mag_blc_wan,  
+                    mag_blp_bel,  
+                    mag_key_key,  
+                    mag_key_wew,  
+                    mag_lcr_abv,  
+                    mag_lon_riv,  
+                    mag_lwr_mar,  
+                    mag_lwr_aro,  
+                    mag_lwr_ros,   
+                    mag_lwr_vet,   
+                    mag_lwr_whi,   
+                    mag_nio_spa,  
+                    mag_ros_ros,  
+                    mag_wcc_ogl,  
+                    mag_whi_int,  
+                    mag_whi_kad,  
+                    mag_whi_ogl,  
+                    mag_whi_slm,  
+                    mag_whi_sta,  
+                    mag_wkc_wok) %>%  
+  # drop the duplicate indices  
+  select(-c(indice1,  
+            indice2,  
+            indice3,  
+            indice4,  
+            indice5,  
+            indice6,  
+            indice7,  
+            indice8,  
+            indice9,  
+            indice10,  
+            indice11,  
+            indice12,  
+            indice13,  
+            indice14,  
+            indice15,  
+            indice16,  
+            indice17,  
+            indice18,  
+            indice19)) %>%  
+  # transpose the matrix  
+  gather(sta, variable, blc_wan:wkc_wok) %>%  
+  spread(indice, variable)  
+
+# * clean up global environment====    
+rm(mag_blc_wan,  
+   mag_blp_bel,  
+   mag_key_key,  
+   mag_key_wew,  
+   mag_lcr_abv,  
+   mag_lon_riv,  
+   mag_lwr_mar,  
+   mag_lwr_aro,  
+   mag_lwr_ros,   
+   mag_lwr_vet,   
+   mag_lwr_whi,   
+   mag_nio_spa,  
+   mag_ros_ros,  
+   mag_wcc_ogl,  
+   mag_whi_int,  
+   mag_whi_kad,  
+   mag_whi_ogl,  
+   mag_whi_slm,  
+   mag_whi_sta,  
+   mag_wkc_wok,  
+   magSev_in,  
+   magSev_sta,  
+   magSev_out)  
+
+```
+
+```{r 4o_Mclust--wcc_ogl-88-98}
+
+# 1 make clustering inputs, find BIC and run Mclust====         
+mclust_input <- magSev  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 remake clustering inputs, find BIC and run Mclust====         
+mclust_input <- mclust_aug %>%  
+  filter(lam1 < 50) %>%   
+  select(-c(.class, .uncertainty))  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",  
+#           pointsize = 1.5, palette = "jco")  
+
+# results ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+# nearest neighbor for wcc_ogl is whi_sta - WY1988-2018  
+
+# * clean up global environment  
+rm(magSev,  
+   clust_input,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_input,  
+   mclust_means,  
+   mod,  
+   BIC)   
+
+```
+
+```{r 4p_add_best-fit_to--wcc_ogl-88-98}
+
+# 1 subset 'to' and 'from' gages   
+sta_to <- "wcc_ogl"  
+sta_fr <- "whi_sta"  
+Ecoreg <- "Pine Ridge Escarpment"  
+Watshd <- "White Riv"  
+
+gage_to <- gage_dep %>%  
+  filter(sta %in% sta_to)  
+
+gage_from <- gage_dep %>%  
+  filter(sta %in% sta_fr) %>%  
+  mutate(sta = sta_to) %>%  
+  mutate(ecoreg = Ecoreg) %>%  
+  mutate(watshed = Watshd)   
+
+# 2 add any incomplete years  
+gage_poss <- gage_dep_orig %>%  
+  filter(sta %in% sta_to)  
+
+gage_to <- bind_rows(gage_poss, gage_to) %>%  
+  distinct()  
+
+# 2 make distinct records, check, join, and double-check   
+gage_check <- gage_to %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()   
+
+gage_from <- anti_join(gage_from, gage_to,  
+                        by = "date")  
+
+gage_mixed <- bind_rows(gage_from, gage_to)  
+
+gage_check <- gage_mixed %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+# 3 add records to 'gage_dep' and check  
+gage_dep <- bind_rows(gage_mixed, gage_dep) %>%  
+  distinct()  
+
+gage_check <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  
+# note: the 364 days for wcc_ogl is ok because not keeping prior 1988  
+
+# * clean up global environment   
+rm(gage_from,  
+   gage_mixed,  
+   gage_poss,  
+   gage_to,  
+   sta_fr,  
+   sta_to,  
+   Ecoreg,  
+   Watshd)   
+
+```
+
+```{r 4q_calculate_magSeven_statistics--wkc_wok-93-97}
+
+# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
+#  the 'magnificant seven'   
+# Should get below into a purrr loop, but...  
+
+# 1    prepare EflowStats Input  -- for whi_sta89-18====     
+magSev_in <- gage_dep %>%  
+  filter(between(date,  
+                 as.Date("1992-10-01"),  
+                 as.Date("1997-09-30"))) %>%  
+  as.data.frame() %>%  
+  select(sta,  
+         date,  
+         discharge = q1_depth, 
+         gage_group,  
+         ecoreg)  
+
+magSev_sta <- magSev_in %>%  
+  select(sta, ecoreg) %>%  
+  distinct() %>%  
+  filter(ecoreg != "Pierre Shale Plains" &  
+         ecoreg != "Black Hills Plateau") %>%  
+  arrange(sta)  
+
+# 2.1  calculate magnificant seven -- blc_wan====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blc_wan") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_blc_wan <- magSev_out %>%  
+  rename(blc_wan = statistic)  
+
+# 2.2  calculate magnificant seven -- blp_bel====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blp_bel") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_blp_bel <- magSev_out %>%  
+  rename(blp_bel = statistic)  
+
+# 2.3  calculate magnificant seven -- key_key====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_key") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_key <- magSev_out %>%  
+  rename(key_key = statistic)  
+
+# 2.4  calculate magnificant seven -- key_wew====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_wew") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_wew <- magSev_out %>%  
+  rename(key_wew = statistic)  
+
+# 2.5  calculate magnificant seven -- ros_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "ros_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_ros_ros <- magSev_out %>%  
+  rename(ros_ros = statistic)  
+
+# 2.6  calculate magnificant seven -- wcc_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wcc_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_ogl <- magSev_out %>%  
+  rename(wcc_ogl = statistic)  
+
+# 2.7  calculate magnificant seven -- whi_int====    
+magSev_out <- magSev_in %>%     # doesn't intersect with WY 1992-1997  
+  filter(sta == "whi_int") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_int <- magSev_out %>%  
+  rename(whi_int = statistic)  
+
+# 2.8  calculate magnificant seven -- whi_kad====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_kad") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_kad <- magSev_out %>%  
+  rename(whi_kad = statistic)  
+
+# 2.9  calculate magnificant seven -- whi_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_ogl <- magSev_out %>%  
+  rename(whi_ogl = statistic)  
+
+# 2.10 calculate magnificant seven -- whi_slm====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_slm") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_slm <- magSev_out %>%  
+  rename(whi_slm = statistic)  
+
+# 2.11 calculate magnificant seven -- whi_sta====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_sta") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_sta <- magSev_out %>%  
+  rename(whi_sta = statistic)  
+
+# 2.12 calculate magnificant seven -- whi_whi====    
+#magSev_out <- magSev_in %>%  
+#  filter(sta == "whi_whi") %>%  
+#  select(-c(sta, gage_group, ecoreg)) %>%   
+#  calc_magnifSeven()  
+
+#mag_whi_whi <- magSev_out %>%  
+#  rename(whi_whi = statistic)  
+
+# 2.13 calculate magnificant seven -- wkc_wok====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wkc_wok") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wkc_wok <- magSev_out %>%  
+  rename(wkc_wok = statistic)  
+
+# 2.14 calculate magnificant seven -- lon_riv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lon_riv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lon_riv <- magSev_out %>%  
+  rename(lon_riv = statistic)  
+
+# 2.15 calculate magnificant seven -- lwr_aro====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_aro") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_aro <- magSev_out %>%  
+  rename(lwr_aro = statistic)  
+
+# 2.16 calculate magnificant seven -- lcr_abv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lcr_abv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lcr_abv <- magSev_out %>%  
+  rename(lcr_abv = statistic)  
+
+# 2.17 calculate magnificant seven -- lwr_mar====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_mar") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_mar <- magSev_out %>%  
+  rename(lwr_mar = statistic)  
+
+# 2.18 calculate magnificant seven -- lwr_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_ros <- magSev_out %>%  
+  rename(lwr_ros = statistic)  
+
+# 2.19 calculate magnificant seven -- lwr_vet====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_vet") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_vet <- magSev_out %>%  
+  rename(lwr_vet = statistic)  
+
+# 2.20 calculate magnificant seven -- lwr_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_whi <- magSev_out %>%  
+  rename(lwr_whi = statistic)  
+
+# 2.21 calculate magnificant seven -- nio_spa====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "nio_spa") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_nio_spa <- magSev_out %>%  
+  rename(nio_spa = statistic)  
+
+# 3    join magnificant seven and transpose matrix====    
+magSev <- bind_cols(mag_blc_wan,  
+                    mag_blp_bel,  
+                    mag_key_key,  
+                    mag_key_wew,  
+                    mag_lcr_abv,  
+                    mag_lon_riv,  
+                    mag_lwr_aro,  
+                    mag_lwr_mar,   
+                    mag_lwr_ros,   
+                    mag_lwr_vet,   
+                    mag_lwr_whi,  
+                    mag_nio_spa,  
+                    mag_ros_ros,  
+                    mag_wcc_ogl,  
+                    mag_whi_int,  
+                    mag_whi_kad,  
+                    mag_whi_ogl,  
+                    mag_whi_slm,  
+                    mag_whi_sta,  
+                    mag_wkc_wok) %>%  
+  # drop the duplicate indices  
+  select(-c(indice1,  
+            indice2,  
+            indice3,  
+            indice4,  
+            indice5,  
+            indice6,  
+            indice7,  
+            indice8,  
+            indice9,  
+            indice10,  
+            indice11,  
+            indice12,  
+            indice13,  
+            indice14,  
+            indice15,  
+            indice16,  
+            indice17,  
+            indice18,  
+            indice19)) %>%  
+  # transpose the matrix  
+  gather(sta, variable, blc_wan:wkc_wok) %>%  
+  spread(indice, variable)  
+
+# * clean up global environment====    
+rm(mag_blc_wan,  
+   mag_blp_bel,  
+   mag_key_key,  
+   mag_key_wew,  
+   mag_lcr_abv,  
+   mag_lon_riv,  
+   mag_lwr_aro,  
+   mag_lwr_mar,   
+   mag_lwr_ros,   
+   mag_lwr_vet,   
+   mag_lwr_whi,  
+   mag_nio_spa,  
+   mag_ros_ros,  
+   mag_wcc_ogl,  
+   mag_whi_int,  
+   mag_whi_kad,  
+   mag_whi_ogl,  
+   mag_whi_slm,  
+   mag_whi_sta,  
+   mag_wkc_wok,  
+   magSev_in,  
+   magSev_sta,  
+   magSev_out)   
+
+```
+
+```{r 4r_Mclust--wkc_wok-93-97}
+
+# 1 make clustering inputs, find BIC and run Mclust====    
+mclust_input <- magSev  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 remake clustering inputs, find BIC and run Mclust====         
+mclust_input <- mclust_aug %>% 
+  filter(between(lam1, 50, 130)) %>%   
+  select(-c(.class, .uncertainty))  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 5 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 6 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",  
+#           pointsize = 1.5, palette = "jco")  
+
+# results ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+# nearest neighbor for wkc_wok is key_key    
+
+# * clean up global environment  
+rm(magSev,  
+   clust_input,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_input,  
+   mclust_means,  
+   mod,  
+   BIC)  
+
+```
+
+```{r 4s_add_best-fit_to--wkc_wok-93-97}
+
+# 1 subset 'to' and 'from' gages   
+sta_to <- "wkc_wok"  
+sta_fr <- "key_key"  
+Ecoreg <- "Keya Paha Tablelands"  
+Watshd <- "White Riv"  
+
+gage_to <- gage_dep %>%  
+  filter(sta %in% sta_to)  
+
+gage_from <- gage_dep %>%  
+  filter(sta %in% sta_fr) %>%  
+  mutate(sta = sta_to) %>%  
+  mutate(ecoreg = Ecoreg) %>%  
+  mutate(watshed = Watshd)   
+
+# 2 add any incomplete years  
+gage_poss <- gage_dep_orig %>%  
+  filter(sta %in% sta_to)  
+
+gage_to <- bind_rows(gage_poss, gage_to) %>%  
+  distinct()  
+
+# 2 make distinct records, check, join, and double-check   
+gage_check <- gage_to %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()   
+
+gage_from <- anti_join(gage_from, gage_to,  
+                        by = "date")  
+
+gage_mixed <- bind_rows(gage_from, gage_to)  
+
+gage_check <- gage_mixed %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+# 3 add records to 'gage_dep' and check  
+gage_dep <- bind_rows(gage_mixed, gage_dep) %>%  
+  distinct()  
+
+gage_check <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  
+
+# * clean up global environment   
+rm(gage_from,  
+   gage_mixed,  
+   gage_poss,  
+   gage_to,  
+   sta_fr,  
+   sta_to,  
+   Ecoreg,  
+   Watshd)  
+
+```
+
+```{r 4t_calculate_magSeven_statistics--che_red}
+
+# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
+#  the 'magnificant seven'   
+# Should get below into a purrr loop, but...  
+
+# 1    prepare EflowStats Input  -- for whi_sta89-18====    
+magSev_in <- gage_dep %>%  
+  filter(between(date,  
+                 as.Date("1999-10-01"),  
+                 as.Date("2018-09-30"))) %>%  
+  as.data.frame() %>%  
+  select(sta,  
+         date,  
+         discharge = q1_depth,  
+         gage_group,  
+         ecoreg)  
+
+magSev_sta <- magSev_in %>%  
+  select(sta, gage_group, ecoreg) %>%  
+  distinct() %>%  
+  filter(ecoreg == "Pierre Shale Plains") %>%  
+  filter(gage_group != "Pierre Shale Low") %>%  
+  arrange(sta)  
+
+# 2.1  calculate magnificant seven -- bat_bhr====   
+magSev_out <- magSev_in %>%  
+  filter(sta == "bat_bhr") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_bat_bhr <- magSev_out %>%  
+  rename(bat_bhr = statistic)  
+
+# 2.2  calculate magnificant seven -- che_buf====   
+magSev_out <- magSev_in %>%  
+  filter(sta == "che_buf") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_che_buf <- magSev_out %>%  
+  rename(che_buf = statistic)  
+
+# 2.3  calculate magnificant seven -- che_pla====   
+magSev_out <- magSev_in %>%  
+  filter(sta == "che_pla") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_che_pla <- magSev_out %>%  
+  rename(che_pla = statistic)  
+
+# 2.4  calculate magnificant seven -- che_red====   
+magSev_out <- magSev_in %>%  
+  filter(sta == "che_red") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_che_red <- magSev_out %>%  
+  rename(che_red = statistic)  
+
+# 2.5  calculate magnificant seven -- che_sce====   
+magSev_out <- magSev_in %>%  
+  filter(sta == "che_sce") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_che_sce <- magSev_out %>%  
+  rename(che_sce = statistic)  
+
+# 2.6  calculate magnificant seven -- che_was====   
+magSev_out <- magSev_in %>%  
+  filter(sta == "che_was") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_che_was <- magSev_out %>%  
+  rename(che_was = statistic)  
+
+# 2.7  calculate magnificant seven -- whi_oac====   
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_oac") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_oac <- magSev_out %>%  
+  rename(whi_oac = statistic)  
+
+# 3    join magnificant seven and transpose matrix====   
+magSev <- bind_cols(mag_bat_bhr,   
+                    mag_che_buf,  
+                    mag_che_pla,  
+                    mag_che_red,  
+                    mag_che_sce,  
+                    mag_che_was,  
+                    mag_whi_oac) %>%  
+  # drop the duplicate indices  
+  select(-c(indice1,  
+            indice2,  
+            indice3,  
+            indice4,  
+            indice5,  
+            indice6)) %>%  
+  # transpose the matrix  
+  gather(sta, variable, bat_bhr:whi_oac) %>%  
+  spread(indice, variable)  
+
+# results----  
+# the closest lam1 is downstream che_buf ~ but not extra data,  
+#   so che_sce ~ also not extra data, so che_was  
+
+# * clean up global environment====    
+rm(mag_bat_bhr,   
+   mag_che_buf,  
+   mag_che_pla,  
+   mag_che_red,  
+   mag_che_sce,  
+   mag_che_was,  
+   mag_whi_oac,  
+   magSev_in,  
+   magSev_sta,  
+   magSev_out)  
+
+```
+
+```{r 4u_add_best-fit_to--che-red}
+
+# 1 subset 'to' and 'from' gages   
+sta_to <- "che_red"  
+sta_fr <- "che_was"  
+Ecoreg <- "Pierre Shale Plains"  
+Watshd <- "Cheyenne"  
+
+gage_to <- gage_dep %>%  
+  filter(sta %in% sta_to)  
+
+gage_from <- gage_dep %>%  
+  filter(sta %in% sta_fr) %>%  
+  mutate(sta = sta_to) %>%  
+  mutate(ecoreg = Ecoreg) %>%  
+  mutate(watshed = Watshd)   
+
+# 2 add any incomplete years  
+gage_poss <- gage_dep_orig %>%  
+  filter(sta %in% sta_to)  
+
+gage_to <- bind_rows(gage_poss, gage_to) %>%  
+  distinct()  
+
+# 2 make distinct records, check, join, and double-check   
+gage_check <- gage_to %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()   
+
+gage_from <- anti_join(gage_from, gage_to,  
+                        by = "date")  
+
+gage_mixed <- bind_rows(gage_from, gage_to)  
+
+gage_check <- gage_mixed %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+# 3 add records to 'gage_dep' and check  
+gage_dep <- bind_rows(gage_mixed, gage_dep) %>%  
+  distinct()  
+
+gage_check <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  
+
+# * clean up global environment   
+rm(gage_from,  
+   gage_mixed,  
+   gage_poss,  
+   gage_to,  
+   sta_fr,  
+   sta_to,  
+   Ecoreg,  
+   Watshd,  
+   magSev)   
+
+```
+
+```{r 4v_subset_final_records}
+
+gage_dep_fin <- semi_join(gage_dep, ref_gage, 
+                          by = "sta") %>%  
+  filter(between(date,  
+                 as.Date("1988-10-01"),  
+                 as.Date("2018-09-30"))) %>%  
+  as.data.frame() 
+
+gage_check <- gage_dep_fin %>%  
+  group_by(waterYear, sta) %>%  
+  summarise(count = n())   
+
+# * clean up global environment  
+rm(gage_check,  
+   gage_dep_orig,  
+   gage_dep)   
+
+```
+
+
+
+
+
+
+## exploratory clustering -- reference gages
+```{r 02a_Mclust-model_bhp}
+
+# 1 make clustering inputs       
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create a bhplat group from list based (mostly) on high slope  
+grp_bhp <- mclust_aug %>%  
+  filter(.class == 2) %>%  
+  mutate(class = "BH Plateau") %>%  
+  filter(ecoreg == "Black Hills Plateau")   
+
+# 6 update list  
+mclust_in <- anti_join(mclust_in, grp_bhp,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_bhp,  
+                       by = "sta")  
+
+```
+
+```{r 02b_Mclust-model_chey}
+
+# 1 make clustering inputs      
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create a Cheyenne River gages from list  
+grp_che <- mclust_aug %>%  
+  filter(.class == 3) %>%  
+  mutate(class = "Cheyenne River")  
+
+# 5 update list  
+mclust_in <- anti_join(mclust_in, grp_che,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_che,  
+                       by = "sta")  
+
+```
+
+```{r 02c_Mclust-model_sndK}
+
+# 1 make clustering inputs   
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust====    
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model====    
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 Create a SH Keya group from list  
+grp_sndK <- mclust_aug %>%  
+  filter(.class == 3) %>%  
+  mutate(class = "SH Keya")  
+
+# 6 update list  
+mclust_in <- anti_join(mclust_in, grp_sndK,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_sndK,  
+                       by = "sta")  
+
+```
+
+```{r 02e_Mclust-model_sndV}
+
+# 1 make initial clustering inputs====        
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create White River upper group 
+grp_sndV <- mclust_aug %>%  
+  filter(.class == 3) %>%  
+  mutate(class = "Sandhills Vetal")  
+
+# 6 update list  
+mclust_in <- anti_join(mclust_in, grp_sndV,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_sndV,  
+                       by = "sta")  
+
+```
+
+```{r 02d_Mclust-model_whrL}
+
+# 1 make initial clustering inputs====        
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create a White Clay group from list  
+grp_whrL <- mclust_aug %>%  
+  filter(.class == 1) %>%  
+  mutate(class = "White River")  
+
+# 5 update list  
+mclust_in <- anti_join(mclust_in, grp_whrL,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_whrL,  
+                       by = "sta")  
+
+```
+
+```{r 02f_Mclust-model_wcc}
+
+# 1 make initial clustering inputs====         
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create Keya Paha group  
+grp_wcc <- mclust_aug %>%  
+  filter(.class == 4) %>%  
+  mutate(class = "White Clay Creek")  
+
+# 6 update list  
+mclust_in <- anti_join(mclust_in, grp_wcc,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_wcc,  
+                       by = "sta")  
+
+```
+
+```{r 02g_Mclust-model_whrU} 
+
+# 1 make initial clustering inputs====       
+clust_input <- mclust_in  %>%   
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create a white river upper group  
+grp_whrU <- mclust_aug %>%  
+  filter(.class == 4) %>%  
+  mutate(class = "White River Upper")  
+
+# 6 update list of gages  
+mclust_in <- anti_join(mclust_in, grp_whrU,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_whrU,  
+                       by = "sta")  
+
+```
+
+```{r 02h_Mclust-model_tablelands}
+
+# 1 make initial clustering inputs====       
+clust_input <- mclust_in  %>%   
+  select(-c(sta:gage_group)) # get rid of cat data    
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)   
+
+mod <- Mclust(clust_input, x = BIC)    
+
+# 3 get Mclust model results and tidy the Mclust model   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)    
+mclust_means <- tidy(mod)    
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create a Tablelands group  
+grp_tab <- mclust_aug %>%  
+  filter(.class == 3) %>%  
+  mutate(class = "Tablelands")  
+
+# 6 update list  
+mclust_in <- anti_join(mclust_in, grp_tab,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_tab,  
+                       by = "sta")  
+
+```
+
+```{r 02i_Mclust-model_sndL}
+
+# 1 make initial clustering inputs====       
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust 
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 4 remove Piere Shale Low gages from list  
+grp_psL <- mclust_aug %>%  
+  filter(.class == 3) %>%  
+  mutate(class = "Pierre Shale Low")  
+
+# 5 update list  
+mclust_in <- anti_join(mclust_in, grp_psL,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_psL,  
+                       by = "sta")  
+
+```
+
+```{r 02j_Mclust-model_blc}
+
+# 1 make initial clustering inputs====        
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 5 create a Badlands Lower group  
+grp_badL <- mclust_aug %>%  
+  filter(.class == 3) %>%  
+  mutate(class = "Badlands Lower")  
+
+# 6 update list  
+mclust_in <- anti_join(mclust_in, grp_badL,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_badL,  
+                       by = "sta")  
+
+```
+
+```{r 02k_Mclust-model_sndL}
+
+# 1 make initial clustering inputs====       
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 4 create Wounded Knee gage group  
+grp_sndL <- mclust_aug %>%  
+  filter(.class == 5 |  
+         .class == 6 |  
+         .class == 7) %>%  
+  mutate(class = "Sand Hills LaCreek")  
+
+# 5 update list  
+mclust_in <- anti_join(mclust_in, grp_sndL,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_sndL,  
+                       by = "sta")  
+```
+
+```{r 02l_Mclust-model_blc}
+
+# 1 make initial clustering inputs====       
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 4 create Wounded Knee gage group  
+grp_blc <- mclust_aug %>%  
+  filter(.class == 2) %>%  
+  mutate(class = "Bear Lodge")  
+
+# 5 update list  
+mclust_in <- anti_join(mclust_in, grp_blc,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_blc,  
+                       by = "sta")  
+```
+
+```{r 02l_Mclust-model_blc}
+
+# 1 make initial clustering inputs====       
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust  
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+fviz_mclust(mod, "classification", geom = "point",  
+            pointsize = 1.5, palette = "jco")  
+
+# 4 create Wounded Knee gage group  
+grp_blc <- mclust_aug %>%  
+  filter(.class == 2) %>%  
+  mutate(class = "Bear Lodge")  
+
+# 5 update list  
+mclust_in <- anti_join(mclust_in, grp_blc,  
+                       by = "sta")  
+
+mclust_input <- anti_join(mclust_input, grp_blc,  
+                       by = "sta")  
+```
+
+
+## final clusters -- reference gages  
+<!-- 
+Create final clusters with a goal of grouping ungaged catchments with  
+nearest neighbors.  
+-->  
+
+```{r 03a_Mclust-final_badlands}
+
+# 1 bind the badlands values for reclustering====   
+grp_badlands <- bind_rows(grp_bad,  
+                          grp_whrl,  
+                          grp_whru)  %>%  
+  select(class, everything()) %>%   
+  select(-c(.class, .uncertainty))   
+
+# 2 make final clustering inputs, find BIC and run Mclust====       
+mclust_input <- grp_badlands  
+
+clust_input <- mclust_input %>%  
+  select(-c(class:gage_group)) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 5 make final choices====    
+grp_badlands <- mclust_aug %>%  
+  filter(watshed == "White Riv") %>%    
+  mutate(gage = case_when(  
+    .class == 1 ~ "blc_wan",  
+    .class == 2 ~ "blp_bel",  
+    sta == "WHR4" ~ "whi_kad",  
+    sta == "WHR5" ~ "whi_int",  
+    sta == "WHR3" ~ "whi_int",  
+    sta == "WHR2" ~ "whi_ogl",      
+    sta == "WHR1" ~ "whi_sta"))  %>%  
+  filter(!is.na(gage))   
+
+# * clean up global values  
+rm(grp_bad,  
+   grp_whrl,  
+   grp_whru)  
+
+```
+
+```{r 03b_Mclust-final_cheyenne}
+
+grp_che <- grp_che %>%  
+  mutate(gage = case_when(  
+    type == 'ungaged' ~ "che_red")) %>%  
+  filter(!is.na(gage))  
+
+```
+
+```{r 03c_Mclust-final_sand-hills1}
+
+# 1 bind the sandhills observations for reclustering====   
+grp_sndhil <- bind_rows(grp_snd1,  
+                        grp_snd2,  
+                        grp_sndV) %>%  
+  select(class, gage_group, everything()) %>%   
+  select(-c(.class, .uncertainty))    
+
+# 2 make final clustering inputs, find BIC and run Mclust====       
+mclust_input <- grp_sndhil  
+
+clust_input <- mclust_input %>%  
+  select(-c(class:watshed)) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 5 final choices for sandhills and outliers====    
+grp_sndhil <- mclust_aug %>%  
+  mutate(gage = case_when(  
+    .class == 3 ~ "lwr_mar",  
+    .class == 8 ~ "lwr_mar",  
+    .class == 9 ~ "lwr_mar",  
+    .class == 4 ~ "lwr_vet")) %>%  
+    filter(!is.na(gage))  
+
+rm(grp_snd1,  
+   grp_snd2,  
+   grp_sndV)  
+
+```
+
+```{r 03d_Mclust-final_wok}
+
+grp_wok <- grp_wok %>%  
+  mutate(gage = case_when(  
+    type == 'ungaged' ~ "wkc_wok")) %>%  
+  filter(!is.na(gage))  
+
+```
+
+```{r 03e_Mclust-final_wcc_&_blc}
+
+#  it's difficult to identify the remaining values; so reshuffling gaged and 
+#  remaining ungaged values and reclassifying   
+
+# 1 split data into selected and unselected====   
+grp_selected <- bind_rows(grp_badlands,  
+                          grp_che,  
+                          grp_sndhil,  
+                          grp_wok) %>%  
+  filter(type == "ungaged")  
+
+grp_unselected <- anti_join(mclust_input_all, grp_selected,  
+                            by = "sta")  
+
+# 2 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_unselected  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 3 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 4 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 quick visual results====  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 6 final choices for upper White River tributary sites  ====    
+grp_uppr_tribs <- mclust_aug %>%  
+  mutate(gage = case_when(  
+    .class == 3 ~ "blc_wan",  
+    .class == 8 ~ "wcc_ogl")) %>%  
+  filter(!is.na(gage))  
+
+# 7 prepare to look at some sandhills stations by themselves====   
+grp_sndhil <- mclust_aug %>%  
+  filter(.class == 6)  
+
+# * clean up global environment  
+rm(grp_badlands,  
+   grp_che,  
+   grp_wok)  
+
+```
+
+```{r 03f_add_Mclust_sand-hills2}
+
+# 1 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_sndhil  
+
+mclust_in <- mclust_input %>%  
+  select(sta:watshed, gage_group, everything())  %>%  
+  select(-c(.class:.uncertainty))  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 final choices for sandhills====    
+grp_sndhil <- mclust_aug %>%  
+  mutate(gage = case_when(  
+    sta == "LWR3" ~ "lwr_mar",  
+    sta == "LWR4" ~ "lwr_vet")) %>%   
+  filter(!is.na(gage))  
+
+# * clean up global environment  
+rm(grp_bhp, 
+   grp_kpt,  
+   grp_kpt1,  
+   grp_kpt2,  
+   grp_med,  
+   grp_out,  
+   grp_psh,  
+   grp_psh1,  
+   grp_psl)  
+
+```
+
+```{r 03g_check_Mclust-vals1}
+
+#  it's difficult to identify the remaining values, so reshuffling  
+#  gaged and remaining ungaged values and reclassifying   
+
+# 1 split data into selected and unselected====   
+grp_selected <- bind_rows(grp_selected,  
+                          grp_uppr_tribs,  
+                          grp_sndhil) %>%  
+  filter(type == "ungaged")  
+
+grp_unselected <- anti_join(mclust_input_all, grp_selected,  
+                            by = "sta")  
+
+# 2 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_unselected  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 3 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 4 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 6 redo some sandhills fringe stations by themselves====   
+grp_sndhil <- mclust_aug %>%  
+  filter(.class == 7)  
+
+# * clean up global environment  
+rm(grp_uppr_tribs)  
+
+```
+
+```{r 03h_add_Mclust_sand-hills_fringe}
+
+# 1 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_sndhil  
+
+mclust_in <- mclust_input %>%  
+  select(sta:watshed, gage_group, everything()) %>%  
+  select(-c(.class:.uncertainty))  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results====  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 5 final choices for sandhills and outliers====    
+grp_med_tribs <- mclust_aug %>%  
+  mutate(gage = case_when(  
+    sta == "LOD1" ~ "wkc_wok",  
+    sta == "CRA1" ~ "wkc_wok")) %>%    
+  filter(!is.na(gage))   
+
+```
+
+```{r 03i_check_Mclust-vals2}
+
+#   it's difficult to identify the remaining values, so reshuffling  
+#   the gaged and remaining ungaged values and reclassifying   
+
+# 1 split data into selected and unselected====   
+grp_selected <- bind_rows(grp_selected,  
+                          grp_med_tribs) %>%  
+  filter(type == "ungaged")  
+
+grp_unselected <- anti_join(mclust_input_all, grp_selected,  
+                            by = "sta") %>%  
+  filter(watshed != "Bad River") %>%  
+  filter(watshed != "Cheyenne") %>%  
+  filter(watshed != "Niobrara")   
+
+# 2 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_unselected  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 3 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 4 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 6 redo some badlands & sandhills fringe stations by themselves  
+grp_badl <- mclust_aug %>%  
+  filter(.class == 1)  
+
+grp_sndhil <- mclust_aug %>%  
+  filter(.class == 2)  
+
+rm(grp_med_tribs)  
+
+```
+
+```{r 03j_add_Mclust_final_badlands_fringe}
+
+# 1 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_badl  
+
+mclust_in <- mclust_input %>%  
+  select(sta:watshed, gage_group, everything())  %>%  
+  select(-c(.class:.uncertainty))  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 5 final choices for badlands fringe====    
+grp_badl <- mclust_aug %>%  
+  mutate(gage = case_when(  
+    sta == "PAS2" ~ "blc_wan")) %>%   
+  filter(!is.na(gage))  
+
+```
+
+```{r 03k_check_Mclust-vals3}
+
+#   it's difficult to identify the remaining values, so reshuffling  
+#   the gaged and remaining ungaged values and reclassifying   
+
+# 1 split data into selected and unselected====   
+grp_selected <- bind_rows(grp_selected,  
+                          grp_badl) %>%  
+  filter(type == "ungaged")  
+
+# 2 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_sndhil %>%  
+  select(-c(.class, .uncertainty))  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 3 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 4 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 6 redo some sandhills fringe stations by themselves  
+grp_sndhil <- mclust_aug %>%  
+  filter(.class == 4)  
+
+# * clean up global environment  
+rm(grp_badl)  
+
+```
+
+```{r 03l_add_Mclust_sand-hills_fringe}
+
+# 1 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_sndhil  
+
+mclust_in <- mclust_input %>%  
+  select(sta:watshed, gage_group, everything()) %>%  
+  select(-c(.class:.uncertainty))  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 2 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results====  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 5 drop furthest out station  
+grp_sndhil <- mclust_aug %>%  
+  filter(.class != 1)  
+
+# 6 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_sndhil  
+
+mclust_in <- mclust_input %>%  
+  select(sta:watshed, gage_group, everything()) %>%  
+  select(-c(.class:.uncertainty))  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 7 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 8 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 9 quick visual results====  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 10 drop furthest out station  
+grp_sndhil <- mclust_aug %>%  
+  filter(.class != 2)  
+
+# 11 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_sndhil  
+
+mclust_in <- mclust_input %>%  
+  select(sta:watshed, gage_group, everything()) %>%  
+  select(-c(.class:.uncertainty))  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 12 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 13 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 14 quick visual results====  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 15 drop furthest out station  
+grp_sndhil <- mclust_aug %>%  
+  filter(.class != 2)  
+
+# 16 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_sndhil  
+
+mclust_in <- mclust_input %>%  
+  select(sta:watshed, gage_group, everything()) %>%  
+  select(-c(.class:.uncertainty))  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 17 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 18 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 19 quick visual results====  
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 20 final choices for badlands fringe====    
+grp_sndhil <- mclust_aug %>%  
+  mutate(gage = case_when(  
+    .class == "1" ~ "ros_ros")) %>%   
+  filter(!is.na(gage))  
+
+``` 
+
+```{r 03m_add-Mclust_keya-final}
+
+#   it's difficult to identify the remaining values, so reshuffling  
+#   the gaged and remaining ungaged values and reclassifying   
+
+# 1 split data into selected and unselected  
+grp_selected <- bind_rows(grp_selected,  
+                          grp_sndhil) %>%  
+  filter(type == "ungaged")  
+
+grp_unselected <- anti_join(mclust_input_all, grp_selected,  
+                            by = "sta")  
+
+# 2 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_unselected  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 3 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 4 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 6 redo some badlands & sandhills fringe stations by themselves  
+grp_keya <- mclust_aug %>%  
+  filter(.class == 8 |  
+         .class == 3)  
+
+# 7 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_keya %>%  
+  select(-c(.class, .uncertainty))  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 8 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 9 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 10 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 11 filter to get stations by themselves  
+grp_keya <- mclust_aug %>%  
+  filter(.class != "4" &  
+         .class != "5")  
+
+# 12 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_keya %>%  
+  select(-c(.class, .uncertainty))  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 8 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 9 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 10 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 11 filter to get stations by themselves  
+grp_keya <- mclust_aug %>%  
+  filter(.class != "2" &  
+         .class != "3" &  
+         .class != "4" &  
+         .class != "6")   
+
+# 12 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_keya %>%  
+  select(-c(.class, .uncertainty))  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 13 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 14 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 15 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 16 filter to get stations by themselves  
+grp_keya <- mclust_aug %>%  
+  filter(.class != "1")   
+
+# 17 standardize data for mclust & make final clustering inputs====     
+mclust_input <- grp_keya %>% 
+  select(-c(.class, .uncertainty))  
+
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+clust_input <- mclust_in  %>%  
+  select(-c(sta:gage_group)) # get rid of cat data   
+
+# 18 find Bayesian Information Criterion and run Mclust====   
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 19 get Mclust model results and tidy the Mclust model====   
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 20 quick visual results====   
+#fviz_mclust(mod, "classification", geom = "point",  
+#            pointsize = 1.5, palette = "jco")  
+
+# 21 choose final locations  
+grp_keya <- mclust_aug %>%  
+  mutate(gage = "wkc_wok") %>%   
+  filter(!is.na(gage))  
+
+# 22 add keya paha to selected gages & rename unselected as gaged====   
+grp_selected <- bind_rows(grp_selected,  
+                          grp_keya) %>%  
+  filter(type == "ungaged")  
+
+grp_gaged <- grp_unselected %>%  
+  filter(type == "gaged")  
+
+# * clean up global environment  
+rm(clust_input,  
+   grp_keya,  
+   grp_sndhil,  
+   grp_unselected,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_in,  
+   mclust_in_all, 
+   mclust_input, 
+   mclust_input_all,  
+   mclust_means,  
+   mod,  
+   BIC)  
+
+```
+
+# fill missing data  
+```{r 04a_import_munge_data_for_stats}     
+
+# 1 import gage metadata & join ecoreg data====   
+gage_meta <- import("data/gage_meta.csv") %>%  
+  select(sta,  
+         years_rec:apparent_yrs,  
+         dec_lat_va,  
+         dec_long_va)  
+
+gage_eco <- wsd_summary %>%  
+  select(sta, ecoreg) %>%  
+  filter(ecoreg != "")  
+
+gage_meta <- right_join(gage_meta, gage_eco,  
+                        by = "sta")  
+
+# 2 get gage depts & join ecoreg data====   
+gage_dep_orig   <- import("data/gage_depth.csv") %>%  
+  mutate(date = ymd(Date)) %>%  
+  group_by(sta, waterYear) %>%  
+  mutate(count = n())  %>%  
+  ungroup() %>%  
+  select(-site_no)  
+
+gage_dep_orig <- right_join(gage_dep_orig, grp_gaged,  
+                        by = "sta") %>%   
+  select(sta,  
+         date,  
+         waterYear,  
+         q1_depth,  
+         watshed,  
+         gage_group,  
+         ecoreg,  
+         count)  
+
+# 3 need to remove incomplete years for magSeven() below  
+gage_dep <- gage_dep_orig %>%  
+  filter(count > 364)  
+
+# 4 prepare ungaged and reference gage dfs====   
+grp_selected <- grp_selected %>%  
+  select(sta, gage)  
+
+ref_gage <- grp_selected %>%  
+  select(gage) %>%  
+  distinct()  
+
+ref_gage <- semi_join(gage_meta, ref_gage,  
+                  by = c("sta" = "gage")) %>%  
+  rename(dec_lat = dec_lat_va) %>%  
+  rename(dec_lon = dec_long_va)  
+
+# 5 find gages to fill incomplete reference gage====   
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+# taking a look at ref_gage -- there's 13 gages representing the 45 ungaged  
+# EMAP stations.    
+#   Cheyenne River stas (n = 2) are represented by che_red -- WY 2000-2018  
+#   Sandhills stations (n = 6) are represented by lwr_mar & lwr_vet --  
+#       lwr_mar & lwr_vet are complete for the period of record.  
+#   Tertiary stations (n = 37) are represented by 10 stations  
+#       the longest incomplete station is whi_sta -- WY 1988-2018  
+#   We are going to use this period of record for SSI calculations  
+#   the next shortest record is:   
+#         blp_bel -- WY 1992-2018 -> fit with whi_kad,  
+#   then, blc_wan -- WY 1995-2018 -> fit with key_wew,  
+#   then, ros_ros -- WY 1980-2004 -> fit with lwr_ros,  
+#   then, whi_int -- WY 2004-2018 -> fit with blp_bel,  
+#   then, wcc_ogl -- WY 1988-1998 -> fit with whi_sta,  
+#   then, wkc_wok -- WY 1992-1997 -> fit with wcc_ogl  
+
+gage_check <- gage_dep %>%  
+  filter(sta == "whi_sta") %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))  %>%  
+  ungroup()  
+
+```
+
+```{r 04b_calculate_magSeven_statistics--blp_bel92-18}
+
+# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
+#  the 'magnificant seven'    
+# Should get below into a purrr loop, but...   
+
+# 1    prepare EflowStats Input  -- for whi_sta89-18====    
+magSev_in <- gage_dep %>%  
+  filter(between(date,  
+                 as.Date("1992-10-01"),  
+                 as.Date("2018-09-30"))) %>%  
+  as.data.frame() %>%  
+  select(sta,  
+         date,  
+         discharge = q1_depth, 
+         gage_group,  
+         ecoreg)  
+
+magSev_sta <- magSev_in %>%  
+  select(sta, gage_group, ecoreg) %>%  
+  distinct() %>%  
+  filter(ecoreg != "Pierre Shale Plains" &  
+         ecoreg != "Black Hills Plateau") %>%  
+  arrange(sta)  
+
+# 2.1  calculate magnificant seven -- blc_wan====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blc_wan") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%  
+  calc_magnifSeven()  
+
+mag_blc_wan <- magSev_out %>%  
+  rename(blc_wan = statistic)  
+
+# 2.2  calculate magnificant seven -- blp_bel====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "blp_bel") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_blp_bel <- magSev_out %>%  
+  rename(blp_bel = statistic)  
+
+# 2.3  calculate magnificant seven -- key_key====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_key") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_key <- magSev_out %>%  
+  rename(key_key = statistic)  
+
+# 2.4  calculate magnificant seven -- key_wew====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "key_wew") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_key_wew <- magSev_out %>%  
+  rename(key_wew = statistic)  
+
+# 2.5  calculate magnificant seven -- ros_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "ros_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_ros_ros <- magSev_out %>%  
+  rename(ros_ros = statistic)  
+
+# 2.6  calculate magnificant seven -- wcc_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wcc_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_ogl <- magSev_out %>%  
+  rename(wcc_ogl = statistic)  
+
+# 2.7  calculate magnificant seven -- whi_int====    
+magSev_out <- magSev_in %>%     # doesn't intersect with WY 1992-1997  
+  filter(sta == "whi_int") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_int <- magSev_out %>%  
+  rename(whi_int = statistic)  
+
+# 2.8  calculate magnificant seven -- whi_kad====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_kad") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_kad <- magSev_out %>%  
+  rename(whi_kad = statistic)  
+
+# 2.9  calculate magnificant seven -- whi_ogl====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_ogl") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_ogl <- magSev_out %>%  
+  rename(whi_ogl = statistic)  
+
+# 2.10 calculate magnificant seven -- whi_slm====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_slm") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_slm <- magSev_out %>%  
+  rename(whi_slm = statistic)  
+
+# 2.11 calculate magnificant seven -- whi_sta====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_sta") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_sta <- magSev_out %>%  
+  rename(whi_sta = statistic)  
+
+# 2.12 calculate magnificant seven -- whi_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "whi_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_whi_whi <- magSev_out %>%  
+  rename(whi_whi = statistic)  
+
+# 2.13 calculate magnificant seven -- wkc_wok====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "wkc_wok") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_wcc_wok <- magSev_out %>%  
+  rename(wkc_wok = statistic)  
+
+# 2.14 calculate magnificant seven -- lon_riv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lon_riv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lon_riv <- magSev_out %>%  
+  rename(lon_riv = statistic)  
+
+# 2.15 calculate magnificant seven -- lwr_aro====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_aro") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_aro <- magSev_out %>%  
+  rename(lwr_aro = statistic)  
+
+# 2.16 calculate magnificant seven -- lcr_abv====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lcr_abv") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lcr_abv <- magSev_out %>%  
+  rename(lcr_abv = statistic)  
+
+# 2.17 calculate magnificant seven -- lwr_mar====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_mar") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_mar <- magSev_out %>%  
+  rename(lwr_mar = statistic)  
+
+# 2.18 calculate magnificant seven -- lwr_ros====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_ros") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_ros <- magSev_out %>%  
+  rename(lwr_ros = statistic)  
+
+# 2.19 calculate magnificant seven -- lwr_vet====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_vet") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_vet <- magSev_out %>%  
+  rename(lwr_vet = statistic)  
+
+# 2.20 calculate magnificant seven -- lwr_whi====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "lwr_whi") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_lwr_whi <- magSev_out %>%  
+  rename(lwr_whi = statistic)  
+
+# 2.21 calculate magnificant seven -- nio_spa====    
+magSev_out <- magSev_in %>%  
+  filter(sta == "nio_spa") %>%  
+  select(-c(sta, gage_group, ecoreg)) %>%   
+  calc_magnifSeven()  
+
+mag_nio_spa <- magSev_out %>%  
+  rename(nio_spa = statistic)  
+
+# 3    join magnificant seven and transpose matrix====    
+magSev <- bind_cols(mag_blc_wan,  
+                    mag_blp_bel,  
+                    mag_key_key,  
+                    mag_key_wew,  
+                    mag_ros_ros,  
+                    mag_wcc_ogl,  
+                    mag_whi_int,  
+                    mag_whi_kad,  
+                    mag_whi_ogl,  
+                    mag_whi_slm,  
+                    mag_whi_sta,  
+                    mag_whi_whi,  
+                    mag_wcc_wok,  
+                    mag_lon_riv,  
+                    mag_lwr_aro,  
+                    mag_lcr_abv,  
+                    mag_lwr_mar,   
+                    mag_lwr_ros,   
+                    mag_lwr_vet,   
+                    mag_lwr_whi,   
+                    mag_nio_spa) %>%  
+  # drop the duplicate indices  
+  select(-c(indice1,  
+            indice2,  
+            indice3,  
+            indice4,  
+            indice5,  
+            indice6,  
+            indice7,  
+            indice8,  
+            indice9,  
+            indice10,  
+            indice11,  
+            indice12,  
+            indice13,  
+            indice14,  
+            indice15,  
+            indice16,  
+            indice17,  
+            indice18,  
+            indice19,  
+            indice20)) %>%  
+  # transpose the matrix  
+  gather(sta, variable, blc_wan:nio_spa) %>%  
+  spread(indice, variable)  
+
+# * clean up global environment====    
+rm(mag_blc_wan,  
+   mag_blp_bel,  
+   mag_key_key,  
+   mag_key_wew,  
+   mag_ros_ros,  
+   mag_wcc_ogl,  
+   mag_whi_int,  
+   mag_whi_kad,  
+   mag_whi_ogl,  
+   mag_whi_slm,  
+   mag_whi_sta,  
+   mag_whi_whi,  
+   mag_wcc_wok,  
+   mag_lon_riv,  
+   mag_lwr_aro,  
+   mag_lcr_abv,  
+   mag_lwr_mar,   
+   mag_lwr_ros,   
+   mag_lwr_vet,   
+   mag_lwr_whi,   
+   mag_nio_spa,  
+   magSev_in,  
+   magSev_sta,  
+   magSev_out,  
+   gage_eco)   
+
+```
+
+```{r 04c_Mclust--blp_bel92-18}
+
+# 1 make clustering inputs, find BIC and run Mclust====         
+mclust_input <- magSev  
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 5 make clustering inputs, find BIC and run Mclust====         
+mclust_input <- mclust_aug %>% 
+  filter(.class == 2) %>%   # this is the blp_bel group  
+  select(-c(.class, .uncertainty))
+
+clust_input <- mclust_input %>%  
+  select(-sta) # get rid of cat data   
+
+BIC <- mclustBIC(clust_input, verbose = FALSE)  
+
+mod <- Mclust(clust_input, x = BIC)   
+
+# 3 get Mclust model results and tidy the Mclust model  
+mclust_fit <-glance(mod)  
+mclust_aug <- augment(mod, mclust_input)   
+mclust_means <- tidy(mod)  
+
+# 4 quick visual results  
+#fviz_mclust(mod, "classification", geom = "point",  
+#           pointsize = 1.5, palette = "jco")  
+
+# results----    
+# nearest neighbor for blp_bel is whi_int - but no new info;  
+#   next closest is whi_kad  
+
+# * clean up global environment   
+rm(magSev,  
+   clust_input,  
+   mclust_aug,  
+   mclust_fit,  
+   mclust_input,  
+   mclust_means,  
+   mod,  
+   BIC)   
+
+```
+
+```{r 04d_add_best-fit_to--blp_bel92-18}
+
+# 1 subset 'to' and 'from' gages   
+sta_to <- "blp_bel"  
+sta_fr <- "whi_kad"  
+
+gage_to <- gage_dep %>%  
+  filter(sta %in% sta_to)  
+
+gage_from <- gage_dep %>%  
+  filter(sta %in% sta_fr) %>%  
+  mutate(sta = sta_to) %>%  
+  mutate(ecoreg = "White River Badlands")  
+
+# 2 add any incomplete years  
+gage_poss <- gage_dep_orig %>%  
+  filter(sta %in% sta_to)  
+
+gage_to <- bind_rows(gage_poss, gage_to) %>%  
+  distinct()  
+
+# 2 make distinct records, check, join, and double-check   
+gage_check <- gage_to %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n())  
+
+gage_from <- anti_join(gage_from, gage_to,  
+                        by = "date")  
+
+gage_mixed <- bind_rows(gage_from, gage_to)  
+
+gage_check <- gage_mixed %>%  
+  group_by(sta, watshed, ecoreg, waterYear) %>%  
+  summarise(count = n())  
+
+# 3 add records to 'gage_dep' and check  
+gage_dep <- bind_rows(gage_mixed, gage_dep) %>%  
+  distinct()  
+
+gage_check <- gage_dep %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  
+
+# * clean up global environment   
+rm(gage_from,  
+   gage_mixed,  
+   gage_poss,  
+   gage_to,  
+   sta_fr,  
+   sta_to)   
+
+```
+
+```{r 04e_calculate_magSeven_statistics--blc_wan95-18}
 
 # group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
 #  the 'magnificant seven'   
