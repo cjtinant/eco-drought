@@ -5,6 +5,14 @@ date: "2/10/2020"
 output: html_document  
 ---  
 
+# Working  with code chunks  
+<!--
+# collapse                        Cmd+Option+L  
+# expand                          Cmd+Shift+Option+L  
+# collapse all                    Cmd+Option+O  
+# expand all                      Cmd+Shift+Option+O  
+-->  
+
 # Overview  
 <!--  
 Purpose:  
@@ -77,14 +85,6 @@ The function metaMDS performs Nonmetric Multidimensional Scaling (NMDS), and tri
 <--  
 
 # Codebook  
-<!--
-# Code chunks====  
-# collapse                        Cmd+Option+L  
-# expand                          Cmd+Shift+Option+L  
-# collapse all                    Cmd+Option+O  
-# expand all                      Cmd+Shift+Option+O  
--->  
-
 <!--  
 Input data:  
 "data/wsd_summary.csv"  -- watershed summary data from prior work  
@@ -211,24 +211,26 @@ macros  -- tibbles for macros data
 
 # Analysis steps  
 <!--  
-1.0 -- set up the library and settings  
-2.0 -- import watershed variables data & keep important values identified in a  
+0.1 -- set up the library and settings  
+1.0 -- import watershed variables data & keep important values identified in a  
          regression analysis -- the 'watershed storage' variables  
-2.1 -- transform data using BoxCox lambda vals to approach a normal dist.  
-2.2 -- standardize by  'scale' -- mean = 0, sd = 1  
-2.3 -- shift so minimum value equals zero  
-3.0 -- choose the best ordination solution.  
-3.1 -- select the correct number of axes -- scree plot  
-3.2 -- find goodness of fit -- cumulative proportion of inertia  
-3.3 -- find ordination distances vs original dissimilarities -- Shepard plot  
-3.4 -- MRPP   
-3.5 -- explore pairs plots  
-3.6 -- plot final ordination with convex hulls  
-
+1.1 -- transform data using BoxCox lambda vals to approach a normal dist.  
+1.2 -- standardize by  'scale' -- mean = 0, sd = 1  
+1.3 -- shift so minimum value equals zero  
+2.0 -- choose the best ordination solution   
+2.1 -- select the correct number of axes -- scree plot  
+2.2 -- find goodness of fit -- cumulative proportion of inertia  
+2.3 -- find ordination distances vs original dissimilarities -- Shepard plot  
+2.4 -- plot ordination 
+2.5 -- calculate fit with MRPP   
+2.6 -- explore pairs plots  
+2.7 -- plot final ordination with convex hulls  
+3.0 -- nearest neighbors  
+3.1 -- get nearest neighbors with dist()  
+3.2 -- 
 --> 
 
-
-```{r setup_&_library, message=FALSE}    
+```{r 0.1_setup_&_library, message=FALSE}    
 knitr::opts_chunk$set(echo = FALSE)      
 options(tibble.print_max = 70) # sets tibble output for printing  
 
@@ -239,7 +241,7 @@ library("rio")           # more robust I/O - to import and clean data
 library("lubridate")     # easier dates   
 library("vegan")         # Community Ecology Package:  
                          # Ordination, Diversity and Dissimilarities  
-library("mgcv")          # Mixed GAM Computation Vehicle with
+library("mgcv")          # Mixed GAM Computation Vehicle with   
 #                            Auto Smoothness Estimation -- Generalized additive  
 #                            (mixed) models, some of their extensions and  
 #                            other generalized ridge regression with multiple  
@@ -263,7 +265,7 @@ library("tidyverse")
 
 #library("mclust")        # model-based clustering & density estimation  
 #library("factoextra")    # quickly visualize Mclust plots  
-#library("broom")         # tidies linear models   
+library("broom")         # tidies linear models   
 #library("funModeling")   # EDA, data preparation and model performance  
 #library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot  
 #library("scales")        # graphical scales map data to aesthetics,  
@@ -343,20 +345,20 @@ why_to_write()
 
 ```
 
-# get and transform data  
-```{r 01_import_data_for_clustering}     
+# 1.0 Get and transform data  
+```{r 1_import_data_for_clustering}     
 # 1 import gage metadata====    
 wsd_summary <- import("data/wsd_summary.csv") %>%   
   mutate(ecoreg = case_when(   
-    sta == "bat_bhr" ~ "Black Hills Plateau",  # this was a judgement call:  
+    sta == "bat_bhr" ~ "Black Hills Transition",  # this was a judgement call:  
     TRUE ~ ecoreg))                            # and I think I got it wrong.  
 
 mclust <- import("data/mclust_final.csv") %>%   
   mutate(ecoreg = case_when(   
-    sta == "bat_bhr" ~ "Black Hills Plateau",  # upstream is BH Plateau   
+    sta == "bat_bhr" ~ "Black Hills Transition",  # upstream is BH Plateau   
     TRUE ~ ecoreg))  %>%                       # downstream is Pierre Shale  
   mutate(final_group = case_when(   
-    sta == "bat_bhr" ~ "Black Hills Plateau",  
+    sta == "bat_bhr" ~ "Black Hills Transition",  
     TRUE ~ final_group)) %>%  
   mutate(final_group = case_when(  
     final_group == "Pierre Shale High" ~ "Pierre Shale",  
@@ -364,13 +366,69 @@ mclust <- import("data/mclust_final.csv") %>%
     final_group == "Pierre Shale Plains" ~ "Pierre Shale",  
     TRUE ~ final_group))                              
 
+# 2 add ecoregions to ungaged watersheds====  
+wsd_summary <- wsd_summary %>%  
+  mutate(ecoreg = case_when(  
+    sta == "AMH1" ~ "Keya Paha Tablelands",  
+    sta == "BEA1" ~ "Keya Paha Tablelands",  
+    sta == "BEA2" ~ "Keya Paha Tablelands",  
+    sta == "BEA3" ~ "Keya Paha Tablelands",  
+    sta == "BEL1" ~ "Keya Paha Tablelands",  
+    sta == "BEL2" ~ "White River Badlands",  
+    sta == "BLP1" ~ "Keya Paha Tablelands",  
+    sta == "BUZ1" ~ "Keya Paha Tablelands",  
+    sta == "CHE1" ~ "Pierre Shale Plains",  
+    sta == "CHE2" ~ "Pierre Shale Plains",  
+    sta == "COR1" ~ "Keya Paha Tablelands",  
+    sta == "CRA1" ~ "Keya Paha Tablelands",  
+    sta == "EAN1" ~ "Keya Paha Tablelands",  
+    sta == "EAN2" ~ "Keya Paha Tablelands",  
+    sta == "LOD1" ~ "Keya Paha Tablelands",  
+    sta == "LON1" ~ "Keya Paha Tablelands",  
+    sta == "LWR1" ~ "Sand Hills",  
+    sta == "LWR2" ~ "Sand Hills",  
+    sta == "LWR3" ~ "Sand Hills",  
+    sta == "LWR4" ~ "Sand Hills",  
+    sta == "MER1" ~ "Pine Ridge Escarpment",  
+    sta == "MER3" ~ "White River Badlands",  
+    sta == "MER4" ~ "White River Badlands",  
+    sta == "NFL1" ~ "Keya Paha Tablelands",  
+    sta == "PAS1" ~ "Keya Paha Tablelands",  
+    sta == "PAS2" ~ "Keya Paha Tablelands",  
+    sta == "PAS3" ~ "White River Badlands",  
+    sta == "POR1" ~ "Keya Paha Tablelands",  
+    sta == "POR2" ~ "Pine Ridge Escarpment",  
+    sta == "POR3" ~ "White River Badlands",  
+    sta == "POT1" ~ "Keya Paha Tablelands",  
+    sta == "RED1" ~ "Keya Paha Tablelands",  
+    sta == "WCC1" ~ "Pine Ridge Escarpment",  
+    sta == "WCC2" ~ "Pine Ridge Escarpment",  
+    sta == "WCC3" ~ "Pine Ridge Escarpment",  
+    sta == "WHR1" ~ "Pine Ridge Escarpment",  
+    sta == "WHR2" ~ "Pine Ridge Escarpment",  
+    sta == "WHR3" ~ "White River Badlands",  
+    sta == "WHR4" ~ "White River Badlands",  
+    sta == "WHR5" ~ "White River Badlands",  
+    sta == "WOK1" ~ "Sand Hills Fringe",  
+    sta == "WOK2" ~ "Keya Paha Tablelands",  #  functionally bet SH & Escarp  
+    sta == "WOK3" ~ "Pine Ridge Escarpment",  
+    sta == "WOK4" ~ "Pine Ridge Escarpment",  
+    sta == "WOL1" ~ "Sand Hills Fringe",  
+    sta == "whi_whi" ~ "White River Badlands", # this was a judgement call   
+    TRUE ~ ecoreg))  #                           it's in 'River Breaks'   
+
 # 2 prepare data ====   
-input_ord <- full_join(wsd_summary, mclust,  
-                          by = c("sta", "ecoreg")) %>%  
-  select(sta:ecoreg,                            # initial variable selection  
+gage_group <- mclust %>%   
+  select(sta, final_group)    
+
+input_ord <- full_join(wsd_summary, gage_group,  
+                          by = "sta") %>%  
+# initial variable selection  
+  select(sta:ecoreg,                            
          type:watshed,  
          dec_lat:final_group) %>%  
-  select(sta:dec_lon,                           # final variable selection  
+ # final variable selection  
+  select(sta:dec_lon,                          
          cat_area_l,  
          drain_dens,  
          t07_mean,  
@@ -378,55 +436,58 @@ input_ord <- full_join(wsd_summary, mclust,
          slop_med,  
          TWI_mean,  
          fc_mean,  
-         L_CV:final_group) %>%  
-  rename(gage_group = final_group) %>%           # update group names  
+         final_group) %>%  
+  rename(gage_group = final_group)  %>%           # update group names  
   mutate(gage_group = case_when(  
     is.na(gage_group) ~ ecoreg,  
     TRUE ~ gage_group)) %>%  
-  filter(gage_group != "GW loss") %>%            # remove GW control stations  
-  filter(gage_group != "GW gain") %>%  
+
   mutate(gage_group = case_when(  
     gage_group == "Pierre Shale Plains" ~ "Pierre Shale",  
     gage_group == "Pine Ridge Escarpment" ~ "Tertiary Clays",  
     gage_group == "White River Badlands" ~ "Tertiary Clays",  
-    TRUE ~ gage_group))       
+    TRUE ~ gage_group)) %>%       
+ # final variable selection  
+  filter(gage_group != "GW loss") %>%      
+  filter(gage_group != "GW gain")  
+
 
 rm(mclust,  
-   wsd_summary)  
+   wsd_summary,  
+   gage_group)  
 
 ```
 
-```{r 01a_check_data}
-# Create eda function ----     
-# basic EDA function from  
-# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/    
-basic_eda <- function(data)       
-{                                  
-  glimpse(data)  
-  df_status(data)  
-  freq(data)   
-  profiling_num(data)  
-  plot_num(data)  
-  describe(data)  
-}     
+```{r 1a_check_data}
+# Create eda function ----
+# basic EDA function from
+# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/
+basic_eda <- function(data) {
+  glimpse(data)
+  df_status(data)
+  freq(data)
+  profiling_num(data)
+  plot_num(data)
+  describe(data)
+}
 
-# check variables  
-# basic_eda(input)     
+# check variables
+# basic_eda(input)
 
 ```
 
 ```{r pairs_plot}
 
-rm(basic_eda)  
+rm(basic_eda) 
 
 ```
 
-```{r 01b_transform_data}
+```{r 1b_transform_data}
 
 # check lambda vals for transformation  -- uses Box Cox lambda   
 lambda <- input_ord %>%  
   select(-c(sta:watshed, gage_group)) %>%   # get rid of cat vars  
-  select(-c(dec_lat:dec_lon, L_CV:L_kurtosis))  
+  select(-c(dec_lat:dec_lon))  
   
 lambda <- enframe(  
   sapply(lambda, forecast::BoxCox.lambda) ) %>%   
@@ -448,7 +509,7 @@ lambda <- enframe(
 
 # transform based on BoxCox vals  
 input_ord <- input_ord %>%  
-  select(-c(L_CV:L_kurtosis)) %>%                # remove vars with NA  
+  # drop latitude & longitude  
   select(-c(dec_lat:dec_lon)) %>%  
   mutate(area = cat_area_l) %>%            # no transformation    
   mutate(elev = cat_out^2) %>%  
@@ -458,9 +519,6 @@ input_ord <- input_ord %>%
   mutate(jul_temp = t07_mean) %>%           # nothing helps  
   mutate(TWI = 1/TWI_mean^2)  %>%   
   select(sta:watshed, gage_group, drain_dens, area:TWI)  
-
-#  select(-c(cat_out, drain_dens, fc_mean, t07_mean, slop_med, TWI_mean)) %>%  
-
 
 # check lambda vals after transformation  
 lambda <- input_ord %>%  
@@ -518,29 +576,22 @@ species_names <- input_tr %>%      # get "species" names -- variable names
 # LOD is smallest for both the 'input' & 'input_tr' data  
 # Cheyenne River at Plankington is largest for both.  
 
-rm(lambda,  
+# prepare for ordination====   
+input_tr <- bind_cols(input_names, input_tr)  
+
+input_ord <- input_tr %>%  
+  select(drain_dens:TWI)  
+
+rm(lambda,   
    shiftByMin)  
 
 ```
 
-```{r 01c_split_data}
-
-# subset data into gaged and ungaged   
-input_tr <- bind_cols(input_names, input_tr)  
-
-input_gage_nm <- input_tr %>%   
-  filter(type == "gaged")  
-
-input_gaged <- input_gage_nm %>%  
-  select(drain_dens:TWI)  
-
-```
-
-# ordination of gages by 'watershed storage' parameters  
-```{r 2a_find_num_ordination_axes}  
+# 2.0 Ordination of gages by 'watershed storage' parameters  
+```{r 2.1a_find_num_ordination_axes}   
 
 kval <- 4                        # number of axes   
-wshedNMS_4 <- input_gaged %>%  
+wshedNMS_4 <- input_ord %>%  
   metaMDS(.,  
           distance      = 'euclidean',      # distance measure  
           k             = kval,                       # number of axes  
@@ -550,7 +601,7 @@ wshedNMS_4 <- input_gaged %>%
           noshare       = FALSE)   
 
 kval <- 3                        # number of axes  
-wshedNMS_3 <- input_gaged %>%  
+wshedNMS_3 <- input_ord %>%  
   metaMDS(.,  
           distance      = 'euclidean',      # distance measure  
           k             = kval,                       # number of axes  
@@ -560,7 +611,7 @@ wshedNMS_3 <- input_gaged %>%
           noshare       = FALSE)  
 
 kval <- 2                        # number of axes  
-wshedNMS_2 <- input_gaged %>%  
+wshedNMS_2 <- input_ord %>%  
   metaMDS(.,  
           distance      = 'euclidean',      # distance measure  
           k             = kval,                       # number of axes  
@@ -570,7 +621,7 @@ wshedNMS_2 <- input_gaged %>%
           noshare       = FALSE)  
 
 kval <- 1                        # number of axes  
-wshedNMS_1 <- input_gaged %>%  
+wshedNMS_1 <- input_ord %>%  
   metaMDS(.,  
           distance      = 'euclidean',      # distance measure  
           k             = kval,                       # number of axes  
@@ -605,17 +656,17 @@ stressNMS <- bind_rows(stressNMS_4,
                        stressNMS_2,  
                        stressNMS_1)  
 
-rm(stressNMS_4,  
+rm(stressNMS_4,   
    stressNMS_3,  
    stressNMS_2,  
    stressNMS_1)  
 
 ```
 
-```{r 2b_plot_stress}
+```{r 2.1b_plot_stress}
 
-plot_stress <- ggplot(stressNMS,    
-            aes(x = dimensions, y = stress)) +   
+plot_stress <- ggplot(stressNMS,     
+            aes(x = dimensions, y = stress)) +    
   geom_path() +   
   labs(title = "Scree plot",  
        subtitle = "Final stress vs number of dimensions",  
@@ -625,7 +676,7 @@ plot_stress <- ggplot(stressNMS,
   theme_classic()  
 
 # check plot  
-plot_stress  
+# plot_stress  
 
 # Results -- the stress plot shows a 2d solution is the best fit.  
 wshedNMS <- wshedNMS_2  
@@ -635,31 +686,33 @@ rm(wshedNMS_4,
    wshedNMS_2,  
    wshedNMS_1,  
    stressNMS,  
-   kval)  
+   kval)    
 
 ```
 
-```{r 2c_find_goodness_of_fit}
+```{r 2.2a_find_goodness_of_fit}
 
-gof <- goodness(wshedNMS,     
+gof <- goodness(wshedNMS,      
                 display = "sites")  %>%  
   enframe(name = "site",  
           value = "gof")  %>%  
-  mutate(site = as.character(site))  
+  mutate(site = as.character(site))   
 
 ```
 
-```{r 2d_extract_scores}
+```{r 2.2b_extract_scores}
 
-# extract scores for plotting   
-data_scores <- as_tibble(scores(wshedNMS))  # Use the scores function from  
-                                            #   vegan to extract the site  
-                                            #   scores and convert to tibble  
+# extract scores for plotting    
+data_scores <- as_tibble(scores(wshedNMS)) %>%  # Use the scores function from  
+                                                #   vegan to extract the site  
+                                                #   scores & convert to tibble  
+  mutate(NMDS1 = -NMDS1)                        # flip NMDS2 axis for plots  
+
 data_scores$site <- rownames(data_scores)   # create a column of site names,  
                                             #   from the rownames.  
 
 # add non-numeric data & goodness of fit back to scores  
-data_scores <- left_join(input_gage_nm, data_scores,  
+data_scores <- left_join(input_tr, data_scores,  
                   by = "site")  
 
 data_scores <-  left_join(data_scores, gof,  
@@ -668,24 +721,29 @@ data_scores <-  left_join(data_scores, gof,
 
 # extract scores for plotting   
 species_scores <- as_tibble(scores(wshedNMS,  
-                                   "species"))  # Use the scores function from  
-                                            #   vegan to extract the "species"  
-                                            #   scores and convert to tibble  
-species_scores$species <- rownames(  
-  species_scores) # create a column of site names, from the rownames.  
+                                   "species"))   # Use the scores function   
+#                                          from vegan to extract the "species"  
+#                                          scores and convert to tibble  
 
-# add non-numeric data back to scores  
+# create a column of site names, from the rownames.  
+species_scores$species <- rownames(  
+  species_scores)  
+
+# add non-numeric data back to scores & flip vars to they fit the plot  
 species_scores <- left_join(species_names, species_scores,  
                   by = "species") %>%  
-  select(-species)  
-
-rm(gof)  
+  select(-species)  %>%  
+  mutate(NMDS1 = case_when(  
+    value == "elev" ~ -NMDS1,   
+    value == "slope" ~ -NMDS1,  
+    value == "jul_temp" ~ -NMDS1,  
+    TRUE ~ NMDS1))  
 
 ```
 
-```{r 2f_plot_goodness-fit}
+```{r 2.2c_plot_goodness-fit}
 
-plot_gof <- ggplot() +   
+plot_gof <- ggplot() +     
   # plot the sites  
   geom_point(data = data_scores,  
              aes(x = NMDS1, y = NMDS2,    
@@ -693,9 +751,8 @@ plot_gof <- ggplot() +
              alpha = 0.5) +   
   scale_size_continuous(guide = guide_legend()) +  
   #  coord_equal() +  
-  scale_x_reverse() +       # show hills to plains  
   labs(title = "Goodness of fit") +   
-       #       subtitle = "Cumulative proportion of inertia"  
+       #       subtitle = "Cumulative proportion of inertia"   
   xlab("NMS1") +  
   ylab("NMS2") +   
   theme_classic()  +  
@@ -703,27 +760,27 @@ plot_gof <- ggplot() +
   guides(size = guide_legend(title = "",   
                              nrow = 2))   
 
-# check the plot  
-plot_gof  
+# check the plot   
+# plot_gof   
 
 ```
 
-```{r 2g_plot_shepard} 
+```{r 2.3a_plot_shepard} 
 
-# get distance values in original and nms space  
+# get distance values in original and nms space    
 dist_orig <- data_scores  %>%    
   select(area:TWI)  %>%   
-  get_dist(., method = "euclidean")  
+  factoextra::get_dist(., method = "euclidean")  
 
-dist_nms <- get_dist(select(data_scores,  
+dist_nms <- factoextra::get_dist(select(data_scores,  
                            NMDS1, NMDS2),  
                            method = "euclidean")  
 
-data_dist <- tibble(org_distance = as.vector(dist_orig),  
+dist_all <- tibble(org_distance = as.vector(dist_orig),  
                     nms_distance = as.vector(dist_nms))  
 
 # plot values   
-plot_shep <- ggplot(data_dist,  
+plot_shep <- ggplot(dist_all,  
                     aes(x = org_distance,  
                         y = nms_distance)) +  
        geom_hex(binwidth = .5) +   
@@ -738,20 +795,20 @@ plot_shep <- ggplot(data_dist,
 
 rm(dist_nms,   
    dist_orig, 
-   data_dist)  
+   dist_all)  
 
-# check results  
-plot_shep  
+# check results   
+#plot_shep  
 
 ```
 
-```{r 2h_plot_2d_ordination}
+```{r 2.4a_plot_2d_ordination}
 
-ggplot() +  
+ord_plot <- ggplot() +   
 # plot the sites     
   geom_point(data   = data_scores,  
              aes(x  = NMDS1, y = NMDS2,    
-             color = gage_group,  
+             color = ecoreg,  
 #             shape  = gage_group  
              ),   
              alpha = 0.7,  
@@ -766,60 +823,59 @@ ggplot() +
             aes(x = NMDS1, y = NMDS2,  
                 label = value),  
             alpha = 0.5,  
-            size = 2.5) +            # add the species labels  
+            size = 3.5) +            # add the species labels  
 # add the labels for the sites  
-  geom_text_repel(data = data_scores,  
+  geom_text(data = data_scores,  
             aes(x = NMDS1, y = NMDS2,  
                 label = sta),  
-            size = 2,  
+            size = 3,  
             vjust = 2) +  
-  coord_equal() +   
+#  coord_equal() +   
   theme_classic()  +  
   theme(legend.position =  "bottom") +  
-guides(color = guide_legend(title = "", nrow = 2))   
+guides(color = guide_legend(title = "", nrow = 2))      
+
+#ord_plot  
 
 ```
 
-```{r 2g_mrpp}
+```{r 2.5a_mrpp}
 
-mrpp_in <- input_gage_nm %>%  
+mrpp_in <- input_tr %>%  
   select(drain_dens:TWI)  
 
-mrpp_group <- input_gage_nm %>%  
-  select(sta, gage_group)  
+mrpp_group <- input_tr %>%  
+  select(sta, ecoreg)  
 
 mrpp_out <- with(mrpp_group,  
-                  mrpp(mrpp_in, gage_group))    
-
-mrpp_out  
+                  mrpp(mrpp_in, ecoreg))    
 
 #  unit test of MRPP  
-mrpp_in_ck <- input_gage_nm %>%  
+mrpp_in_ck <- input_tr %>%  
   filter(ecoreg == "Sand Hills" |  
          ecoreg == "Black Hills Plateau") %>%  
   select(drain_dens:TWI)  
 
-mrpp_group_ck <- input_gage_nm %>%  
+mrpp_group_ck <- input_tr %>%  
   filter(ecoreg == "Sand Hills" |  
          ecoreg == "Black Hills Plateau") %>%  
   select(sta, gage_group)  
 
-mrpp_ck <- with(mrpp_group_ck,  
-                  mrpp(mrpp_in_ck, gage_group))    
-
-mrpp_ck  
+mrpp_ck <- with(mrpp_group_ck,   
+                  mrpp(mrpp_in_ck, gage_group))  
 
 ```
 
-```{r 2h_explore_pairs-plots}
+```{r 2.6a_explore_pairs-plots}  
 
-ggpairs(data_scores, columns = 6:14)  
+plot_pairs <- ggpairs(data_scores, columns = 6:14)  
+
+# plot_pairs  #  unquote to run  
 
 ```
 
-```{r 2i_get_convex-hulls}
-
-# chull functions from:   
+```{r 2.7a_get_convex-hulls}
+# chull functions from:      
 #  https://ggplot2.tidyverse.org/articles/extending-ggplot2.html  
 
 StatChull <- ggproto("StatChull", Stat,  
@@ -827,13 +883,13 @@ StatChull <- ggproto("StatChull", Stat,
     data[chull(data$x, data$y), , drop = FALSE]   
   },  
 
-  required_aes = c("x", "y")  
+  required_aes = c("x", "y")   
 )  
 
 stat_chull <- function(mapping = NULL, data = NULL, geom = "polygon",   
                        position = "identity", na.rm = FALSE, show.legend = NA,  
                        inherit.aes = TRUE, ...) {  
-  layer(  
+  layer(   
     stat = StatChull, data = data, mapping = mapping, geom = geom,  
     position = position, show.legend = show.legend, inherit.aes = inherit.aes,  
     params = list(na.rm = na.rm, ...)
@@ -842,9 +898,1218 @@ stat_chull <- function(mapping = NULL, data = NULL, geom = "polygon",
 
 ```  
 
+```{r 2.7b_plot_ordination_with-chulls} 
+
+# split data prior to plotting====  
+data_gaged <- data_scores %>%  
+  filter(type == "gaged")  
+
+data_ungaged <- data_scores %>%  
+  filter(type == "ungaged")  
+
+# plot ord structure====  
+plot_ord <- ggplot(data = data_gaged,    
+                   aes(x = NMDS1, y = NMDS2)) +  
+  # plot the gaged sites  
+  geom_point(#data = data_scores,  
+    size = 3,  
+    alpha = 0.7,   
+    aes(colour = ecoreg,   
+        shape = type)) +  
+  # plot the convex hulls   
+  stat_chull(fill = NA,  
+             alpha = 0.7,  
+             aes(colour = ecoreg)) +  
+  scale_color_discrete(guide = guide_legend())  +  
+  scale_shape_discrete(guide = guide_legend())  +  
+  # add the variable labels   
+  geom_text(data = species_scores,  
+            aes(x = NMDS1, y = NMDS2,  
+                label = value),  
+            alpha = 0.7,  
+            size = 2) +            # add the species labels  
+  # add the labels for the sites  
+  geom_text(#data = data_scores,  
+    aes(x = NMDS1, y = NMDS2,  
+        label = sta),  
+    size  = 2,  
+    vjust = 1) +  
+  # plot the ungaged sites     
+  geom_point(data = data_ungaged,  
+             size = 2,  
+             alpha = 0.3,   
+             aes(colour = ecoreg,   
+                 shape = type)) +  
+  # add the title and axes labels  
+  labs(title = "",  
+       tag = "A")  +  
+  xlab("NMS Axis 1") +  
+  ylab("NMS Axis 2") +  
+  #  coord_equal(expand = FALSE) +  
+  theme_classic()  +  
+  theme(legend.position =  "bottom") +  
+  guides(color = guide_legend(title = "", nrow = 2))  
+  guides(shape = guide_legend(title = "", nrow = 2))  
+
+#plot_ord  # unquote to see results  
+
+```
+
+```{r 2.7c_construct_final_ord-plot}
+
+plot_out <- plot_ord / (plot_stress + plot_gof + plot_shep) +  
+#  plot_layout(guides = 'collect') +  
+  plot_annotation(tag_levels = 'A') &  
+  theme(text = element_text(size = 8))  
+
+ggsave("figure/ord_plot.png",  
+       plot = plot_out,  
+                 units = "in",  
+                 width = 7,  
+                 height = 9)  
+
+```
+
+```{r 2.7d-clean-up}
+
+rm(mrpp_ck,  
+   mrpp_out,  
+   mrpp_in,  
+   mrpp_in_ck,  
+   mrpp_group,  
+   mrpp_group_ck,  
+   plot_gof,  
+   plot_pairs,  
+   plot_shep,  
+   plot_stress,  
+   plot_out,  
+   input_ord,  
+   input_names,   
+   input_tr,  
+   species_names,  
+   ord_plot,  
+   wshedNMS,  
+   plot_ord,  
+   gof)  
+
+# export data scores====  
+export(data_scores, "data/ord_scores.csv")  
+
+```
+
+# 3.0 Get nearest neighbors
+```{r 3.1a_get_nearest_neighbbors--dist-matrix}
+
+# use the dist function to get nearest neighbors
+data_scores <- import("data/ord_scores.csv")
+
+# unit-test of how to get named data scores~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# https://stackoverflow.com/questions/60131993/rename-columns-based-on-vector
+
+unit_scores <- data_scores %>%
+  slice(1:4)
+
+# create a tibble to set row names====
+row_names <- unit_scores %>%
+  select(sta) %>%
+  rownames_to_column()
+
+# create a named vector to set variable names====
+col_names <- setNames(as.character(row_names$rowname),
+                          as.character(row_names$sta))
+
+# calculate distance matrix====
+unit_dist <- unit_scores %>%
+  select(NMDS1:NMDS2)  %>%
+  dist(., method = "euclidean") %>%  # get the distances
+  as.matrix() %>%                    # change to a matrix
+  as_tibble() %>%                    # then to a tibble
+  rownames_to_column()               # create rownames
+
+# rename the variables====
+unit_dist <- unit_dist %>%
+  rename(!!!col_names)
+
+# rename the rownames & remove zero vals====
+unit_dist <- full_join(row_names, unit_dist,
+                       by = "rowname") %>%
+  select(-rowname) %>%
+  column_to_rownames(var = "sta") %>%
+  na_if(., 0) %>%
+  rownames_to_column(var = "sta")
+
+# clean up====
+rm(col_names,
+   row_names,
+   unit_scores)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
+# arrange by name & type====
+data_scores <-  data_scores %>%
+  arrange(type, sta)
+
+# create a tibble to set row names====
+row_names <- data_scores %>%
+  select(sta) %>%
+  rownames_to_column()
+
+# create a named vector to set variable names====
+col_names <- setNames(as.character(row_names$rowname),
+                          as.character(row_names$sta))
+
+# calculate distance matrix====
+dist_all <- data_scores %>%
+  select(NMDS1:NMDS2)  %>%
+  dist(., method = "euclidean") %>%  # get the distances
+  as.matrix() %>%                    # change to a matrix
+  as_tibble() %>%                    # then to a tibble
+  rownames_to_column()               # create rownames
+
+# rename the variables====
+dist_all <- dist_all %>%
+  rename(!!!col_names)
+
+# rename the rownames====
+dist_all <- full_join(row_names, dist_all,
+                       by = "rowname") %>%
+  select(-rowname) %>%
+  column_to_rownames(var = "sta") %>%
+# remove zero vals
+  na_if(., 0) %>%
+  rownames_to_column(var = "sta")  %>%
+  mutate_if(is.numeric, round, digits = 2)
+
+# add gage type to distance matrix====
+type <- data_scores %>%
+  select(sta, type)
+
+dist_all <- full_join(type, dist_all,
+                       by = "sta")
+
+# split into gaged and ungaged====
+dist_gaged <- dist_all   %>%
+  filter(type == "gaged") %>%
+  select(sta:type,
+         bad_fpi:wkc_wok) %>%
+  select(-type)
+
+dist_ungaged <- dist_all %>%
+  filter(type == "gaged") %>%
+  select(sta:type,
+         AMH1:WOL1) %>%
+  select(-type)
+
+# clean up====
+rm(col_names,
+   row_names,
+   type,
+   unit_dist)
+
+```
+
+```{r 3.1b_get_nearest_neighbors-select}
+
+# Get nearest neighbors by:
+#   Pivot 'dist_gaged' & 'dist_ungaged' to make a long df with all the vals,
+#     arrange from smallest to largest,
+#       select the first occurrance using group_by and slice.
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# unit test ====
+unit_df <- dist_ungaged %>%
+  select(sta: BEA2)  %>%
+  slice(1:3, 20)
+
+# min should be: AMH1:bat_bhr = 1.82
+#                BEA1:lcr_abv = 2.75
+#                BEA2:bat_bhr = 2.45
+
+unit_out <- unit_df %>%
+  pivot_longer(cols = AMH1:BEA2) %>%
+  arrange(value)  %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dist_gaged <- dist_gaged %>%
+  pivot_longer(cols = -sta) %>%
+  arrange(value)  %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(neighbor = name)
+
+dist_ungaged <- dist_ungaged %>%
+  pivot_longer(cols = -sta) %>%
+  arrange(value) %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(neighbor = sta) %>%
+  rename(ungaged = name) %>%
+  select(ungaged, neighbor, value)
+
+# clean up====
+rm(unit_out,
+   unit_df)
+
+```
+
+```{r 3.1c_prepare_for_streamflow_import}  
+
+# get the minimum stations for nearest neighbors for ungaged   
+neighbor_ungaged <- dist_ungaged %>%  
+  group_by(neighbor) %>%  
+  slice(1) %>%  
+  ungroup() %>%  
+  select(sta = neighbor)  
+
+gages_in <- semi_join(dist_gaged, neighbor_ungaged,  
+                            by = "sta") %>%  
+  select(-value) %>%  
+  pivot_longer(cols = sta:neighbor,  
+               names_repair = "minimal") %>%  
+  select(sta = value) %>%  
+  distinct()  
+
+rm(neighbor_ungaged)  
+
+```
+
+```{r 3.2a_import_munge_streamflow}     
+
+# 1 import gage metadata & join ordination data====    
+gage_meta <- import("data/gage_meta.csv") %>%  
+  select(sta,  
+         years_rec:apparent_yrs,  
+         dec_lat_va,  
+         dec_long_va)  
+
+gage_meta <- full_join(gage_meta, data_scores,  
+                 by = "sta") %>%  
+  filter(!is.na(years_rec))  %>%   # remove ungaged watsheds  
+  filter(!is.na(ecoreg)) %>%           # remove gw controlled streams  
+  select(-gof)   
+
+gages_in <- semi_join(gage_meta, gages_in,  
+                            by = "sta")  
+
+# get gage depths for WY 1989-2018 & join ecoreg data====  
+gage_dep_orig   <- import("data/gage_depth.csv") %>%  
+  mutate(date = ymd(Date)) %>%  
+  group_by(sta, waterYear) %>%  
+  mutate(count = n()) %>%  
+  ungroup() %>%  
+  select(-site_no)  %>%  
+  filter(between(waterYear, 1989, 2018))  
+
+# select the gages from 'gages_in'====   
+gage_dep <- right_join(gage_dep_orig, gages_in,  
+                        by = "sta")  %>% 
+  select(sta,  
+         date,  
+         waterYear,  
+         q1_depth,  
+         watshed,  
+         gage_group,  
+         ecoreg,  
+         count)  
+
+# check incomplete years====  
+gage_comp <- gage_dep %>%  
+  filter(count > 364)  
+
+# unit test ~~~~~~~~~~~~~~~~~~~~~   
+unit_gage_ck <- gage_comp %>%  
+  filter(sta == "whi_sta") %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))  %>%  
+  ungroup()  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+
+gagem_ck <- gage_comp %>%   
+  group_by(sta, waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))  %>%  
+  ungroup()  
+
+gagem_ck_sum <- gagem_ck %>%  
+  group_by(sta) %>%  
+  summarise(count = n(),  
+            min = min(waterYear),  
+            max = max(waterYear))  %>%  
+  ungroup() %>%   
+  arrange(desc(count))  
+
+rm(unit_gage_ck,  
+   gage_comp,  
+   gage_dep,  
+   gagem_ck)   
+
+```
+
+```{r 3.2b_find_fill_stations}   
+
+# find neighbors to fill incomplete gages   
+gagem_incomp <- gagem_ck_sum %>%  
+  filter(count < 30)  
+
+gagem_incomp <- left_join(gagem_incomp, dist_gaged,  
+                  by = c("sta" = "neighbor"))  %>%  
+#  rename(stat = sta) %>%  
+  rename(neighbor = sta.y) %>%  
+  rename(sta_count = count)  %>%  
+  rename(sta_min = min) %>%  
+  rename(sta_max = max)  
+
+gagem_incomp <- left_join(gagem_incomp, gagem_ck_sum,  
+                   by = c("neighbor"= "sta")) %>%   
+  select(-value)   
+
+# manually define results====   
+gagem_incomp <- gagem_incomp %>%  
+  mutate(fill = case_when(  
+    sta == "blc_wan" ~ "whi_sta",  
+    sta == "che_red" ~ "che_was",  
+    sta == "ros_ros" ~ "blc_wan",  
+    sta == "bev_abf" ~ "drop",  
+    sta == "wkc_wok" ~ "ros_ros, blc_wan",  
+    TRUE ~ neighbor)) %>%   
+  mutate(action = case_when(  
+    sta == "bat_bhr" ~ "1989",  
+    sta == "brsf_co" ~ "drop",  
+    sta == "blp_bel" ~ "1989-1992, ck 2017",   
+    sta == "blc_wan" ~ "1989-1994",  
+    sta == "che_red" ~ "swap",  
+    sta == "whi_int" ~ "swap",  
+    sta == "lwr_aro" ~ "swap",  
+    sta == "wcc_ogl" ~ "swap",   
+    sta == "ros_ros" ~ "1998-2018",  
+    sta == "bev_abf" ~ "for SH Fringe",  
+    sta == "whi_slm" ~ "swap",  
+    sta == "wkc_wok" ~ "swap",  
+    )) %>%   
+  filter(sta != "che_sce")  
+
+# unit test ~~~~~~~~~~~~~   
+unit_fill1  <- dist_ungaged %>%  
+  filter(neighbor == "wkc_wok")    
+
+unit_fill2 <- dist_all %>%  
+  select(sta, AMH1, BLP1, LOD1, WOK2)   
+
+# clean up   
+rm(unit_fill1,  
+   unit_fill2,  
+   gagem_ck_sum)  
+
+```
+
+```{r 3.2c_update_streamflow-input}
+
+# show update the gages based ongage incomp table====
+gages_update <- gagem_incomp %>%
+  select(sta, neighbor, fill:action)  %>%
+  # this is for LON1, which is closer to 'ros_ros'
+  # unfortunately -- need to drop ros-ros for swap
+  mutate(fill = case_when(
+    fill == "lwr_ros" ~ "ros_ros",
+    fill == "ros_ros, blc_wan" ~ "blc_wan",
+    TRUE ~ fill)) %>%
+  # because 'whi_kad' is complete  & 'che_red' is dropped
+  mutate(action = case_when(
+    is.na(action)  ~ "drop",
+    TRUE ~ action))
+
+# make updates to gages====
+gages_update <- gages_update %>%
+  filter(fill != "drop") %>%
+  filter(action != "drop") %>%
+  mutate(sta_old = sta) %>%
+  # perform swaps
+  mutate(sta = case_when(
+    action == "swap" ~ fill,
+    TRUE ~ sta)) %>%
+  mutate(action = case_when(
+    action == "swap" ~ "swapped",
+    TRUE ~ action)) %>%
+  select(-neighbor) %>%
+  # separate columns with multiple fill
+  separate(fill,
+           into = c("fill1", "fill2"),
+           sep = ",") %>%
+  pivot_longer(cols = fill1:fill2,
+               values_to = "fill") %>%
+  select(-name) %>%
+  filter(!is.na(fill)) %>%
+  mutate(fill = case_when(
+    fill == " blc_wan" ~ "blc_wan",
+    TRUE ~ fill))
+
+# make updates to ungaged====
+dist_ungaged_new <- dist_all   %>%
+  filter(type == "gaged") %>%
+  select(sta:type,
+         AMH1:WOL1) %>%
+  select(-type)  %>%
+  # remove short stations from selection
+  filter(sta != "che_buf") %>%
+  filter(sta != "che_red") %>%
+  filter(sta != "che_sce") %>%
+  filter(sta != "lwr_aro") %>%
+  filter(sta != "ros_ros") %>%
+  filter(sta != "wcc_ogl") %>%
+  filter(sta != "whi_slm") %>%
+  filter(sta != "whi_int") %>%
+  filter(sta != "wkc_wok")  %>%
+  pivot_longer(cols = -sta) %>%
+  arrange(value)  %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(neighbor_new = sta) %>%
+  rename(ungaged = name) %>%
+  select(ungaged, neighbor_new, value)
+
+# compare old and new distances====  
+dist_ungaged_new <- full_join(dist_ungaged_new, dist_ungaged,  
+                           by = "ungaged") %>%  
+  rename(neighbor_old = neighbor) %>%  
+  rename(value_old = value.y) %>%  
+  rename(neighbor = neighbor_new) %>%  
+  rename(value = value.x)  %>%  
+  mutate(check_sel = neighbor == neighbor_old)  
+
+# update gage input with nearest to ungaged & fills====  
+gages_in <- dist_ungaged_new %>%  
+  filter(value < 1.50) %>%  # remove sandhills fringe & LOD1  
+  select(neighbor) %>%  
+  distinct() %>%  
+  rename(sta = neighbor)  
+
+gages_fill <- gages_update  %>%  
+  select(sta = fill)  
+
+```
+
+```{r 3.2d_plot_ordination_with-ungaged} 
+
+# update data prior to plotting====
+data_gaged2 <- semi_join(data_gaged, gages_in,
+                         by = "sta")
+
+data_ungaged2 <- full_join(data_ungaged, dist_ungaged_new,
+                           by = c("sta" = "ungaged")) %>%
+  filter(value < 1.5)  %>%
+  select(-c(neighbor:check_sel))
+
+data_text <- bind_rows(data_gaged2, data_ungaged2)
+
+# plot ord structure====
+plot_ung_ord <- ggplot(data = data_gaged,
+                   aes(x = NMDS1, y = NMDS2)) +
+  # plot the gaged sites
+  geom_point(#data = data_scores,
+    size = 3,
+    alpha = 0.5,
+    aes(colour = ecoreg,
+        shape = type)) +
+  # plot the convex hulls
+  stat_chull(fill = NA,
+             alpha = 0.3,
+             aes(colour = ecoreg)) +
+  scale_color_discrete(guide = guide_legend())  +
+  scale_shape_discrete(guide = guide_legend())  +
+  # plot the ungaged sites
+  geom_point(data = data_ungaged,
+             size = 3,
+             alpha = 0.3,
+             aes(colour = ecoreg,
+                 shape = type)) +
+ # plot the ungaged sites -- selected
+  geom_point(data = data_ungaged2,
+             size = 3,
+             alpha = 0.7,
+             aes(colour = ecoreg,
+                 shape = type)) +
+ # plot the gaged sites -- selected
+  geom_point(data = data_gaged2,
+             size = 3,
+             alpha = 0.7,
+             aes(colour = ecoreg,
+                 shape = type)) +
+  # add the labels for the sites
+  geom_text_repel(data = data_text,
+    aes(x = NMDS1, y = NMDS2,
+        label = sta),
+    size  = 2.5,
+    vjust = 1,
+    alpha = 1) +
+  # add the variable labels
+  geom_text(data = species_scores,
+            aes(x = NMDS1, y = NMDS2,
+                label = value),
+            alpha = 0.7,
+            size = 3.5) +            # add the species labels
+  # add the title and axes labels
+  labs(title = "",
+       tag = "A") +
+  xlab("NMS Axis 1") +
+  ylab("NMS Axis 2") +
+  #  coord_equal(expand = FALSE) +
+  theme_classic()  +
+  theme(legend.position =  "bottom") +
+  scale_x_continuous(limits = c(-2.3, NA)) +
+  guides(color = guide_legend(title = "", nrow = 3)) +
+  guides(shape = guide_legend(title = "", nrow = 2))
+
+plot_ung_ord  # unquote to see results
+
+ggsave("figure/ord_plot_ungaged.png",
+       plot = plot_ung_ord,
+                 units = "in",
+                 width = 7,
+                 height = 7)
+
+```
+
+```{r 3.2e_clean up}
+rm(data_gaged,
+   data_gaged2,
+   data_ungaged,
+   data_ungaged2,
+   data_text,
+   plot_ung_ord,
+   species_scores,
+   StatChull,
+   stat_chull,
+   gagem_incomp,
+   dist_ungaged)
+```
+
+```{r 3.3a_munge_streamflow_for_neighbors}     
+
+# put gage_dep_orig into a better date format
+gage_dep <- gage_dep_orig %>%
+  select(sta, date, everything()) %>%
+  select(-Date)
+
+# select the updated gages from 'gages_in' & 'gage_fill'====
+gages_in <- right_join(gage_dep, gages_in,
+                        by = "sta")
+
+gages_fill <- right_join(gage_dep, gages_fill,
+                        by = "sta")
+
+# check incomplete years====
+gage_comp <- gages_in %>%
+  filter(count > 364)
+
+gagem_ck <- gage_comp %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear))  %>%
+  ungroup() %>%
+  arrange(desc(count))
+
+```
+
+```{r 3.3b_fix_blp-bel}
+
+# fill the missing single day for blp_bel====
+
+# get missing date====
+blp_bel_ck <- gage_dep %>%
+  filter(sta == "blp_bel") %>%
+  filter(between(date,
+                 as.Date("2017-08-09"), as.Date("2017-08-11")))
+
+# take the average of the missing dates====
+blp_bel_fill <- blp_bel_ck %>%
+  mutate(q1_depth = mean(q1_depth)) %>%
+  mutate(date = mean(date)) %>%
+  distinct()
+
+# append the results====
+gage_dep <- bind_rows(gage_dep, blp_bel_fill) %>%
+  distinct()
+
+# unit test -- should be n = 365====
+blp_bel_ck <- gage_dep %>%
+  filter(sta == "blp_bel") %>%
+  filter(waterYear == "2017")
+
+# update 'gages_in'====
+#   95,407 --> 95,408
+# select the updated gages from 'gages_in' & 'gage_fill'====
+gages_in <- gages_in %>%
+  select(sta) %>%
+  distinct()
+
+gages_in <- right_join(gage_dep, gages_in,
+                        by = "sta")
+
+gagem_ck <- gages_in %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+
+
+
+
+
+
+
+
+
+# check incomplete years====
+# was 94,231 -- becomes -- 95,408
+gage_comp <- gages_in %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup() %>%
+  filter(count > 364) %>%
+  distinct()
+
+# unit test -- should be n = 365====
+blp_bel_ck <- gage_comp %>%
+  filter(sta == "blp_bel") %>%
+  filter(waterYear == "2017")
+
+
+gagem_ck <- gage_comp %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear))  %>%
+  ungroup() %>%
+  arrange(desc(count))
+```
+
+```{r}
+
+
+
+
+
+gage_comp <- gage_dep_fill %>%  
+  group_by(sta, waterYear) %>%  
+  mutate(count = n())  %>%  
+  ungroup() %>%  
+  filter(count > 364)  
+
+# unit test -- new gage_comp should be 342,243 + 365 = 342,244  
+gage_ck <- gage_nms  
+
+gage_nms <- semi_join(gage_comp, sta_nms,  
+                        by = "sta")  
+
+# clean up  
+rm(blp_bel_ck,  
+   blp_bel_fill,  
+   gage_ck)
+
+```
+
+
+
+
+
+
+# GAM for streamflow vs. NMS axes  
+```{r prepare_for_gam}
+
+# 2 find stations for analyzing flow vs NMS axes====  
+# want to check for complete stations in two groups  
+sta_old <- gage_meta %>%  
+  filter(min_year == 1980) %>%    
+  filter(max_year >= 2001)  
+
+sta_new <- gage_meta %>%  
+  filter(min_year <  2001)  %>%   
+  filter(max_year == 2018)  
+
+# 3 drop stations with n < 20 yrs====  
+#   all stations appear to have a min 20 yr record  
+sta_nms <- bind_rows(sta_old, sta_new) %>%  
+  distinct() %>%  
+  filter(sta != "che_buf") %>%  
+  filter(sta != "wcc_ogl") %>%  
+  arrange(sta)  
+
+rm(sta_new,  
+   sta_old)  
+
+# 4 get gage depths & join ecoreg data====   
+gage_dep_orig   <- import("data/gage_depth.csv") %>%  
+  mutate(date = ymd(Date)) %>%  
+  group_by(sta, waterYear) %>%  
+  mutate(count = n())  %>%  
+  ungroup() %>%  
+  select(-site_no)  
+
+gage_dep_orig <- right_join(gage_dep_orig, gage_meta,  
+                        by = "sta") %>%   
+  select(sta,  
+         date,  
+         waterYear,  
+         q1_depth,  
+         watshed,  
+         gage_group,  
+         ecoreg,  
+         count)  
+
+# 5 remove incomplete years for magSeven() below====  
+gage_comp <- gage_dep_orig %>%  
+  filter(count > 364)  
+
+# unit test of gage_dep==== 
+gage_ck <- gage_comp %>%  
+  filter(sta == "whi_sta") %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))  %>%  
+  ungroup()  
+
+# 6 filter the station data for possible nms analysis====  
+gage_nms <- semi_join(gage_comp, sta_nms,  
+                        by = "sta")  
+
+# unit test of input_flow====  
+# checking the length of records after removing incomplete years  
+# looks at less than 20 yrs stations  
+gage_ck <- gage_nms %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))  %>%  
+  ungroup() %>%  
+  group_by(sta) %>%  
+  summarise(count = n()) %>%  
+  filter(count < 20)  
+
+# check less than 20 yr stations====  
+ck_ros_ros <- gage_nms %>%  
+  filter(sta == "ros_ros") %>%  
+  group_by(waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))   
+# ros_ros is complete 1980-1997  (not 1998)  
+
+ck_che_pla <- gage_nms %>%    
+  filter(sta == "che_pla") %>%  
+  group_by(waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))   
+# che_pla is complete 2001-2018  
+
+ck_che_red <- gage_nms %>%    
+  filter(sta == "che_red") %>%  
+  group_by(waterYear) %>%  
+  summarise(count = n(),  
+            min = min(date),  
+            max = max(date))   
+# che_red is complete 2000-2018  
+
+# results -- manual -- sorry -- decided to go with 1997 split - keep ros_ros  
+# start    n_init    n_fin      drop                keep           
+#  1997      27       25    che_pla, che_red       ros_ros         
+#  2000      28       26    ros_ros, che_pla       che_red         
+#  2001      28       27      ros_ros          che_pla, che_red    
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+# ck_1997 <- sta_nms %>%  
+#  select(sta) %>%  
+#  filter(sta != "che_pla") %>%  
+#  filter(sta != "che_red")  %>%  
+#  mutate(sta_1997 = sta)  
+
+# ck_2001 <- sta_nms %>%  
+#  select(sta) %>%  
+#  filter(sta != "ros_ros") %>%  
+#  mutate(sta_2001 = sta)  
+
+# gage_ck <- full_join(ck_1997, ck_2001,  
+#                     by = "sta")  
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+
+rm(ck_che_pla,  
+   ck_che_red,  
+   ck_ros_ros,  
+   gage_ck)  
+
+```
+
+
+
+```{r 04c_final_nms_selection_1980-1997}
+
+# 1 select stations for analyzing flow vs NMS axes====   
+sta_old <- sta_nms %>%  
+  filter(min_year == 1980) %>%    
+  filter(max_year >= 1997) %>%   
+  filter(sta != "che_pla") %>%  
+  filter(sta != "che_red")  
+
+# 4 filter the station data for nms analysis====  
+gage_old <- semi_join(gage_nms, sta_old,  
+                        by = "sta") %>%  
+  filter(between(waterYear, 1980, 1997))   
+
+# unit test of completeness of days & completeness of years  
+# should be zero for both indicating 365 days & 18 years  
+gage_ck1 <- gage_old %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup() %>%  
+  arrange(count)  
+
+gage_ck2 <- gage_ck1 %>%  
+  group_by(sta) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+gage_ck1 <- gage_ck1 %>%   
+  filter(count < 365)  
+
+gage_ck2 <- gage_ck2 %>%   
+  filter(count < 18)  
+
+```
+
+```{r 04d_final_nms_selection_1998-2018}
+
+rm(gage_ck1,  
+   gage_ck2)  
+
+# 1 select stations for analyzing flow vs NMS axes====  
+sta_new <- sta_nms %>%  
+  filter(min_year <  1997)  %>%   
+  filter(max_year == 2018) %>%  
+  filter(sta != "che_pla") %>%  
+  filter(sta != "che_red")  
+
+# 4 filter the station data for nms analysis====  
+gage_new <- semi_join(gage_nms, sta_new,  
+                        by = "sta") %>%  
+  filter(between(waterYear, 1998, 2018))   
+
+# unit test of completeness of days & completeness of years  
+# should be zero for both indicating 365 days & 18 years  
+gage_ck1 <- gage_new %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup() %>%  
+  arrange(count)  
+
+gage_ck2 <- gage_ck1 %>%  
+  group_by(sta) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+gage_ck1 <- gage_ck1 %>%   
+  filter(count < 365)  
+
+gage_ck2 <- gage_ck2 %>%   
+  filter(count < 21)  
+
+# this is the unit test that was fixed above with blp_bel_fill  
+gage_ck1 <- gage_nms %>%  
+  filter(sta == "blp_bel") %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n()) %>%  
+  ungroup()  
+
+gage_ck2 <- gage_nms %>%  
+  filter(sta == "hat_edg") %>%  
+  group_by(sta, waterYear) %>%  
+  summarise(count = n())  %>%  
+  ungroup()   
+
+gage_ck <- full_join(gage_ck1, gage_ck2, 
+                     by = "waterYear")  # identified 2017 as the missing year  
+
+gage_ck1 <- gage_nms %>%  
+  filter(sta == "blp_bel") %>%  
+  filter(waterYear == 2017) %>% 
+  select(sta, date)  
+
+gage_ck2 <- gage_nms %>%  
+  filter(sta == "hat_edg") %>%  
+  filter(waterYear == 2017) %>% 
+  select(sta, date)   
+
+# proof the missing date is fixed is that n = 0  
+gage_ck <- full_join(gage_ck1, gage_ck2,   
+                     by = "date") %>%  
+  filter(is.na(sta.x))  
+
+rm(gage_ck,   
+   gage_ck1,  
+   gage_ck2)  
+
+```
+
+```{r 04e_calculate_magSeven_statistics-new}
+
+# calculate the 'magnificant seven' the  
+#   1st 4 L-moments, AR1, phase, and amplitude====   
+magSeven_list <-  gage_new %>%  
+  mutate(q1_log = log10(q1_depth)) %>%  
+  select(date, q1_log, sta) %>%  
+  as.data.frame() %>%  
+  split(.$sta) %>%  
+  map(calc_magnifSeven) 
+
+# extract elements -- not sure how to extract this better...====  
+magSeven_bad_fpi <- pluck(magSeven_list, "bad_fpi") %>%   
+  mutate(sta = "bad_fpi")  
+
+magSeven_bat_bhr <- pluck(magSeven_list, "bat_bhr") %>%  
+  mutate(sta = "bat_bhr")  
+
+magSeven_bat_her <- pluck(magSeven_list, "bat_her") %>%  
+  mutate(sta = "bat_her")  
+
+magSeven_bev_pri <- pluck(magSeven_list, "bev_pri") %>%  
+  mutate(sta = "bev_pri")  
+
+magSeven_blc_wan <- pluck(magSeven_list, "blc_wan") %>%  
+  mutate(sta = "blc_wan")  
+
+magSeven_blp_bel <- pluck(magSeven_list, "blp_bel") %>%  
+  mutate(sta = "blp_bel")  
+
+magSeven_brsf_co <- pluck(magSeven_list, "brsf_co") %>%  
+  mutate(sta = "brsf_co")  
+
+magSeven_che_was <- pluck(magSeven_list, "che_was") %>%  
+  mutate(sta = "che_was")  
+
+magSeven_elk_elm <- pluck(magSeven_list, "elk_elm") %>%  
+  mutate(sta = "elk_elm")  
+
+magSeven_frn_fai <- pluck(magSeven_list, "frn_fai") %>%  
+  mutate(sta = "frn_fai")  
+
+magSeven_hat_edg <- pluck(magSeven_list, "hat_edg") %>%  
+  mutate(sta = "hat_edg")  
+
+magSeven_hor_oel <- pluck(magSeven_list, "hor_oel") %>%  
+  mutate(sta = "hor_oel")  
+
+magSeven_key_key <- pluck(magSeven_list, "key_key") %>%  
+  mutate(sta = "key_key")  
+
+magSeven_key_wew <- pluck(magSeven_list, "key_wew") %>%  
+  mutate(sta = "key_wew")  
+
+magSeven_lon_riv <- pluck(magSeven_list, "lon_riv") %>%  
+  mutate(sta = "lon_riv")  
+
+magSeven_lwr_mar <- pluck(magSeven_list, "lwr_mar") %>%  
+  mutate(sta = "lwr_mar")  
+
+magSeven_lwr_vet <- pluck(magSeven_list, "lwr_vet") %>%  
+  mutate(sta = "lwr_vet")  
+
+magSeven_lwr_whi <- pluck(magSeven_list, "lwr_whi") %>%  
+  mutate(sta = "lwr_whi")  
+
+magSeven_nio_spa <- pluck(magSeven_list, "nio_spa") %>%  
+  mutate(sta = "nio_spa")  
+
+magSeven_whi_kad <- pluck(magSeven_list, "whi_kad") %>%  
+  mutate(sta = "whi_kad")  
+
+magSeven_whi_oac <- pluck(magSeven_list, "whi_oac") %>%  
+  mutate(sta = "whi_oac")  
+
+magSeven_whi_ogl <- pluck(magSeven_list, "whi_ogl") %>%  
+  mutate(sta = "whi_ogl")  
+
+magSeven_whi_sta <- pluck(magSeven_list, "whi_sta") %>%   
+  mutate(sta = "whi_sta")  
+
+# bind rows====  
+magSeven_new <- bind_rows(magSeven_bad_fpi,  
+                          magSeven_bat_bhr,  
+                          magSeven_bat_her,  
+                          magSeven_bev_pri,  
+                          magSeven_blc_wan,  
+                          magSeven_blp_bel,   
+                          magSeven_brsf_co,   
+                          magSeven_che_was,  
+                          magSeven_elk_elm,  
+                          magSeven_frn_fai,  
+                          magSeven_hat_edg,  
+                          magSeven_hor_oel,  
+                          magSeven_key_key,  
+                          magSeven_key_wew,  
+                          magSeven_lon_riv,  
+                          magSeven_lwr_mar,  
+                          magSeven_lwr_vet,  
+                          magSeven_lwr_whi,  
+                          magSeven_nio_spa,  
+                          magSeven_whi_kad,  
+                          magSeven_whi_oac,  
+                          magSeven_whi_ogl,  
+                          magSeven_whi_sta) 
+
+# clean up====  
+rm(magSeven_bad_fpi,  
+   magSeven_bat_bhr,  
+   magSeven_bat_her,  
+   magSeven_bev_pri,  
+   magSeven_blc_wan,  
+   magSeven_blp_bel,   
+   magSeven_brsf_co,   
+   magSeven_che_was,  
+   magSeven_elk_elm,  
+   magSeven_frn_fai,  
+   magSeven_hat_edg,  
+   magSeven_hor_oel,  
+   magSeven_key_key,  
+   magSeven_key_wew,  
+   magSeven_lon_riv,  
+   magSeven_lwr_mar,  
+   magSeven_lwr_vet,  
+   magSeven_lwr_whi,  
+   magSeven_nio_spa,  
+   magSeven_whi_kad,  
+   magSeven_whi_oac,  
+   magSeven_whi_ogl,  
+   magSeven_whi_sta,  
+   magSeven_list)  
+
+magSeven_new <- magSeven_new %>%  
+  group_by(sta) %>%  
+#  select(sta, indice, statistic) %>%  
+#  unite("sta_indice", sta:indice, remove = TRUE) %>% 
+  pivot_wider(  
+    names_from = indice,  
+    values_from = statistic)  
+
+
+
+
+```
+
+```{r test}
+data_scores_new  <- semi_join(data_scores, sta_new,  
+                              by = "sta")   
+
+data_scores_new <- full_join(data_scores_new, magSeven_new,  
+                             by = "sta")   
+
+data_scores_plains <- data_scores_new %>%  
+  filter(gage_group != "Black Hills Plateau")
+
+lm_1c <- gam(lam1 ~ NMDS2,  
+             data = data_scores_new)  
+
+lm_2c <- gam(lam1 ~ NMDS1 + gage_group, 
+             data = data_scores_new)  
+
+lm_3c <- gam(lam1 ~ s(NMDS1) + NMDS2, 
+             data = data_scores_new)  
+
+lm_4c <- gam(lam1 ~ NMDS1 + NMDS2 + gage_group, 
+             data = data_scores_plains)  
+
+lm_1d <- gam(lam1 ~ NMDS2,  
+             data = data_scores_plains)  
+
+lm_2d <- gam(lam1 ~ NMDS1 + gage_group, 
+             data = data_scores_plains)  
+
+lm_3d <- gam(lam1 ~ NMDS1 + NMDS2, 
+             data = data_scores_plains)  
+
+lm_4d <- gam(lam1 ~ NMDS1 + NMDS2 + gage_group, 
+             data = data_scores_plains)  
+
+lm_1a <- lm(lam1 ~ NMDS2,  
+             data = data_scores_new)  
+
+lm_2a <- lm(lam1 ~ NMDS1 + gage_group, 
+             data = data_scores_new)  
+
+lm_3a <- lm(lam1 ~ NMDS1 + NMDS2, 
+             data = data_scores_new)  
+
+lm_4a <- lm(lam1 ~ NMDS1 + NMDS2 + gage_group, 
+             data = data_scores_plains)  
+
+lm_1b <- lm(lam1 ~ NMDS2,  
+             data = data_scores_plains)  
+
+lm_2b <- lm(lam1 ~ NMDS1 + gage_group, 
+             data = data_scores_plains)  
+
+lm_3b <- lm(lam1 ~ NMDS1 + NMDS2, 
+             data = data_scores_plains)  
+
+lm_4b <- lm(lam1 ~ NMDS1 + NMDS2 + gage_group, 
+             data = data_scores_plains)  
+
+lm_3c 
+glance(lm_1a)  # 15.4  
+glance(lm_2a)  
+glance(lm_3a)  
+glance(lm_4a)  
+
+glance(lm_1b)  # 14.2  
+glance(lm_2b)  
+glance(lm_3b)  
+glance(lm_4b)  
+
+glance(lm_1c)  
+glance(lm_2c)  
+glance(lm_3c)  
+glance(lm_4c)  
+
+glance(lm_1d)  # 14.2   
+glance(lm_2d)  
+glance(lm_3d)  
+glance(lm_4d)  
+summary(lm_3c)  
+
+test2 <- augment(lm_3c, data = data_scores_new) %>%  
+  mutate(fitted2 = exp(.fitted))  
+
+```
+
+
 ```{r plot_ordination_with-chulls}
 
-plot_ord <- ggplot(data = data_scores,  
+plot_ord <- ggplot(data = data_scores_new,  
        aes(x = NMDS1, y = NMDS2)) +  
 # plot the sites     
   geom_point(data = data_scores,  
@@ -864,7 +2129,7 @@ plot_ord <- ggplot(data = data_scores,
             aes(x = NMDS1, y = NMDS2,  
                 label = value),  
             alpha = 0.5,  
-            size = 2.5) +            # add the species labels  
+            size = 3) +            # add the species labels  
 # add the labels for the sites  
   geom_text_repel(data = data_scores,  
             aes(x = NMDS1, y = NMDS2,  
@@ -886,413 +2151,18 @@ plot_ord
 
 ```
 
-```{r construct_ord-plot}
-
-plot_out <- plot_ord / (plot_stress + plot_gof + plot_shep) +  
-#  plot_layout(guides = 'collect') +  
-  plot_annotation(tag_levels = 'A') &  
-  theme(text = element_text(size = 8))  
-
-ggsave("figure/ord_plot.png",  
-       plot = plot_out,  
-                 units = "in",  
-                 width = 7,  
-                 height = 9)  
-
-```
-
-```{r prepare_for_GAM}
-
-rm(mrpp_ck,  
-   mrpp_out,  
-   mrpp_in,  
-   mrpp_in_ck,  
-   mrpp_group,  
-   mrpp_group_ck,  
-   plot_gof,  
-   plot_pairs,  
-   plot_shep,  
-   plot_stress,  
-   plot_out,  
-   input_gage_nm,  
-   input_gaged,  
-   input_names,   
-   input_tr,  
-   species_names,  
-   species_scores,  
-   wshedNMS)  
-
-```
-
-# GAM for streamflow vs. NMS axes  
-```{r 04a_import_munge_data_for_stats}     
-
-# 1 import gage metadata & join ordination data====    
-gage_meta <- import("data/gage_meta.csv") %>%  
-  select(sta,  
-         years_rec:apparent_yrs,  
-         dec_lat_va,  
-         dec_long_va)  
-
-gage_meta <- full_join(gage_meta, data_scores, 
-                 by = "sta") %>%  
-  filter(!is.na(years_rec))  %>%   # remove ungaged watsheds  
-  filter(!is.na(ecoreg)) %>%           # remove gw controlled streams  
-  select(-gof)   
-
-# 2 find stations for analyzing flow vs NMS axes====  
-sta_old <- gage_meta %>%  
-  filter(max_year >= 2000) %>%  
-  filter(min_year == 1980)   
-
-sta_new <- gage_meta %>%  
-  filter(max_year == 2018) %>%  
-  filter(min_year < 2000)  
-
-sta_flow <- bind_rows(sta_old, sta_new) %>%  
-  distinct() %>%  
-  filter(sta != "che_buf")  # now all stations have min 20 yr record.  
-
-# 2 get gage depths & join ecoreg data====   
-gage_dep_orig   <- import("data/gage_depth.csv") %>%  
-  mutate(date = ymd(Date)) %>%  
-  group_by(sta, waterYear) %>%  
-  mutate(count = n())  %>%  
-  ungroup() %>%  
-  select(-site_no)  
-
-gage_dep_orig <- right_join(gage_dep_orig, gage_meta,  
-                        by = "sta") %>%   
-  select(sta,  
-         date,  
-         waterYear,  
-         q1_depth,  
-         watshed,  
-         gage_group,  
-         ecoreg,  
-         count)  
-
-# 3 need to remove incomplete years for magSeven() below  
-gage_dep <- gage_dep_orig %>%  
-  filter(count > 364)  
-
-# unit test of gage_dep  
-gage_ck <- gage_dep %>%  
-  filter(sta == "whi_sta") %>%  
-  group_by(sta, waterYear) %>%  
-  summarise(count = n(),  
-            min = min(date),  
-            max = max(date))  %>%  
-  ungroup()  
-
-input_flow <- semi_join(gage_dep, sta_flow,  
-                        by = "sta")  
-
-# unit test of input_flow  
-gage_ck <- gage_dep %>%  
-  group_by(sta, waterYear) %>%  
-  summarise(count = n(),  
-            min = min(date),  
-            max = max(date))  %>%  
-  ungroup() %>%  
-  group_by(sta) %>%  
-  summarise(count = n())  
-
+```{r}
+ggplot(test2, aes(NMDS2, lam1)) + 
+  geom_point() +  
+  geom_smooth(method =  gam)
 ```
 
 
 
 
 
-```{r 04b_calculate_magSeven_statistics--blp_bel92-18}
 
-# group stations by the first 4 L-moments, AR1, phase, and amplitude aka  
-#  the 'magnificant seven'    
-# Should get below into a purrr loop, but...   
 
-# 1    prepare EflowStats Input  -- for whi_sta89-18====    
-magSev_in <- gage_dep %>%  
-  filter(between(date,  
-                 as.Date("1992-10-01"),  
-                 as.Date("2018-09-30"))) %>%  
-  as.data.frame() %>%  
-  select(sta,  
-         date,  
-         discharge = q1_depth, 
-         gage_group,  
-         ecoreg)  
-
-magSev_sta <- magSev_in %>%  
-  select(sta, gage_group, ecoreg) %>%  
-  distinct() %>%  
-  filter(ecoreg != "Pierre Shale Plains" &  
-         ecoreg != "Black Hills Plateau") %>%  
-  arrange(sta)  
-
-# 2.1  calculate magnificant seven -- blc_wan====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "blc_wan") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%  
-  calc_magnifSeven()  
-
-mag_blc_wan <- magSev_out %>%  
-  rename(blc_wan = statistic)  
-
-# 2.2  calculate magnificant seven -- blp_bel====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "blp_bel") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_blp_bel <- magSev_out %>%  
-  rename(blp_bel = statistic)  
-
-# 2.3  calculate magnificant seven -- key_key====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "key_key") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_key_key <- magSev_out %>%  
-  rename(key_key = statistic)  
-
-# 2.4  calculate magnificant seven -- key_wew====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "key_wew") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_key_wew <- magSev_out %>%  
-  rename(key_wew = statistic)  
-
-# 2.5  calculate magnificant seven -- ros_ros====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "ros_ros") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_ros_ros <- magSev_out %>%  
-  rename(ros_ros = statistic)  
-
-# 2.6  calculate magnificant seven -- wcc_ogl====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "wcc_ogl") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_wcc_ogl <- magSev_out %>%  
-  rename(wcc_ogl = statistic)  
-
-# 2.7  calculate magnificant seven -- whi_int====    
-magSev_out <- magSev_in %>%     # doesn't intersect with WY 1992-1997  
-  filter(sta == "whi_int") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_whi_int <- magSev_out %>%  
-  rename(whi_int = statistic)  
-
-# 2.8  calculate magnificant seven -- whi_kad====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "whi_kad") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_whi_kad <- magSev_out %>%  
-  rename(whi_kad = statistic)  
-
-# 2.9  calculate magnificant seven -- whi_ogl====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "whi_ogl") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_whi_ogl <- magSev_out %>%  
-  rename(whi_ogl = statistic)  
-
-# 2.10 calculate magnificant seven -- whi_slm====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "whi_slm") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_whi_slm <- magSev_out %>%  
-  rename(whi_slm = statistic)  
-
-# 2.11 calculate magnificant seven -- whi_sta====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "whi_sta") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_whi_sta <- magSev_out %>%  
-  rename(whi_sta = statistic)  
-
-# 2.12 calculate magnificant seven -- whi_whi====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "whi_whi") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_whi_whi <- magSev_out %>%  
-  rename(whi_whi = statistic)  
-
-# 2.13 calculate magnificant seven -- wkc_wok====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "wkc_wok") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_wcc_wok <- magSev_out %>%  
-  rename(wkc_wok = statistic)  
-
-# 2.14 calculate magnificant seven -- lon_riv====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "lon_riv") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_lon_riv <- magSev_out %>%  
-  rename(lon_riv = statistic)  
-
-# 2.15 calculate magnificant seven -- lwr_aro====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "lwr_aro") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_lwr_aro <- magSev_out %>%  
-  rename(lwr_aro = statistic)  
-
-# 2.16 calculate magnificant seven -- lcr_abv====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "lcr_abv") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_lcr_abv <- magSev_out %>%  
-  rename(lcr_abv = statistic)  
-
-# 2.17 calculate magnificant seven -- lwr_mar====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "lwr_mar") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_lwr_mar <- magSev_out %>%  
-  rename(lwr_mar = statistic)  
-
-# 2.18 calculate magnificant seven -- lwr_ros====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "lwr_ros") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_lwr_ros <- magSev_out %>%  
-  rename(lwr_ros = statistic)  
-
-# 2.19 calculate magnificant seven -- lwr_vet====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "lwr_vet") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_lwr_vet <- magSev_out %>%  
-  rename(lwr_vet = statistic)  
-
-# 2.20 calculate magnificant seven -- lwr_whi====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "lwr_whi") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_lwr_whi <- magSev_out %>%  
-  rename(lwr_whi = statistic)  
-
-# 2.21 calculate magnificant seven -- nio_spa====    
-magSev_out <- magSev_in %>%  
-  filter(sta == "nio_spa") %>%  
-  select(-c(sta, gage_group, ecoreg)) %>%   
-  calc_magnifSeven()  
-
-mag_nio_spa <- magSev_out %>%  
-  rename(nio_spa = statistic)  
-
-# 3    join magnificant seven and transpose matrix====    
-magSev <- bind_cols(mag_blc_wan,  
-                    mag_blp_bel,  
-                    mag_key_key,  
-                    mag_key_wew,  
-                    mag_ros_ros,  
-                    mag_wcc_ogl,  
-                    mag_whi_int,  
-                    mag_whi_kad,  
-                    mag_whi_ogl,  
-                    mag_whi_slm,  
-                    mag_whi_sta,  
-                    mag_whi_whi,  
-                    mag_wcc_wok,  
-                    mag_lon_riv,  
-                    mag_lwr_aro,  
-                    mag_lcr_abv,  
-                    mag_lwr_mar,   
-                    mag_lwr_ros,   
-                    mag_lwr_vet,   
-                    mag_lwr_whi,   
-                    mag_nio_spa) %>%  
-  # drop the duplicate indices  
-  select(-c(indice1,  
-            indice2,  
-            indice3,  
-            indice4,  
-            indice5,  
-            indice6,  
-            indice7,  
-            indice8,  
-            indice9,  
-            indice10,  
-            indice11,  
-            indice12,  
-            indice13,  
-            indice14,  
-            indice15,  
-            indice16,  
-            indice17,  
-            indice18,  
-            indice19,  
-            indice20)) %>%  
-  # transpose the matrix  
-  gather(sta, variable, blc_wan:nio_spa) %>%  
-  spread(indice, variable)  
-
-# * clean up global environment====    
-rm(mag_blc_wan,  
-   mag_blp_bel,  
-   mag_key_key,  
-   mag_key_wew,  
-   mag_ros_ros,  
-   mag_wcc_ogl,  
-   mag_whi_int,  
-   mag_whi_kad,  
-   mag_whi_ogl,  
-   mag_whi_slm,  
-   mag_whi_sta,  
-   mag_whi_whi,  
-   mag_wcc_wok,  
-   mag_lon_riv,  
-   mag_lwr_aro,  
-   mag_lcr_abv,  
-   mag_lwr_mar,   
-   mag_lwr_ros,   
-   mag_lwr_vet,   
-   mag_lwr_whi,   
-   mag_nio_spa,  
-   magSev_in,  
-   magSev_sta,  
-   magSev_out,  
-   gage_eco)   
-
-```
 
 ```{r 04c_Mclust--blp_bel92-18}
 
