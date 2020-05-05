@@ -1156,156 +1156,157 @@ rm(unit_out,
 
 ```
 
-```{r 3.1c_prepare_for_streamflow_import}  
+```{r 3.1c_prepare_for_streamflow_import}
 
-# get the minimum stations for nearest neighbors for ungaged   
-neighbor_ungaged <- dist_ungaged %>%  
-  group_by(neighbor) %>%  
-  slice(1) %>%  
-  ungroup() %>%  
-  select(sta = neighbor)  
+# get the minimum stations for nearest neighbors for ungaged====
+neighbor_ungaged <- dist_ungaged %>%
+  group_by(neighbor) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(sta = neighbor)
 
-gages_in <- semi_join(dist_gaged, neighbor_ungaged,  
-                            by = "sta") %>%  
-  select(-value) %>%  
-  pivot_longer(cols = sta:neighbor,  
-               names_repair = "minimal") %>%  
-  select(sta = value) %>%  
-  distinct()  
+gages_in <- semi_join(dist_gaged, neighbor_ungaged,
+                            by = "sta") %>%
+  select(-value) %>%
+  pivot_longer(cols = sta:neighbor,
+               names_repair = "minimal") %>%
+  select(sta = value) %>%
+  distinct()
 
 rm(neighbor_ungaged)  
 
 ```
 
-```{r 3.2a_import_munge_streamflow}     
+```{r 3.2a_import_munge_streamflow}
 
-# 1 import gage metadata & join ordination data====    
-gage_meta <- import("data/gage_meta.csv") %>%  
-  select(sta,  
-         years_rec:apparent_yrs,  
-         dec_lat_va,  
-         dec_long_va)  
+# 1 import gage metadata & join ordination data====
+gage_meta <- import("data/gage_meta.csv") %>%
+  select(sta,
+         years_rec:apparent_yrs,
+         dec_lat_va,
+         dec_long_va)
 
-gage_meta <- full_join(gage_meta, data_scores,  
-                 by = "sta") %>%  
-  filter(!is.na(years_rec))  %>%   # remove ungaged watsheds  
-  filter(!is.na(ecoreg)) %>%           # remove gw controlled streams  
-  select(-gof)   
+gage_meta <- full_join(gage_meta, data_scores,
+                 by = "sta") %>%
+  filter(!is.na(years_rec))  %>%       # remove ungaged watsheds
+  filter(!is.na(ecoreg)) %>%           # remove gw controlled streams
+  select(-gof)
 
-gages_in <- semi_join(gage_meta, gages_in,  
-                            by = "sta")  
+gages_in <- semi_join(gage_meta, gages_in,
+                            by = "sta")
 
-# get gage depths for WY 1989-2018 & join ecoreg data====  
-gage_dep_orig   <- import("data/gage_depth.csv") %>%  
-  mutate(date = ymd(Date)) %>%  
-  group_by(sta, waterYear) %>%  
-  mutate(count = n()) %>%  
-  ungroup() %>%  
-  select(-site_no)  %>%  
-  filter(between(waterYear, 1989, 2018))  
+# get gage depths for WY 1989-2018 & join ecoreg data====
+gage_dep_orig   <- import("data/gage_depth.csv") %>%
+  mutate(date = ymd(Date)) %>%
+  group_by(sta, waterYear) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  select(-site_no) %>%
+  filter(between(waterYear, 1989, 2018))
 
-# select the gages from 'gages_in'====   
-gage_dep <- right_join(gage_dep_orig, gages_in,  
-                        by = "sta")  %>% 
-  select(sta,  
-         date,  
-         waterYear,  
-         q1_depth,  
-         watshed,  
-         gage_group,  
-         ecoreg,  
-         count)  
+# select the gages from 'gages_in'====
+gage_dep <- right_join(gage_dep_orig, gages_in,
+                        by = "sta")  %>%
+  select(sta,
+         date,
+         waterYear,
+         q1_depth,
+         watshed,
+         gage_group,
+         ecoreg,
+         count)
 
-# check incomplete years====  
-gage_comp <- gage_dep %>%  
-  filter(count > 364)  
+# check incomplete years====
+gage_comp <- gage_dep %>%
+  filter(count > 364)
 
-# unit test ~~~~~~~~~~~~~~~~~~~~~   
-unit_gage_ck <- gage_comp %>%  
-  filter(sta == "whi_sta") %>%  
-  group_by(sta, waterYear) %>%  
-  summarise(count = n(),  
-            min = min(date),  
-            max = max(date))  %>%  
-  ungroup()  
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+# unit test ~~~~~~~~~~~~~~~~~~~~~
+unit_gage_ck <- gage_comp %>%
+  filter(sta == "whi_sta") %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-gagem_ck <- gage_comp %>%   
-  group_by(sta, waterYear) %>%  
-  summarise(count = n(),  
-            min = min(date),  
-            max = max(date))  %>%  
-  ungroup()  
+gagem_ck <- gage_comp %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
 
-gagem_ck_sum <- gagem_ck %>%  
-  group_by(sta) %>%  
-  summarise(count = n(),  
-            min = min(waterYear),  
-            max = max(waterYear))  %>%  
-  ungroup() %>%   
-  arrange(desc(count))  
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear)) %>%
+  ungroup() %>%
+  arrange(desc(count))
 
-rm(unit_gage_ck,  
-   gage_comp,  
-   gage_dep,  
-   gagem_ck)   
+# clean up====
+rm(unit_gage_ck,
+   gage_comp,
+   gage_dep,
+   gagem_ck)
 
 ```
 
 ```{r 3.2b_find_fill_stations}   
 
-# find neighbors to fill incomplete gages   
-gagem_incomp <- gagem_ck_sum %>%  
-  filter(count < 30)  
+# find neighbors to fill incomplete gages====
+gagem_incomp <- gagem_ck_sum %>%
+  filter(count < 30)
 
-gagem_incomp <- left_join(gagem_incomp, dist_gaged,  
-                  by = c("sta" = "neighbor"))  %>%  
-#  rename(stat = sta) %>%  
-  rename(neighbor = sta.y) %>%  
-  rename(sta_count = count)  %>%  
-  rename(sta_min = min) %>%  
-  rename(sta_max = max)  
+gagem_incomp <- left_join(gagem_incomp, dist_gaged,
+                  by = c("sta" = "neighbor"))  %>%
+#  rename(stat = sta) %>%
+  rename(neighbor = sta.y) %>%
+  rename(sta_count = count)  %>%
+  rename(sta_min = min) %>%
+  rename(sta_max = max)
 
-gagem_incomp <- left_join(gagem_incomp, gagem_ck_sum,  
-                   by = c("neighbor"= "sta")) %>%   
-  select(-value)   
+gagem_incomp <- left_join(gagem_incomp, gagem_ck_sum,
+                   by = c("neighbor"= "sta")) %>%
+  select(-value)
 
-# manually define results====   
-gagem_incomp <- gagem_incomp %>%  
-  mutate(fill = case_when(  
-    sta == "blc_wan" ~ "whi_sta",  
-    sta == "che_red" ~ "che_was",  
-    sta == "ros_ros" ~ "blc_wan",  
-    sta == "bev_abf" ~ "drop",  
-    sta == "wkc_wok" ~ "ros_ros, blc_wan",  
-    TRUE ~ neighbor)) %>%   
-  mutate(action = case_when(  
-    sta == "bat_bhr" ~ "1989",  
-    sta == "brsf_co" ~ "drop",  
-    sta == "blp_bel" ~ "1989-1992, ck 2017",   
-    sta == "blc_wan" ~ "1989-1994",  
-    sta == "che_red" ~ "swap",  
-    sta == "whi_int" ~ "swap",  
-    sta == "lwr_aro" ~ "swap",  
-    sta == "wcc_ogl" ~ "swap",   
-    sta == "ros_ros" ~ "1998-2018",  
-    sta == "bev_abf" ~ "for SH Fringe",  
-    sta == "whi_slm" ~ "swap",  
-    sta == "wkc_wok" ~ "swap",  
-    )) %>%   
-  filter(sta != "che_sce")  
+# manually define results====
+gagem_incomp <- gagem_incomp %>%
+  mutate(fill = case_when(
+    sta == "blc_wan" ~ "whi_sta",
+    sta == "che_red" ~ "che_was",
+    sta == "ros_ros" ~ "blc_wan",
+    sta == "bev_abf" ~ "drop",
+    sta == "wkc_wok" ~ "ros_ros, blc_wan",
+    TRUE ~ neighbor)) %>%
+  mutate(action = case_when(
+    sta == "bat_bhr" ~ "1989",
+    sta == "brsf_co" ~ "drop",
+    sta == "blp_bel" ~ "1989-1992, ck 2017",
+    sta == "blc_wan" ~ "1989-1994",
+    sta == "che_red" ~ "swap",
+    sta == "whi_int" ~ "swap",
+    sta == "lwr_aro" ~ "swap",
+    sta == "wcc_ogl" ~ "swap",
+    sta == "ros_ros" ~ "1998-2018",
+    sta == "bev_abf" ~ "for SH Fringe",
+    sta == "whi_slm" ~ "swap",
+    sta == "wkc_wok" ~ "swap",
+    )) %>%
+  filter(sta != "che_sce")
 
-# unit test ~~~~~~~~~~~~~   
-unit_fill1  <- dist_ungaged %>%  
-  filter(neighbor == "wkc_wok")    
+# unit test ~~~~~~~~~~~~~
+unit_fill1  <- dist_ungaged %>%
+  filter(neighbor == "wkc_wok")
 
-unit_fill2 <- dist_all %>%  
-  select(sta, AMH1, BLP1, LOD1, WOK2)   
+unit_fill2 <- dist_all %>%
+  select(sta, AMH1, BLP1, LOD1, WOK2)
 
-# clean up   
-rm(unit_fill1,  
-   unit_fill2,  
-   gagem_ck_sum)  
+# clean up====
+rm(unit_fill1,
+   unit_fill2,
+   gagem_ck_sum)
 
 ```
 
@@ -1375,24 +1376,24 @@ dist_ungaged_new <- dist_all   %>%
   rename(ungaged = name) %>%
   select(ungaged, neighbor_new, value)
 
-# compare old and new distances====  
-dist_ungaged_new <- full_join(dist_ungaged_new, dist_ungaged,  
-                           by = "ungaged") %>%  
-  rename(neighbor_old = neighbor) %>%  
-  rename(value_old = value.y) %>%  
-  rename(neighbor = neighbor_new) %>%  
-  rename(value = value.x)  %>%  
-  mutate(check_sel = neighbor == neighbor_old)  
+# compare old and new distances====
+dist_ungaged_new <- full_join(dist_ungaged_new, dist_ungaged,
+                           by = "ungaged") %>%
+  rename(neighbor_old = neighbor) %>%
+  rename(value_old = value.y) %>%
+  rename(neighbor = neighbor_new) %>%
+  rename(value = value.x)  %>%
+  mutate(check_sel = neighbor == neighbor_old)
 
-# update gage input with nearest to ungaged & fills====  
-gages_in <- dist_ungaged_new %>%  
-  filter(value < 1.50) %>%  # remove sandhills fringe & LOD1  
-  select(neighbor) %>%  
-  distinct() %>%  
-  rename(sta = neighbor)  
+# update gage input with nearest to ungaged & fills====
+gages_in <- dist_ungaged_new %>%
+  filter(value < 1.50) %>%              # remove sandhills fringe & LOD1
+  select(neighbor) %>%
+  distinct() %>%
+  rename(sta = neighbor)
 
-gages_fill <- gages_update  %>%  
-  select(sta = fill)  
+gages_fill <- gages_update %>%
+  select(sta = fill)
 
 ```
 
@@ -1494,19 +1495,19 @@ rm(data_gaged,
 ```{r 3.3a_munge_streamflow_for_neighbors}     
 
 # put gage_dep_orig into a better date format
-gage_dep <- gage_dep_orig %>%
+gage_dep_orig <- gage_dep_orig %>%
   select(sta, date, everything()) %>%
-  select(-Date)
+  select(-Date)                        # drop Date as a string
 
 # select the updated gages from 'gages_in' & 'gage_fill'====
-gages_in <- right_join(gage_dep, gages_in,
+gage_dep <- right_join(gage_dep_orig, gages_in,
                         by = "sta")
 
-gages_fill <- right_join(gage_dep, gages_fill,
+gage_dep_fill <- right_join(gage_dep, gages_fill,
                         by = "sta")
 
 # check incomplete years====
-gage_comp <- gages_in %>%
+gage_comp <- gage_dep %>%
   filter(count > 364)
 
 gagem_ck <- gage_comp %>%
