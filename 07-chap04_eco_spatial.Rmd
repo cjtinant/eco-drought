@@ -1,0 +1,2959 @@
+---
+title: "Untitled"  
+author: "CJ Tinant"  
+date: "2/10/2020"  
+output: html_document  
+---  
+
+# Working  with code chunks  
+<!--
+# collapse                        Cmd+Option+L  
+# expand                          Cmd+Shift+Option+L  
+# collapse all                    Cmd+Option+O  
+# expand all                      Cmd+Shift+Option+O  
+-->  
+
+# Overview  
+<!--
+Purpose:
+This R markdown file prepares streamflow data for combined analysis in
+07-chap04_eco_combined
+-->  
+
+# Some considerations  
+<!--
+Some thoughts based on NON-METRIC MULTIDIMENSIONAL SCALING (NMS) by  
+  Steven M. Holland  
+  Department of Geology, University of Georgia, Athens, GA  
+  revised December 2019  
+
+Introduction  
+Nonmetric multidimensional scaling (NMS) is an ordination technique that differs in important ways from nearly all other ordination methods:  
+
+1) Most ordination methods calculate many axes, but they display only a few of those for reasons of practicality. In contrast, NMS calculates a limited number of axes explicitly chosen prior to the analysis. As a result, there are no hidden axes of variation.  
+
+2) Most ordination methods are analytical and therefore result in a single unique solution to a set of data. In contrast, NMS is a numerical technique that iteratively seeks a solution and stops computation when an acceptable solution has been found, or it stops after some pre-specified number of attempts. As a result, an NMS ordination is not a unique solution; a subsequent NMS of the same data will likely result in a somewhat different ordination.  
+
+3) NMS is not an eigenanalysis technique like principal components analysis or correspondence analysis. As a result, the axes cannot be interpreted such that axis 1 explains the greatest amount of variance, axis 2 explains the next greatest amount of variance, and so on. As a result, an NMS ordination can be rotated, inverted, or centered to any desired configuration.  
+
+4) NMS makes few assumptions about the nature of the data. For example, principal components analysis assumes linear relationships, and reciprocal averaging assumes modal relationships. NMS makes neither of these assumptions, making it well-suited for a wide variety of data.  
+
+5) NMS allows the use of any distance measure, unlike other methods which specify particular measures, such as covariance or correlation in PCA or the implied chi-squared measure in correspondence analysis.  
+
+Although NMS is a highly flexible and widely applicable technique, it suffers from two principal drawbacks. First, NMS is slow, particularly for large data sets. Second, because NMS is a numerical optimization technique, it can fail to find the true best solution because it can become stuck on local minima, that is, solutions that are not the best solution but that are better than all nearby solutions. Increasing computational speed is solving both of these problems: large data sets can now be run relatively quickly, and multiple restarts can be used to lessen the chances of a solution remaining on a local minimum.  
+
+NMS Computation  
+The method underlying NMS is straightforward, but computationally demanding. 
+1) NMS starts with a matrix of data consisting of n rows of samples and p columns of variables (species or taxa in ecological data). There should be no missing values: every variable should have a value for every sample, and this value may be zero. From this, a n x n symmetrical matrix of all pairwise distances among samples is calculated with an appropriate distance measure, such as Euclidean distance, Manhattan distance (city block distance), or Bray (Sorenson) distance. The NMS ordination is performed on this distance matrix.  
+
+2) a desired number of k dimensions is chosen for the ordination. The resulting ordination can be greatly sensitive to this number of chosen dimensions. For example, a k-dimensional ordination is not equivalent to the first k dimensions of a k+1-dimensional ordination.  
+
+3) NMS begins by constructing an initial configuration of the samples in the k dimensions. This initial configuration could be based on another ordination or it could consist of an entirely random placement of the samples. The final ordination is partly dependent on this initial configuration, so a variety of approaches are used to avoid the problem of local minima. One approach is to perform several ordinations, each starting from a different random placement of points, and to select the ordination with the best fit. Another approach is to perform a different type of ordination, such as a principal components analysis or a higher-order NMS, and to use k axes from that ordination as the initial configuration. **A third approach, useful for data thought to be geographically arrayed, is to use the geographic locations of samples as a starting configuration.**  
+
+4) Distances among samples in the starting configuration are calculated, typically with a Euclidean metric. These distances are regressed against the original distance matrix and the predicted ordination distances for each pair of samples is calculated. A variety of regression methods can be used, including linear, polynomial, and non-parametric approaches, the last of which stipulates only that the regression consistently increases from left to right. In any case, the regression is fitted by least-squares. In a perfect ordination, all ordinated distances would fall exactly on the regression, that is, they would match the rank order of distances in the original distance matrix. The goodness of fit of the regression is measured as the sum of squared differences between ordination-based distances and the distances predicted by the regression. This goodness of fit is called stress and can be calculated in several ways, with one of the most common being Kruskal’s Stress.  
+
+The configuration is improved by moving the positions of samples in ordination space by a small amount in the direction of steepest descent, the direction in which stress changes most rapidly. The ordination distance matrix is recalculated, the regression is performed again, and stress is recalculated. These steps are performed repeatedly until some small specified tolerance value is achieved or until the procedure converges by failing to achieve any lower values of stress, which indicates that a minimum (perhaps local) has been found.  
+
+Considerations  
+The ordination is sensitive to the number of dimensions that is chosen, so this choice must be made with care. Choosing too few dimensions will force multiple axes of variation to be expressed on a single ordination dimension. Choosing too many dimensions is no better in that it can cause a single source of variation to be expressed on more than one dimension. One way to choose an appropriate number of dimensions is perform ordinations of progressively higher numbers of dimensions. A scree diagram (stress versus number of dimensions) can then be plotted, on which one can identify the point beyond which additional dimensions do not substantially lower the stress value. A second criterion for the appropriate number of dimensions is the interpretability of the ordination, that is, whether the results make sense.  
+
+The stress value reflects how well the ordination summarizes the observed distances among the samples. Stress increases both with the number of samples and with the number of variables. For the same underlying data structure, a larger data set will necessarily result in a higher stress value, so use caution when comparing stress among data sets. **Stress can also be highly influenced by one or a few poorly fit samples, so it is important to check the contributions to stress among samples in an ordination.** Several guidelines for a “good” value of stress have been proposed, but all have been criticized for being simplistic.  
+
+Although NMS seeks to preserve the distance relationships among the samples, it is still necessary to perform any data transformations to obtain a meaningful ordination. For example, in ecological data, samples should be standardized by sample size to avoid ordinations that reflect primarily sample size, which is generally not of interest.  
+
+NMS in R   
+R has several NMS functions available. Two are part of the MASS library, so they are automatically installed with R: monoMDS() and isoMDS(). Both of these will produce a simple NMS. A better solution is metaMDS(), which solves several of the problems inherent to NMS; metaMDS() is part of the vegan library. The first problem it solves (usually) is the problem of local minima, which it does by restarting the ordination process repeatedly from a different starting configuration, in search of a better solution. The second problem it solves is the arbitrary orientation of the ordinated point cloud, which it does by performing a principal components analysis on the final set of ordinated points. Although this may sound complicated, perhaps even suspicious, it isn’t when you remember that PCA is simply a rotation of set of data. **In this case, the ordinated points are rotated such that axis 1 now expresses the greatest amount of variation, followed by axis two, etc.**  The metaMDS() function automates all of this. By default, it uses the monoMDS() function to perform the actual ordinations.  
+
+It is important to remember that although the ordinated points produced by metaMDS() have a specific orientation and a specific ordering of axes in terms of explained variance, most NMS implementations do not do this. As a result, the NMS axes from other implementations commonly lack any labeling or scales. This lack of scale or meaninful orientation greatly complicates interpretation of ordinations not produced by metaMDS(), so use caution in interpreting their results.  
+
+  metaMDS() is included in the vegan package  
+
+NMS of non-ecological data   
+NMS can also be performed on non-ecological data, but with four main differences:  
+1) the default distance metric (bray) is appropriate only for ecological data, in which species show a modal (not linear) response to environmental variables. In most cases with non-ecological data, the distance parameter should be set to euclidean.  
+
+2)  the default data transformation that are appropriate for ecological data need to be turned off by setting autotransform = FALSE and noshare =  FALSE.  
+
+3)  to calculate variable scores (called species scores), all of your data must be positive. If they are not, you will need to add a constant so that they are.
+Fourth, to get variable scores, set wasscores = TRUE.  
+
+-->  
+
+# further metaMDS considerations   
+<!--  
+The function metaMDS performs Nonmetric Multidimensional Scaling (NMDS), and tries to find a stable solution using several random starts. In addition, it standardizes the scaling in the result, so that the configurations are easier to interpret, and adds species scores to the site ordination. The metaMDS function does not provide actual NMDS, but it calls another function for the purpose. Currently monoMDS is the default choice, and it is also possible to call the isoMDS (MASS package).
+<--  
+
+# Codebook  
+<!--  
+Input data:  
+"data/wsd_summary.csv"  -- watershed summary data from prior work  
+"data/mclust_final.csv" -- summary data from mclust  
+
+
+# 2 prepare data for mclust====   
+mclust_input -- 
+  "sta"     - station name
+  "ecoreg"  - Level IV ecoregion  
+  "type"    - binary: gaged or ungaged  
+  "watshed" - watershed membership  
+  "drain_dens"   
+  "fc_mean"     
+ [7] "gage_group"   "jul_temp_sq" 
+ [9] "area_inv"     "TWI_sq"      
+[11] "cat_out_sqrt" "slope_ln" 
+         
+         
+         
+         dec_lat:final_group) %>%  
+  select(sta:dec_lon,                           # final variable selection  
+         cat_area_l,  
+         drain_dens,  
+         t07_mean,  
+         cat_out,  
+         slop_med,  
+         TWI_mean,  
+         fc_mean,  
+         L_CV:final_group) %>%  
+  rename(gage_group = final_group) %>%           # update group names  
+  mutate(gage_group = case_when(  
+    is.na(gage_group) ~ type,  
+    TRUE ~ gage_group)) %>%  
+  filter(gage_group != "GW loss") %>%            # remove GW control stations  
+  filter(gage_group != "GW gain") %>%  
+  mutate(jul_temp_sq = t07_mean^2) %>%           # transform vars  
+  mutate(area_inv = 1/cat_area_l) %>%  
+  mutate(TWI_sq = TWI_mean^2) %>%  
+  mutate(cat_out_sqrt = sqrt(cat_out)) %>%  
+  mutate(slope_ln = log(slop_med)) %>%           # remove transf prior vars  
+  select(-c(t07_mean, cat_area_l, TWI_mean, slop_med, cat_out)) %>%  
+  select(-c(L_CV:L_kurtosis)) %>%                # remove vars with NA  
+  select(-c(dec_lat:dec_lon))  
+
+# 3 standardize data for mclust====    
+mclust_in <- mclust_input %>%  
+  mutate_if(is.numeric, scale) %>%  
+  select(sta:watshed, gage_group, everything())  
+
+# 4 keep vars from above for later  
+mclust_input_all <- mclust_input   
+mclust_in_all    <- mclust_in  
+
+# Analysis variables:  
+Macroinvertebrete inputs are in the format:  
+xxxz_yyyy  
+
+  where  xxx is stream name abreviation  
+           z is an integer -- 1 is furthest upsteam station  
+             White River 5 is unique -- it's between WHI3 and WHI4.  
+        yyyy is 4-digit year of the sample.  
+
+Stream name abbreviations are as follows:  
+AMH -- American Horse Creek  
+BEA -- Bear Creek  
+BEL -- Bear in the Lodge Creek (lower Bear Creek)  
+BLP -- Black Pipe Creek   
+BUZ -- Buzzard Creek  
+CHE -- Cheyenne River  ## IS THIS CHE OR CHR??  
+COR -- Corn Creek  
+CRA -- Craven Creek  
+EAN -- Eagle Nest Creek  
+LOD -- Lost Dog Creek  
+LON -- Long Creek    ## IS THIS LOD OR LDC ??  
+LWR -- Little White River  
+MER -- Medicine Root Creek  
+NFL -- No Flesh Creek  
+PAS -- Pass Creek  
+POR -- Porcupine Creek  
+POT -- Potato Creek  
+RED -- Redwater Creek  
+WCC -- White Clay Creek  
+WHI -- White River  
+WOK -- Wounded Knee Creek  
+WOL -- Wolf Creek  
+
+Macroinvertebrate years in input files are as follows:  
+prior -- samples prior to 2011 not included below   
+2011  
+2012  
+2013  
+2014  
+The input files also include prior years including: 1993-1997, 2008.  
+
+Individual years in the variables are described using a letter where:  
+  "a" ~ 1993  
+  "b" ~ 1994  
+  "c" ~ 1995  
+  "d" ~ 1996  
+  "e" ~ 1997  
+  "p" ~ 2008  
+  "r" ~ 2010  
+  "s" ~ 2011  
+  "t" ~ 2012  
+  "u" ~ 2013  
+  "v" ~ 2014  
+
+
+wsd_summary  -- 
+mclust_input -- 
+
+
+scratch -- an intermediate tibble that is reused in the analysis  
+check   -- an intermediate tibble for checking data  
+xxx_ck  -- an intermediate tibble for checking data  
+
+macros  -- tibbles for macros data  
+  _Gen    -- intermediate tibble for fixing data - has genus  
+  _noGen  -- intermediate tibble for fixing data - doesn't have genus  
+  _wide   -- intermediate tibble for fixing data to wide  
+
+-->  
+
+# Analysis steps  
+<!--  
+0.1 -- set up the library and settings  
+1.0 -- import watershed variables data & keep important values identified in a  
+         regression analysis -- the 'watershed storage' variables  
+1.1 -- transform data using BoxCox lambda vals to approach a normal dist.  
+1.2 -- standardize by  'scale' -- mean = 0, sd = 1  
+1.3 -- shift so minimum value equals zero  
+2.0 -- choose the best ordination solution   
+2.1 -- select the correct number of axes -- scree plot  
+2.2 -- find goodness of fit -- cumulative proportion of inertia  
+2.3 -- find ordination distances vs original dissimilarities -- Shepard plot  
+2.4 -- plot ordination 
+2.5 -- calculate fit with MRPP   
+2.6 -- explore pairs plots  
+2.7 -- plot final ordination with convex hulls  
+3.0 -- nearest neighbors  
+3.1 -- get nearest neighbors with dist()  
+3.2 -- 
+--> 
+# 0.1 setup & library
+```{r 0.1_setup_&_library, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+options(tibble.print_max = 70) # sets tibble output for printing
+
+# Set up the library of packages====
+library("conflicted")        # An alternative conflict resolution strategy
+library("here")              # identifies where to save work
+library("rio")           # more robust I/O - to import and clean data
+library("lubridate")     # easier dates
+library("vegan")         # Community Ecology Package:
+                         # Ordination, Diversity and Dissimilarities
+library("mgcv")          # Mixed GAM Computation Vehicle with
+#                            Auto Smoothness Estimation -- Generalized additive
+#                            (mixed) models, some of their extensions and
+#                            other generalized ridge regression with multiple
+#                            smoothing parameter estimation by (Restricted)
+#                            Marginal Likelihood, Generalized Cross Validation
+#                              and similar
+library("EflowStats")    # reimplementation of the Hydrologic Index Tool
+library("SCI")           # calculates SPI & SSI
+library("ggrepel")       # Provides geoms for 'ggplot2' to avoid overlapping
+                         #   text labels
+library("patchwork")     # the 'composer of plots'
+library("GGally")        # GGally' extends 'ggplot2' by adding functions
+#                            to reduce the complexity of combining geometric
+#                            objects with transformed data, including a
+#                            pairwise plot matrix, a two-group pairwise plot
+#                            matrix, a parallel coordinates plot, a survival
+#                            plot, and functions to plot networks
+library("flextable")     # functions for tabular reporting
+library("officer")       # facilitates '.docx' access for table export
+library("tidyverse")
+library("broom")         # tidies linear models
+#library("mclust")        # model-based clustering & density estimation
+#library("factoextra")    # quickly visualize Mclust plots
+#library("funModeling")   # EDA, data preparation and model performance
+#library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot
+#library("scales")        # graphical scales map data to aesthetics,
+                         #   & methods for determining breaks and labels
+                         #   for axes and legends
+# #library("forecast")      # using the BoxCox function
+
+# resolve conflicted packages====
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+conflict_prefer("as.dist", "stats")
+conflict_prefer("first", "dplyr")
+conflict_prefer("map", "purrr")
+conflict_prefer("lag", "dplyr")
+
+# other packages I have thought about====
+#library("rnoaa")             # R wrapper for NOAA data inc. NCDC
+#library("lmomco")        # lmoments to find distribution
+#library('deldir')        # for Vorononi tesselation - Theissen polygons
+#library("anomalize")     # detect anomalies using the tidyverse
+#library("dabestr")       # data analysis using bootstrap estimation
+#library("cowplot")       # multiple plots with plot_grid()
+#library("timetk")        # tool kit for working with time series in R
+#library("tidyquant")     # integrate quant. analysis tools w/ tidyverse
+#library("corrr")         # Tidy correlation tables and correlation plotting
+#library("cranlogs")      # For inspecting package downloads over time
+#                           for GLMs
+# library("doMC")          # parallelization for caret
+# library("caret")         # classification and regression training
+# library("glmnet")        # fit GLM with lasso or elasticnet regularization
+# library("Metrics")       # evaluation metrics for machine learning
+# library("ggfortify")        # data vis tools for statistical analysis
+# library("ggpubr")           # easy ggplot wrappers for publication ready
+#                             #   'ggplot2'- based plots
+# library("standardize")      # tools for controlling continuous variable
+#  scaling and factor contrasts for linear models
+# library("pdftools")         # utilities for extracting text, fonts,
+#   attachments and metadata from a pdf file.
+
+# packages for spatial data====
+#library("biogeo")            # Functions for error detection & correction
+#   in point-data datasets; includes functions
+#   to parse & convert coords to decimal-degrees
+#library("maps")              # Outlines: countries, states & counties
+#library("mapdata")           # higher-resolution outlines
+#library('ggmap')             # Spatial visualization with ggplot2
+#library("sf")                # Simple features--spatial geometries for R
+#library("RColorBrewer")      # map color schemes -- http://colorbrewer2.org
+# packages for colors====
+#library("colorspace")        # Manipulate & assess colors & palettes
+#library("munsell")           # Access & manipulate munsell system colours
+#   https://github.com/cwickham/munsell
+
+# packages for lists and urls====
+#library("jsonlite")          # Convert between JSON data and R objects
+#library("curl")              # Drop-in replacement for base url
+#library("listviewer")        # htmlwidget for interactive views of R lists
+#library("forecast")         # for BoxCox.lambda
+#library("magrittr") # provides aliases for easier reading
+#library("workflowr") # creates a research website
+#library("bookdown") #
+#library(unpivotr) # fix nasty Excel files
+#library("friendlyeval")
+#library("mathpix")                # support for 'Mathpix' image to 'LaTeX'
+#library("grateful") - not yet ready for R 3.5.0
+#lmomco <- citation("lmomco")
+#toBibtex(lmomco)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+why_to_write <- function()
+{today <- today(tzone = "")
+paper3 <- ymd("2020-06-01")
+until <- paper3 - today
+print(paste("You have", until, "days until the third paper is due"))
+}
+why_to_write()
+
+```
+
+# 1.0 Get and transform data
+```{r 1_import_data_for_clustering}
+# 1 import gage metadata====
+wsd_summary <- import("data/wsd_summary.csv") %>%
+  mutate(ecoreg = case_when(
+    sta == "bat_bhr" ~ "Black Hills Transition",
+    TRUE ~ ecoreg))
+
+mclust <- import("data/mclust_final.csv") %>%
+  mutate(ecoreg = case_when(
+    sta == "bat_bhr" ~ "Black Hills Transition",  # upstream is BH Plateau
+    TRUE ~ ecoreg))  %>%                          # downstream is Pierre Shale
+  mutate(final_group = case_when(
+    sta == "bat_bhr" ~ "Black Hills Transition",
+    TRUE ~ final_group)) %>%
+  mutate(final_group = case_when(
+    final_group == "Pierre Shale High" ~ "Pierre Shale",
+    final_group == "Pierre Shale Low" ~ "Pierre Shale",
+    final_group == "Pierre Shale Plains" ~ "Pierre Shale",
+    TRUE ~ final_group))
+
+# 2 add ecoregions to ungaged watersheds====
+wsd_summary <- wsd_summary %>%
+  mutate(sta = case_when(
+    sta == "WHR1" ~ "WHI1",
+    sta == "WHR2" ~ "WHI2",
+    sta == "WHR3" ~ "WHI3",
+    sta == "WHR4" ~ "WHI4",
+    sta == "WHR5" ~ "WHI5",
+    TRUE ~ sta)) %>%
+  mutate(ecoreg = case_when(
+    sta == "AMH1" ~ "Keya Paha Tablelands",
+    sta == "BEA1" ~ "Keya Paha Tablelands",
+    sta == "BEA2" ~ "Keya Paha Tablelands",
+    sta == "BEA3" ~ "Keya Paha Tablelands",
+    sta == "BEL1" ~ "Keya Paha Tablelands",
+    sta == "BEL2" ~ "White River Badlands",
+    sta == "BLP1" ~ "Keya Paha Tablelands",
+    sta == "BUZ1" ~ "Keya Paha Tablelands",
+    sta == "CHE1" ~ "Pierre Shale Plains ",
+    sta == "CHE2" ~ "Pierre Shale Plains ",
+    sta == "COR1" ~ "Pine Ridge Escarpment",
+    sta == "CRA1" ~ "Keya Paha Tablelands",
+    sta == "EAN1" ~ "Keya Paha Tablelands",
+    sta == "EAN2" ~ "Keya Paha Tablelands",
+    sta == "LOD1" ~ "Keya Paha Tablelands",
+    sta == "LON1" ~ "Keya Paha Tablelands",
+    sta == "NFL1" ~ "Pine Ridge Escarpment",
+    sta == "LWR1" ~ "Sand Hills",
+    sta == "LWR2" ~ "Sand Hills",
+    sta == "LWR3" ~ "Sand Hills",
+    sta == "LWR4" ~ "Sand Hills",
+    sta == "MER1" ~ "Pine Ridge Escarpment",
+    sta == "MER3" ~ "White River Badlands",
+    sta == "MER4" ~ "White River Badlands",
+    sta == "PAS1" ~ "Keya Paha Tablelands",
+    sta == "PAS2" ~ "Keya Paha Tablelands",
+    sta == "PAS3" ~ "White River Badlands",
+    sta == "POR1" ~ "Keya Paha Tablelands",
+    sta == "POR2" ~ "Pine Ridge Escarpment",
+    sta == "POR3" ~ "White River Badlands",
+    sta == "POT1" ~ "Pine Ridge Escarpment",
+    sta == "RED1" ~ "Pine Ridge Escarpment",
+    sta == "WCC1" ~ "Pine Ridge Escarpment",
+    sta == "WCC2" ~ "Pine Ridge Escarpment",
+    sta == "WCC3" ~ "Pine Ridge Escarpment",
+    sta == "WHI1" ~ "Pine Ridge Escarpment",
+    sta == "WHI2" ~ "Pine Ridge Escarpment",
+    sta == "WHI3" ~ "White River Badlands",
+    sta == "WHI4" ~ "White River Badlands",
+    sta == "WHI5" ~ "White River Badlands",
+    sta == "WOL1" ~ "Sandhills Fringe",
+    sta == "WOK1" ~ "Sandhills Fringe",
+    sta == "WOK2" ~ "Pine Ridge Escarpment",
+    sta == "WOK3" ~ "Pine Ridge Escarpment",
+    sta == "WOK4" ~ "White River Badlands",
+    sta == "wkc_wok" ~ "Pine Ridge Escarpment",
+    sta == "whi_whi" ~ "White River Badlands", # this was a judgement call
+    TRUE ~ ecoreg))  #                           it's in 'River Breaks'
+
+# 2 prepare data ====
+gage_group <- mclust %>%
+  select(sta, final_group)
+
+input_ord <- full_join(wsd_summary, gage_group,
+                          by = "sta") %>%
+# initial variable selection
+  select(sta:ecoreg,
+         type:watshed,
+         dec_lat:final_group) %>%
+ # final variable selection
+  select(sta:dec_lon,
+         cat_area_l,
+         drain_dens,
+         t07_mean,
+         cat_out,
+         slop_med,
+         TWI_mean,
+         fc_mean,
+         final_group) %>%
+  rename(gage_group = final_group) %>%           # update group names
+  mutate(gage_group = case_when(
+    is.na(gage_group) ~ ecoreg,
+    TRUE ~ gage_group)) %>%
+  mutate(gage_group = case_when(
+    gage_group == "Pierre Shale Plains" ~ "Pierre Shale",
+    gage_group == "Pine Ridge Escarpment" ~ "Tertiary Clays",
+    gage_group == "White River Badlands" ~ "Tertiary Clays",
+    TRUE ~ gage_group)) %>%
+ # final variable selection
+  filter(gage_group != "GW loss") %>%
+  filter(gage_group != "GW gain")
+
+rm(mclust,
+   wsd_summary,
+   gage_group)
+
+```
+
+```{r 1a_check_data}
+# Create eda function ----
+# basic EDA function from
+# https://blog.datascienceheroes.com/exploratory-data-analysis-in-r-intro/
+basic_eda <- function(data) {
+  glimpse(data)
+  df_status(data)
+  freq(data)
+  profiling_num(data)
+  plot_num(data)
+  describe(data)
+}
+
+# check variables
+# basic_eda(input)
+
+```
+
+```{r pairs_plot}
+
+rm(basic_eda)
+
+```
+
+```{r 1b_transform_data}
+
+# check lambda vals for transformation  -- uses Box Cox lambda
+lambda <- input_ord %>%
+  select(-c(sta:watshed, gage_group)) %>%   # get rid of cat vars
+  select(-c(dec_lat:dec_lon))
+
+lambda <- enframe(
+  sapply(lambda, forecast::BoxCox.lambda) ) %>%
+  rename(sta = name) %>%
+  rename(lambda_val = value) %>%
+  arrange(sta)
+
+# BoxCox results
+# A tibble: 7 x 2
+#      sta        lambda_val    transformation
+#     <chr>           <dbl>       <mine>
+# 1 cat_area_l     0.954           none
+# 2 cat_out        1.73            x^2
+# 3 drain_dens     0.437           sqrt x
+# 4 fc_mean        0.219           log x
+# 5 slop_med       0.0442          log x
+# 6 t07_mean       2.00            nothing helps
+# 7 TWI_mean      -1.00            1/x^2
+
+# transform based on BoxCox vals
+input_ord <- input_ord %>%
+  # drop latitude & longitude
+  select(-c(dec_lat:dec_lon)) %>%
+  mutate(area = cat_area_l) %>%            # no transformation
+  mutate(elev = cat_out^2) %>%
+  mutate(drain_dens = sqrt(drain_dens)) %>%
+  mutate(field_cap = sqrt(fc_mean)) %>%
+  mutate(slope = log(slop_med)) %>%
+  mutate(jul_temp = t07_mean) %>%          # nothing helps
+  mutate(TWI = 1/TWI_mean^2)  %>%
+  select(sta:watshed, gage_group, drain_dens, area:TWI)
+
+# check lambda vals after transformation
+lambda <- input_ord %>%
+  select(-c(sta:watshed, gage_group))      # get rid of cat vars
+
+lambda <- enframe(
+  sapply(lambda, forecast::BoxCox.lambda) ) %>%
+  rename(sta = name) %>%
+  rename(lambda_val = value) %>%
+  arrange(sta)
+
+# A tibble: 7 x 2
+# area        0.95
+# drain_dens  1.11
+# elev        0.78
+# field_cap   1.48
+# jul_temp    2.00
+# slope       1.14
+# TWI         1.06
+
+# 3 standardize data====
+input_tr <- input_ord %>%
+  mutate_if(is.numeric, scale) %>%
+  select(sta:watshed, gage_group, everything())
+
+# 4 shift the data for analysis -- metaMDS() needs the values to be positive
+#    The shiftByMin() function adds the minimum value for each variable to all
+#      values for that variable.
+#    The apply() function performs shiftByMin() on every column in the data.
+#       need to separate and put back the catagorical data.
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+shiftByMin <- function(x) {
+  x + abs(min(x))
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# remove catagorical data prior to shifting values
+input_names <- input_ord %>%       # get gage names
+  select(sta:gage_group) %>%
+  rownames_to_column(var = "site")
+
+input_tr <- input_tr %>%
+  select(-c(sta:gage_group)) %>%   # remove non-numeric data
+  apply(., 2, shiftByMin) %>%
+  as_tibble()
+
+species_names <- input_tr %>%      # get "species" names -- variable names
+  names() %>%
+  enframe(name = "species") %>%
+  mutate(species = as.character(species))
+
+# unit test --  manual
+# check watershed size :
+# LOD is smallest for both the 'input' & 'input_tr' data
+# Cheyenne River at Plankington is largest for both
+
+# prepare for ordination====
+input_tr <- bind_cols(input_names, input_tr)
+
+input_ord <- input_tr %>%
+  select(drain_dens:TWI)
+
+rm(lambda,
+   shiftByMin)
+
+```
+
+# 2.0 Ordination of gages by 'watershed storage' parameters
+```{r 2.1a_find_num_ordination_axes}
+
+kval <- 4                                  # number of axes
+wshedNMS_4 <- input_ord %>%
+  metaMDS(.,
+          distance      = 'euclidean',     # distance measure
+          k             = kval,            # number of axes
+          trymax        = 200,             # number of times to check
+          autotransform = FALSE,
+          wasscores     = TRUE,
+          noshare       = FALSE)
+
+kval <- 3                                  # number of axes
+wshedNMS_3 <- input_ord %>%
+  metaMDS(.,
+          distance      = 'euclidean',      # distance measure
+          k             = kval,             # number of axes
+          trymax        = 200,              # number of times to check
+          autotransform = FALSE,
+          wasscores     = TRUE,
+          noshare       = FALSE)
+
+kval <- 2                                   # number of axes
+wshedNMS_2 <- input_ord %>%
+  metaMDS(.,
+          distance      = 'euclidean',      # distance measure
+          k             = kval,             # number of axes
+          trymax        = 200,              # number of times to check
+          autotransform = FALSE,
+          wasscores     = TRUE,
+          noshare       = FALSE)
+
+kval <- 1                                   # number of axes
+wshedNMS_1 <- input_ord %>%
+  metaMDS(.,
+          distance      = 'euclidean',      # distance measure
+          k             = kval,             # number of axes
+          trymax        = 200,              # number of times to check
+          autotransform = FALSE,
+          wasscores     = TRUE,
+          noshare       = FALSE)
+
+# Get stress -- to plot below
+stressNMS_4 <- wshedNMS_4$stress %>%
+  enframe(name = NULL,
+          value = "stress") %>%
+  mutate(dimensions = 4)
+
+stressNMS_3 <- wshedNMS_3$stress %>%
+  enframe(name = NULL,
+          value = "stress") %>%
+  mutate(dimensions = 3)
+
+stressNMS_2 <- wshedNMS_2$stress %>%
+  enframe(name = NULL,
+          value = "stress") %>%
+  mutate(dimensions = 2)
+
+stressNMS_1 <- wshedNMS_1$stress %>%
+  enframe(name = NULL,
+          value = "stress") %>%
+  mutate(dimensions = 1)
+
+stressNMS <- bind_rows(stressNMS_4,
+                       stressNMS_3,
+                       stressNMS_2,
+                       stressNMS_1)
+
+rm(stressNMS_4,
+   stressNMS_3,
+   stressNMS_2,
+   stressNMS_1)
+
+```
+
+```{r 2.1b_plot_stress}
+
+plot_stress <- ggplot(stressNMS,
+            aes(x = dimensions, y = stress)) +
+  geom_path() +
+  labs(title = "Scree plot",
+       subtitle = "Final stress vs number of dimensions",
+       tag = "B")  +
+  xlab("Dimensions") +
+  ylab("Stress") +
+  theme_classic()
+
+# check plot
+# plot_stress
+
+# Results -- the stress plot shows a 2d solution is the best fit
+wshedNMS <- wshedNMS_2
+
+rm(wshedNMS_4,
+   wshedNMS_3,
+   wshedNMS_2,
+   wshedNMS_1,
+   stressNMS,
+   kval)
+
+```
+
+```{r 2.2a_find_goodness_of_fit}
+
+gof <- goodness(wshedNMS,
+                display = "sites")  %>%
+  enframe(name = "site",
+          value = "gof")  %>%
+  mutate(site = as.character(site))
+
+```
+
+```{r 2.2b_extract_scores}
+
+# extract scores for plotting
+data_scores <- as_tibble(scores(wshedNMS)) %>%  # Use the scores function from
+                                                #   vegan to extract the site
+                                                #   scores & convert to tibble
+  mutate(NMDS1 = -NMDS1)                        # flip NMDS2 axis for plots
+
+data_scores$site <- rownames(data_scores)   # create a column of site names,
+                                            #   from the rownames
+
+# add non-numeric data & goodness of fit back to scores
+data_scores <- left_join(input_tr, data_scores,
+                  by = "site")
+
+data_scores <-  left_join(data_scores, gof,
+                  by = "site") %>%
+  select(-site)  
+
+# extract scores for plotting
+species_scores <- as_tibble(scores(wshedNMS,
+                                   "species"))   # Use the scores function
+#                                          from vegan to extract the "species"
+#                                          scores and convert to tibble
+
+# create a column of site names, from the rownames
+species_scores$species <- rownames(
+  species_scores)
+
+# add non-numeric data back to scores & flip vars to they fit the plot
+species_scores <- left_join(species_names, species_scores,
+                  by = "species") %>%
+  select(-species)  %>%
+  mutate(NMDS1 = case_when(
+    value == "elev" ~ -NMDS1,
+    value == "slope" ~ -NMDS1,
+    value == "jul_temp" ~ -NMDS1,
+    TRUE ~ NMDS1))
+
+```
+
+```{r 2.2c_plot_goodness-fit}
+
+plot_gof <- ggplot() +
+  # plot the sites
+  geom_point(data = data_scores,
+             aes(x = NMDS1, y = NMDS2,
+                 size = gof),
+             alpha = 0.5) +
+  scale_size_continuous(guide = guide_legend()) +
+  #  coord_equal() +
+  labs(title = "Goodness of fit") +
+       #       subtitle = "Cumulative proportion of inertia"
+  xlab("NMS1") +
+  ylab("NMS2") +
+  theme_classic()  +
+  theme(legend.position =  "bottom") +
+  guides(size = guide_legend(title = "",
+                             nrow = 2))
+
+# check the plot
+# plot_gof
+
+```
+
+```{r 2.3a_plot_shepard} 
+
+# get distance values in original and nms space
+dist_orig <- data_scores  %>%
+  select(area:TWI)  %>%
+  factoextra::get_dist(., method = "euclidean")
+
+dist_nms <- factoextra::get_dist(select(data_scores,
+                           NMDS1, NMDS2),
+                           method = "euclidean")
+
+dist_all <- tibble(org_distance = as.vector(dist_orig),
+                    nms_distance = as.vector(dist_nms))
+
+# plot values
+plot_shep <- ggplot(dist_all,
+                    aes(x = org_distance,
+                        y = nms_distance)) +
+       geom_hex(binwidth = .5) +
+       geom_smooth(color = "grey20") +
+       scale_fill_distiller(palette = "Greys", direction = 1) +
+       labs(title = "Shepard plot",
+               subtitle = "Original vs NMS distances") +
+  xlab("Original distance") +
+  ylab("NMS distance") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+rm(dist_nms,
+   dist_orig,
+   dist_all)
+
+# check results
+#plot_shep
+
+```
+
+```{r 2.4a_plot_2d_ordination}
+
+ord_plot <- ggplot() +
+  # plot the sites
+  geom_point(data   = data_scores,
+             aes(x  = NMDS1, y = NMDS2,
+                 color = ecoreg),
+             alpha = 0.7,
+             size   = 3) +
+  labs(title = "",
+       tag = "A") +
+  xlab("NMS1") +
+  ylab("NMS2") +
+  scale_color_discrete(guide = guide_legend()) +
+  # add the variable labels
+  geom_text(data = species_scores,
+            aes(x = NMDS1, y = NMDS2,
+                label = value),
+            alpha = 0.5,
+            size = 3.5) +            # add the species labels
+  # add the labels for the sites
+  geom_text(data = data_scores,
+            aes(x = NMDS1, y = NMDS2,
+                label = sta),
+            size = 3,
+            vjust = 2) +
+  #  coord_equal() +
+  theme_classic()  +
+  theme(legend.position =  "bottom") +
+  guides(color = guide_legend(title = "", nrow = 2))
+
+#ord_plot
+
+```
+
+```{r 2.5a_mrpp}
+
+mrpp_in <- input_tr %>%
+  select(drain_dens:TWI)
+
+mrpp_group <- input_tr %>%
+  select(sta, ecoreg)
+
+mrpp_out <- with(mrpp_group,
+                  mrpp(mrpp_in, ecoreg))
+
+#  unit test of MRPP
+mrpp_in_ck <- input_tr %>%
+  filter(ecoreg == "Sand Hills" |
+         ecoreg == "Black Hills Plateau") %>%
+  select(drain_dens:TWI)  
+
+mrpp_group_ck <- input_tr %>%
+  filter(ecoreg == "Sand Hills" |
+         ecoreg == "Black Hills Plateau") %>%
+  select(sta, gage_group)
+
+mrpp_ck <- with(mrpp_group_ck,
+                  mrpp(mrpp_in_ck, gage_group))
+
+mrpp_out
+```
+
+```{r 2.6a_explore_pairs-plots}
+
+plot_pairs <- ggpairs(data_scores, columns = 6:14)
+
+# plot_pairs  #  unquote to run
+
+```
+
+```{r 2.7a_get_convex-hulls}
+# chull functions from:
+#  https://ggplot2.tidyverse.org/articles/extending-ggplot2.html
+
+StatChull <- ggproto("StatChull", Stat,
+  compute_group = function(data, scales) {
+    data[chull(data$x, data$y), , drop = FALSE]
+  },
+
+  required_aes = c("x", "y")
+)
+
+stat_chull <- function(mapping = NULL, data = NULL, geom = "polygon",
+                       position = "identity", na.rm = FALSE, show.legend = NA,
+                       inherit.aes = TRUE, ...) {
+  layer(
+    stat = StatChull, data = data, mapping = mapping, geom = geom,
+    position = position, show.legend = show.legend, inherit.aes = inherit.aes,
+    params = list(na.rm = na.rm, ...)
+  )
+}
+
+```
+
+```{r 2.7b_plot_ordination_with-chulls}
+
+# split data prior to plotting====
+data_gaged <- data_scores %>%
+  filter(type == "gaged")
+
+data_ungaged <- data_scores %>%
+  filter(type == "ungaged")
+
+# plot ord structure====
+plot_ord <- ggplot(data = data_gaged,
+                   aes(x = NMDS1, y = NMDS2)) +
+  # plot the gaged sites
+  geom_point( #data = data_scores,
+    size = 3.5,
+    alpha = 0.7,
+    aes(colour = ecoreg,
+        shape = type)) +
+  scale_color_discrete(guide = guide_legend())  +
+  scale_shape_discrete(guide = guide_legend())  +
+  # add the variable labels
+  geom_text(data = species_scores,
+            aes(x = NMDS1, y = NMDS2,
+                label = value),
+            alpha = 0.7,
+            size = 2) +            # add the species labels
+  # add the labels for the sites
+  geom_text_repel(#data = data_scores,
+    aes(x = NMDS1, y = NMDS2,
+        label = sta),
+    size  = 2,
+    vjust = 1) +
+  # plot the ungaged sites
+  geom_point(data = data_ungaged,
+             size = 2,
+             alpha = 0.3,
+             aes(colour = ecoreg,
+                 shape = type)) +
+  # plot the convex hulls
+  stat_chull(aes(colour = ecoreg),
+             data = data_scores,
+             fill = NA,
+             alpha = 0.7) +
+  # add the title and axes labels
+  labs(title = "",
+       tag = "A")  +
+  xlab("NMS Axis 1") +
+  ylab("NMS Axis 2") +
+  #  coord_equal(expand = FALSE) +
+  theme_classic()  +
+  theme(legend.position =  "bottom") +
+  guides(color = guide_legend(title = "", nrow = 3)) +
+  guides(shape = guide_legend(title = "", nrow = 2))
+
+plot_ord  # unquote to see results
+
+```
+
+```{r 2.7c_construct_final_ord-plot}
+
+plot_out <- plot_ord / (plot_stress + plot_gof + plot_shep) +
+#  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme(text = element_text(size = 8))
+
+ggsave("figure/ord_plot.png",
+       plot = plot_out,
+                 units = "in",
+                 width = 7,
+                 height = 9)
+
+```
+
+```{r 2.7d-clean-up}
+
+rm(mrpp_ck,
+   mrpp_out,
+   mrpp_in,
+   mrpp_in_ck,
+   mrpp_group,
+   mrpp_group_ck,
+   plot_gof,
+   plot_pairs,
+   plot_shep,
+   plot_stress,  
+   plot_out,
+   input_ord,
+   input_names,
+   input_tr,
+   species_names,
+   ord_plot,
+   wshedNMS,
+   plot_ord,
+   gof)
+
+# export data scores====
+export(data_scores, "data/ord_scores.csv")
+
+```
+
+# 3.0 Get nearest neighbors
+```{r 3.1a_get_nearest_neighbbors--dist-matrix}
+
+# use the dist function to get nearest neighbors
+data_scores <- import("data/ord_scores.csv")
+
+# unit-test of how to get named data scores~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# https://stackoverflow.com/questions/60131993/rename-columns-based-on-vector
+
+unit_scores <- data_scores %>%
+  slice(1:4)
+
+# create a tibble to set row names====
+row_names <- unit_scores %>%
+  select(sta) %>%
+  rownames_to_column()
+
+# create a named vector to set variable names====
+col_names <- setNames(as.character(row_names$rowname),
+                          as.character(row_names$sta))
+
+# calculate distance matrix====
+unit_dist <- unit_scores %>%
+  select(NMDS1:NMDS2)  %>%
+  dist(., method = "euclidean") %>%  # get the distances
+  as.matrix() %>%                    # change to a matrix
+  as_tibble() %>%                    # then to a tibble
+  rownames_to_column()               # create rownames
+
+# rename the variables====
+unit_dist <- unit_dist %>%
+  rename(!!!col_names)
+
+# rename the rownames & remove zero vals====
+unit_dist <- full_join(row_names, unit_dist,
+                       by = "rowname") %>%
+  select(-rowname) %>%
+  column_to_rownames(var = "sta") %>%
+  na_if(., 0) %>%
+  rownames_to_column(var = "sta")
+
+# clean up====
+rm(col_names,
+   row_names,
+   unit_scores)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+
+# arrange by name & type====
+data_scores <-  data_scores %>%
+  arrange(type, sta)
+
+# create a tibble to set row names====
+row_names <- data_scores %>%
+  select(sta) %>%
+  rownames_to_column()
+
+# create a named vector to set variable names====
+col_names <- setNames(as.character(row_names$rowname),
+                          as.character(row_names$sta))
+
+# calculate distance matrix====
+dist_all <- data_scores %>%
+  select(NMDS1:NMDS2)  %>%
+  dist(., method = "euclidean") %>%  # get the distances
+  as.matrix() %>%                    # change to a matrix
+  as_tibble() %>%                    # then to a tibble
+  rownames_to_column()               # create rownames
+
+# rename the variables====
+dist_all <- dist_all %>%
+  rename(!!!col_names)
+
+# rename the rownames====
+dist_all <- full_join(row_names, dist_all,
+                       by = "rowname") %>%
+  select(-rowname) %>%
+  column_to_rownames(var = "sta") %>%
+# remove zero vals
+  na_if(., 0) %>%
+  rownames_to_column(var = "sta")  %>%
+  mutate_if(is.numeric, round, digits = 2)
+
+# add gage type to distance matrix====
+type <- data_scores %>%
+  select(sta, type)
+
+dist_all <- full_join(type, dist_all,
+                       by = "sta")
+
+# split into gaged and ungaged====
+dist_gaged <- dist_all   %>%
+  filter(type == "gaged") %>%
+  select(sta:type,
+         bad_fpi:wkc_wok) %>%
+  select(-type)
+
+dist_ungaged <- dist_all %>%
+  filter(type == "gaged") %>%
+  select(sta:type,
+         AMH1:WOL1) %>%
+  select(-type)
+
+# clean up====
+rm(col_names,
+   row_names,
+   type,
+   unit_dist)
+
+```
+
+```{r 3.1b_get_nearest_neighbors-select}
+
+# Get nearest neighbors by:
+#   Pivot 'dist_gaged' & 'dist_ungaged' to make a long df with all the vals,
+#     arrange from smallest to largest,
+#       select the first occurrance using group_by and slice.
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# unit test ====
+unit_df <- dist_ungaged %>%
+  select(sta: BEA2)  %>%
+  slice(1:3, 20)
+
+# min should be: AMH1:bat_bhr = 1.82
+#                BEA1:lcr_abv = 2.75
+#                BEA2:bat_bhr = 2.45
+
+unit_out <- unit_df %>%
+  pivot_longer(cols = AMH1:BEA2) %>%
+  arrange(value)  %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dist_gaged <- dist_gaged %>%
+  pivot_longer(cols = -sta) %>%
+  arrange(value)  %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(neighbor = name)
+
+dist_ungaged <- dist_ungaged %>%
+  pivot_longer(cols = -sta) %>%
+  arrange(value) %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(neighbor = sta) %>%
+  rename(ungaged = name) %>%
+  select(ungaged, neighbor, value)
+
+# clean up====
+rm(unit_out,
+   unit_df)
+
+```
+
+```{r 3.1c_prepare_for_streamflow_import}
+
+# get the minimum stations for nearest neighbors for ungaged====
+neighbor_ungaged <- dist_ungaged %>%
+  group_by(neighbor) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(sta = neighbor)
+
+gages_in <- semi_join(dist_gaged, neighbor_ungaged,
+                            by = "sta") %>%
+  select(-value) %>%
+  pivot_longer(cols = sta:neighbor,
+               names_repair = "minimal") %>%
+  select(sta = value) %>%
+  distinct()
+
+rm(neighbor_ungaged)
+
+```
+
+```{r 3.2a_import_munge_streamflow}
+
+# 1 import gage metadata & join ordination data====
+gage_meta <- import("data/gage_meta.csv") %>%
+  select(sta,
+         years_rec:apparent_yrs,
+         dec_lat_va,
+         dec_long_va)
+
+gage_meta <- full_join(gage_meta, data_scores,
+                 by = "sta") %>%
+  filter(!is.na(years_rec))  %>%       # remove ungaged watsheds
+  filter(!is.na(ecoreg)) %>%           # remove gw controlled streams
+  select(-gof)
+
+gages_in <- semi_join(gage_meta, gages_in,
+                            by = "sta")
+
+# get gage depths for WY 1989-2018 & join ecoreg data====
+gage_dep_orig   <- import("data/gage_depth.csv") %>%
+  mutate(date = ymd(Date)) %>%
+  group_by(sta, waterYear) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  select(-site_no) %>%
+  filter(between(waterYear, 1989, 2018))
+
+# select the gages from 'gages_in'====
+gage_dep <- right_join(gage_dep_orig, gages_in,
+                        by = "sta")  %>%
+  select(sta,
+         date,
+         waterYear,
+         q1_depth,
+         watshed,
+         gage_group,
+         ecoreg,
+         count)
+
+# check incomplete years====
+gage_comp <- gage_dep %>%
+  filter(count > 364)
+
+# unit test ~~~~~~~~~~~~~~~~~~~~~
+unit_gage_ck <- gage_comp %>%
+  filter(sta == "whi_sta") %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+gagem_ck <- gage_comp %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear)) %>%
+  ungroup() %>%
+  arrange(desc(count))
+
+# clean up====
+rm(unit_gage_ck,
+   gage_comp,
+   gage_dep,
+   gagem_ck)
+
+```
+
+```{r 3.2b_find_fill_stations}   
+
+# find neighbors to fill incomplete gages====
+gagem_incomp <- gagem_ck_sum %>%
+  filter(count < 30)
+
+gagem_incomp <- left_join(gagem_incomp, dist_gaged,
+                  by = c("sta" = "neighbor")) %>%
+#  rename(stat = sta) %>%
+  rename(neighbor = sta.y) %>%
+  rename(sta_count = count)  %>%
+  rename(sta_min = min) %>%
+  rename(sta_max = max)
+
+gagem_incomp <- left_join(gagem_incomp, gagem_ck_sum,
+                   by = c("neighbor"= "sta")) %>%
+  select(-value)
+
+# manually define results====
+gagem_incomp <- gagem_incomp %>%
+  mutate(fill = case_when(
+    sta == "blc_wan" ~ "whi_sta",
+    sta == "che_red" ~ "che_was",
+    sta == "ros_ros" ~ "blc_wan",
+    sta == "bev_abf" ~ "drop",
+    sta == "wkc_wok" ~ "ros_ros, blc_wan",
+    TRUE ~ neighbor)) %>%
+  mutate(action = case_when(
+    sta == "bat_bhr" ~ "1989",
+    sta == "brsf_co" ~ "drop",
+    sta == "blp_bel" ~ "1989-1992, ck 2017",
+    sta == "blc_wan" ~ "1989-1994",
+    sta == "che_red" ~ "swap",
+    sta == "whi_int" ~ "swap",
+    sta == "lwr_aro" ~ "swap",
+    sta == "wcc_ogl" ~ "swap",
+    sta == "ros_ros" ~ "1998-2018",
+    sta == "bev_abf" ~ "for SH Fringe",
+    sta == "whi_slm" ~ "swap",
+    sta == "wkc_wok" ~ "swap",
+    )) %>%
+  filter(sta != "che_sce")
+
+# unit test ~~~~~~~~~~~~~
+unit_fill1  <- dist_ungaged %>%
+  filter(neighbor == "wkc_wok")
+
+unit_fill2 <- dist_all %>%
+  select(sta, AMH1, BLP1, LOD1, WOK2)
+
+# clean up====
+rm(unit_fill1,
+   unit_fill2,
+   gagem_ck_sum)
+
+```
+
+```{r 3.2c_update_streamflow-input}
+
+# show update the gages based ongage incomp table====
+gages_update <- gagem_incomp %>%
+  select(sta, neighbor, fill:action) %>%
+  # this is for LON1, which is closer to 'ros_ros'
+  # unfortunately -- need to drop ros-ros for swap
+  mutate(fill = case_when(
+    fill == "lwr_ros" ~ "ros_ros",
+    fill == "ros_ros, blc_wan" ~ "blc_wan",
+    TRUE ~ fill)) %>%
+  # because 'whi_kad' is complete  & 'che_red' is dropped
+  mutate(action = case_when(
+    is.na(action)  ~ "drop",
+    TRUE ~ action))
+
+# make updates to gages====
+gages_update <- gages_update %>%
+  filter(fill != "drop") %>%
+  filter(action != "drop") %>%
+  mutate(sta_old = sta) %>%
+  # perform swaps
+  mutate(sta = case_when(
+    action == "swap" ~ fill,
+    TRUE ~ sta)) %>%
+  mutate(action = case_when(
+    action == "swap" ~ "swapped",
+    TRUE ~ action)) %>%
+  select(-neighbor) %>%
+  # separate columns with multiple fill
+  separate(fill,
+           into = c("fill1", "fill2"),
+           sep = ",") %>%
+  pivot_longer(cols = fill1:fill2,
+               values_to = "fill") %>%
+  select(-name) %>%
+  filter(!is.na(fill)) %>%
+  mutate(fill = case_when(
+    fill == " blc_wan" ~ "blc_wan",
+    TRUE ~ fill))
+
+# make updates to ungaged====
+dist_ungaged_new <- dist_all %>%
+  filter(type == "gaged") %>%
+  select(sta:type,
+         AMH1:WOL1) %>%
+  select(-type)  %>%
+  # remove short stations from selection
+  filter(sta != "che_buf") %>%
+  filter(sta != "che_red") %>%
+  filter(sta != "che_sce") %>%
+  filter(sta != "lwr_aro") %>%
+  filter(sta != "ros_ros") %>%
+  filter(sta != "wcc_ogl") %>%
+  filter(sta != "whi_slm") %>%
+  filter(sta != "whi_int") %>%
+  filter(sta != "wkc_wok")  %>%
+  pivot_longer(cols = -sta) %>%
+  arrange(value)  %>%
+  group_by(name) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(neighbor_new = sta) %>%
+  rename(ungaged = name) %>%
+  select(ungaged, neighbor_new, value)
+
+# compare old and new distances====
+dist_ungaged_new <- full_join(dist_ungaged_new, dist_ungaged,
+                           by = "ungaged") %>%
+  rename(neighbor_old = neighbor) %>%
+  rename(value_old = value.y) %>%
+  rename(neighbor = neighbor_new) %>%
+  rename(value = value.x)  %>%
+  mutate(check_sel = neighbor == neighbor_old)
+
+# update gage input with nearest to ungaged & fills====
+gages_in <- dist_ungaged_new %>%
+  filter(value < 1.50) %>%              # remove sandhills fringe & LOD1
+  select(neighbor) %>%
+  distinct() %>%
+  rename(sta = neighbor)
+
+```
+
+```{r 3.2d_plot_ordination_with-ungaged} 
+
+# update data prior to plotting====
+data_gaged2 <- semi_join(data_gaged, gages_in,
+                         by = "sta")
+
+data_ungaged2 <- full_join(data_ungaged, dist_ungaged_new,
+                           by = c("sta" = "ungaged")) %>%
+  filter(value < 1.5)  %>%
+  select(-c(neighbor:check_sel))
+
+data_text <- bind_rows(data_gaged2, data_ungaged2)
+
+# plot ord structure====
+plot_ung_ord <- ggplot(data = data_gaged,
+                   aes(x = NMDS1, y = NMDS2)) +
+  # plot the gaged sites
+  geom_point(#data = data_scores,
+    size = 3,
+    alpha = 0.5,
+    aes(colour = ecoreg,
+        shape = type)) +
+  # plot the convex hulls
+  stat_chull(fill = NA,
+             alpha = 0.3,
+             aes(colour = ecoreg)) +
+  scale_color_discrete(guide = guide_legend()) +
+  scale_shape_discrete(guide = guide_legend()) +
+  # plot the ungaged sites
+  geom_point(data = data_ungaged,
+             size = 3,
+             alpha = 0.3,
+             aes(colour = ecoreg,
+                 shape = type)) +
+ # plot the ungaged sites -- selected
+  geom_point(data = data_ungaged2,
+             size = 3,
+             alpha = 0.7,
+             aes(colour = ecoreg,
+                 shape = type)) +
+ # plot the gaged sites -- selected
+  geom_point(data = data_gaged2,
+             size = 3,
+             alpha = 0.7,
+             aes(colour = ecoreg,
+                 shape = type)) +
+  # add the labels for the sites
+  geom_text_repel(data = data_text,
+    aes(x = NMDS1, y = NMDS2,
+        label = sta),
+    size  = 2.5,
+    vjust = 1,
+    alpha = 1) +
+  # add the variable labels
+  geom_text(data = species_scores,
+            aes(x = NMDS1, y = NMDS2,
+                label = value),
+            alpha = 0.7,
+            size = 3.5) +            # add the species labels
+  # add the title and axes labels
+  labs(title = "",
+       tag = "A") +
+  xlab("NMS Axis 1") +
+  ylab("NMS Axis 2") +
+  #  coord_equal(expand = FALSE) +
+  theme_classic()  +
+  theme(legend.position =  "bottom") +
+  scale_x_continuous(limits = c(-2.3, NA)) +
+  guides(color = guide_legend(title = "", nrow = 3)) +
+  guides(shape = guide_legend(title = "", nrow = 2))
+
+plot_ung_ord  # unquote to see results
+
+ggsave("figure/ord_plot_ungaged.png",
+       plot = plot_ung_ord,
+                 units = "in",
+                 width = 7,
+                 height = 7)
+
+```
+
+```{r 3.2e_clean up}
+
+rm(data_gaged,
+   data_gaged2,
+   data_ungaged,
+   data_ungaged2,
+   data_text,
+   plot_ung_ord,
+   species_scores,
+   StatChull,
+   stat_chull,
+   gagem_incomp,
+   dist_ungaged)
+
+```
+
+```{r 3.3a_munge_streamflow_for_neighbors}
+
+# put gage_dep_orig into a better date format
+gage_dep_orig <- gage_dep_orig %>%
+  select(sta, date, everything()) %>%
+  select(-Date)                        # drop Date as a string
+
+# select the updated gages from 'gages_in' & 'gage_fill'====
+gage_dep <- right_join(gage_dep_orig, gages_in,
+                        by = "sta")
+
+# check incomplete years====
+gage_comp <- gage_dep %>%
+  filter(count > 364)
+
+gagem_ck <- gage_comp %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear)) %>%
+  ungroup() %>%
+  arrange(desc(count))
+
+```
+
+```{r 3.3b_fix_blp-bel-2017}
+
+# fill the missing single day for blp_bel====
+# n = 9,642
+blp_bel <- gage_dep %>%
+  filter(sta == "blp_bel")
+
+# get missing date====
+blp_bel_ck <- blp_bel %>%
+  filter(between(date,
+                 as.Date("2017-08-09"),
+                 as.Date("2017-08-11")))
+
+# take the average of the missing dates====
+blp_bel_fill <- blp_bel_ck %>%
+  mutate(q1_depth = mean(q1_depth)) %>%
+  mutate(date = mean(date)) %>%
+  distinct()
+
+# append the results & count====
+#   95,407 --> 95,408
+gage_dep <- bind_rows(gage_dep, blp_bel_fill) %>%
+  distinct() %>% 
+  group_by(sta, waterYear) %>%       # update count
+  mutate(count = n()) %>%
+  ungroup()
+
+# update incomplete years====
+#   94,231 --> 94,596
+gage_comp <- gage_dep %>%
+  filter(count > 364)
+
+# update the summary====
+gagem_ck <- gage_dep %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear)) %>%
+  ungroup() %>%
+  arrange(desc(count))
+
+rm(blp_bel,
+   blp_bel_ck)
+
+```
+
+```{r 3.3c_fill_blp_bel}
+
+# subset blp_bel stations & check dates for partial years====
+# n = 9,643 -- 147 for partial year
+blp_bel <- gage_dep %>%
+  filter(sta == "blp_bel")
+
+blp_bel_ck <- blp_bel %>%
+  filter(between(waterYear,
+                 1989, 1992))
+
+blp_bel_ck2 <- blp_bel_ck %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n())%>%
+  ungroup()
+
+# get elk-elm for blp_bel fill - remove dups - add partial year===
+#   1,461 -> 1,314 -> 1,461
+blp_bel_fill <- gage_dep_orig %>%
+  filter(sta == "elk_elm") %>%
+  filter(between(waterYear,
+                 1989, 1992)) %>%
+  mutate(sta = "blp_bel")
+
+blp_bel_fill <- anti_join(blp_bel_fill, blp_bel_ck,
+                          by ="date")
+
+blp_bel_fill <- bind_rows(blp_bel_fill, blp_bel_ck)
+
+# unit test ~~~~~~~~~~~~~~~~~~
+blp_bel_ck <- blp_bel_fill %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n())%>%
+  ungroup()
+
+blp_bel_ck2 <- blp_bel %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n())%>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update blp_bel - remove partial year & complete year====
+#   9,643 -> 9,496 -> 10,957
+blp_bel <- anti_join(blp_bel, blp_bel_fill, 
+                     by = "date")
+
+blp_bel <- bind_rows(blp_bel, blp_bel_fill) %>%
+  group_by(waterYear) %>%
+  mutate(count = n()) %>%
+  ungroup()
+
+# unit test ~~~~~~~~~~~~~~~~~~
+blp_bel_ck <- blp_bel %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n()) %>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# remove partial blp_bel - add complete blp_bel ====
+#   95,408 -> 85,765 -> 96,722
+gage_dep <- anti_join(gage_dep, blp_bel,
+                     by = c("sta", "date"))
+
+gage_dep <- bind_rows(gage_dep, blp_bel) 
+
+# unit test ~~~~~~~~~~~~~~~~~~
+blp_bel_ck <- gage_dep %>%
+  filter(sta == "blp_bel") %>%
+  group_by(waterYear) %>%
+  summarise(count = n())%>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update incomplete years====
+#   94,596 -> 96,722 -> 96,722
+gage_comp <- gage_dep %>%
+  group_by(sta, waterYear) %>%
+  mutate(count = n())%>%
+  ungroup() %>%
+  filter(count > 364)
+
+# unit test ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_dep_ck <- gage_dep %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n()) %>%
+  filter(count <= 364)
+
+gage_comp_ck <- anti_join(gage_dep, gage_comp,
+                  by = c("sta", "date")) %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n())
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update the summary====
+gagem_ck <- gage_dep %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()
+
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear))  %>%
+  ungroup() %>%
+  arrange(desc(count))
+
+rm(blp_bel,
+   blp_bel_ck,
+   blp_bel_ck2,
+   blp_bel_fill)
+
+```
+
+```{r 3.3d_fill_blc_wan}
+
+# subset blc_wan stations & check dates for partial years====
+# n = 9,095 -- 329 for partial years
+blc_wan <- gage_dep %>%
+  filter(sta == "blc_wan")
+
+blc_wan_ck <- blc_wan %>%
+  filter(between(waterYear,
+                 1989, 1994))
+
+# get whi_sta for blc_wan fill - remove dups - add partial year===
+#   2,191 -> 1,862 -> 2,191
+blc_wan_fill <- gage_dep_orig %>%
+  filter(sta == "whi_sta") %>%
+  filter(between(waterYear,
+                 1989, 1994)) %>%
+  mutate(sta = "blc_wan")
+
+blc_wan_fill <- anti_join(blc_wan_fill, blc_wan_ck,
+                          by ="date")
+
+blc_wan_fill <- bind_rows(blc_wan_fill, blc_wan_ck)
+
+# unit test ~~~~~~~~~~~~~~~~~~
+blc_wan_ck <- blc_wan_fill %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n())%>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update blc_wan - remove partial year & complete year====
+#   9,095 -> 8,766 -> 10,957
+blc_wan <- anti_join(blc_wan, blc_wan_fill, 
+                     by = "date")
+
+blc_wan <- bind_rows(blc_wan, blc_wan_fill) %>%
+  group_by(waterYear) %>%
+  mutate(count = n()) %>%
+  ungroup()
+
+# unit test ~~~~~~~~~~~~~~~~~~
+blc_wan_ck <- blc_wan %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n()) %>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# remove partial blc_wan - add complete blc_wan ====
+#   96,722 -> 87,627 -> 98,584
+gage_dep <- anti_join(gage_dep, blc_wan, 
+                     by = c("sta", "date"))
+
+gage_dep <- bind_rows(gage_dep, blc_wan) 
+
+# unit test ~~~~~~~~~~~~~~~~~~
+blc_wan_ck <- gage_dep %>%
+  filter(sta == "blc_wan") %>%
+  group_by(waterYear) %>%
+  summarise(count = n())%>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update incomplete years====
+#   98,584 -> 98,248
+gage_comp <- gage_dep %>%
+  filter(count > 364)
+
+# unit test ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_comp_ck <- anti_join(gage_dep, gage_comp,
+                  by = c("sta", "date")) %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n())
+
+gage_comp_ck <- gage_comp  %>%
+    filter(sta == "blc_wan") %>%
+    filter(waterYear == 1989)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update the summary====
+gagem_ck <- gage_dep %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()  %>%
+  filter(count < 365)
+
+gagem_ck_sum <- gagem_ck %>%
+  group_by(sta) %>%
+  summarise(count = n(),
+            min = min(waterYear),
+            max = max(waterYear))  %>%
+  ungroup() %>%
+  arrange(desc(count))
+
+rm(blc_wan,
+   blc_wan_ck,
+   blc_wan_fill)
+```
+
+```{r 3.3e_fill_bat_bhr}
+
+# subset blc_wan stations & check dates for partial years====
+# n = 10,928 -- 336 for partial year
+bat_bhr <- gage_dep %>%
+  filter(sta == "bat_bhr")
+
+bat_bhr_ck <- bat_bhr %>%
+  filter(waterYear == 1989)
+
+# get wcc_ogl for bat_bhr fill - remove dups - add partial year===
+#   2,191 -> 1,862 -> 2,191
+bat_bhr_fill <- gage_dep_orig %>%
+    filter(waterYear == 1989) %>%
+    filter(sta == "wcc_ogl") %>%
+  mutate(sta = "bat_bhr")
+
+bat_bhr_fill <- anti_join(bat_bhr_fill, bat_bhr_ck,
+                          by ="date")
+
+bat_bhr_fill <- bind_rows(bat_bhr_fill, bat_bhr_ck)
+
+# update bat_bhr - remove partial year & complete year====
+#   10,928 -> 10,592 -> 10,957
+bat_bhr <- anti_join(bat_bhr, bat_bhr_fill, 
+                     by = "date")
+
+bat_bhr <- bind_rows(bat_bhr, bat_bhr_fill) %>%
+  group_by(waterYear) %>%
+  mutate(count = n()) %>%
+  ungroup()
+
+# unit test ~~~~~~~~~~~~~~~~~~
+bat_bhr_ck <- bat_bhr %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n()) %>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# remove partial bat_bhr - add complete bat_bhr ====
+#   98,584 -> 87,656 -> 98,248
+gage_dep <- anti_join(gage_dep, bat_bhr,
+                     by = c("sta", "date"))
+
+gage_dep <- bind_rows(gage_dep, bat_bhr) 
+
+# unit test ~~~~~~~~~~~~~~~~~~
+bat_bhr_ck <- gage_dep %>%
+  filter(sta == "bat_bhr") %>%
+  group_by(waterYear) %>%
+  summarise(count = n())%>%
+  ungroup()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update incomplete years====
+#   98,248 ->98,613
+gage_comp <- gage_dep %>%
+  filter(count > 364)
+
+# unit test ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gage_comp_ck <- anti_join(gage_dep, gage_comp,
+                  by = c("sta", "date")) %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n())
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# update the summary====
+gagem_ck <- gage_dep %>%
+  group_by(sta, waterYear) %>%
+  summarise(count = n(),
+            min = min(date),
+            max = max(date)) %>%
+  ungroup()  %>%
+  filter(count < 365)
+
+rm(bat_bhr,
+   bat_bhr_ck,
+   bat_bhr_fill,
+   gage_comp,
+   gage_comp_ck,
+   gage_dep_ck,
+   gage_dep_orig,
+   gagem_ck,
+   gagem_ck_sum,
+   gages_update)
+
+```
+
+# 4.0 calculate SSI
+```{r 4a-prepare_SSI}
+
+# 1 create monthly values====
+gage_mon <- gage_dep  %>%
+  mutate(date_orig = date) %>%
+  mutate(yr  = year(date)) %>%
+  mutate(mon = month(date)) %>%
+  mutate(day = 15) %>%
+  unite("date", yr:day, sep = "-") %>%
+  mutate(date = ymd(date)) %>%
+  group_by(sta, date, waterYear) %>%
+  summarise(q1_depth = mean(q1_depth))  %>%
+  ungroup() %>%
+  mutate(log_q1 = log10(q1_depth))
+
+# 2 check input data====
+gage_ck <- gage_mon %>%
+  select(-c(q1_depth, log_q1, date)) %>%
+  distinct() %>%
+  group_by(sta) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# 3 prepare vector inputs as double for SCI fun----
+# 3.1 Keya Paha Tablelands gages====
+blc_wan <- gage_mon %>%
+  filter(sta == "blc_wan")
+
+blc_wan_v <- as.double(blc_wan$log_q1)
+
+# 3.2 Pierre Shale High gages====
+che_was <- gage_mon %>%
+  filter(sta == "che_was")
+
+che_was_v <- as.double(che_was$log_q1)
+
+# 3.3 Sand Hills gages====
+lwr_mar <- gage_mon %>%
+  filter(sta == "lwr_mar")
+
+lwr_vet <- gage_mon %>%
+  filter(sta == "lwr_vet")
+
+lwr_mar_v <- as.double(lwr_mar$log_q1)
+lwr_vet_v <- as.double(lwr_vet$log_q1)
+
+# 3.4 Black Hills Transition gages====
+bat_bhr <- gage_mon %>%
+  filter(sta == "bat_bhr")
+
+bat_bhr_v <- as.double(bat_bhr$log_q1)
+
+# 3.5 White River Badlands gages====
+whi_kad <- gage_mon %>%
+  filter(sta == "whi_kad")
+
+whi_ogl <- gage_mon %>%
+  filter(sta == "whi_ogl")
+
+whi_sta <- gage_mon %>%
+  filter(sta == "whi_sta")
+
+blp_bel <- gage_mon %>%
+  filter(sta == "blp_bel")
+
+whi_kad_v <- as.double(whi_kad$log_q1)
+whi_ogl_v <- as.double(whi_ogl$log_q1)
+whi_sta_v <- as.double(whi_sta$log_q1)
+blp_bel_v <- as.double(blp_bel$log_q1)
+
+# 4.0 clean up global enviroment====
+rm(gage_ck)   
+
+```
+
+```{r 4b-SCI_function}
+
+# fitSCI identifies Standardized Climate Index (SCI) parameters----
+#   some notes about the SCI package:
+#     the SCI package doesn't like snake_case variables,
+#     need to change tibble to a vector as double:
+#       cot <- as.double(sta_cot$depth_mm)
+
+# Initial values for SCI calculations====
+time_scale <- 1     # sets the length of the averaging period
+distrib    <- "pe3" # sets the distribution type
+p_zero     <- TRUE  # sets a function to reduce zero-precip bias
+p_zero_cm  <- TRUE  # uses Weibull plotting position for p_zero
+scale      <- "sd"  # scales input by subtract mean & divide by sd
+warn_me    <- TRUE  # sets explicit warning
+first_mon  <- 10     # Set first month for each station
+sci.limit  <- 3     # Sets a limit of [-3, 3] for limit
+
+# sci function====
+sci.fun <- function(sta, time_scale) fitSCI(x = sta,
+                                            start.fun.fix  = TRUE,
+                                            time.scale     = time_scale,
+                                            first.mon      = first_mon,
+                                            distr          = distrib,
+                                            p0             = p_zero,
+                                            p0.center.mass = p_zero_cm,
+                                            scaling        = scale,
+                                            warn           = warn_me)
+
+```
+
+```{r 4c-calculate_SSI-kpt}
+
+# 1.0 calculate SCI_kpt----
+# 1.1 SCI calcs - blc_wan -- set up station for sci & make sci list vars====
+sta      <- blc_wan_v
+sci_1mo  <- sci.fun(sta, 1)
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * blc_wan -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)   
+
+# * blc_wan -- bind and rename the sci vals====
+sci_blc_wan <- bind_cols(blc_wan,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * blc_wan -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(blc_wan, blc_wan_v)
+
+```
+
+```{r 4d-calculate_SSI-che}
+
+# 2.0 calculate SCI_psh----
+# 2.1 SCI calcs - che_was -- set up station for sci & make sci list vars====
+sta      <- che_was_v
+sci_1mo  <- sci.fun(sta, 1)
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * che_was -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * che_was -- bind and rename the sci vals====
+sci_che_was <- bind_cols(che_was,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * che_was -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(che_was, che_was_v)
+```
+
+```{r 4e-calculate_SSI-snd}
+
+# 3.0 calculate SCI_snd----
+# 3.1 SCI calcs - lwr_mar -- set up station for sci & make sci list vars====
+sta      <- lwr_mar_v
+sci_1mo  <- sci.fun(sta, 1)
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * lwr_mar -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * lwr_mar -- bind and rename the sci vals====
+sci_lwr_mar <- bind_cols(lwr_mar,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * lwr_mar -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(lwr_mar, lwr_mar_v)
+
+# 3.2 SCI calcs - lwr_vet -- set up station for sci & make sci list vars====
+sta      <- lwr_vet_v
+sci_1mo  <- sci.fun(sta, 1)
+sci_2mo  <- sci.fun(sta, 2)       # MLE fail month 5
+sci_3mo  <- sci.fun(sta, 3)
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * lwr_vet -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * lwr_vet -- bind and rename the sci vals====
+sci_lwr_vet <- bind_cols(lwr_vet,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)  
+
+# * lwr_vet -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(lwr_vet, lwr_vet_v)
+
+```
+
+```{r 4f-calculate_SSI-bht}
+
+# 4.0 calculate SCI_bht----
+# 4.1 SCI calcs - bat_bhr -- set up station for sci & make sci list vars====
+sta      <- bat_bhr_v
+sci_1mo  <- sci.fun(sta, 1)  # month 1 fail
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)  # month 10 & 11 fail
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)  # month 9 fail
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * bat_bhr -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * bat_bhr -- bind and rename the sci vals====
+sci_bat_bhr <- bind_cols(bat_bhr,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * bat_bhr -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(bat_bhr, bat_bhr_v)
+
+```
+
+```{r 4g-calculate_SSI-bad}
+
+# 4.3 SCI calcs - whi_kad -- set up station for sci & make sci list vars====  
+sta      <- whi_kad_v
+sci_1mo  <- sci.fun(sta, 1)  # MLE fail month 1
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6) # MLE fail month 1
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * whi_kad -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * whi_kad -- bind and rename the sci vals====
+sci_whi_kad <- bind_cols(whi_kad,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * whi_kad -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(whi_kad, whi_kad_v)
+
+# 4.4 SCI calcs - whi_ogl -- set up station for sci & make sci list vars====
+sta      <- whi_ogl_v
+sci_1mo  <- sci.fun(sta, 1)     # MLE fail month 11
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)     # MLE fail months 2 & 3
+sci_9mo  <- sci.fun(sta, 9)     # MLE fail months 4 & 5
+sci_12mo <- sci.fun(sta, 12)
+
+# * whi_ogl -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * whi_ogl -- bind and rename the sci vals====
+sci_whi_ogl <- bind_cols(whi_ogl,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * whi_ogl -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(whi_ogl, whi_ogl_v)
+
+# 4.5 SCI calcs - whi_sta -- set up station for sci & make sci list vars====
+sta      <- whi_sta_v
+sci_1mo  <- sci.fun(sta, 1)
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)  # MLE fail months 10 & 11
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * whi_sta -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * whi_sta -- bind and rename the sci vals====
+sci_whi_sta <- bind_cols(whi_sta,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * whi_sta -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(whi_sta, whi_sta_v)
+
+# 4.6 SCI calcs - blp_bel -- set up station for sci & make sci list vars====
+sta      <- blp_bel_v
+sci_1mo  <- sci.fun(sta, 1)  # MLE fail month 1
+sci_2mo  <- sci.fun(sta, 2)
+sci_3mo  <- sci.fun(sta, 3)  # MLE fail month 10 & 11
+sci_4mo  <- sci.fun(sta, 4)
+sci_6mo  <- sci.fun(sta, 6)  # MLE fail month 9
+sci_9mo  <- sci.fun(sta, 9)
+sci_12mo <- sci.fun(sta, 12)
+
+# * blp_bel -- apply the transformation identified by fitSCI function====
+sci_1mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_1mo) %>%
+  enframe(name                     = NULL)
+
+sci_2mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_2mo) %>%
+  enframe(name                     = NULL)
+
+sci_3mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_3mo) %>%
+  enframe(name                     = NULL)
+
+sci_4mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_4mo) %>%
+  enframe(name                     = NULL)
+
+sci_6mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_6mo) %>%
+  enframe(name                     = NULL)
+
+sci_9mo  <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_9mo) %>%
+  enframe(name                     = NULL)
+
+sci_12mo <- transformSCI(sta,
+                         first.mon = first_mon,
+                         obj       = sci_12mo) %>%
+  enframe(name                     = NULL)
+
+# * blp_bel -- bind and rename the sci vals====
+sci_blp_bel <- bind_cols(blp_bel,
+                         sci_1mo,
+                         sci_2mo,
+                         sci_3mo,
+                         sci_4mo,
+                         sci_6mo,
+                         sci_9mo,
+                         sci_12mo) %>%
+  rename(sci_1mo = value)   %>%
+  rename(sci_2mo = value1)  %>%
+  rename(sci_3mo = value2)  %>%
+  rename(sci_4mo = value3)  %>%
+  rename(sci_6mo = value4)  %>%
+  rename(sci_9mo = value5)  %>%
+  rename(sci_12mo = value6)
+
+# * blp_bel -- clean up global environment====
+rm(sci_1mo,
+   sci_2mo,
+   sci_3mo,
+   sci_4mo,
+   sci_6mo,
+   sci_9mo,
+   sci_12mo)
+rm(blp_bel, blp_bel_v)
+
+```
+
+```{r 4d-join_SSI}
+
+# 1 clean up sci.fun vars====
+rm(distrib,
+   first_mon,
+   p_zero,
+   p_zero_cm,
+   scale,
+   sci.limit,
+   sta,
+   time_scale,
+   warn_me,
+   sci.fun)
+
+# 2.1 join keya paha tablelands SCI vals====
+sci_kpt <- bind_rows(sci_blc_wan) %>%
+  mutate(group = "Keya Paha Tablelands") %>%
+  select(sta, group, everything())
+
+# 2.2 join pierre shale high SCI vals====
+sci_psh <- bind_rows(sci_che_was) %>%
+  mutate(group = "Pierre Shale High") %>%
+  select(sta, group, everything())
+
+# 2.3 join sand hills SCI vals====
+sci_snd <- bind_rows(sci_lwr_mar,
+                     sci_lwr_vet) %>%
+  mutate(group = "Sand Hills") %>%
+  select(sta, group, everything())
+
+# 2.4 join Black Hills Transition SCI values====
+sci_bht <- bind_rows(sci_bat_bhr) %>%
+  mutate(group = "Black Hills Transition") %>%
+  select(sta, group, everything())
+
+# 2.5 join White River Badlands SCI values====
+sci_bad <- bind_rows(sci_whi_kad,
+                     sci_whi_ogl,
+                     sci_whi_sta,
+                     sci_blp_bel) %>%
+  mutate(group = "White River Badlands") %>%
+  select(sta, group, everything())
+
+# 3.0 join all values====
+sci_gage <- bind_rows(sci_kpt,
+                      sci_psh,
+                      sci_snd,
+                      sci_bht,
+                      sci_bad,) %>%
+    gather(key = type, val = value,
+         -c(sta, date, waterYear, group, q1_depth, log_q1))
+
+
+# 3.1 check results====
+# check for possible missing values or other errors
+sci_gage_ck <- sci_gage %>%
+  filter(date == "2008-03-15") %>%
+  filter(type == "sci_6mo")
+
+# from gages_in & sci_gage_cl--
+#1     blc_wan     blc_wan
+#2     blp_bel     blp_bel
+#3     bat_bhr     bat_bhr
+#4     che_was     che_was
+#5     lwr_mar     lwr_mar
+#6     lwr_vet     lwr_vet
+#7     whi_kad     whi_kad
+#8     whi_ogl     whi_ogl
+#9     whi_sta     whi_sta
+
+# * clean up global environment====
+rm(sci_kpt,
+   sci_psh,
+   sci_snd,
+   sci_bht,
+   sci_bad,
+   sci_blc_wan,
+   sci_che_was,
+   sci_lwr_mar,
+   sci_lwr_vet,
+   sci_bat_bhr,
+   sci_whi_kad,
+   sci_whi_ogl,
+   sci_whi_sta,
+   sci_blp_bel)
+
+export(sci_gage, "data/sci_gage_eco.csv")
+
+```
+
+```{r 4e-check_SSI_results}
+
+# Get counts of high and low vals====
+# * summarize extrodinary high and low flow values====
+summary_prop <- sci_gage %>%
+    group_by(group) %>%
+    summarise(n = n())
+
+summary_high <- sci_gage %>%
+  filter(value >= 3.0) %>%
+  mutate(year = year(date)) %>%
+  mutate(month = month(date)) %>%
+  group_by(group, type, year, month) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+summary_low <- sci_gage %>%
+  filter(value <= -3.0) %>%
+  mutate(year = year(date)) %>%
+  mutate(month = month(date)) %>%
+  group_by(group, type, year, month) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# * get high and low flow counts by year and month====
+# * summarize year====
+high_year <- summary_high %>%
+  group_by(group, year) %>%
+  summarise(high_year = sum(count)) %>%
+  ungroup()
+
+low_year <- summary_low %>%
+  group_by(group, year) %>%
+  summarise(low_year = sum(count)) %>%
+  ungroup()
+
+# join the high and low year values
+exceed_year <- full_join(high_year, low_year,
+                         by = c("group", "year")) %>%
+  replace_na(list(low_year = 0, high_year = 0)) %>%
+  mutate(low_year = -low_year) %>%
+  pivot_longer(c(high_year, low_year),
+               names_to = "key",
+               values_to = "value")
+
+# * create year proportations====
+exceed_year <- full_join(exceed_year, summary_prop,
+                         by = "group") %>%
+  mutate(prop = 100 * value/n) %>%
+  mutate(prop = round(prop, digits = 2)) %>%
+  # relevel final groups for plotting
+  mutate(group = factor(group)) %>%
+  mutate(group = fct_relevel(group,
+                             "Pierre Shale High",
+                             "Tertiary Clays",
+                             "Keya Paha Tablelands",
+                             "Sand Hills"))
+
+# * summarize month====
+high_month <- summary_high %>%
+  group_by(group, month) %>%
+  summarise(high_month = sum(count)) %>%
+  ungroup()
+
+low_month <- summary_low %>%
+  group_by(group, month) %>%
+  summarise(low_month = sum(count)) %>%
+  ungroup()
+
+# join the high and low month values
+exceed_month <- full_join(high_month, low_month,
+                         by = c("group", "month")) %>%
+  replace_na(list(low_month = 0, high_month = 0)) %>%
+  mutate(low_month = -low_month) %>%
+  pivot_longer(c(high_month, low_month),
+               names_to = "key",
+               values_to = "value")
+
+# * create month proportations====
+exceed_month <- full_join(exceed_month, summary_prop,
+                         by = "group") %>%
+  mutate(prop = 100 * value/n) %>%
+  mutate(prop = round(prop, digits = 2)) %>%
+  # relevel final groups for plotting
+  mutate(group = factor(group)) %>%
+  mutate(group = fct_relevel(group,
+                             "Pierre Shale High",
+                             "White River Badlands",
+                             "Black Hills Transition",
+                             "Keya Paha Tablelands",
+                             "Sand Hills"))
+
+# * clean up global environment====
+rm(summary_high,
+   summary_low,
+   summary_prop,
+   high_year,
+   low_year,
+   high_month,
+   low_month)
+
+```  
+
+# 5.0 prepare wshd data
+```{r save_data_scores}
+
+export(data_scores, "data/wsd_data_scores.csv")
+export(gage_meta, "data/gage_scores.csv")
+
+```
+
+```{r 5a_fix_lat-lon_errors}
+
+# fix lat lons of ungaged watersheds
+# from Google Maps and TetraTech
+# BEA3 is upstream of Hisle
+#   N 43.403726, W -101.743046
+# LOD1 is NE of Potato Creek
+#   N 43.601012, W -101.96805
+
+wsd_summary <- import("data/wsd_summary.csv") %>%
+  mutate(dec_lat = case_when(
+    sta == "BEA3" ~ 43.40373,
+    sta == "LOD1" ~ 43.601012,
+    TRUE ~ dec_lat)) %>%
+  mutate(dec_lon = case_when(
+    sta == "BEA3" ~ -101.74305,
+    sta == "LOD1" ~ -101.96805,
+    TRUE ~ dec_lon))
+
+# check results
+wsd_summary %>%
+  filter(type ==  "ungaged") %>%
+  ggplot(aes(dec_lon, dec_lat)) +
+  geom_point() +
+  geom_text_repel(aes(label = sta))
+
+# update names
+wsd_summary %<>%
+  mutate(gage_nm = na_if(gage_nm, "")) %>%
+  mutate(sta = case_when(
+    sta == "WHR5" ~ "WHI5",
+    sta == "WHR4" ~ "WHI4",
+    sta == "WHR3" ~ "WHI3",
+    sta == "WHR2" ~ "WHI2",
+    sta == "WHR1" ~ "WHI1",
+    TRUE ~ sta))
+
+# export
+export(wsd_summary, "data/wsd_summary.csv")
+
+```
+
+```{r 5a_prepare_watshd-data_for_invert_analysis}
+
+# prepare watershed data for join below
+dist_ungaged_new <- dist_ungaged_new %>%
+  select(ungaged:neighbor)  %>%
+  rename(sta = neighbor)
+
+# prepare watershed join below
+drought_in <- sci_gage %>%
+  mutate(mon = month(date)) %>%
+  filter(mon == 6) %>%
+  select(-mon)
+
+# join ungaged -- pivot wider -- remove unneeded cols
+drought_in <- full_join(dist_ungaged_new, drought_in,
+                        by = "sta") %>%
+  pivot_wider(names_from = type,
+              values_from = value) %>%
+  select(-c('NA', sta, group, q1_depth, log_q1))
+
+drought_in <- full_join(dist_ungaged_new, drought_in,
+                         by = "ungaged")
+
+# export results
+export(drought_in, "data/sci_ungaged_june.csv")
+export(sci_gage, "data/sci_gaged.csv")
+
+# clean up
+rm(sci_gage,
+   dist_ungaged_new,
+   dist_gaged,
+   gage_mon,
+   gages_in,
+   dist_all,
+   exceed_month,
+   exceed_year,
+   gage_dep)
+
+```
+
+
