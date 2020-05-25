@@ -7,11 +7,12 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library("rio")           # more robust I/O - to import and clean data
+library("rio")               # more robust I/O - to import and clean data
 library("here")              # identifies where to save work
 library("tidyverse")
 library("magrittr")
 library("janitor")
+library("readxl")            # read excel files
 
 ```
 
@@ -21,44 +22,69 @@ library("janitor")
 macros <- import("data/macros_tidy.csv") %>%
     filter(!is.na(count))
 
-
-
 # fix mispelled names & update Scientific names
 macros %<>%
     mutate(class = case_when(
+    family == "Conchostraca" ~ "Bivalvia",
     family == "Nematomorpha" ~ "Nematomorpha",
     TRUE ~ class)) %>%
   mutate(order = case_when(
-    order == "Venerida" ~ "Veneroida",
-    order == "Rhynchobdellida" ~ "	Hirudinida",
-    family == "Nematomorpha" ~ "Gordioidea",
+    family == "Conchostraca"   ~ "",
+    family == "Hydrophilidae"  ~ "Coleoptera",     ### CHECK THIS
+    family == "Nematomorpha"   ~ "Gordioidea",
+    class == "Nematoda"        ~ "",
+    order == "Rhynchobdellida" ~ "Hirudinida",
+    order == "Venerida"        ~ "Veneroida",
     TRUE ~ order)) %>%
   mutate(family = case_when(
-    family == "Piscicolidae" ~ "Hirudinidae",
-    family == "Sphaeriidae" ~ "Pisidiidae",
-    genus == "Hygrobatoidae spp" ~ "Hygrobatoidea",
-    genus == "Hygrobatoidea spp" ~ "Hygrobatoidea",
-    genus == "Eylaoidea spp" ~ "Eylaoidea",
-    family == "Oligocheata" ~ "Oligochaeta",
-    family == "Nematomorpha" ~ "",
+    family == "Conchostraca"      ~ "",
+    family == "Cecidumyiidae"     ~ "Cecidomyiidae",
+    family == "Ceratogonidae"     ~ "Ceratopogonidae",
+    family == "Dryopidae (adult)" ~ "Dryopidae",
+    genus  == "Eylaoidea spp"     ~ "Eylaoidea",
+    family == "Herbridae"         ~ "Hebridae",
+    genus  == "Hygrobatoidae spp" ~ "Hygrobatoidea",
+    genus  == "Hygrobatoidea spp" ~ "Hygrobatoidea",
+    family == "Nematomorpha"      ~ "",
+    family == "Oligocheata"       ~ "Naididae",
+    family == "Oligochaeta"       ~ "Naididae",
+    family == "Pediciidae"        ~ "Tipulidae",
+    family == "Phrygoneidae"      ~ "Phryganeidae",
+    family == "Piscicolidae"      ~ "Hirudinidae",
+    family == "Poduromorphic"     ~ "",
+    family == "Psychomiidae"      ~ "Psychomyiidae",
+    family == "Sphaeriidae"       ~ "Pisidiidae",
+    order  == "Tricladida"        ~ "",
     TRUE ~ family)) %>%
   mutate(genus = case_when(
-    genus == "Stienelmis spp" ~ "Stenelmis spp",
-    genus == "Hygrobatoidae spp" ~ "",
-    genus == "Hygrobatoidea spp" ~ "",
-    genus == "Eylaoidea spp" ~ "",
-    TRUE ~ genus))
+    genus == "Stienelmis spp"        ~ "Stenelmis spp",
+    genus == "Hygrobatoidae spp"     ~ "",
+    genus == "Hygrobatoidea spp"     ~ "",
+    genus == "Eylaoidea spp"         ~ "",
+    genus == "Limnodrilus udekemian" ~ "Limnodrilus udekemianus",
+        TRUE ~ genus)) %>%
+  # fix miscoded taxa
+    mutate(family = case_when(
+      genus  == "Acerpenna spp"     ~ "Baetidae",
+    TRUE ~ family)) %>%
+    mutate(order = case_when(
+      genus  == "Acerpenna spp"     ~ "Ephemeroptera",
+    TRUE ~ order)) %>%
+    mutate(family = case_when(
+      genus  == "Tricorythodes spp"     ~ "Leptohyphidae",
+    TRUE ~ family)) 
+
 
 # remove "spp" and "sp" from genus column
 macros %<>%
   separate(genus, c("genus", "species")) %>%
   mutate(species = case_when(
     species == "spp" ~ "",
-    species == "sp" ~ "",
-    is.na(species) ~ "",
+    species == "sp"  ~ "",
+    is.na(species)   ~ "",
     TRUE ~ species)) %>%
   unite("genus", genus:species, sep = " ") %>%
-  mutate(genus = str_trim(genus))                # drops whitespace
+  mutate(genus = str_trim(genus))              # drops whitespace
 
 # get tolerance data from: Appendix B: Regional Tolerance Values,
 #   Functional Feeding Groups, and Habit/Behavior Assignments
@@ -69,7 +95,448 @@ tolerance <- import("data/rbp_tolerance_csv.csv") %>%
 
 ```
 
-```{r 1b_explore_macro-data}
+```{r 1b_get_trait-data}
+
+# get traits from: poff et all====
+#  should do more with this in the future
+traits <- read_excel("data/poffetal_traitmatrix.xls",
+                     range = "Genera!A2:X315",) %>%      # drops the first row
+  clean_names() %>%
+  mutate(order = str_to_title(order, locale = "en"))
+
+trait_meta <- read_excel("data/poffetal_metadata_1.xls",
+                         range = "metadata!B1:I21",) %>% # drops the first col
+  rename(trait_abbrev = Trait_abbrev) %>%
+  rename(trait = Trait) %>%
+  mutate(trait_abbrev = str_to_lower(trait_abbrev, locale = "en"))
+
+# pull out the habitat====
+habit <- trait_meta %>%
+  filter(trait_abbrev == "habi") %>%
+  pivot_longer(cols = 3:8,
+               names_to = "habi",
+               values_to = "habit") %>%
+  mutate(habi = as.numeric(habi)) %>%
+  select(habi:habit)
+
+# fill the order and family cols -- split, fill, combine====
+# subset by order -- Coleoptera====
+taxa_val  <- "Coleoptera"
+start_val <- 1
+end_val   <- 9
+
+# fill -- Coleoptera====
+traits_col <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Pelonomus"  ~ "Dryopidae",
+    genus == "Hydroporus" ~ "Dytiscidae",
+    genus == "Oreodytes"  ~ "Dytiscidae",
+    genus == "Psephenus"  ~ "Psephenidae",
+    TRUE ~ family))
+
+# subset by order -- Diptera====
+taxa_val  <- "Diptera"
+start_val <- 10
+end_val   <- 27
+
+# fill -- Diptera====
+traits_dip <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Bibiocephala"   ~ "Blephariceridae",
+    genus == "Blepharicera"   ~ "Blephariceridae",
+    genus == "Philorus"       ~ "Blephariceridae",
+    genus == "Diamesinae"     ~ "Chironomidae",
+    genus == "Blepharicera"   ~ "Chironomidae",
+    genus == "Orthocladiinae" ~ "Chironomidae",
+    genus == "Prodiamesinae"  ~ "Chironomidae",
+    genus == "Tanypodinae"    ~ "Chironomidae",
+    genus == "Pericoma"       ~ "Psychodidae",
+    TRUE ~ family))
+
+# subset by order -- Ephemeroptera====
+taxa_val  <- "Ephemeroptera"
+start_val <- 28
+end_val   <- 89
+
+# fill -- Ephemeroptera====
+traits_eph <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Acentrella"             ~ "Baetidae",
+    genus == "Acerpenna"              ~ "Baetidae",
+    genus == "Apobaetis"              ~ "Baetidae",
+    genus == "Baetis"                 ~ "Baetidae",
+    genus == "Callibaetis"            ~ "Baetidae",
+    genus == "Centroptilum/Procloeon" ~ "Baetidae",
+    genus == "Cloeodes"               ~ "Baetidae",
+    genus == "Camelobaetidius"        ~ "Baetidae",
+    genus == "Diphetor"               ~ "Baetidae",
+    genus == "Fallceon"               ~ "Baetidae",
+    genus == "Heterocloeon"           ~ "Baetidae",
+    genus == "Paracloeodes"           ~ "Baetidae",
+    genus == "Pseudocloeon"           ~ "Baetidae",
+    genus == "Brachycercus"           ~ "Caenidae",
+    genus == "Caenis"                 ~ "Caenidae",
+    genus == "Hexagenia"              ~ "Ephemeridae",
+    genus == "Litobrancha"            ~ "Ephemeridae",
+    genus == "Pentagenia"             ~ "Ephemeridae",
+    genus == "Caudatella"             ~ "Ephemerellidae",
+    genus == "Caurinella"             ~ "Ephemerellidae",
+    genus == "Drunella"               ~ "Ephemerellidae",
+    genus == "Ephemerella"            ~ "Ephemerellidae",
+    genus == "Eurylophella"           ~ "Ephemerellidae",
+    genus == "Serratella"             ~ "Ephemerellidae",
+    genus == "Timpanoga"              ~ "Ephemerellidae",
+    genus == "Cinygmula"              ~ "Heptageniidae",
+    genus == "Epeorus"                ~ "Heptageniidae",
+    genus == "Heptagenia"             ~ "Heptageniidae",
+    genus == "Ironodes"               ~ "Heptageniidae",
+    genus == "Leucrocuta"             ~ "Heptageniidae",
+    genus == "Macdunnoa"              ~ "Heptageniidae",
+    genus == "Nixe"                   ~ "Heptageniidae",
+    genus == "Raptoheptagenia"        ~ "Heptageniidae",
+    genus == "Rhithrogena"            ~ "Heptageniidae",
+    genus == "Stenonema"              ~ "Heptageniidae",
+    genus == "Stenacron"              ~ "Heptageniidae",
+    genus == "Tricorythodes"          ~ "Leptohyphidae",
+    genus == "Habrophlebia"            ~ "Leptophlebiidae",
+    genus == "Habrophlebiodes"         ~ "Leptophlebiidae",
+    genus == "Leptophlebia"            ~ "Leptophlebiidae",
+    genus == "Neochoroterpes"          ~ "Leptophlebiidae",
+    genus == "Paraleptophlebia"        ~ "Leptophlebiidae",
+    genus == "Thraulodes"              ~ "Leptophlebiidae",
+    genus == "Traverella"              ~ "Leptophlebiidae",
+    genus == "Tortopus"                ~ "Polymitarcyidae",
+    genus == "Siphlonurus"             ~ "Siphlonuridae",
+    TRUE ~ family))
+
+# split "Centroptilum/Procloeon" generas
+scratch <- traits_eph %>%
+  filter(genus == "Centroptilum/Procloeon") %>%
+  mutate(genus = "Centroptilum")
+
+traits_eph %<>%
+  mutate(genus = case_when(
+    genus == "Centroptilum/Procloeon" ~ "Procloeon",
+  TRUE ~ genus)) %>%
+  mutate(code = case_when(
+    genus == "Procloeon" ~ "EBaPr",
+  TRUE ~ code))
+
+traits_eph <- bind_rows(traits_eph, scratch) %>%
+  arrange(family, genus)
+
+# subset by order -- Hemiptera====
+taxa_val  <- "Hemiptera"
+start_val <- 90
+end_val   <- 101
+
+# fill -- Hemiptera====
+traits_hem <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Belostoma"        ~ "Belostomatidae",
+    genus == "Gerris"           ~ "Gerridae",
+    genus == "Metrobates"       ~ "Gerridae",
+    genus == "Rheumatobates"    ~ "Gerridae",
+    genus == "Trepobates"       ~ "Gerridae",
+    genus == "Trepobates"       ~ "Gerridae",
+    genus == "Nepa"             ~ "Nepidae",
+    genus == "Rhagovelia"       ~ "Veliidae",
+  TRUE ~ family))
+
+# subset by order -- Lepidoptera====
+taxa_val  <- "Hemiptera"
+start_val <- 102
+end_val   <- 102
+
+# fill -- Lepidoptera====
+traits_lep <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val)
+
+# subset by order -- Megaloptera====
+taxa_val  <- "Megaloptera"
+start_val <- 103
+end_val   <- 105
+
+# fill -- Megaloptera====
+traits_meg <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Nigronia"           ~ "Corydalidae",
+    TRUE ~ family))
+
+# subset by order -- Neuroptera====
+taxa_val  <- "Neuroptera"
+start_val <- 106
+end_val   <- 107
+
+# fill -- Neuroptera====
+traits_neu <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Sisyra"           ~ "Sisyridae",
+    TRUE ~ family))
+
+# subset by order -- Odonata====
+taxa_val  <- "Odonata"
+start_val <- 108
+end_val   <- 143
+
+# fill -- Odonata====
+traits_odo <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Basiaeschna"      ~ "Aeshnidae",
+    genus == "Boyeria"          ~ "Aeshnidae",
+    genus == "Epiaeschna"       ~ "Aeshnidae",
+    genus == "Nasiaeschna"      ~ "Aeshnidae",
+    genus == "Hetaerina"        ~ "Calopterygidae",
+    genus == "Epicordulia"      ~ "Corduliidae",
+    genus == "Epitheca"         ~ "Corduliidae",
+    genus == "Helocordulia"     ~ "Corduliidae",
+    genus == "Macromia"         ~ "Corduliidae",
+    genus == "Neurocordulia"    ~ "Corduliidae",
+    genus == "Somatochlora"     ~ "Corduliidae",
+    genus == "Chromagrion"      ~ "Coenagrionidae",
+    genus == "Coenagion"        ~ "Coenagrionidae",
+    genus == "Enallagma"        ~ "Coenagrionidae",
+    genus == "Hesperagrion"     ~ "Coenagrionidae",
+    genus == "Ischnura"         ~ "Coenagrionidae",
+    genus == "Arigomphus"       ~ "Gomphidae",
+    genus == "Dromogomphus"     ~ "Gomphidae",
+    genus == "Erpetogomphus"    ~ "Gomphidae",
+    genus == "Gomphus"          ~ "Gomphidae",
+    genus == "Hagenius"         ~ "Gomphidae",
+    genus == "Lanthus"          ~ "Gomphidae",
+    genus == "Octogomphus"      ~ "Gomphidae",
+    genus == "Ophiogomphus"     ~ "Gomphidae",
+    genus == "Phyllogomphoides" ~ "Gomphidae",
+    genus == "Progomphus"       ~ "Gomphidae",
+    genus == "Stylogomphus"     ~ "Gomphidae",
+    genus == "Stylurus"         ~ "Gomphidae",
+    genus == "Lestes"           ~ "Lestidae",
+    TRUE ~ family))
+
+# subset by order -- Plecoptera====
+taxa_val  <- "Plecoptera"
+start_val <- 144
+end_val   <- 225
+
+# fill -- Plecoptera====
+traits_ple <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Capnia"         ~ "Capniidae",
+    genus == "Capnura"        ~ "Capniidae",
+    genus == "Eucapnopsis"    ~ "Capniidae",
+    genus == "Isocapnia"      ~ "Capniidae",
+    genus == "Mesocapnia"     ~ "Capniidae",
+    genus == "Nemocapnia"     ~ "Capniidae",
+    genus == "Paracapnia"     ~ "Capniidae",
+    genus == "Utacapnia"      ~ "Capniidae",
+    genus == "Alloperla"      ~ "Chloroperlidae",
+    genus == "Bisancora"      ~ "Chloroperlidae",
+    genus == "Haploperla"     ~ "Chloroperlidae",
+    genus == "Kathroperla"    ~ "Chloroperlidae",
+    genus == "Paraperla"      ~ "Chloroperlidae",
+    genus == "Plumiperla"     ~ "Chloroperlidae",
+    genus == "Suwallia"       ~ "Chloroperlidae",
+    genus == "Sweltsa"        ~ "Chloroperlidae",
+    genus == "Triznaka"       ~ "Chloroperlidae",
+    genus == "Utaperla"       ~ "Chloroperlidae",
+    genus == "Leuctra"        ~ "Leuctridae",
+    genus == "Moselia"        ~ "Leuctridae",
+    genus == "Paraleuctra"    ~ "Leuctridae",
+    genus == "Perlomyia"      ~ "Leuctridae",
+    genus == "Zealeuctra"     ~ "Leuctridae",
+    genus == "Malenka"        ~ "Nemouridae",
+    genus == "Nemoura"        ~ "Nemouridae",
+    genus == "Paranemoura"    ~ "Nemouridae",
+    genus == "Podmosta"       ~ "Nemouridae",
+    genus == "Prostoia"       ~ "Nemouridae",
+    genus == "Shipsa"         ~ "Nemouridae",
+    genus == "Soyedina"       ~ "Nemouridae",
+    genus == "Visoka"         ~ "Nemouridae",
+    genus == "Zapada"         ~ "Nemouridae",
+    genus == "Agnetina"       ~ "Perlidae",
+    genus == "Attaneuria"     ~ "Perlidae",
+    genus == "Beloneuria"     ~ "Perlidae",
+    genus == "Calineuria"     ~ "Perlidae",
+    genus == "Claassenia"     ~ "Perlidae",
+    genus == "Doroneuria"     ~ "Perlidae",
+    genus == "Eccoptura"      ~ "Perlidae",
+    genus == "Hansonoperla"   ~ "Perlidae",
+    genus == "Hesperoperla"   ~ "Perlidae",
+    genus == "Neoperla"       ~ "Perlidae",
+    genus == "Paragnetina"    ~ "Perlidae",
+    genus == "Perlesta"       ~ "Perlidae",
+    genus == "Perlinella"     ~ "Perlidae",
+    genus == "Clioperla"      ~ "Perlodidae",
+    genus == "Cascadoperla"   ~ "Perlodidae",
+    genus == "Cultus"         ~ "Perlodidae",
+    genus == "Diploperla"     ~ "Perlodidae",
+    genus == "Diura"          ~ "Perlodidae",
+    genus == "Frisonla"       ~ "Perlodidae",
+    genus == "Helopicus"      ~ "Perlodidae",
+    genus == "Hydroperla"     ~ "Perlodidae",
+    genus == "Isoperla"       ~ "Perlodidae",
+    genus == "Isogenoides"    ~ "Perlodidae",
+    genus == "Kogotus"        ~ "Perlodidae",
+    genus == "Malirekus"      ~ "Perlodidae",
+    genus == "Megarcys"       ~ "Perlodidae",
+    genus == "Oroperla"       ~ "Perlodidae",
+    genus == "Osobenus"       ~ "Perlodidae",
+    genus == "Pictetiella"    ~ "Perlodidae",
+    genus == "Perlinodes"     ~ "Perlodidae",
+    genus == "Remenus"        ~ "Perlodidae",
+    genus == "Rickera"        ~ "Perlodidae",
+    genus == "Setvena"        ~ "Perlodidae",
+    genus == "Skwala"         ~ "Perlodidae",
+    genus == "Susulus"        ~ "Perlodidae",
+    genus == "Yugus"          ~ "Perlodidae",
+    genus == "Pteronarcella"  ~ "Pteronarcyidae", 
+    genus == "Doddsia"        ~ "Taeniopterygidae",
+    genus == "Oemopteryx"     ~ "Taeniopterygidae",
+    genus == "Strophopteryx"  ~ "Taeniopterygidae",
+    genus == "Taeniopteryx"   ~ "Taeniopterygidae",
+    genus == "Taenionema"     ~ "Taeniopterygidae",
+    TRUE ~ family))
+
+# subset by order -- Trichoptera====
+taxa_val  <- "Trichoptera"
+start_val <- 226
+end_val   <- 313
+
+# fill -- Trichoptera====
+traits_tri <- traits %>%
+  slice(!!start_val:!!end_val) %>%
+  mutate(order = !!taxa_val) %>%
+  mutate(family = case_when(
+    genus == "Moselyana"         ~ "Apataniidae",
+    genus == "Pedomoecus"        ~ "Apataniidae",
+    genus == "Amiocentrus"       ~ "Brachycentridae",
+    genus == "Brachycentrus"     ~ "Brachycentridae",
+    genus == "Micrasema"         ~ "Brachycentridae",
+    genus == "Phylloicus"        ~ "Calamoceratidae",
+    genus == "Anagapetus"        ~ "Glossosomatidae",
+    genus == "Culoptila"         ~ "Glossosomatidae",
+    genus == "Glossosoma"        ~ "Glossosomatidae",
+    genus == "Matrioptila"       ~ "Glossosomatidae",
+    genus == "Protoptila"        ~ "Glossosomatidae",
+    genus == "Goera"             ~ "Goeridae",
+    genus == "Alisotrichia"      ~ "Hydroptilidae",
+    genus == "Dibusa"            ~ "Hydroptilidae",
+    genus == "Hydroptila"        ~ "Hydroptilidae",
+    genus == "Ithytrichia"       ~ "Hydroptilidae",
+    genus == "Leucotrichia"      ~ "Hydroptilidae",
+    genus == "Mayatrichia"       ~ "Hydroptilidae",
+    genus == "Neotrichia"        ~ "Hydroptilidae",
+    genus == "Ochrotrichia"      ~ "Hydroptilidae",
+    genus == "Orthotrichia"      ~ "Hydroptilidae",
+    genus == "Oxyethira"         ~ "Hydroptilidae",
+    genus == "Paucicalcaria"     ~ "Hydroptilidae",
+    genus == "Stactobiella"      ~ "Hydroptilidae",
+    genus == "Zumatrichia"       ~ "Hydroptilidae",
+    genus == "Ceratopsyche"      ~ "Hydropsychidae",
+    genus == "Cheumatopsyche"    ~ "Hydropsychidae",
+    genus == "Diplectrona"       ~ "Hydropsychidae",
+    genus == "Homoplectra"       ~ "Hydropsychidae",
+    genus == "Hydropsyche"       ~ "Hydropsychidae",
+    genus == "Macrostemum"       ~ "Hydropsychidae",
+    genus == "Oropsyche"         ~ "Hydropsychidae",
+    genus == "Parapsyche"        ~ "Hydropsychidae",
+    genus == "Potamyia"          ~ "Hydropsychidae",
+    genus == "Smicridea"         ~ "Hydropsychidae",
+    genus == "Nectopsyche"       ~ "Leptoceridae",
+    genus == "Oecetis"           ~ "Leptoceridae",
+    genus == "Setodes"           ~ "Leptoceridae",
+    genus == "Amphicosmoecus"    ~ "Limnephilidae",
+    genus == "Apatania"          ~ "Limnephilidae",
+    genus == "Asynarchus"        ~ "Limnephilidae",
+    genus == "Chyranda"          ~ "Limnephilidae",
+    genus == "Cryptochia"        ~ "Limnephilidae",
+    genus == "Dicosmoecus"       ~ "Limnephilidae",
+    genus == "Ecclisocosmoecus"  ~ "Limnephilidae",
+    genus == "Ecclisomyia"       ~ "Limnephilidae",
+    genus == "Eocosmoecus"       ~ "Limnephilidae",
+    genus == "Hesperophylax"     ~ "Limnephilidae",
+    genus == "Homophylax"        ~ "Limnephilidae",
+    genus == "Hydatophylax"      ~ "Limnephilidae",
+    genus == "Onocosmoecus"      ~ "Limnephilidae",
+    genus == "Pycnopsyche"       ~ "Limnephilidae",
+    genus == "Pseudostenophylax" ~ "Limnephilidae",
+    genus == "Philocasca"        ~ "Limnephilidae",
+    genus == "Platycentropus"    ~ "Limnephilidae",
+    genus == "Psychoglypha"      ~ "Limnephilidae",
+    genus == "Psychoronia"       ~ "Limnephilidae",
+    genus == "Theliopsyche"      ~ "Lepidostomatidae",
+    genus == "Psilotreta"        ~ "Odontoceridae",
+    genus == "Dolophilodes"      ~ "Philopotamidae",
+    genus == "Wormaldia"         ~ "Philopotamidae",
+   genus == "Neureclipsis"       ~ "Polycentropodidae",
+   genus == "Nyctiophylax"       ~ "Polycentropodidae",
+   genus == "Polycentropus"      ~ "Polycentropodidae",
+   genus == "Psychomyia"         ~ "Psychomyiidae",
+   genus == "Neothremma"         ~ "Uenoidae",
+   genus == "Neophylax"          ~ "Uenoidae",
+   genus == "Oligophlebodes"     ~ "Uenoidae",
+    TRUE ~ family))
+
+# combine filled taxa data====
+traits_ck <- bind_rows(traits_col,
+                       traits_dip,
+                       traits_eph,
+                       traits_hem,
+                       traits_meg,
+                       traits_lep,
+                       traits_neu,
+                       traits_odo,
+                       traits_ple,
+                       traits_tri) %>%
+  filter(!is.na(family))
+
+# check -- n-fin = 313 - trich_NA + extra Ephem genus -- ok====
+
+# join habit====
+traits <- left_join(traits_ck, habit,
+                    by = "habi")  %>%
+  select(-habi)
+
+habit <- traits %>%
+  select(order:code, habit)
+
+# clean up====
+rm(traits_ck,
+   traits_col,
+   traits_dip,
+   traits_eph,
+   traits_hem,
+   traits_lep,
+   traits_meg,
+   traits_neu,
+   traits_odo,
+   traits_ple,
+   traits_tri,
+   end_val,
+   start_val,
+   taxa_val,
+   scratch)
+
+```
+
+```{r 1c_explore_macro-data}
 
 # explore data for cleaning & joining
 macros_taxa <- macros %>%
@@ -80,12 +547,71 @@ macros_class <- macros %>%
   select(class) %>%
   distinct()
 
+# identify insect orders
+insect_order <- macros %>%
+  filter(class == "Insecta") %>%
+  select(order) %>%
+  distinct() %>%
+  arrange()
+
 ```
 
-```{r 1c_prepare_macro-data--arachnids}
+```{r 1d_prepare_nonInsect_data--nematodes}
 
 # subset by class
-taxa_val <- "Arachnida"
+taxa_val <- "Nematoda"
+
+taxa <- macros %>%
+  filter(class == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
+                  by = c("family" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family")
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_class)
+
+# update & clean_up
+tol_nematoda <- tol
+
+# check:: tol = 1 == taxa = 1
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 1e_prepare_nonInsect_data--horsehair-worms}
+
+# subset by class
+taxa_val <- "Nematomorpha"
 
 taxa <- macros %>%
   filter(class == !!taxa_val) %>%
@@ -93,166 +619,168 @@ taxa <- macros %>%
   distinct()
 
 # joing by different taxa levels to preserve ITIS data
-genus_tol <- left_join(taxa, tolerance,
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-family_tol <- left_join(taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
-  filter(!is.na(tsn))  
+  filter(!is.na(tsn))
 
-order_tol <- left_join(taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-class_tol <- left_join(taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
 # remove duplicate taxa levels from above
-order_tol <- anti_join(order_tol, 
-                       family_tol,
+tol_order <- anti_join(tol_order,
+                       tol_family,
                        by = "family")
 
-family_tol <- anti_join(family_tol,
-                        genus_tol,
+tol_family <- anti_join(tol_family,
+                        tol_genus,
                         by = "genus")
 
 # bind rows
-tol  <- bind_rows(genus_tol,
-                  family_tol,
-                  order_tol)
+tol  <- bind_rows(tol_class)
 
 # update & clean_up
-arachnida_tol <- tol
+tol_nemotomorpha <- tol
 
-# check:: tol = 5 == taxa = 5
-rm(genus_tol,
-   family_tol,
-   order_tol,
-   class_tol,
+# check:: tol = 2 == taxa = 2
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
    taxa,
    tol)
 
 ```
 
-```{r 1d_prepare_macro-data--bivalves}
+```{r 1f_prepare_nonInsect_data--planarians}
+
+# subset by class
+taxa_val <- "Rhabditophora"
+
+taxa <- macros %>%
+  filter(class == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# joing by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
+                  by = c("family" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family")
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+# update & clean_up
+tol_planaria <- tol %>%
+  mutate(type = "planarians")
+
+# check:: tol = 1 == taxa = 1
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 1g_prepare_nonInsect_data--bivalves}
 
 # subset by class
 taxa_val <- "Bivalvia"
 
-taxa <- macros  %>%
+taxa <- macros %>%
   filter(class == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# joing by different taxa levels to preserve ITIS data
-genus_tol <- left_join(taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-family_tol <- left_join(taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
-  filter(!is.na(tsn))  
+  filter(!is.na(tsn))
 
-order_tol <- left_join(taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-class_tol <- left_join(taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
 # remove duplicate taxa levels from above
-class_tol <- class_tol %>%
-  filter(family == "Veneridae") # this family does not show in RBP Appendix B
+tol_class <- tol_class %>%
+  filter(family == "" |
+           family == "Veneridae") # this family does not show in RBP Appendix B
 
-order_tol <- anti_join(order_tol, 
-                       family_tol,
+tol_order <- anti_join(tol_order,
+                       tol_family,
                        by = "family")
 
-family_tol <- anti_join(family_tol,
-                        genus_tol,
+tol_family <- anti_join(tol_family,
+                        tol_genus,
                         by = "genus")
 
-
 # bind rows
-tol  <- bind_rows(genus_tol,
-                  family_tol,
-                  class_tol)
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_class)
 
 # update & clean_up
-bivalvia_tol <- tol
+tol_bivalvia <- tol %>%
+  mutate(type = case_when(
+    family == "Pisidiidae"   ~ "peaclams",
+    family == "Corbiculidae" ~ "little-basket clams",
+    family == "Unionidae"    ~ "river mussels",
+    family == "Veneridae"    ~ "venus clams",
+    family == ""             ~ "bivalves")) %>%
+  mutate(fun_grp_primary = "FC")
 
-# check:: tol = 5 == taxa = 5
-rm(genus_tol,
-   family_tol,
-   order_tol,
-   class_tol,
+# check:: tol = 6 == taxa = 6
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
    taxa,
    tol)
 
 ```
 
-```{r 1e_prepare_macro-data--worms}
-
-# subset by class
-taxa_val <- "Clitellata"
-
-taxa <- macros  %>%
-  filter(class == !!taxa_val) %>%
-  select(class:genus) %>%
-  distinct()
-
-# joing by different taxa levels to preserve ITIS data
-genus_tol <- left_join(taxa, tolerance,
-                  by = c("genus" = "prior_name")) %>%
-  filter(!is.na(tsn))
-
-family_tol <- left_join(taxa, tolerance,
-                  by = c("family" = "prior_name")) %>%
-  filter(!is.na(tsn))  
-
-order_tol <- left_join(taxa, tolerance,
-                  by = c("order" = "prior_name")) %>%
-  filter(!is.na(tsn))
-
-class_tol <- left_join(taxa, tolerance,
-                  by = c("class" = "prior_name")) %>%
-  filter(!is.na(tsn))
-
-# remove duplicate taxa levels from above
-order_tol <- anti_join(order_tol, 
-                       family_tol,
-                       by = "family")
-
-family_tol <- anti_join(family_tol,
-                        genus_tol,
-                        by = "genus")
-
-# bind rows
-tol  <- bind_rows(genus_tol,
-                  family_tol,
-                  order_tol)
-
-# update & clean_up
-clitellata_tol <- tol %>%
-  mutate(fbi_value = case_when(
-    is.na(fbi_value) ~ as.numeric(id),
-    TRUE ~ fbi_value))
-
-# check:: tol = 6 == taxa = 6, also
-# Limnodrilus udekemian is not listed in RBP data
-rm(genus_tol,
-   family_tol,
-   order_tol,
-   class_tol,
-   taxa,
-   tol)
-
-```
-
-```{r 1f_prepare_macro-data--snails}
+```{r 1h_prepare_nonInsect_data--snails}
 
 # subset by class
 taxa_val <- "Gastropoda"
@@ -263,54 +791,252 @@ taxa <- macros %>%
   distinct()
 
 # joing by different taxa levels to preserve ITIS data
-genus_tol <- left_join(taxa, tolerance,
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-family_tol <- left_join(taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
-  filter(!is.na(tsn))  
+  filter(!is.na(tsn))
 
-order_tol <- left_join(taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-class_tol <- left_join(taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
 # remove duplicate taxa levels from above
-order_tol <- anti_join(order_tol, 
-                       family_tol,
+tol_order <- anti_join(tol_order,
+                       tol_family,
                        by = "family")
 
-family_tol <- anti_join(family_tol,
-                        genus_tol,
+tol_family <- anti_join(tol_family,
+                        tol_genus,
                         by = "genus")
 
 # bind rows
-tol  <- bind_rows(genus_tol,
-                  family_tol,
-                  order_tol) %>%
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order) %>%
   # fix incorrect order
   mutate(order = case_when(
     order == "Gastropoda" ~ "",
     TRUE ~ order))
 
 # update & clean_up
-gastropoda_tol <- tol
+tol_gastropoda <- tol %>%
+  mutate(type = case_when(
+    family == "Planorbidae" ~ "ram horn snails",
+    family == "Viviparidae" ~ "river snails",
+    family == "Physidae"    ~ "bladder snails",
+    family == "Lymnaeidae"  ~ "pond snails",
+    family == "Hydrobiidae" ~ "mud snails",
+    family == ""            ~ "gastropods")) %>%
+  mutate(order = case_when(
+    order == "Hygrophila" ~ "Basommatophora",
+    TRUE ~ order))
 
-# check:: tol = 5 == taxa = 5
-rm(genus_tol,
-   family_tol,
-   order_tol,
-   class_tol,
+# check:: tol = 7 == taxa = 7
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
    taxa,
    tol)
 
 ```
 
-```{r 1g_prepare_macro-data--amphipods}
+```{r 1j_prepare_nonInsect_data--worms}
+
+# subset by class
+taxa_val <- "Clitellata"
+
+taxa <- macros  %>%
+  filter(class == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# joing by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
+                  by = c("family" = "prior_name")) %>%
+  filter(!is.na(tsn))  
+
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order, 
+                       tol_family,
+                       by = "family")
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+# update & clean_up
+tol_clitellata <- tol %>%
+  mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ as.numeric(id),
+    TRUE ~ fbi_value)) %>%
+  mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ as.numeric(nc),
+    TRUE ~ fbi_value)) %>%
+  mutate(type = case_when(
+    family == "Enchytraeidae" ~ "potworms",
+    family == "Glossiphoniidae" ~ "freshwater jawless leeches",
+    family == "Naididae" ~ "aquatic oligochaete worms",
+    family == "Hirudinidae" ~ "medicinal leeches"))
+
+# check:: tol = 5 == taxa = 5
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 1k_prepare_nonInsect_data--arachnids}
+
+# subset by class
+taxa_val <- "Arachnida"
+
+taxa <- macros %>%
+  filter(class == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# joing by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
+                  by = c("family" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family")
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_family,
+                  tol_genus)
+
+# update & clean_up
+tol_arichnida <- tol %>%
+  mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ as.numeric(id),
+    TRUE ~ fbi_value)) %>%
+  mutate(type = "mites")
+
+# check:: tol = 2 == taxa = 2
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 1m_prepare_nonInsect_data--crustaceans}
+
+# subset by class
+taxa_val <- "Crustacea"
+
+taxa <- macros %>%
+  filter(class == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
+                  by = c("family" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family")
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+# update & clean_up
+tol_crustacea <- tol %>%
+  mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ as.numeric(id),
+    TRUE ~ fbi_value)) %>%
+  mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ as.numeric(macs),
+    TRUE ~ fbi_value)) %>%
+  mutate(type = case_when(
+    family == "Cambaridae" ~ "crayfish",
+    TRUE ~ type)) %>%
+  mutate(type = case_when(
+    family == "Copepoda" ~ "copopods",
+    TRUE ~ type))
+
+# check:: tol = 5 == taxa = 5
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 1n_prepare_nonInsect_data--amphipods}
 
 # subset by class
 taxa_val <- "Malacostraca"
@@ -321,446 +1047,1492 @@ taxa <- macros %>%
   distinct()
 
 # joing by different taxa levels to preserve ITIS data
-genus_tol <- left_join(taxa, tolerance,
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-family_tol <- left_join(taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
-  filter(!is.na(tsn))  
+  filter(!is.na(tsn))
 
-order_tol <- left_join(taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-class_tol <- left_join(taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
 # remove duplicate taxa levels from above
-order_tol <- anti_join(order_tol, 
-                       family_tol,
+tol_order <- anti_join(tol_order,
+                       tol_family,
                        by = "family")
 
-family_tol <- anti_join(family_tol,
-                        genus_tol,
+tol_family <- anti_join(tol_family,
+                        tol_genus,
                         by = "genus")
 
 # bind rows
-tol  <- bind_rows(genus_tol,
-                  family_tol,
-                  order_tol)
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
 
 # update & clean_up
-amphipoda_tol <- tol
+tol_amphipoda <- tol %>%
+  mutate(type = "scuds")
 
 # check:: tol = 2 == taxa = 2
-rm(genus_tol,
-   family_tol,
-   order_tol,
-   class_tol,
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
    taxa,
    tol)
 
 ```
 
-
-```{r 1f_prepare_macro-data--amphipods}
-
-# subset by class
-malacostraca_taxa <- macros %>%
-  filter(class == "Malacostraca") %>%
-  select(class:genus) %>%
-  distinct()
-
-# check levels
-malacostraca_genus_tol <- left_join(malacostraca_taxa, tolerance,
-                  by = c("genus" = "prior_name")) %>%
-  filter(!is.na(tsn))
-
-malacostraca_family_tol <- left_join(malacostraca_taxa, tolerance,
-                  by = c("family" = "prior_name")) %>%
-  filter(!is.na(tsn))
-
-malacostraca_order_tol <- left_join(malacostraca_taxa, tolerance,
-                  by = c("order" = "prior_name")) %>%
-  filter(!is.na(tsn))
-
-malacostraca_class_tol <- left_join(malacostraca_taxa, tolerance,
-                  by = c("class" = "prior_name")) %>%
-  filter(!is.na(tsn))
-
-# bind rows
-malacostraca_tol  <- bind_rows(malacostraca_genus_tol)
-
-# clean_up
-rm(malacostraca_genus_tol,
-   malacostraca_family_tol,
-   malacostraca_order_tol,
-   malacostraca_class_tol)
-
-```
-
-```{r 1g_prepare_macro-data--nemotomorpha}
+```{r 1o_prepare_nonInsect_data--springtails}
 
 # subset by class
-# NEED TO FIx THIS
-Nematomorpha
-malacostraca_taxa <- macros %>%
-  filter(class == "Malacostraca") %>%
+taxa_val <- "Entognatha"
+
+taxa <- macros %>%
+  filter(class == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# check levels
-malacostraca_genus_tol <- left_join(malacostraca_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-malacostraca_family_tol <- left_join(malacostraca_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
-  filter(!is.na(tsn))
+  filter(!is.na(tsn))  
 
-malacostraca_order_tol <- left_join(malacostraca_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-malacostraca_class_tol <- left_join(malacostraca_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-# bind rows
-malacostraca_tol  <- bind_rows(malacostraca_genus_tol)
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family")
 
-# clean_up
-rm(malacostraca_genus_tol,
-   malacostraca_family_tol,
-   malacostraca_order_tol,
-   malacostraca_class_tol)
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+# update & clean_up
+tol_springtail <- tol %>%
+    mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ as.numeric(id),
+    TRUE ~ fbi_value)) %>%
+  # fbi value is based on fbi order value
+    mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ 10,
+    TRUE ~ fbi_value)) %>%
+  mutate(type = "springtails")
+
+# check:: tol = 2 == taxa = 2
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
 
 ```
 
-```{r 1h_prepare_macro-data--planarians}
+```{r 1p_combine_nonInsect_data}
 
-#  fix planaridae to tricladia...
+tol_nonInsect <- bind_rows(tol_amphipoda,      # Malacostraca
+                           tol_arichnida,      # Arachnida
+                           tol_bivalvia,       # Bivalvia
+                           tol_clitellata,     # Clitellata
+                           tol_crustacea,      # Crustacea
+                           tol_gastropoda,     # Gastropoda
+                           tol_nematoda,       # Nematoda
+                           tol_nemotomorpha,   # Nematomorpha
+                           tol_planaria,       # Rhabditophora
+                           tol_springtail)     # Entognatha
 
-# subset by class
-rhabditophora_taxa <- macros %>%
-  filter(class == "Rhabditophora") %>%
+rm(tol_amphipoda,
+   tol_arichnida,
+   tol_bivalvia,
+   tol_clitellata,
+   tol_crustacea,
+   tol_gastropoda,
+   tol_nematoda,
+   tol_nemotomorpha,
+   tol_planaria,
+   tol_springtail)
+
+tol_nonInsect <- tol_nonInsect %>%
+  mutate(source = rbp_level_validity) %>%
+  select(-c(scientific_name, rbp_level_validity)) %>%
+  mutate(level = case_when(
+    genus != "" ~ "genus",
+    family != "" ~ "family",
+    order != "" ~ "order",
+    TRUE ~ "class")) %>%
+  mutate(source = "")
+
+# need to update these
+taxa_ck1 <- macros %>%
+  filter(class == "Hydrozoa")
+
+taxa_ck2 <- macros %>%
+  filter(class == "Branchiopoda")
+
+```
+
+```{r 2a_prepare_insect-data--beetles}
+
+# subset by order
+taxa_val <- "Coleoptera"
+
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# check levels
-rhabditophora_genus_tol <- left_join(rhabditophora_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-rhabditophora_family_tol <- left_join(rhabditophora_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-rhabditophora_order_tol <- left_join(rhabditophora_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-rhabditophora_class_tol <- left_join(rhabditophora_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-# bind rows
-rhabditophora_tol  <- bind_rows(rhabditophora_family_tol)
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family")
 
-# clean_up
-rm(rhabditophora_genus_tol,
-   rhabditophora_family_tol,
-   rhabditophora_order_tol,
-   rhabditophora_class_tol)
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+# update & clean_up
+# estimate fbi values for missing families
+fbi_coleo_preds <- tol %>%
+  filter(fun_grp_primary == "PR") %>%
+  filter(!is.na(fbi_value)) %>%
+  group_by(fun_grp_primary) %>%
+  summarise(fbi_value = mean(fbi_value)) %>%
+  select(fbi_value)
+
+fbi_coleo_preds %<>% as.vector(., mode = "numeric")
+
+tol_coleoptera <- tol %>%
+  mutate(fbi_value = case_when(
+    is.na(fbi_value) ~ !!fbi_coleo_preds,
+    TRUE ~ fbi_value)) %>%
+  mutate(type = case_when(
+        family == "Amphizoidae" ~ "trout-stream beetles",
+    family == "Curculionidae"   ~ "snout beetles",
+    family == "Dryopidae"       ~ "long-toe water beetles",
+    family == "Dytiscidae"      ~ "predaceous diving beetles",
+    family == "Elmidae"         ~ "riffle beetles",
+    family == "Haliplidae"      ~ "crawling water beetles",
+    family == "Hydraenidae"     ~ "minute moss beetles",
+    family == "Hydrophilidae"   ~ "water scavenger beetles",
+    family == "Noteridae"       ~ "burrowing water beetles",
+    family == "Staphylinidae"   ~ "rove beetles",
+    family == "Psephenidae"     ~ "water-penny beetles",
+    family == "Limnichidae"     ~ "minute marsh-loving beetles",
+    family == "Ptilodactylidae" ~ "toe-winged beetles",
+    TRUE ~ type))
+
+# check:: tol = 16 == taxa = 16
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol,
+   fbi_coleo_preds)
 
 ```
 
-```{r 1j_prepare_macro-data--springtails}
+```{r 2b_prepare_insect-data--flies}
 
-# Need to fix this -- Poduromorphic
-entognatha_taxa <- macros %>%
-  filter(class == "Entognatha") %>%
+# subset by order
+taxa_val <- "Diptera"
+
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# check levels
-entognatha_genus_tol <- left_join(entognatha_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-entognatha_family_tol <- left_join(entognatha_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-entognatha_order_tol <- left_join(entognatha_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-entognatha_class_tol <- left_join(entognatha_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-# bind rows
-FIX THIS  entognatha_tol  <- bind_rows(entognatha_genus_tol)
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
 
-# clean_up
-rm(entognatha_genus_tol,
-   entognatha_family_tol,
-   entognatha_order_tol,
-   entognatha_class_tol)
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+# update & clean_up
+tol_diptera <- tol %>%
+  mutate(type = case_when(
+family == "Athericidae"     ~ "water snipe flies",
+family == "Ceratopogonidae" ~ "biting midges",
+family == "Cecidomyiidae"   ~ "gall gnats",
+family == "Chironomidae"    ~ "midges",
+family == "Culicidae"       ~ "mosquitoes",
+family == "Dixidae"         ~ "meniscus midges",
+family == "Dolichopodidae"  ~ "longlegged flies",
+family == "Empididae"       ~ "dance flies",
+family == "Ephydridae"      ~ "shore flies",
+family == "Nematocera"      ~ "long-horned flies",
+family == "Psychodidae"     ~ "moth flies",
+family == "Ptychopteridae"  ~ "phantom-crane flies",
+family == "Sciomyzidae"     ~ "marsh flies",
+family == "Simuliidae"      ~ "black flies",
+family == "Stratiomyidae"   ~ "soldier flies",
+family == "Tabanidae"       ~ "deer flies",
+family == "Thaumaleidae"    ~ "solitary midges",
+family == "Tipulidae"       ~ "crane flies",
+family == ""                ~ "true flies"))
+
+# check:: tol = 25 == taxa = 25
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
 
 ```
 
-```{r 1k_prepare_macro-data--decopods}
+```{r 2c_prepare_insect-data--mayflies}
 
-CHECK Conchostraca	
+# subset by order
+taxa_val <- "Ephemeroptera"
 
-crustacea_taxa <- macros %>%
-  filter(class == "Crustacea") %>%
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# check levels
-crustacea_genus_tol <- left_join(crustacea_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-crustacea_family_tol <- left_join(crustacea_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-crustacea_order_tol <- left_join(crustacea_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-crustacea_class_tol <- left_join(crustacea_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-# bind rows
-crustacea_tol  <- bind_rows(crustacea_genus_tol)
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
 
-# clean_up
-rm(crustacea_genus_tol,
-   crustacea_family_tol,
-   crustacea_order_tol,
-   crustacea_class_tol)
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+# update & clean_up
+fbi_baetids <- tol %>%
+  filter(family == "Baetidae") %>%
+  filter(!is.na(fbi_value)) %>%
+  summarise(fbi_value = mean(fbi_value)) %>%
+  select(fbi_value)
+
+fbi_baetids %<>% as.vector(., mode = "numeric")
+
+tol_ephemeroptera <- tol %>%
+  mutate(fbi_value = case_when(
+    genus == "Procloeon" ~ !!fbi_baetids,
+    TRUE ~ fbi_value)) %>%
+  mutate(type = case_when(
+    family == "Baetidae"        ~ "small-minnow mayflies",
+    family == "Caenidae"        ~ "small-squaregill mayflies",
+    family == "Ephemerellidae"  ~ "spiny-crawler mayflies",
+    family == "Ephemeridae"     ~ "common-burrower mayflies",
+    family == "Heptageniidae"   ~ "flatheaded mayflies",
+    family == "Leptophlebiidae" ~ "prong-gilled mayflies",
+    family == "Oligoneuriidae"  ~ "brushleg mayflies",
+    family == "Potamanthidae"   ~ "hacklegill mayflies",
+    family == "Polymitarcyidae" ~ "pale-burrower mayflies",
+    family == "Siphlonuridae"   ~ "primitive-minnow mayflies",
+    family == "Tricorythidae"   ~ "little stout-crawler mayflies",
+    family == ""                ~ "mayflies"))
+
+# check:: tol = 15 == taxa = 15
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol,
+   fbi_baetids)
 
 ```
 
-```{r 1m_prepare_macro-data--branchiopods}
-CHECK THIS -- probably delete??
+```{r 2d_prepare_insect-data--true_bugs}
 
-branchiopoda_taxa <- macros %>%
-  filter(class == "Branchiopoda") %>%
+# subset by order
+taxa_val <- "Hemiptera"
+
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# check levels
-branchiopoda_genus_tol <- left_join(branchiopoda_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-branchiopoda_family_tol <- left_join(branchiopoda_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-branchiopoda_order_tol <- left_join(branchiopoda_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-branchiopoda_class_tol <- left_join(branchiopoda_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-# bind rows
-branchiopoda_tol  <- bind_rows(branchiopoda_genus_tol)
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
 
-# clean_up
-rm(branchiopoda_genus_tol,
-   branchiopoda_family_tol,
-   branchiopoda_order_tol,
-   branchiopoda_class_tol)
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+tol_hemiptera <- tol %>%
+  mutate(type = case_when(
+    family == "Belostomatidae" ~ "giant waterbugs",
+    family == "Corixidae"      ~ "water boatman",
+    family == "Hebridae"       ~ "velvet waterbugs",
+    family == "Hydrometridae"  ~ "marsh treaders",
+    family == "Mesoveliidae"   ~ "water treaders",
+    family == "Naucoridae"     ~ "creeping waterbugs",
+    family == "Notonectidae"   ~ "backswimmers",
+    family == "Pleidae"        ~ "pygmy backswimmers",
+    family == "Saldidae"       ~ "shore bugs",
+    family == "Veliidae"       ~ "macroveliid shore bugs",
+    family == ""               ~ "true bugs"))
+
+# check:: tol = 15 == taxa = 15
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
 
 ```
 
-```{r 1n_prepare_macro-data--nematodes}
+```{r 2e_prepare_insect-data--dragonflies}
 
-Nematodes --> Nematoda
+# subset by order
+taxa_val <- "Odonata"
 
-nematoda_taxa <- macros %>%
-  filter(class == "Nematoda") %>%
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# check levels
-nematoda_genus_tol <- left_join(nematoda_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-nematoda_family_tol <- left_join(nematoda_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-nematoda_order_tol <- left_join(nematoda_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-nematoda_class_tol <- left_join(nematoda_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-# bind rows
-nematoda_tol  <- bind_rows(nematoda_genus_tol)
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
 
-# clean_up
-rm(nematoda_genus_tol,
-   nematoda_family_tol,
-   nematoda_order_tol,
-   nematoda_class_tol)
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+tol_odonata <- tol %>%
+  mutate(type = case_when(
+    family == "Calopterygidae" ~ "broad-winged damselflies",
+    family == "Coenagrionidae" ~ "narrow-winged damselflies",
+    family == "Corduliidae"    ~ "green-eyed skimmers",
+    family == "Aeshnidae"      ~ "darners",
+    family == "Gomphidae"      ~ "clubtails",
+    family == "Lestidae"       ~ "spread-winged damselflies",
+    family == "Libellulidae"   ~ "common skimmers",
+    family == "Petaluridae"    ~ "petal-tail dragonflies")) %>%
+  mutate(tsn = as.double(tsn)) %>%
+  mutate(tsn = case_when(
+    family == "Lestidae" ~ 102058,
+    family == "Petaluridae" ~ 101659,
+    TRUE ~ tsn)) %>%
+  mutate(tsn = as.integer(tsn)) %>%
+  mutate(parent_tsn = as.double(parent_tsn)) %>%
+  mutate(parent_tsn = case_when(
+    family == "Lestidae" ~ 102042,
+    family == "Petaluridae" ~ 101594,
+    TRUE ~ parent_tsn)) %>%
+  mutate(parent_tsn = as.integer(parent_tsn)) %>%
+  mutate(macs = as.character(macs)) %>%
+  mutate(macs = case_when(
+    family == "Lestidae" ~ "NA",
+    family == "Petaluridae" ~ "NA",
+    family == "Aeshnidae" ~ "NA",
+    TRUE ~ macs)) %>%
+  mutate(macs = na_if(macs, "NA")) %>%
+  mutate(macs = as.integer(macs)) %>%
+  mutate(fbi_value = case_when(
+    family == "Lestidae" ~ 9,
+    family == "Petaluridae" ~ 4,
+    TRUE ~ fbi_value)) %>%
+  mutate(rbp_level_validity = case_when(
+    family == "Lestidae" ~ "Hilsenhoff 2008",
+    family == "Petaluridae" ~ "Buchanan 2011",
+    TRUE ~ rbp_level_validity))
+
+# check:: tol = 9 == taxa = 9
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
 
 ```
 
-```{r 1f_prepare_macro-data--amphipods}
+```{r 2f_prepare_insect-data--stoneflies}
 
-Check this!!
-class
-order
-family
-genus
-1	Hydrozoa	Anthomedusae	Hydridae	
+# subset by order
+taxa_val <- "Plecoptera"
 
-hydrozoa_taxa <- macros %>%
-  filter(class == "Hydrozoa") %>%
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
   select(class:genus) %>%
   distinct()
 
-# check levels
-hydrozoa_genus_tol <- left_join(hydrozoa_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-hydrozoa_family_tol <- left_join(hydrozoa_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-hydrozoa_order_tol <- left_join(hydrozoa_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-hydrozoa_class_tol <- left_join(hydrozoa_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
                   by = c("class" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-# bind rows
-hydrozoa_tol  <- bind_rows(hydrozoa_genus_tol)
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
 
-# clean_up
-rm(hydrozoa_genus_tol,
-   hydrozoa_family_tol,
-   hydrozoa_order_tol,
-   hydrozoa_class_tol)
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+tol_plecoptera <- tol %>%
+  mutate(type = case_when(
+    family == "Perlidae"       ~ "common stoneflies",
+    family == "Perlodidae"     ~ "stripetailed stoneflies",
+    family == "Pteronarcyidae" ~ "giant stoneflies"))
+
+# check:: tol = 4 == taxa = 4
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
 
 ```
 
+```{r 2g_prepare_insect-data--caddisflies}
 
+# subset by order
+taxa_val <- "Trichoptera"
 
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
 
-
-
-```{r}
-
-ni_genus_tol <- left_join(noninsect_taxa, tolerance,
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
                   by = c("genus" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-ni_family_tol <- left_join(noninsect_taxa, tolerance,
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-ni_order_tol <- left_join(noninsect_taxa, tolerance,
+tol_order <- left_join(taxa, tolerance,
                   by = c("order" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-ni_class_tol <- left_join(noninsect_taxa, tolerance,
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+tol_trichoptera <- tol %>%
+  mutate(type = case_when(
+    family == "Brachycentridae"   ~ "humpless case-making  caddisflies",
+    family == "Glossosomatidae"   ~ "saddle case-making caddisflies",
+    family == "Helicopsychidae"   ~ "snail-case caddisflies",
+    family == "Hydropsychidae"    ~ "net-spinning caddisflies",
+    family == "Hydroptilidae"     ~ "micro caddisflies",
+    family == "Limnephilidae"     ~ "northern caddisflies",
+    family == "Lepidostomatidae"  ~ "bizarre caddisflies",
+    family == "Leptoceridae"      ~ "long-horn caddisflies",
+    family == "Phryganeidae"      ~ "large caddisflies",
+    family == "Polycentropodidae" ~ "tube-making caddisflies",
+    family == "Psychomyiidae"     ~ "net-tube caddisflies",
+    family == "Rhyacophilidae"    ~ "primitive caddisflies"))
+
+# check:: tol = 15 == taxa = 15
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 2h_prepare_insect-data--butterflies}
+
+# subset by order
+taxa_val <- "Lepidoptera"
+
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
                   by = c("family" = "prior_name")) %>%
   filter(!is.na(tsn))
 
-ni_tol <- bind_rows(ni_genus_tol,
-                     ni_family_tol,
-                     ni_order_tol,
-                     ni_class_tol) %>%
-  select(-parent_id) %>%
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+tol_lepidoptera <- tol %>%
+  mutate(type = case_when(
+    family == "Cossidae"  ~ "carpenter moths",
+    family == "Pyralidae" ~ "grass moths"))
+
+# check:: tol = 2 == taxa = 2
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 2j_prepare_insect-data--megaloptera}
+
+# subset by order
+taxa_val <- "Megaloptera"
+
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
+                  by = c("family" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family") %>%
+  filter(genus == "")                          # need to drop genus data
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+tol_megaloptera <- tol %>%
+  mutate(type = case_when(
+    family == "Sialidae"    ~ "alderflies",
+    family == "Corydalidae" ~ "dobsonflies"))
+
+# check:: tol = 2 == taxa = 2
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 2k_prepare_insect-data--hymenoptera}
+
+# subset by order
+taxa_val <- "Hymenoptera"
+
+taxa <- macros %>%
+  filter(order == !!taxa_val) %>%
+  select(class:genus) %>%
+  distinct()
+
+# join by different taxa levels to preserve ITIS data
+tol_genus <- left_join(taxa, tolerance,
+                  by = c("genus" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_family <- left_join(taxa, tolerance,
+                  by = c("family" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_order <- left_join(taxa, tolerance,
+                  by = c("order" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+tol_class <- left_join(taxa, tolerance,
+                  by = c("class" = "prior_name")) %>%
+  filter(!is.na(tsn))
+
+# remove duplicate taxa levels from above
+tol_order <- anti_join(tol_order,
+                       tol_family,
+                       by = "family")
+
+tol_family <- anti_join(tol_family,
+                        tol_genus,
+                        by = "genus")
+
+# bind rows
+tol  <- bind_rows(tol_genus,
+                  tol_family,
+                  tol_order)
+
+tol_hymenoptera <- tol %>%
+  mutate(type = case_when(
+    family == "Heloridae" ~ "parasitic wasps"))
+
+# check:: tol = 1 == taxa = 1
+rm(tol_genus,
+   tol_family,
+   tol_order,
+   tol_class,
+   taxa,
+   tol)
+
+```
+
+```{r 2m_combine_insect_data}
+
+# join insect tolerances====
+tol_insect <- bind_rows(tol_coleoptera,
+                        tol_diptera,
+                        tol_ephemeroptera,
+                        tol_hemiptera,
+                        tol_hymenoptera,
+                        tol_lepidoptera,
+                        tol_megaloptera,
+                        tol_odonata,
+                        tol_plecoptera,
+                        tol_trichoptera,
+                        tolerance)
+
+# fix errors -- missing fbi values====
+tol_insect <- tol_insect %>%
+  mutate(source = rbp_level_validity) %>%
+  select(-c(scientific_name, rbp_level_validity)) %>%
+  mutate(level = case_when(
+    genus != "" ~ "genus",
+    family != "" ~ "family",
+    order != "" ~ "order",
+    TRUE ~ "class")) %>%
+  mutate(source = case_when(
+    family == "Notonectidae"   ~ "Mandaville, 2002",        #  tol = 5
+    family == "Oligoneuriidae" ~ "Hauer & Lamberti, 1996",  #  tol = 2
+    family == "Dryopidae"      ~ "Hauer & Lamberti, 1996",  #  tol = 5
+    family == "Hydrometridae"  ~ "Mandaville, 2002",        #  tol = 5
+    family == "Pleidae"        ~ "Mandaville, 2002",        #  tol = 5
+    family == "Mesoveliidae"   ~ "Mandaville, 2002",        #  tol = 5
+    TRUE ~ source)) %>%
+  mutate(fbi_value = case_when(
+    family == "Notonectidae"   ~ 5,
+    family == "Oligoneuriidae" ~ 2,
+    family == "Dryopidae"      ~ 5,
+    family == "Hydrometridae"  ~ 5,
+    family == "Pleidae"        ~ 5,
+    family == "Mesoveliidae"   ~ 5,
+    family == "Ephemerellidae" ~ 1,
+    TRUE ~ fbi_value)) %>%
+  mutate(tsn = as.numeric(tsn)) %>%
+  mutate(tsn = case_when(
+  genus == "Procloeon" ~ 100504,
+  TRUE ~ tsn)) %>%
+  mutate(tsn = as.integer(tsn))
+
+# clean up====
+rm(tol_coleoptera,
+   tol_diptera,
+   tol_ephemeroptera,
+   tol_hemiptera,
+   tol_hymenoptera,
+   tol_lepidoptera,
+   tol_megaloptera,
+   tol_odonata,
+   tol_plecoptera,
+   tol_trichoptera,
+   insect_order)
+
+```
+
+```{r 2n_combine_insect_nonInsect_data--}
+
+# combine nonInsect and insect data====
+tol_combined <- bind_rows(tol_nonInsect, tol_insect) %>%
+  arrange(tsn, parent_tsn) %>%
+  # remove regional tolarances
+  select(-c(nc, wi, oh, id, macs, hilsenhoff, parent_id)) %>%
+  # rearrange columns
+  select(common_name = type, level, everything()) %>%
+  rename(taxa_level = level) %>%
+  select(-parent_tsn, parent_tsn) %>%
+  select(-tsn, tsn)
+
+# clean-up====
+rm(tol_insect,
+   tol_nonInsect,
+   macros_taxa,
+   taxa_val)
+
+```
+
+```{r 3a_add_trait data}
+
+# separate species====
+tol_combined <- tol_combined %>%
+  separate(genus, into = c("genus", "species"))
+
+# add habit data -- genus====
+tol_comb_gen  <- tol_combined %>%
+  filter(taxa_level == "genus")
+
+tol_comb_gen <- left_join(tol_comb_gen, habit,
+                  by = c("genus")) %>%
+  select(-habit_primary, habit_primary) %>%
+  select(-habit_secondary, habit_secondary)
+
+# use this to check for possible errors
+# ok for codes & habit
+tol_comb_gen <- tol_comb_gen %>%
+  mutate(habit = case_when(
+    is.na(habit) ~ habit_primary,
+    TRUE ~ habit)) %>%
+  mutate(code_ord = str_sub(order.x, end = 1)) %>%
+  mutate(code_fam = str_sub(family.x, end = 2)) %>%
+  mutate(code_gen = str_sub(genus, end = 2)) %>%
+  unite("code.x", code_ord:code_gen,
+        sep = "") %>%
+  mutate(code_ck = code.x == code) %>%
+  select(class,
+         order.x, family.x,
+         order.y, family.y, genus,
+         code_ck, code.x, code,
+         everything())
+
+# fix codes to fit with Poff et al & finalize columns prior to combine
+tol_comb_gen <- tol_comb_gen %>%
+  mutate(code.x = case_when(
+    code_ck == FALSE ~ code,
+    TRUE ~ code.x)) %>%
+  rename(order = order.x) %>%
+  rename(family = family.x) %>%
+  select(-c(code, code_ck,
+            order.y:family.y,
+            habit_primary:habit_secondary)) %>%
+  rename(code = code.x) %>%
+  select(code:taxa_level, everything()) %>%
+  mutate(habit_sec = "")
+
+# add habit data -- family====
+tol_comb_fam  <- tol_combined %>%
+  filter(taxa_level == "family")
+
+tol_comb_fam <- left_join(tol_comb_fam, habit,
+                  by = c("family")) %>%
+  select(-habit_primary, habit_primary) %>%
+  select(-habit_secondary, habit_secondary)
+
+# create a habit join table
+habit_fam <- tol_comb_fam %>%
+  select(family, habit:habit_secondary) %>%
+  group_by(family) %>%
   distinct() %>%
-  select(-c(nc, wi, oh, macs, fun_grp_primary:habit_secondary)) %>%
-  filter(!is.na(parent_tsn))
+  ungroup() %>%
+  mutate(habit = case_when(
+    is.na(habit) ~ habit_primary,
+    TRUE ~ habit)) %>%
+  filter(habit != "") %>%
+  mutate(habit_sec = case_when(
+    family == "Chironomidae" ~ "sprawl",
+    family == "Coenagrionidae" ~ "cling",
+    family == "Corduliidae" ~ "sprawl",
+    family == "Dryopidae" ~ "cling",
+    family == "Gomphidae" ~ "sprawl",
+    family == "Heptageniidae" ~ "swim",
+    family == "Hydroptilidae" ~ "cling",
+    family == "Leptophlebiidae" ~ "swim",
+    family == "Siphlonuridae" ~ "swim")) %>%
+  mutate(habit_sec = replace_na(habit_sec, "")) %>%
+  filter(habit != habit_sec)  %>%
+  mutate(habit = case_when(
+    family == "Leptoceridae" ~ "climb",
+    family == "Limnephilidae" ~ "varies",
+    TRUE ~ habit)) %>%
+  mutate(habit_sec = case_when(
+    family == "Leptoceridae" ~ "varies",
+    TRUE ~ habit)) %>%
+  select(family, habit, habit_sec) %>%
+  distinct()
 
+# join habit table
+tol_comb_fam <- tol_comb_fam %>%
+  select(-c(habit:habit_secondary))
 
-test <- right_join(noninsect_taxa, ni_tol)
+# use this to check for possible errors
+# ok for codes & habit
+tol_comb_fam <- left_join(tol_comb_fam, habit_fam,
+                          by = "family") %>%
+  select(-c(genus.y)) %>%
+  mutate(code_ord = str_sub(order.x, end = 1)) %>%
+  mutate(code_fam = str_sub(family, end = 2)) %>%
+  mutate(code_gen = "--") %>%
+  mutate(code = str_sub(code, end = 3)) %>%
+  unite("code.x", code_ord:code_fam,
+        sep = "") %>%
+  distinct() %>%
+  mutate(code_ck = code.x == code) %>%
+  select(class,
+         order.x, order.y, family, 
+         genus = genus.x,
+         code_ck, code.x, code,
+         everything())
 
+# fix codes to fit with Poff et al & finalize columns prior to combine
+tol_comb_fam <- tol_comb_fam %>%
+  mutate(code.x = case_when(
+    code_ck == FALSE ~ code,
+    TRUE ~ code.x)) %>%
+  unite("code", c(code.x, code_gen), 
+        sep = "") %>%
+  rename(order = order.x) %>%
+  select(-c(code_ck, order.y)) %>%
+  select(code:taxa_level, everything())
 
+# add habit data -- order====
+# separate out taxa without family level data -- add codes
+tol_comb_fam_gen <- bind_rows(tol_comb_fam, tol_comb_gen)
 
-rm(ni_genus_tol,
-   ni_family_tol,
-   ni_order_tol,
-   ni_class_tol)
+tol_comb_ord <- anti_join(tol_combined, tol_comb_fam_gen) %>%
+  mutate(code = case_when(
+    common_name == "bivalves"         ~ "b----",
+    common_name == "springtails"      ~ "c----",
+    common_name == "decopods"         ~ "d----",
+    common_name == "true flies"       ~ "D----",
+    common_name == "mayflies"         ~ "E----",
+    common_name == "horsehair worms"  ~ "g----",
+    common_name == "gastropods"       ~ "G----",
+    common_name == "true bugs"        ~ "H----",
+    common_name == "nematodes"        ~ "n----",
+    common_name == "planarians"       ~ "t----"))
+
+tol_comb_ord %<>%
+  select(code, everything()) %>%
+  rename(habit = habit_primary) %>%
+  rename(habit_sec = habit_secondary) 
+
+# join order, family, genus taxa====
+# Check n = 135 == n = 135
+tol_combined <- bind_rows(tol_comb_fam_gen, tol_comb_ord) %>%
+  mutate(code = case_when(
+    code == "AGaGa" ~ "aGaGa",
+    code == "ATaHy" ~ "aTaHy",
+    code == "DAs--" ~ "dAs--",
+    code == "DCa--" ~ "dCa--",
+    code == "GGo--" ~ "gGo--",
+    code == "HHeHe" ~ "hHeHe",
+    code == "HNaLi" ~ "oNaLi",
+    TRUE ~ code))
+
+# clean up====
+rm(habit_fam,
+   tol_comb_fam,
+   tol_comb_fam_gen,
+   tol_comb_gen,
+   tol_comb_ord)
+
 ```
 
+```{r 3b_remove_misidentified taxa}
+
+# remove misidentified taxa & meso-inverts -- prepare_output====
+# misidentified taxa
+macros <- anti_join(macros, taxa_ck1)
+macros <- anti_join(macros, taxa_ck2)
+
+taxa_misidentifed <- bind_rows(taxa_ck1,
+                               taxa_ck2)
+
+# meso-inverts
+acari_records <- macros %>%
+  filter(class == "Arachnida")
+
+macros <- anti_join(macros, acari_records,
+                     by = "class")
 
 
-```{r itis_classification}
+# export & clean up====
+export(taxa_misidentifed, "data/macros_taxa_misid.csv")
+export(acari_records, "data/macros_acari_records.csv")
 
-  
-
-#insect_order <- macros %>%
-#  filter(class == "Insecta") %>%
-#  select(order) %>%
-#  distinct()
-
-#rare_families <- macros %>%
-#  group_by(family) %>%
-#  summarise(count = n())
-  
-# fix oligochaeta to clitellata
-
-```
-
-
-
-```{r 1c_macro_count}
-
-macros %<>%
-  # define non-insects
-  mutate(non_insect = case_when(
-    class == "Insecta" ~ 0,
-    TRUE ~ 1)) %>%
-  # define diptera
-    mutate(diptera = case_when(
-    order == "Diptera" ~ 1,
-    TRUE ~ 0)) %>%
-  # define EPT
-    mutate(ephemeroptera = case_when(
-    order == "Ephemeroptera" ~ 1,
-    TRUE ~ 0)) %>%
-    mutate(trichoptera = case_when(
-    order == "Trichoptera" ~ 1,
-    TRUE ~ 0)) %>%
-    mutate(plecoptera = case_when(
-    order == "Plecoptera" ~ 1,
-    TRUE ~ 0)) %>%
-  mutate(diptera_ct = diptera * count) %>%
-  mutate(sci_name = case_when(
-    order == "Trombidiformes", "Acari",
-    
-    
-    
-  ))
+rm(acari_records,
+   taxa_misidentifed,
+   taxa_ck1,
+   taxa_ck2,
+   macros_class)
 
 ```
 
-```{r}
+```{r 3c_fix_sci_names}
+
+# update scientific & common names====
+macros_ck <- macros %>%
+  select(class, order, family) %>%
+  distinct() %>%
+  arrange(class, order, family)
+
+macros <- macros %>%
+  mutate(order = case_when(
+    order == "Hygrophila" ~ "Basommatophora", 
+    TRUE ~ order))
+
+rm(macros_ck)
 
 ```
+
+```{r 3d_fix_habit_and_export}
+
+# prepare for join -- separate genus & species
+macros       %<>% separate(genus, c("genus", "species"))
+tol_combined %<>% separate(genus, c("genus", "species"))
+
+# update tolerance records -- genus====
+macros_gen <- macros %>%
+  filter(genus != "")
+
+tol_gen <- tol_combined %>%
+    filter(genus != "")
+
+# use this to check data for missing data
+tol_gen <- left_join(macros_gen, tol_gen,
+                        by = c("class", 
+                               "order", 
+                               "family", 
+                               "genus",
+                               "species")) %>%
+  select(class:species, code:habit_sec) %>%
+  distinct()  %>%
+  arrange(class, order, family, genus, species)
+
+# update the missing data
+tol_gen %<>%
+  mutate(parent_tsn = as.numeric(parent_tsn)) %>%
+  mutate(parent_tsn = case_when(
+    genus == "Potamanthus" ~ 0101509,
+    genus == "Procloeon"   ~ 0100755,
+    TRUE ~ parent_tsn)) %>%
+    mutate(parent_tsn = as.integer(parent_tsn)) %>%
+  mutate(common_name = case_when(
+    family == "Leptohyphidae" ~ "Little Stout Crawler Mayflies",
+    TRUE ~ common_name)) %>%
+  mutate(fun_grp_primary = case_when(
+    family == "Cossidae" ~ "",               # excluded taxa
+    family == "Hydroptilidae" ~ "SC",
+    family == "Potamanthidae" ~ "FC",
+    TRUE ~ fun_grp_primary)) %>%
+  mutate(habit = case_when(
+    family == "Cossidae"       ~ "",         # excluded taxa
+    family == "Elmidae"        ~ "cn",
+    family == "Gammaridae"     ~ "sp",
+    family == "Heloridae"      ~ "",         # excluded taxa 
+    family == "Hydropsychidae" ~ "cn",
+    family == "Naididae"       ~ "bu",
+    family == "Naucoridae"     ~ "cb",
+    family == "Pisidiidae"     ~ "bu",
+    family == "Planorbidae"    ~ "cb",
+    family == "Potamanthidae"  ~ "bu",
+    family == "Simuliidae"     ~ "cn",
+    family == "Tabanidae"      ~ "sp",
+    family == "Talitridae"     ~ "sp",
+    family == "Tipulidae"      ~ "bu",
+    TRUE ~ habit)) %>%
+  mutate(habit_sec = case_when(
+    family == "Naucoridae" ~ "sw",    
+    family == "Tabanidae"  ~ "bu",
+    TRUE ~ habit_sec)) 
+
+# update tolerance records -- family====
+macros_fam <- macros %>%
+  filter(family != "") %>%
+  filter(genus == "") %>%
+  select(-c(genus, species))
+
+tol_fam <- tol_combined %>%
+    filter(family != "") %>%
+    filter(genus == "")
+
+# use this to check data for missing data
+tol_fam <- left_join(macros_fam, tol_fam,
+                        by = c("class", 
+                               "order", 
+                               "family")) %>%
+  select(class:family, code:habit_sec) %>%
+  distinct() %>%
+  arrange(class, order, family, genus, species)
+
+# update the missing data
+tol_fam %<>%
+  mutate(fun_grp_primary = case_when(
+    family == "Cecidomyiidae" ~ "",         # excluded taxa
+    family == "Haliplidae"    ~ "SH",
+    family == "Hydroptilidae" ~ "PR",
+    family == "Nematocera"    ~ "",
+    family == "Palaemonidae"  ~ "",
+    family == "Sialidae"      ~ "PR",
+    family == "Veliidae"      ~ "PR",
+    TRUE ~ fun_grp_primary)) %>%
+  mutate(habit = case_when(
+    family == "Amphizoidae"     ~ "",     # can't find -- exclude?
+    family == "Astacidae"       ~ "",     # excluded taxa
+    family == "Cambaridae"      ~ "sp",
+    family == "Copepoda"        ~ "sw",
+    family == "Corbiculidae"    ~ "bu",
+    family == "Dixidae"         ~ "sw",
+    family == "Dolichopodidae"  ~ "sp",
+    family == "Enchytraeidae"   ~ "bu",
+    family == "Glossiphoniidae" ~ "sp",
+    family == "Gordioida"       ~ "bu",
+    family == "Hirudinidae"     ~ "sp",
+    family == "Hydrobiidae"     ~ "cb",
+    family == "Isotomidae"      ~ "sp",
+    family == "Limnichidae"     ~ "",   # excluded taxa
+    family == "Lymnaeidae"      ~ "cb",
+    family == "Mesoveliidae"    ~ "sk",
+    family == "Naididae"        ~ "bu",
+    family == "Nematocera"      ~ "",  # exclude
+    family == "Notonectidae"    ~ "sw",
+    family == "Physidae"        ~ "cb",
+    family == "Pisidiidae"      ~ "bu",
+    family == "Planorbidae"     ~ "cb",
+    family == "Pleidae"         ~ "",
+    family == "Ptilodactylidae" ~ "cn",
+    family == "Ptychopteridae"  ~ "bu",
+    family == "Saldidae"        ~ "cb",
+    family == "Stratiomyidae"   ~ "sp",
+    family == "Siphlonuridae"   ~ "sw",
+    family == "Thaumaleidae"    ~ "cn",
+    family == "Tricorythidae"   ~ "sp",
+    family == "Unionidae"       ~ "bu",
+    family == "Veneridae"       ~ "bu",
+    family == "Viviparidae"     ~ "cb",
+    TRUE ~ habit)) %>%
+  mutate(habit_sec = case_when(
+    family == "Dixidae"         ~ "cl",
+    family == "Dolichopodidae"  ~ "bu",
+    family == "Isotomidae"      ~ "sk",
+    family == "Siphlonuridae"   ~ "cb",
+    TRUE ~ habit_sec))
+
+# update tolerance records -- order====
+macros_ord <- macros %>%
+  filter(family == "") %>%
+  select(-c(family, genus, species)) %>%
+  mutate(order = case_when(
+    class == "Gastropoda" ~ "",
+    TRUE ~ order))
+
+# use this to check data for missing data
+tol_ord <- tol_combined %>%
+    filter(family == "")
+
+tol_ord <- left_join(macros_ord, tol_ord,
+                        by = c("class",
+                               "order")) %>%
+  select(class:order, code:habit_sec) %>%
+  distinct() %>%
+  arrange(class, order, family, genus, species)
+
+# update the missing data
+tol_ord %<>%
+  mutate(fun_grp_primary = case_when(
+    order == "Tricladida" ~ "PR",
+    TRUE ~ fun_grp_primary)) %>%
+  mutate(habit = case_when(
+    class == "Bivalvia"       ~ "cb",
+    class == "Gastropoda"     ~ "cb",
+    class == "Nematoda"       ~ "cb",
+    order == "Collembola"     ~ "sp",
+    order == "Decapoda"       ~ "sp",
+    order == "Gordioidea"     ~ "bu",      # check on taxanomic level
+    order == "Hemiptera"      ~ "cb",
+    order == "Tricladida"     ~ "sp",
+    TRUE ~ habit)) %>%
+  mutate(habit_sec = case_when(
+    order == "Collembola"       ~ "sk",
+    TRUE ~ habit_sec))
+
+# combine updated records====
+# check is 135 - 2 (mites) =  133 records
+tol_combined <- bind_rows(tol_fam,
+                      tol_gen,
+                      tol_ord)
+
+# check is 2226 == 12226 records
+macros <- bind_rows(macros_fam,
+                    macros_gen,
+                    macros_ord)
+
+# add excluded taxa column====
+tol_combined %<>%
+  select(code,
+         common_name,
+         taxa_level,
+         class:family,
+         genus:species,
+         fbi_value,
+         fbi_source = source,
+         habit,
+         habit_sec,
+         everything())
+
+# prepare for export====
+
+
+test <- tol1 %>%
+  select(habit) %>%
+  distinct()
+
+tol_combined1 %<>%
+  # fix miscoded items
+  filter(code != "g----") %>%
+  mutate(family = case_when(
+    order == "Gordioida" ~ "Gordioidea",
+    TRUE ~ family)) %>%
+  mutate(code = case_when(
+    code == "HEn--" ~ "oEn--",
+    code == "HNa--" ~ "oNa--",
+    code == "HGl--" ~ "oGl--",
+    code == "HHi--" ~ "oGl--",
+    code == "G----" ~ "-----",
+    code == "gGo--" ~ "GGo--",
+    code == "b----" ~ "-----",
+    code == "DPa--" ~ "dPa--",
+    code == "LHy--" ~ "lHy--",
+    common_name == "creeping waterbugs" ~ "HNa--",
+    TRUE ~ code)) %>%
+  mutate(common_name= case_when(
+    common_name == "humpless-casemaking  caddisflies" ~
+      "humpless casemaking caddisflies",
+    common_name == "	saddle case-making caddisflies" ~
+      "saddle-casemaking caddisflies",
+    common_name == "Little Stout Crawler Mayflies" ~
+      "little-stoutcrawler mayflies",
+    common_name == "long-toe water beetles" ~
+      "long-toe water-beetles",
+    common_name == "ram horn snails" ~
+      "ram-horn snails",
+    common_name == "predaceous diving beetles" ~
+      "predaceous diving-beetles",
+    common_name == "crawling water beetles" ~
+      "crawling water-beetles",
+    common_name == "minute moss beetles" ~
+      "minute moss-beetles",
+    common_name == "water scavenger beetles" ~
+      "water scavenger-beetles",
+    common_name == "minute marsh-loving beetles" ~
+      "minute marshloving-beetles",
+    common_name == "burrowing water beetles" ~
+      "burrowing water-beetles",
+    common_name == "phantom-crane flies" ~
+      "phantom crane-flies",
+    common_name == "macroveliid shore bugs" ~
+      "macroveliid shore-bugs",
+    common_name == "freshwater jawless leeches" ~
+      "freshwater jawless-leeches",
+    common_name == "aquatic oligochaete worms" ~
+      "aquatic oligochaete-worms",
+    TRUE ~ common_name)) %>%
+  mutate(common_name= case_when(
+    common_name == "little stout-crawler mayflies" ~
+      "little-stoutcrawler mayflies",
+    common_name == "humpless case-making  caddisflies" ~
+      "humpless-casemaking caddisflies",
+    common_name == "saddle case-making caddisflies" ~
+      "saddle-casemaking caddisflies",
+    TRUE ~ common_name)) %>%
+  # rename and arrange vars
+  rename(fun_grp = fun_grp_primary)       %>%
+  rename(fun_grp_sec = fun_grp_secondary) %>%
+  select(code:fbi_source, fun_grp:fun_grp_sec, everything()) %>%
+  # change "" to NA
+  mutate(genus = na_if(genus, ""))        %>%
+  mutate(family = na_if(family, ""))      %>%
+  mutate(order = na_if(order, ""))        %>%
+  mutate(fbi_source = case_when(
+    fbi_source == "" ~ "Barbour et al, 1999",
+    TRUE ~ fbi_source)) %>%
+  # couldn't find habit for these
+  mutate(habit = case_when(
+    family == "Astacidae"                   ~ "NA",
+    family == "Amphizoidae"                 ~ "NA",
+    family == "Cossidae"                    ~ "NA",
+    family == "Heloridae"                   ~ "NA",
+    family == "Limnichidae"                 ~ "NA",
+    family == "Nematocera"                  ~ "NA",
+    family == "Pleidae"                     ~ "NA",
+    order =="Diptera" & is.na(family)       ~ "NA",
+    order =="Ephemeroptera" & is.na(family) ~ "NA",
+    TRUE ~ habit)) %>%
+  # standardize abbreviations
+  mutate(habit = case_when(
+    habit     == "burrow"   ~ "bu",
+    habit     == "climb"    ~ "cb",
+    habit     == "cling"    ~ "cg",
+    habit     == "skate"    ~ "sk",
+    habit     == "sprawl"   ~ "sp",
+    habit     == "swim"     ~ "sw",
+    habit     == "varies"   ~ "va",
+    TRUE ~ habit)) %>%
+mutate(habit_sec = case_when(
+  habit_sec == "burrow"     ~ "bu",
+  habit_sec == "climb"      ~ "cb",
+  habit_sec == "cling"      ~ "cg",
+  habit_sec == "skate"      ~ "sk",
+  habit_sec == "sprawl"     ~ "sp",
+  habit_sec == "swim"       ~ "sw",
+  habit_sec == "varies"     ~ "va",
+  TRUE ~ habit_sec)) %>%
+  # change "NA" vals to NA
+  mutate(habit = na_if(habit, "NA"))           %>%
+  mutate(habit_sec = na_if(habit_sec, ""))     %>%
+  mutate(fun_grp = na_if(fun_grp, ""))         %>%
+  mutate(fun_grp_sec = na_if(fun_grp_sec, "")) %>%
+  # make an 'excluded group' var & update upstream vars
+  mutate(excl_grp = case_when(
+    fbi_value == -9999.0 ~ "X",
+    TRUE ~ "")) %>%
+  mutate(fbi_value = na_if(fbi_value, -9999.0)) %>%
+  mutate(fbi_source = case_when(
+    is.na(fbi_value) ~ "NA",
+    TRUE ~ fbi_source)) %>%
+  mutate(fbi_source = na_if(fbi_source, "NA")) %>%
+  # change tsn vars to character vars, zero-pad & arrange
+  mutate(parent_tsn = as.character(parent_tsn)) %>%
+  mutate(tsn = as.character(tsn)) %>%
+  mutate(parent_tsn = str_pad(parent_tsn,
+                              width = 6,
+                              side = "left",
+                              pad = "0")) %>%
+  mutate(tsn        = str_pad(tsn,
+                              width = 6,
+                              side = "left",
+                              pad = "0")) %>%
+  arrange(tsn, parent_tsn)
+
+tol_combined %<>%
+  # fix miscoded items
+  mutate(parent_tsn = case_when(
+    parent_tsn == "331584" ~ "069459",
+    TRUE ~ parent_tsn))
+
+
+
+# export results====
+export(tol_combined, "data/macros_tol.csv")
+export(traits, "data/macros_traits.csv")
+export(macros, "data/macros_records.csv")
+
+# clean up====
+rm(tol_fam,
+   tol_gen,
+   tol_ord,
+   macros_fam,
+   macros_gen,
+   macros_ord,
+   habit,
+   trait_meta)
+
+```
+
 
