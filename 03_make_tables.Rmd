@@ -27,12 +27,15 @@ options(tibble.print_max = 70) # sets tibble output for printing
 # Sets up the library of packages   
 library("conflicted")        # An alternative conflict resolution strategy  
 library("here")              # identifies where to save work  
-library("dataRetrieval")     # USGS data import  
-library("EGRET")            # Exploration and Graphics for RivEr Trends  
 library("rio")               # more robust I/O - to import and clean data  
-library("sf")               # simple features--spatial geometries for R  
+library("flextable")        # construct complex table with 'kable'  
+library("officer")          # facilitates '.docx' access for table export   
 library("tidyverse")  
-
+  
+#library("sf")               # simple features--spatial geometries for R  
+#library("dataRetrieval")     # USGS data import  
+#library("EGRET")            # Exploration and Graphics for RivEr Trends  
+  
 # resolve conflicted packages----  
 conflict_prefer("filter", "dplyr")  
 conflict_prefer("select", "dplyr")  
@@ -48,7 +51,6 @@ print(paste("You have", until, "days until the second paper is due"
 why_to_write()  
   
 ```  
-
 
 ```{r prepare-table_gage_metadata, eval=FALSE} 
    
@@ -185,7 +187,7 @@ soils_table <- flextable(soils_table) %>%
 ```  
 
 ```{r prepare-table_hydro_metrics, eval=FALSE}  
-   
+  
 # prepare df for hydrologic metric table    
 hydro_table <- wsd_summary %>%    
   select(type, cat_area, lw_ratio, drain_dens, prcp_mean, t07_mean, vpd_ann,   
@@ -291,23 +293,150 @@ hydro_table
   
 ```  
 
+```{r prepare-table_precip-stationss, eval=FALSE}
+
+sta_meta_orig <- import("data/sta_meta_orig.csv")  
+  
+# prepare df for hydrologic metric table----    
+sta_prep <- sta_meta_orig %>%    
+  filter(elev_flag != "yes") %>% 
+  unite("id", c("type", "sta_id"), sep = " ", remove = TRUE) %>%   
+  mutate(flag       = case_when(  
+    .$elev_flag    == "yes" ~ "high elevation",  
+    .$missing_flag == "yes" ~ "incomplete", 
+    .$selected     == "yes" ~ "selected", 
+    TRUE ~ " ")) %>%  
+  mutate(order = case_when(  
+    .$group == "NW" ~ 1,  
+    .$group == "NC" ~ 2,  
+    .$group == "NE" ~ 3,  
+    .$group == "SW" ~ 4,  
+    .$group == "SC" ~ 5,  
+    .$group == "SE" ~ 6  
+  )) %>%  
+arrange(longitude)  %>%  
+  arrange(latitude) %>%  
+  arrange(order) %>%  
+  arrange(flag) %>%  
+  arrange(desc(selected)) %>%  
+  select(id, name, group, everything())  %>%  
+  select(-c(sta, order, datacoverage:selected))  
+  
+# set column keys & header labels for flextable====   
+#col_key_num <- sta_table %>%   
+#  names()   
+  
+header_labels <- c(  
+  id        = "ID",  
+  name      = "Name",  
+  group     = "Region",  
+  longitude = "Longitude",  
+  latitude  = "Latitude",  
+  elevation = "Elevation",  
+  mindate   = "Min. Date",  
+  maxdate   = "Max. Date",  
+  flag      = "Flag")    
+  
+sta_table <- sta_prep %>%   
+  flextable() %>%   
+  theme_booktabs() %>%   
+  align(align = "center", part = "header") %>%  
+#i = 1, j = NULL, 
+  align(align = "center", part = "body") %>%    
+#  colformat_num(col_keys = col_key_num,   
+#                big.mark=",",   
+#                digits = 1, na_str = "N/A") %>%   
+  set_header_labels(values = header_labels) %>%  
+#  add_header_row(values = top_row,   
+#    top = TRUE) %>%   
+#  merge_at(i = 1, j = 7:9, part = "header") %>%   
+#  merge_at(i = 1, j = 10:12, part = "header") %>%   
+  autofit()   
+  
+sta_table   
+```
+
 ```{r export_flextables_as_docx, eval=FALSE}   
   
-# export a docx of flextables    
+# export a docx of flextables - for watersheds chapter   
 tables_ch2 <- read_docx() %>%   
   body_add_flextable(value = gage_table)  %>%  
   body_add_break() %>%   
   body_add_flextable(value = ung_table) %>%   
-  body_add_break() %>%  
+  body_add_break() %>%   
   body_add_flextable(value = soils_table) %>%  
   body_add_break() %>%  
   body_add_flextable(value = hydro_table)  
   
 print(tables_ch2, target = "output/tables_ch2.docx") 
+
+# export a docx of flextables - for precip chapter   
+tables_ch3 <- read_docx() %>%   
+  body_add_flextable(value = sta_table)  
+
+print(tables_ch3, target = "output/tables_ch3.docx") 
   
 rm(col_key_char, col_key_int, col_key_num, header_labels, names, top_row, 
    ung_summary)  
 rm(gage_table, soils_table, ung_table, tables_ch2) 
   
 ```  
+
+```{r prepare-table_PC-results}
+
+# 1. import data====  
+pca_eigen <- import("data/pca_eigen.csv") %>%  
+  mutate_if(is.numeric, round, digits = 2)   
+
+pca_vars <- import("data/pca_vars.csv") %>%  
+  mutate_if(is.numeric, round, digits = 2) %>%  
+  select(labels, PC1, PC2)  
+
+# 2. prepare eigan table====  
+# set column keys for flextable   
+col_key_char <- pca_eigen %>%   
+  names()   
+
+# convert tibble to a flextable   
+eigen_table <- flextable(pca_eigen) %>%  
+   colformat_char(col_keys = col_key_char) %>%  
+  set_header_labels(PC = "Principal Component Axis",  
+                    std.dev = "Standard Dev.",  
+                    percent = "Percent Explained",   
+                    cumulative = "Cumulative Percent Explained") %>%  
+  autofit() %>%   
+  theme_booktabs()  
+
+# 3. prepare pca variable table====  
+# set column keys for flextable   
+col_key_char <- pca_vars %>%   
+  names()   
+
+# convert tibble to a flextable   
+vars_table <- flextable(pca_vars) %>%  
+   colformat_char(col_keys = col_key_char) %>%  
+  set_header_labels(labels = "Variable",  
+                    PC1 = "PC1",  
+                    PC2 = "PC2") %>%  
+  autofit() %>%   
+  theme_booktabs()  
+
+# 4. export a docx of flextables====  
+tables_ch3_pca <- read_docx() %>%   
+  body_add_flextable(value = eigen_table)  %>%  
+  body_add_break(pos = "after") %>%  
+  body_add_flextable(value = vars_table)   
+
+print(tables_ch3_pca, target = "output/tables_ch3_pca.docx") 
+
+# 5. clean up global environment====  
+rm(col_key_char,  
+   pca_eigen,  
+   pca_vars,  
+   eigen_table,  
+   vars_table,  
+   tables_ch3_pca)  
+
+```
+
 
