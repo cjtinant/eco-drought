@@ -1,0 +1,1556 @@
+---
+title: "Untitled"
+author: "CJ Tinant"
+date: "5/21/2020"
+output: html_document
+---
+
+# Data description
+name           data                           description
+macros_cnt      macros_records.csv     macros recs 1993-201x excl. misID & acari
+macros_tol  macros_tol.csv         macros tolerance & habit vals
+
+# 0.1 setup & library
+```{r 0.1_setup_&_library, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+options(tibble.print_max = 70) # sets tibble output for printing
+
+# Set up the library of packages====
+library("conflicted")        # An alternative conflict resolution strategy
+library("here")              # identifies where to save work
+library("rio")               # more robust I/O - to import and clean data
+library("broom")             # tidies linear models
+library("ggfortify")         # data vis tools for statistical analysis
+library("magrittr")          # provides aliases for easier reading
+library("tidyverse")
+
+# resolve conflicted packages====
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+conflict_prefer("as.dist", "stats")
+conflict_prefer("first", "dplyr")
+conflict_prefer("map", "purrr")
+conflict_prefer("lag", "dplyr")
+
+# other packages I have thought about====
+#library("lubridate")     # easier dates
+#library("vegan")         # Community Ecology Package:
+                         # Ordination, Diversity and Dissimilarities
+#library("mgcv")          # Mixed GAM Computation Vehicle with
+#                            Auto Smoothness Estimation -- Generalized additive
+#                            (mixed) models, some of their extensions and
+#                            other generalized ridge regression with multiple
+#                            smoothing parameter estimation by (Restricted)
+#                            Marginal Likelihood, Generalized Cross Validation
+#                              and similar
+#library("EflowStats")    # reimplementation of the Hydrologic Index Tool
+#library("SCI")           # calculates SPI & SSI
+#library("ggrepel")       # Provides geoms for 'ggplot2' to avoid overlapping
+                         #   text labels
+#library("patchwork")     # the 'composer of plots'
+#library("GGally")        # GGally' extends 'ggplot2' by adding functions
+#                            to reduce the complexity of combining geometric
+#                            objects with transformed data, including a
+#                            pairwise plot matrix, a two-group pairwise plot
+#                            matrix, a parallel coordinates plot, a survival
+#                            plot, and functions to plot networks
+#library("flextable")     # functions for tabular reporting
+#library("officer")       # facilitates '.docx' access for table export
+#library("mclust")        # model-based clustering & density estimation
+#library("factoextra")    # quickly visualize Mclust plots
+#library("funModeling")   # EDA, data preparation and model performance
+#library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot
+#library("scales")        # graphical scales map data to aesthetics,
+                         #   & methods for determining breaks and labels
+                         #   for axes and legends
+# #library("forecast")      # using the BoxCox function
+#library("rnoaa")             # R wrapper for NOAA data inc. NCDC
+#library("lmomco")        # lmoments to find distribution
+#library('deldir')        # for Vorononi tesselation - Theissen polygons
+#library("anomalize")     # detect anomalies using the tidyverse
+#library("dabestr")       # data analysis using bootstrap estimation
+#library("cowplot")       # multiple plots with plot_grid()
+#library("timetk")        # tool kit for working with time series in R
+#library("tidyquant")     # integrate quant. analysis tools w/ tidyverse
+#library("corrr")         # Tidy correlation tables and correlation plotting
+#library("cranlogs")      # For inspecting package downloads over time
+#                           for GLMs
+# library("doMC")          # parallelization for caret
+# library("caret")         # classification and regression training
+# library("glmnet")        # fit GLM with lasso or elasticnet regularization
+# library("Metrics")       # evaluation metrics for machine learning
+
+# library("ggpubr")           # easy ggplot wrappers for publication ready
+#                             #   'ggplot2'- based plots
+# library("standardize")      # tools for controlling continuous variable
+#  scaling and factor contrasts for linear models
+# library("pdftools")         # utilities for extracting text, fonts,
+#   attachments and metadata from a pdf file.
+
+# packages for spatial data====
+#library("biogeo")            # Functions for error detection & correction
+#   in point-data datasets; includes functions
+#   to parse & convert coords to decimal-degrees
+#library("maps")              # Outlines: countries, states & counties
+#library("mapdata")           # higher-resolution outlines
+#library('ggmap')             # Spatial visualization with ggplot2
+#library("sf")                # Simple features--spatial geometries for R
+#library("RColorBrewer")      # map color schemes -- http://colorbrewer2.org
+# packages for colors====
+#library("colorspace")        # Manipulate & assess colors & palettes
+#library("munsell")           # Access & manipulate munsell system colours
+#   https://github.com/cwickham/munsell
+
+# packages for lists and urls====
+#library("jsonlite")          # Convert between JSON data and R objects
+#library("curl")              # Drop-in replacement for base url
+#library("listviewer")        # htmlwidget for interactive views of R lists
+#library("forecast")         # for BoxCox.lambda
+
+#library("workflowr") # creates a research website
+#library("bookdown") #
+#library(unpivotr) # fix nasty Excel files
+#library("friendlyeval")
+#library("mathpix")                # support for 'Mathpix' image to 'LaTeX'
+#library("grateful") - not yet ready for R 3.5.0
+#lmomco <- citation("lmomco")
+#toBibtex(lmomco)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+why_to_write <- function()
+{today <- today(tzone = "")
+paper3 <- ymd("2020-05-15")
+until <- paper3 - today
+print(paste("You have", until, "days until the third paper is due"))
+}
+why_to_write()
+
+```
+
+# 1.0 Get and transform data
+```{r 0.3_fix_nemotomorpha_family, eval=FALSE}
+
+# import data & check for errors====
+macros_cnt <- import("data/macros_records.csv") %>%
+  # this is to fix a missing family value -- found below
+  mutate(family = case_when(
+    class == "Nematomorpha" ~ "Gordioidea", 
+    TRUE ~ family))
+
+macros_tol <- import("data/macros_tol.csv") %>%
+  filter(class != "Gastropoda" | order != "")
+
+# join the data and check for differences
+macros_ck <- full_join(macros_cnt, macros_tol,
+                       by = c("class",
+                              "order",
+                              "family",
+                              "genus",
+                              "species"))
+
+macros_dif <- anti_join(macros_ck, macros_cnt, 
+                        by = c("site",
+                               "id",
+                               "date",
+                               "class",
+                               "order",
+                               "family",
+                               "genus",
+                               "species",
+                               "count",
+                               "watershed",
+                               "ecoregion"))
+
+# fix error in Nematomorpha
+export(macros_cnt, "data/macros_records.csv")
+
+```
+
+```{r 0.5_get_wtshed_data, eval=FALSE}
+
+# get data
+wsd_data_scores <- import("data/wsd_data_scores.csv") %>%
+  select(-c(drain_dens:TWI))  # these data are scaled data
+
+wsd_summary <- import("data/wsd_summary.csv") %>%
+  select(-ecoreg)
+#  mutate(ecoreg = case_when(
+#     sta == "bat_bhr" ~ "Black Hills Transition",
+#    TRUE ~ ecoreg)) %>% 
+
+# join data
+wsd_metadata <- full_join(wsd_summary, wsd_data_scores,
+                          by = c("sta", "type", "watshed"))
+
+rm(wsd_data_scores,
+   wsd_summary)
+
+```
+
+```{r 0.6_fix_macros_ecoreg_data, eval=FALSE}
+
+# get ecoreg data
+ung_ecoreg <- wsd_metadata %>%
+  filter(type == "ungaged") %>%
+  select(sta, ecoreg)
+
+# get macros data
+macros_cnt <- import("data/macros_records.csv") %>%
+    rename(ecoreg_old = ecoregion)
+
+macros_cnt <- full_join(macros_cnt, ung_ecoreg,
+                        by = c("site" = "sta")) %>%
+  select(-ecoreg_old)
+
+macros_cnt %<>%
+  rename(ecoreg = ecoreg.x) %>%
+  select(-ecoreg.y)
+
+export(macros_cnt, "data/macros_records.csv")
+
+rm(ung_ecoreg,
+   macros_cnt)
+
+```
+
+```{r 0.7_fix_ck_wtshed_data, eval=FALSE}
+
+# split and fix any errors
+gage_metadata <- wsd_metadata %>%
+  filter(type == "gaged")
+
+ung_metadata <- wsd_metadata %>%
+  filter(type == "ungaged") %>%
+  mutate(gage_nm = NA)
+
+ung_metadata <- full_join(ung_metadata, ung_ecoreg,
+                          by = "sta") #
+
+ung_metadata %<>%
+  rename(ecoreg = ecoreg.y) %>%
+  select(sta,  ecoreg, everything()) %>%
+  select(-ecoreg.x)
+
+wsd_metadata <- bind_rows(ung_metadata, gage_metadata)
+
+export(wsd_metadata, "data/wsd_summary.csv")
+
+rm(gage_metadata,
+   ung_metadata)
+
+```
+
+```{r 1.0 get_data}
+
+# get macros data
+macros_cnt <- import("data/macros_records.csv")
+
+macros_tol <- import("data/macros_tol.csv") %>%
+  filter(class != "Gastropoda" | order != "")
+
+macros <- full_join(macros_cnt, macros_tol,
+                    by = c("class", "order",
+                           "family", "genus",
+                           "species")) %>%
+  rename(date_macros = date)
+
+# get drought data
+wsd_metadata <- import("data/wsd_summary.csv")
+
+drought_in <- import("data/sci_ungaged_june.csv")
+
+rm(macros_cnt,
+   macros_tol)
+
+```
+
+```{r 1.1 prepare_site-level_indices--unit_test}
+
+# get family count and join to data====
+# check level of data -- # note most data is family-level data but some not
+macros_fam_test <- macros %>%
+  select(site:count) %>%
+  add_count(id, family, name = "family_count") %>%
+  arrange(desc(family_count))
+
+# unit test to combine to family level====
+# get counts
+macros_fam_test <- macros %>%
+  filter(id == "wok1r6") %>%
+  arrange(family) %>%                       # should be Baetidae n = 21
+  select(site:count, fbi_value) %>%
+  group_by(id, family) %>%
+  # get flags for EPT, D & nonInsect (prep)
+  mutate(insect_flag = str_count(class, "Insecta"))        %>%
+  mutate(diptera_flag = str_count(order, "Diptera"))       %>%
+  mutate(ephem_flag   = str_count(order, "Ephemeroptera")) %>%
+  mutate(pleco_flag   = str_count(order, "Plecoptera"))    %>%
+  mutate(tricho_flag  = str_count(order, "Trichoptera"))   %>%
+  # get counts based on flags
+  mutate(insect_cnt  = insect_flag * count)  %>%
+  mutate(diptera_cnt = diptera_flag * count) %>%
+  mutate(ephem_cnt   = ephem_flag * count)   %>%
+  mutate(pleco_cnt   = pleco_flag * count)   %>%
+  mutate(tricho_cnt  = tricho_flag * count)  %>%
+  mutate(ept_cnt     = ephem_cnt + pleco_cnt + tricho_cnt) %>%
+  select(-c(ephem_cnt:tricho_cnt)) %>%
+  select(-c(insect_flag:tricho_flag)) %>%
+  ungroup()                                     # ok -- Baetidae = 21
+
+# summarise counts to family level
+macros_fam_test <- macros_fam_test %>%
+  group_by(id, family) %>%
+  summarise(site        = first(site),
+            date_macros = first(date_macros),
+            date_check  = last(date_macros),
+            count       = sum(count),
+            fbi_value   = mean(fbi_value),
+            insect_cnt  = sum(insect_cnt),
+            diptera_cnt = sum(diptera_cnt),
+            ept_cnt     = sum(ept_cnt)) %>%
+  ungroup() %>%
+  add_count(id, family, name = "count_fam")
+
+# summarise counts to site level
+macros_site_test <- macros_fam_test %>%
+  group_by(id) %>%
+  summarise(site        = first(site),
+            date_macros = first(date_macros),
+            date_check  = last(date_macros),
+            count       = sum(count),
+            count_fam   = sum(count_fam),
+            fbi_value   = mean(fbi_value),
+            insect_cnt  = sum(insect_cnt),
+            diptera_cnt = sum(diptera_cnt),
+            ept_cnt     = sum(ept_cnt)) %>%
+  ungroup() %>%
+  mutate(nonInsect_cnt = count - insect_cnt) %>%
+  select(-insect_cnt) %>%
+  mutate(fbi_value  = round(fbi_value, digits = 2)) %>%
+  mutate(numer      = ept_cnt + (- diptera_cnt) + nonInsect_cnt) %>%
+  mutate(denom      = ept_cnt + diptera_cnt + nonInsect_cnt) %>%
+  mutate(taxa_index = round(numer/denom, digits = 2)) %>%
+  mutate(date_check = date_macros == date_check) %>%
+  select(id, date_macros, count, fbi_value, taxa_index, everything())
+
+macros_site_test %<>%
+  select(site, id:taxa_index) %>%
+  mutate(date_macros = ymd(date_macros))
+
+# clean up unit test
+rm(macros_fam_test,
+   macros_site_test)
+
+```
+
+```{r 1.2_prepare_site-level_indices}
+
+# combine macros ids to family level====
+# get counts
+macros_fam <- macros %>%
+  arrange(family) %>%
+  select(site:count, fbi_value) %>%
+  group_by(id, family) %>%
+  # get flags for EPT, D & nonInsect (prep)
+  mutate(insect_flag = str_count(class, "Insecta"))        %>%
+  mutate(diptera_flag = str_count(order, "Diptera"))       %>%
+  mutate(ephem_flag   = str_count(order, "Ephemeroptera")) %>%
+  mutate(pleco_flag   = str_count(order, "Plecoptera"))    %>%
+  mutate(tricho_flag  = str_count(order, "Trichoptera"))   %>%
+  # get counts based on flags
+  mutate(insect_cnt  = insect_flag * count)  %>%
+  mutate(diptera_cnt = diptera_flag * count) %>%
+  mutate(ephem_cnt   = ephem_flag * count)   %>%
+  mutate(pleco_cnt   = pleco_flag * count)   %>%
+  mutate(tricho_cnt  = tricho_flag * count)  %>%
+  mutate(ept_cnt     = ephem_cnt + pleco_cnt + tricho_cnt) %>%
+  select(-c(ephem_cnt:tricho_cnt)) %>%
+  select(-c(insect_flag:tricho_flag)) %>%
+  ungroup()
+
+# summarise counts to family level====
+macros_fam %<>%
+  group_by(id, family) %>%
+  summarise(site        = first(site),
+            date_macros = first(date_macros),
+            date_check  = last(date_macros),
+            count       = sum(count),
+            fbi_value   = mean(fbi_value),
+            insect_cnt  = sum(insect_cnt),
+            diptera_cnt = sum(diptera_cnt),
+            ept_cnt     = sum(ept_cnt)) %>%
+  ungroup() %>%
+  add_count(id, family, name = "count_fam")
+
+# summarise counts to site level====
+macros_site <- macros_fam %>%
+  group_by(id) %>%
+  summarise(site        = first(site),
+            date_macros = first(date_macros),
+            date_check  = last(date_macros),
+            count       = sum(count),
+            count_fam   = sum(count_fam),
+            fbi_value   = mean(fbi_value, na.rm = TRUE),
+            insect_cnt  = sum(insect_cnt),
+            diptera_cnt = sum(diptera_cnt),
+            ept_cnt     = sum(ept_cnt)) %>%
+  ungroup() %>%
+  mutate(nonInsect_cnt = count - insect_cnt) %>%
+  select(-insect_cnt) %>%
+  mutate(fbi_value  = round(fbi_value, digits = 2)) %>%
+  mutate(numer      = ept_cnt + (- diptera_cnt - nonInsect_cnt)) %>%
+  mutate(denom      = ept_cnt + diptera_cnt + nonInsect_cnt) %>%
+  mutate(taxa_index = round(numer/denom, digits = 2)) %>%
+  mutate(date_check = date_macros == date_check) %>%
+  select(id, date_macros, count, fbi_value, taxa_index, everything())
+
+macros_site %<>%
+  select(site, id:taxa_index) %>%
+  mutate(date_macros = ymd(date_macros))
+
+# check macros_fam calcs====
+macros_fam_ck <- macros_fam %>%
+  filter(id == "cra1b6")
+
+macros_site_ck1 <- macros_fam_ck %>%
+  group_by(id) %>%
+  summarise(site        = first(site),
+            date_macros = first(date_macros),
+            date_check  = last(date_macros),
+            count       = sum(count),
+            count_fam   = sum(count_fam),
+            fbi_value   = mean(fbi_value, na.rm = TRUE),
+            insect_cnt  = sum(insect_cnt),
+            diptera_cnt = sum(diptera_cnt),
+            ept_cnt     = sum(ept_cnt)) %>%
+  ungroup()
+
+macros_site_ck2 <- macros_site_ck1 %>%
+  mutate(nonInsect_cnt = count - insect_cnt) %>%
+  select(-insect_cnt) %>%
+  mutate(fbi_value  = round(fbi_value, digits = 2)) %>%
+  mutate(numer      = ept_cnt + (- diptera_cnt - nonInsect_cnt)) %>%
+  mutate(denom      = ept_cnt + diptera_cnt + nonInsect_cnt) %>%
+  mutate(taxa_index = round(numer/denom, digits = 2)) %>%
+  mutate(date_check = date_macros == date_check) %>%
+  select(id, date_macros, count, fbi_value, taxa_index, everything())
+
+macros_site_ck3 <- macros_site_ck2 %>%
+  select(site, id:taxa_index) %>%
+  mutate(date_macros = ymd(date_macros))
+
+# clean site check====
+rm(macros_fam_ck,
+   macros_site_ck1,
+   macros_site_ck2,
+   macros_site_ck3)
+
+# visualize results====
+macros_site %>%
+ggplot(aes(x = taxa_index, y = fbi_value)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_classic()
+
+```
+
+```{r 1.3_join_macros_and_drought}
+
+drought_in <- drought_in %>%
+  distinct() %>%
+  mutate(date = ymd(date))
+
+macros_site <- macros_site %>%
+  mutate(waterYear = year(date_macros))
+
+macros_drought <- left_join(macros_site, drought_in,
+                            by = c("site" = "ungaged", "waterYear")) %>%
+  mutate(days_diff = date_macros - date) %>%
+  select(site,
+         id,
+         fbi_value,
+         taxa_index,
+         days_diff,
+         sci_1mo:sci_12mo,
+         everything()) %>%
+  select(-waterYear) %>%
+  filter(!is.na(sci_1mo))
+
+```
+
+```{r 1.4_lm_EDA}
+# check 
+macros_drought %>%
+  filter(count > 80) %>%                   # need to remove count < 80
+  ggplot(aes(x = log(count), y = taxa_index)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_classic()
+
+macros_drought %>%
+  filter(count > 80) %>%
+  ggplot(aes(y = taxa_index, x = days_diff)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_classic()
+
+```
+
+```{r 1.5_prep_for_modeling}
+
+# ecoreg
+eco_ungaged <- wsd_metadata %>%
+  filter(type == "ungaged") %>%
+  select(sta:ecoreg)
+
+# prep for modelling
+macros_drought <- macros_drought %>%
+  mutate(days_diff = as.integer(days_diff))
+
+mac_drt_80 <- macros_drought %>%
+  filter(count > 80)
+
+mac_drt_80 <- left_join(mac_drt_80, eco_ungaged,
+                        by = c("site" = "sta")) 
+
+mac_drt_80 %<>%
+  mutate(ecoreg = as_factor(ecoreg)) %>%
+  mutate(ecoreg = fct_relevel(ecoreg, "Pierre Shale Plains",
+                             "White River Badlands",
+                             "Pine Ridge Escarpment",
+                             "Keya Paha Tablelands",
+                             "Sandhills Fringe",
+                             "Sand Hills"))
+
+# * clean-up====
+
+rm(eco_ungaged)
+```
+
+```{r 1.6_EDA_fbi-value_vs_days-diff}
+
+# check days diff -- days diff affects FBI value
+mod1 <- lm(data = mac_drt_80, fbi_value ~ days_diff)
+aug_mod1    <- augment(mod1)
+glance_mod1 <- glance(mod1)
+tidy_mod1  <- tidy(mod1) %>%
+  mutate(mod = 1)
+# autoplot(mod1)
+
+aug_mod1 %>%
+  ggplot() +
+  geom_point(aes(x = days_diff,
+                 y = fbi_value),
+             color = "gray60") +
+  geom_smooth(aes(x = days_diff,
+                  y = .fitted),
+              color = "gray20",
+              method = "lm") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+```{r 1.7_EDA_fbi-value_vs_sci_1mo}
+
+# check sci_1mo -- sci_1mo affects FBI value
+mod2 <- lm(data = mac_drt_80, fbi_value ~ sci_1mo)
+aug_mod2    <- augment(mod2)
+glance_mod2 <- glance(mod2)
+tidy_mod2   <- tidy(mod2) %>%
+  mutate(mod = 2)
+# autoplot(mod2)
+
+aug_mod2 %>%
+  ggplot() +
+  geom_point(aes(x = sci_1mo,
+                 y = fbi_value),
+             color = "gray60") +
+  geom_smooth(aes(x = sci_1mo,
+                  y = .fitted),
+              color = "gray20",
+              method = "lm") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+```{r 1.8_EDA_fbi-value_vs_ecoreg}
+
+# check ecoreg
+mod3 <- lm(data = mac_drt_80, fbi_value ~ ecoreg)
+aug_mod3    <- augment(mod3)
+glance_mod3 <- glance(mod3)
+tidy_mod3   <- tidy(mod3) %>%
+  mutate(mod = 3)
+# autoplot(mod3)
+
+# check days diff effect -- looks like land use is confounding ecoreg
+aug_mod3 %>%
+  ggplot() +
+  geom_boxplot(aes(x = ecoreg,
+                 y = fbi_value)) +
+                 #,color = ecoreg)) #+
+#    geom_smooth(aes(x = sci_val,
+#                 y = .fitted),
+#                method = "lm") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# * clean up====
+rm(mod1,
+   mod2,
+   mod3,
+   aug_mod1,
+   aug_mod2,
+   aug_mod3,
+   tidy_mod1,
+   tidy_mod2,
+   tidy_mod3,
+   glance_mod1,
+   glance_mod2,
+   glance_mod3)
+
+```
+
+```{r 2.0_make_fbi-value_vs_sci_val--no_interactions}
+
+# create and tidy models====
+# 1-month sci====
+mod4 <- lm(data = mac_drt_80, fbi_value ~ days_diff + sci_1mo)
+
+aug_mod4    <- augment(mod4) %>%
+  mutate(length = 1) %>%
+  rename(sci_val = sci_1mo)
+
+glance_mod4 <- glance(mod4)
+
+tidy_mod4   <- tidy(mod4) %>%
+  mutate(mod = 4)
+#autoplot(mod4)
+
+# 2-month sci====
+mod5 <- lm(data = mac_drt_80, fbi_value ~ days_diff + sci_2mo)
+
+aug_mod5    <- augment(mod5) %>%
+  mutate(length = 2) %>%
+  rename(sci_val = sci_2mo)
+
+glance_mod5 <- glance(mod5)
+
+tidy_mod5   <- tidy(mod5) %>%
+  mutate(mod = 5)
+#autoplot(mod5)
+
+# 3-month sci====
+mod6 <- lm(data = mac_drt_80, fbi_value ~ days_diff + sci_3mo)
+
+aug_mod6    <- augment(mod6) %>%
+  mutate(length = 3) %>%
+  rename(sci_val = sci_3mo)
+
+glance_mod6 <- glance(mod6)
+
+tidy_mod6   <- tidy(mod6) %>%
+  mutate(mod = 6)
+#autoplot(mod6)
+
+# 4-month sci====
+mod7 <- lm(data = mac_drt_80, fbi_value ~ days_diff + sci_4mo)
+
+aug_mod7    <- augment(mod7) %>%
+  mutate(length = 4) %>%
+  rename(sci_val = sci_4mo)
+
+glance_mod7 <- glance(mod7)
+
+tidy_mod7   <- tidy(mod7) %>%
+  mutate(mod = 7)
+#autoplot(mod7)
+
+# 6-month sci====
+mod8 <- lm(data = mac_drt_80, fbi_value ~ days_diff + sci_6mo)
+
+aug_mod8    <- augment(mod8) %>%
+  mutate(length = 6) %>%
+  rename(sci_val = sci_6mo)
+
+glance_mod8 <- glance(mod8)
+
+tidy_mod8   <- tidy(mod8) %>%
+  mutate(mod = 8)
+#autoplot(mod8)
+
+# 9-month sci====
+mod9 <- lm(data = mac_drt_80, fbi_value ~ days_diff + sci_9mo)
+
+aug_mod9    <- augment(mod9) %>%
+  mutate(length = 9) %>%
+  rename(sci_val = sci_9mo)
+
+glance_mod9 <- glance(mod9)
+
+tidy_mod9   <- tidy(mod9) %>%
+  mutate(mod = 9)
+#autoplot(mod9)
+
+# 12-month sci====
+mod10 <- lm(data = mac_drt_80, fbi_value ~ days_diff + sci_12mo)
+
+aug_mod10    <- augment(mod10) %>%
+  mutate(length = 12) %>%
+  rename(sci_val = sci_12mo)
+
+glance_mod10 <- glance(mod10)
+
+tidy_mod10   <- tidy(mod10) %>%
+  mutate(mod = 10)
+#autoplot(mod10)
+
+```
+
+```{r 2.1_join_fbi-value_vs_sci_val--no_interactions}
+
+# join models====
+fbi_aug_noInt <- bind_rows(aug_mod4,
+                         aug_mod5,
+                         aug_mod6,
+                         aug_mod7,
+                         aug_mod8,
+                         aug_mod9,
+                         aug_mod10) %>%
+  rownames_to_column(var = "mod")
+
+fbi_glance_noInt <- bind_rows(glance_mod4,
+                              glance_mod5,
+                              glance_mod6,
+                              glance_mod7,
+                              glance_mod8,
+                              glance_mod9,
+                              glance_mod10) %>%
+  rownames_to_column(var = "mod") %>%
+  mutate(mod_type = "no interaction")
+
+fbi_tidy_noInt <- bind_rows(tidy_mod4,
+                            tidy_mod5,
+                            tidy_mod6,
+                            tidy_mod7,
+                            tidy_mod8,
+                            tidy_mod9,
+                            tidy_mod10)
+
+# * clean-up====
+rm(mod4,
+   mod5,
+   mod6,
+   mod7,
+   mod8,
+   mod9,
+   mod10,
+   aug_mod4,
+   aug_mod5,
+   aug_mod6,
+   aug_mod7,
+   aug_mod8,
+   aug_mod9,
+   aug_mod10,
+   glance_mod4,
+   glance_mod5,
+   glance_mod6,
+   glance_mod7,
+   glance_mod8,
+   glance_mod9,
+   glance_mod10,
+   tidy_mod4,
+   tidy_mod5,
+   tidy_mod6,
+   tidy_mod7,
+   tidy_mod8,
+   tidy_mod9,
+   tidy_mod10)
+
+```
+
+```{r 2.2_make_fbi-value_vs_sci_val--interactions}
+
+# create and tidy models====
+# 1-month sci====
+mod11 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_1mo)
+
+aug_mod11    <- augment(mod11) %>%
+  mutate(length = 1) %>%
+  rename(sci_val = sci_1mo)
+
+glance_mod11 <- glance(mod11)
+
+tidy_mod11   <- tidy(mod11) %>%
+  mutate(mod = 11)
+#autoplot(mod11)
+
+# 2-month sci====
+mod12 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_2mo)
+
+aug_mod12    <- augment(mod12) %>%
+    mutate(length = 2) %>%
+  rename(sci_val = sci_2mo)
+
+glance_mod12 <- glance(mod12)
+
+tidy_mod12   <- tidy(mod12) %>%
+  mutate(mod = 12)
+#autoplot(mod12)
+
+# 3-month sci====
+mod13 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_3mo)
+aug_mod13    <- augment(mod13) %>%
+  mutate(length = 3) %>%
+  rename(sci_val = sci_3mo)
+
+glance_mod13 <- glance(mod13)
+
+tidy_mod13   <- tidy(mod13) %>%
+  mutate(mod = 13)
+#autoplot(mod13)
+
+# 4-month sci====
+mod14 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_4mo)
+
+aug_mod14    <- augment(mod14) %>%
+  mutate(length = 4) %>%
+  rename(sci_val = sci_4mo)
+
+glance_mod14 <- glance(mod14)
+
+tidy_mod14   <- tidy(mod14) %>%
+  mutate(mod = 14)
+#autoplot(mod14)
+
+# 6-month sci====
+mod15 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_6mo)
+
+aug_mod15    <- augment(mod15) %>%
+  mutate(length = 6) %>%
+  rename(sci_val = sci_6mo)
+
+glance_mod15 <- glance(mod15)
+
+tidy_mod15   <- tidy(mod15) %>%
+  mutate(mod = 15)
+#autoplot(mod15)
+
+# 9-month sci====
+mod16 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_9mo)
+
+aug_mod16    <- augment(mod16) %>%
+  mutate(length = 9) %>%
+  rename(sci_val = sci_9mo)
+
+glance_mod16 <- glance(mod16)
+
+tidy_mod16   <- tidy(mod16) %>%
+  mutate(mod = 16)
+#autoplot(mod16)
+
+# 12-month sci====
+mod17 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_12mo)
+
+aug_mod17    <- augment(mod17) %>%
+  mutate(length = 12) %>%
+  rename(sci_val = sci_12mo)
+
+glance_mod17 <- glance(mod17)
+
+tidy_mod17   <- tidy(mod17) %>%
+  mutate(mod = 17)
+#autoplot(mod17)
+
+```
+
+```{r 2.3_join_fbi-value_vs_sci_val--interactions}
+
+# join models====
+fbi_aug_int <- bind_rows(aug_mod11,
+                         aug_mod12,
+                         aug_mod13,
+                         aug_mod14,
+                         aug_mod15,
+                         aug_mod16, 
+                         aug_mod17) %>%
+  rownames_to_column(var = "mod")
+
+fbi_glance_int <- bind_rows(glance_mod11,
+                            glance_mod12,
+                            glance_mod13,
+                            glance_mod14,
+                            glance_mod15,
+                            glance_mod16, 
+                            glance_mod17) %>%
+  rownames_to_column(var = "mod") %>%
+  mutate(mod_type = "interaction")
+
+fbi_tidy_int <- bind_rows(tidy_mod11,
+                          tidy_mod12,
+                          tidy_mod13,
+                          tidy_mod14,
+                          tidy_mod15,
+                          tidy_mod16,
+                          tidy_mod17)
+
+# * clean-up====
+rm(aug_mod11,
+   aug_mod12,
+   aug_mod13,
+   aug_mod14,
+   aug_mod15,
+   aug_mod16,
+   aug_mod17,
+   mod11,
+   mod12,
+   mod13,
+   mod14,
+   mod15,
+   mod16,
+   mod17,
+   glance_mod11,
+   glance_mod12,
+   glance_mod13,
+   glance_mod14,
+   glance_mod15,
+   glance_mod16,
+   glance_mod17,
+   tidy_mod11,
+   tidy_mod12,
+   tidy_mod13,
+   tidy_mod14,
+   tidy_mod15,
+   tidy_mod16,
+   tidy_mod17)
+
+```
+
+```{r 2.4_join_fbi-value_models}
+
+# join models====           # AIC not improved by interactions
+fbi_glance <- bind_rows(fbi_glance_int,
+                        fbi_glance_noInt)
+
+fbi_aug <- fbi_aug_noInt
+fbi_tidy <- fbi_tidy_noInt
+
+rm(fbi_aug_int,
+   fbi_aug_noInt,
+   fbi_glance_int,
+   fbi_glance_noInt,
+   fbi_tidy_int,
+   fbi_tidy_noInt)
+
+```
+
+```{r 2.5_plot_results--fbi}
+
+fbi_aug %>%
+  ggplot() +
+  facet_wrap(vars(length),
+               nrow = 1) +
+  geom_point(aes(x = sci_val,
+                 y = fbi_value),
+                 color = "gray60") +
+    geom_smooth(aes(x = sci_val,
+                 y = .fitted),
+                method = "lm",
+                color = "gray20") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+```{r 3.0_make_taxa-index_vs_sci_val--no_interactions}
+
+# create and tidy models====
+# 1-month sci====
+mod20 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_1mo)
+
+aug_mod20    <- augment(mod20) %>%
+  mutate(length = 1) %>%
+  rename(sci_val = sci_1mo)
+
+glance_mod20 <- glance(mod20)
+
+tidy_mod20   <- tidy(mod20) %>%
+  mutate(mod = 20)
+#autoplot(mod20)
+
+# 2-month sci====
+mod21 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_2mo)
+
+aug_mod21    <- augment(mod21) %>%
+  mutate(length = 2) %>%
+  rename(sci_val = sci_2mo)
+
+glance_mod21 <- glance(mod21)
+
+tidy_mod21   <- tidy(mod21) %>%
+  mutate(mod = 21)
+#autoplot(mod21)
+
+# 3-month sci====
+mod22 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_3mo)
+
+aug_mod22    <- augment(mod22) %>%
+  mutate(length = 3) %>%
+  rename(sci_val = sci_3mo)
+
+glance_mod22 <- glance(mod22)
+
+tidy_mod22   <- tidy(mod22) %>%
+  mutate(mod = 22)
+#autoplot(mod22)
+
+# 4-month sci====
+mod23 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_4mo)
+
+aug_mod23    <- augment(mod23) %>%
+  mutate(length = 4) %>%
+  rename(sci_val = sci_4mo)
+
+glance_mod23 <- glance(mod23)
+
+tidy_mod23   <- tidy(mod23) %>%
+  mutate(mod = 23)
+#autoplot(mod23)
+
+# 6-month sci====
+mod24 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_6mo)
+
+aug_mod24    <- augment(mod24) %>%
+  mutate(length = 6) %>%
+  rename(sci_val = sci_6mo)
+
+glance_mod24 <- glance(mod24)
+
+tidy_mod24   <- tidy(mod24) %>%
+  mutate(mod = 24)
+#autoplot(mod24)
+
+# 9-month sci====
+mod25 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_9mo)
+
+aug_mod25    <- augment(mod25) %>%
+  mutate(length = 9) %>%
+  rename(sci_val = sci_9mo)
+
+glance_mod25 <- glance(mod25)
+
+tidy_mod25   <- tidy(mod25) %>%
+  mutate(mod = 25)
+#autoplot(mod25)
+
+# 12-month sci====
+mod26 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_12mo)
+
+aug_mod26    <- augment(mod26) %>%
+  mutate(length = 12) %>%
+  rename(sci_val = sci_12mo)
+
+glance_mod26 <- glance(mod26)
+
+tidy_mod26   <- tidy(mod26) %>%
+  mutate(mod = 26)
+#autoplot(mod26)
+
+```
+
+```{r 3.1_join_taxa-index_vs_sci_val--no_interactions}
+
+# join models====
+taxa_aug_noInt <- bind_rows(aug_mod20,
+                            aug_mod21,
+                            aug_mod22,
+                            aug_mod23,
+                            aug_mod24,
+                            aug_mod25,
+                            aug_mod26) %>%
+  rownames_to_column(var = "mod")
+
+taxa_glance_noInt <- bind_rows(glance_mod20,
+                               glance_mod21,
+                               glance_mod22,
+                               glance_mod23,
+                               glance_mod24,
+                               glance_mod25,
+                               glance_mod26) %>%
+  rownames_to_column(var = "mod") %>%
+  mutate(mod_type = "no interaction")
+
+taxa_tidy_noInt <- bind_rows(tidy_mod20,
+                             tidy_mod21,
+                             tidy_mod22,
+                             tidy_mod23,
+                             tidy_mod24,
+                             tidy_mod25,
+                             tidy_mod26)
+
+# * clean-up====
+rm(mod20,
+   mod21,
+   mod22,
+   mod23,
+   mod24,
+   mod25,
+   mod26,
+   aug_mod20,
+   aug_mod21,
+   aug_mod22,
+   aug_mod23,
+   aug_mod24,
+   aug_mod25,
+   aug_mod26,
+   glance_mod20,
+   glance_mod21,
+   glance_mod22,
+   glance_mod23,
+   glance_mod24,
+   glance_mod25,
+   glance_mod26,
+   tidy_mod20,
+   tidy_mod21,
+   tidy_mod22,
+   tidy_mod23,
+   tidy_mod24,
+   tidy_mod25,
+   tidy_mod26)
+
+```
+
+```{r 3.2_make_taxa-index_vs_sci_val--interactions}
+
+# create and tidy models====
+# 1-month sci====
+mod27 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_1mo)
+
+aug_mod27    <- augment(mod27) %>%
+  mutate(length = 1) %>%
+  rename(sci_val = sci_1mo)
+
+glance_mod27 <- glance(mod27)
+
+tidy_mod27   <- tidy(mod27) %>%
+  mutate(mod = 27)
+#autoplot(mod27)
+
+# 2-month sci====
+mod28 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_2mo)
+
+aug_mod28    <- augment(mod28) %>%
+    mutate(length = 2) %>%
+  rename(sci_val = sci_2mo)
+
+glance_mod28 <- glance(mod28)
+
+tidy_mod28   <- tidy(mod28) %>%
+  mutate(mod = 28)
+#autoplot(mod28)
+
+# 3-month sci====
+mod29 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_3mo)
+aug_mod29    <- augment(mod29) %>%
+  mutate(length = 3) %>%
+  rename(sci_val = sci_3mo)
+
+glance_mod29 <- glance(mod29)
+
+tidy_mod29   <- tidy(mod29) %>%
+  mutate(mod = 29)
+#autoplot(mod29)
+
+# 4-month sci====
+mod30 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_4mo)
+
+aug_mod30    <- augment(mod30) %>%
+  mutate(length = 4) %>%
+  rename(sci_val = sci_4mo)
+
+glance_mod30 <- glance(mod30)
+
+tidy_mod30   <- tidy(mod30) %>%
+  mutate(mod = 30)
+#autoplot(mod30)
+
+# 6-month sci====
+mod31 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_6mo)
+
+aug_mod31    <- augment(mod31) %>%
+  mutate(length = 6) %>%
+  rename(sci_val = sci_6mo)
+
+glance_mod31 <- glance(mod31)
+
+tidy_mod31   <- tidy(mod31) %>%
+  mutate(mod = 31)
+#autoplot(mod31)
+
+# 9-month sci====
+mod32 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_9mo)
+
+aug_mod32    <- augment(mod32) %>%
+  mutate(length = 9) %>%
+  rename(sci_val = sci_9mo)
+
+glance_mod32 <- glance(mod32)
+
+tidy_mod32   <- tidy(mod32) %>%
+  mutate(mod = 32)
+#autoplot(mod32)
+
+# 12-month sci====
+mod33 <- lm(data = mac_drt_80, fbi_value ~ days_diff * sci_12mo)
+
+aug_mod33    <- augment(mod33) %>%
+  mutate(length = 12) %>%
+  rename(sci_val = sci_12mo)
+
+glance_mod33 <- glance(mod33)
+
+tidy_mod33   <- tidy(mod33) %>%
+  mutate(mod = 33)
+#autoplot(mod33)
+
+```
+
+```{r 3.3_join_taxa-index_vs_sci_val--interactions}
+
+# join models====
+taxa_aug_int <- bind_rows(aug_mod27,
+                         aug_mod28,
+                         aug_mod29,
+                         aug_mod30,
+                         aug_mod31,
+                         aug_mod32, 
+                         aug_mod33) %>%
+  rownames_to_column(var = "mod")
+
+taxa_glance_int <- bind_rows(glance_mod27,
+                            glance_mod28,
+                            glance_mod29,
+                            glance_mod30,
+                            glance_mod31,
+                            glance_mod32, 
+                            glance_mod33) %>%
+  rownames_to_column(var = "mod") %>%
+  mutate(mod_type = "interaction")
+
+taxa_tidy_int <- bind_rows(tidy_mod27,
+                          tidy_mod28,
+                          tidy_mod29,
+                          tidy_mod30,
+                          tidy_mod31,
+                          tidy_mod32,
+                          tidy_mod33)
+
+# * clean-up====
+rm(aug_mod27,
+   aug_mod28,
+   aug_mod29,
+   aug_mod30,
+   aug_mod31,
+   aug_mod32,
+   aug_mod33,
+   mod27,
+   mod28,
+   mod29,
+   mod30,
+   mod31,
+   mod32,
+   mod33,
+   glance_mod27,
+   glance_mod28,
+   glance_mod29,
+   glance_mod30,
+   glance_mod31,
+   glance_mod32,
+   glance_mod33,
+   tidy_mod27,
+   tidy_mod28,
+   tidy_mod29,
+   tidy_mod30,
+   tidy_mod31,
+   tidy_mod32,
+   tidy_mod33)
+
+```
+
+```{r 3.4_join_taxa_index_models}
+
+# join models====           # AIC not improved by interactions
+taxa_glance <- bind_rows(taxa_glance_int,
+                        taxa_glance_noInt)
+
+taxa_aug <- taxa_aug_noInt
+taxa_tidy <- taxa_tidy_noInt
+
+rm(taxa_aug_int,
+   taxa_aug_noInt,
+   taxa_glance_int,
+   taxa_glance_noInt,
+   taxa_tidy_int,
+   taxa_tidy_noInt)
+
+```
+
+```{r 3.5_plot_results--taxa_index}
+
+taxa_aug %>%
+  ggplot() +
+  facet_wrap(vars(length),
+               nrow = 1) +
+  geom_point(aes(x = sci_val,
+                 y = taxa_index),
+                 color = "gray60") +
+    geom_smooth(aes(x = sci_val,
+                 y = .fitted),
+                method = "lm",
+                color = "gray20") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+
+
+
+
+```{r make_taxa_index_models}
+
+# check days diff
+mod21 <- lm(data = mac_drt_80, taxa_index ~ days_diff)
+mod21_glance <- glance(mod21)
+mod21_tidy   <- tidy(mod21) %>%
+  mutate(mod = 21)
+# autoplot(mod21)
+
+# check sci_1mo
+mod22 <- lm(data = mac_drt_80, taxa_index ~ sci_1mo)
+mod22_glance <- glance(mod22)
+mod22_tidy   <- tidy(mod22) %>%
+  mutate(mod = 22)
+# autoplot(mod22)
+
+mod23 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_1mo * ecoreg)
+mod23_glance <- glance(mod23)
+mod23_tidy   <- tidy(mod23) %>%
+  mutate(mod = 23)
+# autoplot(mod23)
+
+mod24 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_1mo + ecoreg)
+mod24_glance <- glance(mod24)
+mod24_tidy   <- tidy(mod24) %>%
+  mutate(mod = 24)
+#autoplot(mod24)
+
+mod25 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_2mo * ecoreg)
+mod25_glance <- glance(mod25)
+mod25_tidy   <- tidy(mod25) %>%
+  mutate(mod = 25)
+#autoplot(mod25)
+
+mod26 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_2mo + ecoreg)
+mod26_glance <- glance(mod26)
+mod26_tidy   <- tidy(mod26) %>%
+  mutate(mod = 26)
+#autoplot(mod26)
+
+mod27 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_3mo * ecoreg)
+mod27_glance <- glance(mod27)
+mod27_tidy   <- tidy(mod27) %>%
+  mutate(mod = 27)
+#autoplot(mod27)
+
+mod28 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_3mo + ecoreg)
+mod28_glance <- glance(mod28)
+mod28_tidy   <- tidy(mod28) %>%
+  mutate(mod = 28)
+#autoplot(mod28)
+
+mod29 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_4mo * ecoreg)
+mod29_glance <- glance(mod29)
+mod29_tidy   <- tidy(mod29) %>%
+  mutate(mod = 29)
+#autoplot(mod29)
+
+mod30 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_4mo + ecoreg)
+mod30_glance <- glance(mod30)
+mod30_tidy   <- tidy(mod30) %>%
+  mutate(mod = 30)
+#autoplot(mod30)
+
+mod31 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_6mo  * ecoreg)
+mod31_glance <- glance(mod31)
+mod31_tidy   <- tidy(mod31) %>%
+  mutate(mod = 31)
+#autoplot(mod31)
+
+mod32 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_6mo + ecoreg)
+mon32_glance <- glance(mod32)
+mod32_tidy   <- tidy(mod32) %>%
+  mutate(mod = 32)
+#autoplot(mod32)
+
+mod33 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_9mo * ecoreg)
+mod33_glance <- glance(mod33)
+mod33_tidy   <- tidy(mod33) %>%
+  mutate(mod = 33)
+#autoplot(mod33)
+
+mod34 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_9mo + ecoreg)
+mod34_glance <- glance(mod34)
+mod34_tidy   <- tidy(mod34) %>%
+  mutate(mod = 34)
+#autoplot(mod34)
+
+mod35 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_12mo * ecoreg)
+mod35_glance <- glance(mod35)
+mod35_tidy   <- tidy(mod35) %>%
+  mutate(mod = 35)
+#autoplot(mod35)
+
+mod36 <- lm(data = mac_drt_80, taxa_index ~ days_diff + sci_12mo + ecoreg)
+mod36_glance <- glance(mod36)
+mod36_tidy   <- tidy(mod36) %>%
+  mutate(mod = 36)
+#autoplot(mod36)
+
+```
+
+```{r join_taxa-index_models}
+
+taxa_glance <- bind_rows(mod21_glance,
+                      mod22_glance,
+                      mod23_glance,
+                      mod24_glance,
+                      mod25_glance,
+                      mod26_glance,
+                      mod27_glance,
+                      mod28_glance,
+                      mod29_glance,
+                      mod30_glance,
+                      mod31_glance,
+                      mod32_glance,
+                      mod33_glance,
+                      mod34_glance,
+                      mod35_glance,
+                      mod36_glance) %>%
+  rownames_to_column(var = "mod") %>%
+  mutate(mod = as.integer(mod) + 20)
+# mod 30 - sci_4mo no interaction
+
+taxa_tidy <- bind_rows(mod21_tidy,
+                      mod22_tidy,
+                      mod23_tidy,
+                      mod24_tidy,
+                      mod25_tidy,
+                      mod26_tidy,
+                      mod27_tidy,
+                      mod28_tidy,
+                      mod29_tidy,
+                      mod30_tidy,
+                      mod31_tidy,
+                      mod32_tidy,
+                      mod33_tidy,
+                      mod34_tidy,
+                      mod35_tidy,
+                      mod36_tidy)
+
+```
+
+
+
+```{r}
+
+taxa_tidy_all <- taxa_tidy
+
+taxa_tidy <- taxa_tidy_all %>%
+  filter(mod == 24) %>%
+  pivot_wider(names_from = term,
+ #             id_cols = mod,
+              values_from = estimate:p.value) %>%
+  select(-mod) %>%
+  mutate(length = 1) %>%
+  pivot_longer(cols = starts_with("estimate_"))%>%
+  pivot_longer(cols = starts_with("std.error_"), 
+                                  names_repair = "unique") %>%
+  pivot_longer(cols = starts_with("p.value_"), 
+                                  names_repair = "unique") %>%
+  pivot_longer(cols = starts_with("statistic"),
+               names_repair = "unique") %>%
+  distinct()
+
+
+
+
+
+  pivot_longer(cols = starts_with("estimate_sci")) 
+               names_repair = "unique") %>%
+  pivot_longer(cols = starts_with("p.value_sci"),
+               names_repair = "unique") %>%
+  pivot_longer(cols = starts_with("statistic_sci"),
+               names_repair = "unique") %>%
+  distinct()
+
+
+mod24_aug <- augment(mod24) %>%
+    mutate(length = 1) %>%
+  rename(sci_val = sci_1mo)
+
+mod26_aug <- augment(mod26) %>%
+  mutate(length = 2) %>%
+  rename(sci_val = sci_2mo)
+
+mod28_aug <- augment(mod28) %>%
+  mutate(length = 3) %>%
+  rename(sci_val = sci_3mo)
+
+mod30_aug <- augment(mod30) %>%
+  mutate(length = 4) %>%
+  rename(sci_val = sci_4mo)
+
+mod32_aug <- augment(mod32) %>%
+    mutate(length = 6) %>%
+  rename(sci_val = sci_6mo)
+
+mod34_aug <- augment(mod34) %>%
+  mutate(length = 9) %>%
+  rename(sci_val = sci_9mo)
+
+mod36_aug <- augment(mod36) %>%
+  mutate(length = 12) %>%
+  rename(sci_val = sci_12mo)
+
+taxa_mod_all <- bind_rows(mod24_aug,
+                          mod26_aug,
+                          mod28_aug,
+                          mod30_aug,
+                          mod32_aug,
+                          mod34_aug,
+                          mod36_aug)
+
+
+taxa_mod <- bind_rows(mod24_aug,
+                      mod28_aug,
+                      mod32_aug,
+                      mod36_aug)
+taxa_mod %>%
+  ggplot() +
+  facet_wrap(vars(length),
+               nrow = 3) +
+  geom_point(aes(x = sci_val,
+                 y = taxa_index,
+                 color = ecoreg)) +
+    geom_smooth(aes(x = sci_val,
+                 y = .fitted),
+                method = "lm") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+
