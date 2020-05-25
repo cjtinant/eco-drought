@@ -5,17 +5,120 @@ date: "2/18/2020"
 output: html_document
 ---
 
-
+# Overview  
 <!--  
-Y = b1x + b2x2 
+Y = b1x + b2x2  
 
-let x1 = normalized family differential index 
+let x1 = normalized family differential index   
     x2 = days from June 1  
+    
+
+Purpose:  
+This R markdown file prepares macroinvertebrate data for analysis.  
+
+# Code chunks====  
+# collapse                        Cmd+Option+L  
+# expand                          Cmd+Shift+Option+L  
+# collapse all                    Cmd+Option+O  
+# expand all                      Cmd+Shift+Option+O  
 -->  
 
-```{r setup_&_library, message=FALSE}    
-  
-knitr::opts_chunk$set(echo = FALSE)      
+# Codebook  
+<!--  
+Input data:  
+Macroinvertebrate data is from spreadsheets created by CJ Tinant and STEM  
+research assistants in collaboration with the Oglala Sioux Tribe (OST)  
+Environmental Protection Program (EPP).  
+
+# Analysis variables:  
+Macroinvertebrete inputs are in the format:  
+xxxz_yyyy  
+
+  where  xxx is stream name abreviation  
+           z is an integer -- 1 is furthest upsteam station  
+             White River 5 is unique -- it's between WHI3 and WHI4.  
+        yyyy is 4-digit year of the sample.  
+
+Stream name abbreviations are as follows:  
+AMH -- American Horse Creek  
+BEA -- Bear Creek  
+BEL -- Bear in the Lodge Creek (lower Bear Creek)  
+BLP -- Black Pipe Creek   
+BUZ -- Buzzard Creek  
+CHE -- Cheyenne River  ## IS THIS CHE OR CHR??  
+COR -- Corn Creek  
+CRA -- Craven Creek  
+EAN -- Eagle Nest Creek  
+LOD -- Lost Dog Creek  
+LON -- Long Creek    ## IS THIS LOD OR LDC ??  
+LWR -- Little White River  
+MER -- Medicine Root Creek  
+NFL -- No Flesh Creek  
+PAS -- Pass Creek  
+POR -- Porcupine Creek  
+POT -- Potato Creek  
+RED -- Redwater Creek  
+WCC -- White Clay Creek  
+WHI -- White River  
+WOK -- Wounded Knee Creek  
+WOL -- Wolf Creek  
+
+Macroinvertebrate years in input files are as follows:  
+prior -- samples prior to 2011 not included below   
+2011  
+2012  
+2013  
+2014  
+The input files also include prior years including: 1993-1997, 2008.  
+
+Individual years in the variables are described using a letter where:  
+  "a" ~ 1993  
+  "b" ~ 1994  
+  "c" ~ 1995  
+  "d" ~ 1996  
+  "e" ~ 1997  
+  "p" ~ 2008  
+  "r" ~ 2010  
+  "s" ~ 2011  
+  "t" ~ 2012  
+  "u" ~ 2013  
+  "v" ~ 2014  
+
+scratch -- an intermediate tibble that is reused in the analysis  
+check   -- an intermediate tibble for checking data  
+xxx_ck  -- an intermediate tibble for checking data  
+
+macros  -- tibbles for macros data  
+  _Gen    -- intermediate tibble for fixing data - has genus  
+  _noGen  -- intermediate tibble for fixing data - doesn't have genus  
+  _wide   -- intermediate tibble for fixing data to wide  
+
+-->  
+
+# Analysis steps  
+<!--  
+1.0 -- set up the library and settings  
+2.0 --  import and clean data saved from Excel worksheets as csv files  
+        importing from 'xlsx': 2015/04/09_OB  
+2.1 -- rename duplicates  
+2.2 -- check count (check for samples with lt 80 count)  
+2.3 -- check by duplicate name  
+2.4 -- keep original sample names  
+3.0 -- organize taxonomy data  
+3.1 -- remove odd characters  
+3.2 -- organize genus data  
+3.3 -- organize family data  
+3.4 -- organize order data  
+3.5 -- organize class data   
+3.6 -- manual check and join data  
+4.0 -- fix year and month in data  
+
+-->  
+
+# Analysis  
+```{r setup_&_library, message=FALSE}     
+
+knitr::opts_chunk$set(echo = FALSE)       
 options(tibble.print_max = 70) # sets tibble output for printing          
 
 # Sets up the library of packages====    
@@ -26,7 +129,7 @@ library("lubridate")     # easier dates
 #library("broom")         # tidies linear models   
 #library("ggbeeswarm")    # plot 1D data as a violin / beeswarm plot  
 #library("scales")        # graphical scales map data to aesthetics,  
-#                         #   & methods for determining breaks and labels 
+#                         #   & methods for determining breaks and labels  
                          #   for axes and legends   
 #library("mclust")        # model-based clustering & density estimation  
 #library("flextable")     # functions for tabular reporting  
@@ -104,15 +207,14 @@ conflict_prefer("lag", "dplyr")
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
 why_to_write <- function()   
 {today <- today(tzone = "")  
-paper3 <- ymd("2020-04-15")  
+paper3 <- ymd("2020-05-15")  
 until <- paper3 - today  
 print(paste("You have", until, "days until the third paper is due"))   
 }   
 why_to_write()  
-
 ```
 
-```{r functions}
+```{r functions}  
 # 1. this function takes in a dataframe,  
 #   changes names to snake_case,   
 #   changes any blank character columns to NA  
@@ -131,7 +233,7 @@ clean_fun <- function(df) {
   mutate_if(is.numeric, na_if, 0) %>%  
   select(-sums) %>%  
   mutate(notes = as.character(notes))  
-#  unite("family_notes", c(family, notes))    
+#  unite("family_notes", c(family, notes))     
   return(new_df)  
 }  
 
@@ -145,10 +247,10 @@ count_fun <- function(df) {
 
 ```
 
-```{r import_macros}
+```{r 01_import_macros}
 
 # 1 import and clean data saved from Excel worksheets as .csv====  
-#   importing from 'xlsx': 2015/04/09_OB   
+#   importing from 'xlsx': 2015/04/09_OB    
 
 AMH1_2014 <- import("data/AMH1_2014.csv") %>%  
   clean_fun()  
@@ -289,7 +391,7 @@ WOK4_2014 <- import("data/WOK4_2014.csv") %>%
 
 ```
 
-```{r join_macros}
+```{r 02_join_macros}
 
 # join macros-post2000====  
 # joins columns by putting the dfs into a list,  
@@ -344,10 +446,10 @@ scratch <- full_join(AMH1_2014,
 
 ```
 
-```{r check_count}
+```{r 03_check_count} 
 
 # check the count of the samples====  
-# should be 12 samples  
+# should be 12 samples with count less than 80 (e.g. 100 +/- 80)  
 count_ck <- scratch %>%  
   select(-c(order:notes)) %>%  
   count_fun() %>%  
@@ -433,21 +535,22 @@ rm(check_amh1p,
 
 ```
 
-```{r check_names}
+```{r 04_check_names}
 
-# 1.0 check site names for duplicates or other errors====  
+# 1.0 check site names for duplicates or other errors====   
 # 1.1 get sites with suffixes====   
-# check_vars should be n = 13 -- but below is n = 9  
+# check_vars n = 11  
+######## ?? should be n = 13 -- but below is n = 9  ??
 # 1   lwr1s7,  
-# 2   lwr2t6 = lwr2t6,  
-# 3   lwr3r6 = lwr3r6,  
-# 4   me	ra7,          # didn't include -- fix name below
-# 5   mer4t8 = mer4t8,  
-# 6   por2d7,  
-# 7   por3s6,  
-# 8   wcc2a6	7,  
-# 9   wok2s6,   
-# 10  wok4r6  
+# 2,3   lwr2t6 (2 samples) = lwr2t6,  
+# 4   lwr3r6 = lwr3r6,  
+# 5   me	ra7,          # didn't include -- fix name below  
+# 6   mer4t8 = mer4t8,  
+# 7   por2d7,  
+# 8   por3s6,  
+# 9   wcc2a6	7,  
+# 10   wok2s6,   
+# 11  wok4r6  
 
 check_vars <- scratch %>%  
   names() %>%  
@@ -518,7 +621,7 @@ rm(check_lwr1s,
 
 ```
 
-```{r fix_names}
+```{r 05_fix_names}
 
 # from results above -- keep more diverse samples with count near 100   
 scratch <- scratch %>%  
@@ -532,6 +635,12 @@ scratch <- scratch %>%
   rename(por2d7_dup = por2d7_2) %>%  
   rename(por3s6_dup = por3s6) %>%  
   rename(por3s6 = por3s6_b)  
+
+# keep original sample names  
+check_samples <- scratch %>%  
+  select(-c(order, family, notes)) %>%  
+  names() %>%   
+  tibble(samples = .)  
 
 rm(AMH1_2014,  
    BEA1_2013,  
@@ -581,7 +690,7 @@ rm(AMH1_2014,
 
 ```
 
-```{r fix_taxa_names-prep}
+```{r 06_fix_taxa_names-prep}
 
 # 1. organize taxa by taxonomy====  
 #    rows are genera & cols are sites  
@@ -600,7 +709,7 @@ macros_noGen <- macros %>%
   filter(is.na(genus))  
 
 # 3.2 clean non-year specific genera====  
-macros_Gen <- macros %>%  
+macros_Gen <- macros %>%   
   filter(!is.na(genus)) %>%  
   mutate(genus = case_when(  
     str_detect(genus, "Acerpenna sp.") ~ "Acerpenna spp",  
@@ -624,16 +733,16 @@ macros_Gen <- macros %>%
     str_detect(genus, "Class Gastropoda") ~ "NA",  
     str_detect(genus, "Variable") ~ "NA",  
     str_detect(genus, "Extremely rare") ~ "NA",  
-    str_detect(genus, "^Ferrissia sp.") ~ "Ferrissia spp", 
+    str_detect(genus, "^Ferrissia sp.") ~ "Ferrissia spp",  
     str_detect(genus, "^From") ~ "NA",  
-    str_detect(genus, "^from") ~ "NA", 
+    str_detect(genus, "^from") ~ "NA",  
     str_detect(genus, "Larval; adults excluded") ~ "NA",  
-    str_detect(genus, "^Lebertia sp.") ~ "Lebertia spp", 
-    str_detect(genus, "Microcylloepus sp.") ~ "Microcylloepus spp", 
+    str_detect(genus, "^Lebertia sp.") ~ "Lebertia spp",  
+    str_detect(genus, "Microcylloepus sp.") ~ "Microcylloepus spp",  
     str_detect(genus, "^Nectopsyche sp.") ~ "Nectopsyche spp",  
-    str_detect(genus, "Ochrotichia sp.") ~ "Ochrotichia spp", 
+    str_detect(genus, "Ochrotichia sp.") ~ "Ochrotichia spp",  
     str_detect(genus, "^ONE PUPA") ~ "NA",  
-    str_detect(genus, "Paraleptophlebia sp.") ~ "Paraleptophlebia spp", 
+    str_detect(genus, "Paraleptophlebia sp.") ~ "Paraleptophlebia spp",  
     str_detect(genus, "Procloeon sp.") ~ "Procloeon spp",  
     str_detect(genus, "Sp = Ephoron") ~ "Ephoron spp",  
     str_detect(genus, "Stenelmis sp.") ~ "Stenelmis spp",  
@@ -674,7 +783,7 @@ macros_Gen <- macros_Gen %>%
     TRUE ~ "n")) %>%  
   select(scratch, everything())  
 
-# 3.4    add finished genus to other set of data genus ====
+# 3.4    add finished genus to other set of data genus ====  
 macros_GenFin <- macros_Gen %>%  
   filter(scratch == "y") %>%  
   select(-scratch)  
@@ -692,7 +801,7 @@ rm(macros_GenFin)
 
 ```
 
-```{r fix_taxa_names_genus_year_data}
+```{r 07_fix_taxa_names_genus_year_data}
 
 # fix individual year data in genus====  
 # rows are genera & columns are sites  
@@ -896,7 +1005,7 @@ rm(macros_Gen,
 
 ```
 
-```{r fix_taxa_names-genus}
+```{r 08_fix_taxa_names-genus}
 
 # looked at data to look for cases where there might be multiple genera   
 
@@ -930,7 +1039,7 @@ macros <- macros %>%
 
 ```
 
-```{r fix_taxa_names-family}
+```{r 09_fix_taxa_names-family}
 
 # used internet to look up families for the general below  
 macros <- macros %>%  
@@ -971,10 +1080,10 @@ macros <- macros %>%
     str_detect(family, "Pisidiidae") ~ "Sphaeriidae",  
     str_detect(family, "Sailidae") ~ "Sialidae",  
     str_detect(family, "Simulidae") ~ "Simuliidae",  
-    str_detect(family, "Taltridae") ~ "Talitridae", 
+    str_detect(family, "Taltridae") ~ "Talitridae",  
     str_detect(family, "^Tipula sp.") ~ "Tipulidae",  
     str_detect(family, "Tupulidae") ~ "Tipulidae",  
-    str_detect(family, "^Tricorythodes sp.") ~ "Tricorythodes sp.", 
+    str_detect(family, "^Tricorythodes sp.") ~ "Tricorythodes sp.",  
     str_detect(family, "Notostraca") ~ "Triopsidae",  
     str_detect(family, "viviparidae") ~ "Viviparidae",  
     str_detect(family, "Unclassified") ~ "NA",  
@@ -988,7 +1097,7 @@ macros <- macros %>%
 
 ```
 
-```{r fix_taxa_names-order}
+```{r 10_fix_taxa_names-order}
 
 # used internet to look up order from families below   
 macros <- macros %>%  
@@ -1026,7 +1135,7 @@ macros <- macros %>%
 
 ```
 
-```{r fix_taxa_names-class}
+```{r 11_fix_taxa_names-class}
 
 # used internet to look up class from order below  
 
@@ -1069,7 +1178,7 @@ macros <- macros %>%
 
 ```
 
-```{r fix_missed_taxa_names}
+```{r 12_fix_missed_taxa_names}
 
 # make last taxon fix====   
 macros <- macros %>%  
@@ -1087,9 +1196,23 @@ macros <- macros %>%
   rename(whi3p6 = wtr3p6) %>%  
   rename(whi4a8 = wtr4a8)   
 
+# add misnamed samples to check_samples  
+
+scratch <- macros %>% 
+  select(-c(class:genus)) %>%  
+  names() %>%  
+  tibble(samples2 = .) %>%  
+  arrange(samples2)  
+
+check_samples <- check_samples %>%  
+  arrange(samples)  
+
+check_samples <- bind_cols(check_samples, scratch)  
+
+
 ```
 
-```{r data_check-manual}
+```{r 13_data_check-manual}
 
 # 1. get sample names====  
 samples <- macros %>%  
@@ -1109,7 +1232,7 @@ macro_ck <- macros %>%
             rowSums(na.rm = TRUE)) %>%  
   filter(total != 0)  
 
-count_ck <- macros_ck %>%  
+count_ck <- macro_ck %>%  
   select(-total) %>%  
   summarise_if(is.numeric, sum, na.rm = TRUE) %>%  
   mutate(scratch = "scratch") %>%  
@@ -1333,7 +1456,7 @@ count_ck <- macros_ck %>%
 
 ```
 
-```{r split_by_stream}
+```{r 14_split_by_stream}
 
 # need to get the right count -- split by stream   
 
@@ -1458,8 +1581,8 @@ ean <- macros %>%
   summarize_if(is.numeric, mean, na.rm = TRUE) %>%  
   ungroup()  
 
-# 12. lost dog creek split====  
-ldc <- macros %>%  
+# 12. lost dog creek split====  #### changed from LDC#######
+lod <- macros %>%  
   select(class:genus, starts_with("ldc")) %>%  
    mutate(total = select(., ldc1a6:ldc1d7) %>%  
             rowSums(na.rm = TRUE)) %>%  
@@ -1603,7 +1726,7 @@ wol <- macros %>%
 
 ```
 
-```{r join_splits1}
+```{r 15_join_splits1}
 
 # need to join splits sequentially -- otherwise duplicates  
 join1 <- full_join(amh, bea,  
@@ -1618,7 +1741,7 @@ join3 <- full_join(buz, chr,
 join4 <- full_join(cor, cra,  
                   by = c("class", "order", "family", "genus"))  
 
-join5 <- full_join(ean, ldc,  
+join5 <- full_join(ean, lod,   #### CHANGED FROM 'ldc'  
                   by = c("class", "order", "family", "genus"))  
 
 join6 <- full_join(lon, lwr,  
@@ -1649,7 +1772,7 @@ rm(amh,
    cor,  
    cra,  
    ean,  
-   ldc,  
+   lod,  
    lon,  
    lwr,  
    mer,  
@@ -1665,7 +1788,7 @@ rm(amh,
 
 ```
 
-```{r join_splits2}
+```{r 16_join_splits2}
 
 # contininue to join splits sequentially   
 join12 <- full_join(join1, join2,  
@@ -1696,7 +1819,7 @@ rm(join1,
 
 ```
 
-```{r join_splits3}
+```{r 17_join_splits3}
 
 # continue to join splits sequentially  
 join17 <- full_join(join11, join12,  
@@ -1717,7 +1840,7 @@ rm(join11,
 
 ```
 
-```{r join_splits4}
+```{r 18_join_splits4}
 
 # 1. final sequential joins====  
 join20 <- full_join(join17, join18,  
@@ -1734,7 +1857,7 @@ count_ck <- macro_ck %>%
   select(-scratch) %>%  
   arrange(station)  
 
-# results -- looks ok  
+# results -- count looks ok  
 
 macros <- macro_ck  
 
@@ -1746,7 +1869,7 @@ rm(join17,
 
 ```
 
-```{r fix_counts}
+```{r 19_fix_counts}
 
 # 1. import count data from original Excel spreadsheets====  
 macro_ck <- import("data/macro_count.csv") %>%  
@@ -1797,21 +1920,23 @@ macros <- macro_ck
 rm(check_vars,  
    count_ck,  
    macro_ck,  
-   samples)  
+   samples,  
+   scratch,  
+   check_samples)  
 
 ```
 
-```{r data_check-duplicates}
+```{r 20_data_check-duplicates}
 
-# test for duplicates  
+# test for duplicates    
 dups_ck <- macros %>%  
   distinct()  
 
 ```
 
-```{r clean_year}
+```{r 21_clean_year}
 
-# 1. arrange site names, dates, notes====   
+# 1. arrange site names, dates, notes==== 
 # pivot the df longer to fix year variable  
 macros_wide <- macros  
 
@@ -1861,9 +1986,9 @@ rm(yr_look_up)
 
 ```
 
-```{r standardize_site_names}
+```{r 22_standardize_site_names}
 
-# 1 get list of samples====  
+# 1 get list of samples====   
 site_list <- macros %>%  
   select(year, site, month, notes, name) %>%  
   distinct() %>%  
@@ -1895,22 +2020,22 @@ site_hist <- site_list %>%
     wtshd == "poc" ~ "pot",  
     wtshd == "por" ~ "por",  
     wtshd == "psc" ~ "pas",  
-    wtshd == "rdw" ~ "red",  
+    wtshd == "rdw" ~ "red",   
     wtshd == "wcc" ~ "wcc",  
     wtshd == "wfc" ~ "wol",  
     wtshd == "wtr" ~ "whi",  
     wtshd == "wdk" ~ "wok",  
     TRUE ~ wtshd)) %>%  
-  unite("id", c(wtshd, scratch), sep = "") %>%  
+  unite("id", c(wtshd, scratch), sep = "") %>%   
   mutate(id = case_when(  
     id == "ean2d7" ~ "ean2d8",  # update site name with collect date  
     TRUE ~ id))  
 
 ```
 
-```{r clean_dates-historical}
+```{r 23_clean_dates-historical}
 
-# 1. get historical data to get sampling dates====  
+# 1. get historical data to get sampling dates====   
 sample_id_dates_hist <- import("data/sample_id_dates.csv") %>%  
   # make updated id vars by splitting, updating, and rejoining  
   separate(id, c("wtshd","scratch"), 3) %>%  
@@ -2048,7 +2173,7 @@ site_hist <- full_join(site_hist, sample_id_dates_hist,
          month, month.x, month.y,  
          day, day.y,  
          everything()) %>%  
-  # make a final date variable and arrange vars  
+  # make a final date variable and arrange vars   
   unite("date", year, month, day) %>%  
   mutate(date = ymd(date)) %>%  
   select(date,  
@@ -2061,9 +2186,9 @@ rm(sample_id_dates_hist)
 
 ```
 
-```{r check_dates-historical}
+```{r 24_check_dates-historical}
 
-# 1. clean prior_2000 data====  
+# 1. clean prior_2000 data====   
 #    note -- joined below and cleaned up these data  
 site_hist <- site_hist %>%  
   mutate(site = case_when(  
@@ -2144,8 +2269,8 @@ site_dates <- import("data/macro_dates.csv") %>%
     TRUE ~ date))  
 
 # 3. check prior_2000 data====   
-site_hist_ck <- site_dates %>% 
-  filter(date < as.Date("2000-01-01")) 
+site_hist_ck <- site_dates %>%  
+  filter(date < as.Date("2000-01-01"))  
 
 site_hist_ck1 <- anti_join(site_hist, site_hist_ck,  
                             by = c("date", "site", "id")) %>%  
@@ -2169,7 +2294,7 @@ site_hist_ck2 <- anti_join(site_hist_ck, site_hist,
     TRUE ~ ""))  
 
 # 4. join data and check====  
-site_hist_fin <- full_join(site_hist, site_hist_ck, 
+site_hist_fin <- full_join(site_hist, site_hist_ck,  
                            by = c("date", "site", "id")) %>%  
 #  filter(id !=  "whi4a8") %>%  
   filter(id !=  "bel2a6") %>%  
@@ -2186,7 +2311,7 @@ rm(site_hist_ck,
 
 ```
 
-```{r check_dates-post2000}
+```{r 25_check_dates-post2000}
 
 # 1. clean post-1999 data====  
 site_post <- site_list %>%  
@@ -2221,7 +2346,7 @@ site_post <- site_list %>%
   filter(id != "delete")  
 
 # 2. prepare a check list & clean data====  
-site_post_ck <- site_dates %>% 
+site_post_ck <- site_dates %>%  
   filter(date > as.Date("2000-01-01")) %>%   
   mutate(site = case_when(  
     site =="WHIT" ~ "WHI3",  
@@ -2247,18 +2372,18 @@ site_dates_extra <- read_csv("data/macro_dates_xtra.csv") %>%
   drop_na() %>%  
   mutate(date = ymd(date))  
 
-site_post_ck <- bind_rows(site_post_ck, site_dates_extra)
+site_post_ck <- bind_rows(site_post_ck, site_dates_extra)  
 
 # 3. check data & join====  
 site_post_ck1 <- anti_join(site_post, site_post_ck,  
                             by = c("site", "id")) %>%  
   select(site:id)  
 
-site_post_ck2 <- anti_join(site_post_ck, site_post, 
+site_post_ck2 <- anti_join(site_post_ck, site_post,  
                             by = c("site", "id")) %>%  
   select(site:id)  
 
-site_post_fin <- full_join(site_post, site_post_ck, 
+site_post_fin <- full_join(site_post, site_post_ck,  
                            by = c("site", "id")) %>%  
   select(date, site, id, notes, ecoregion, watershed)  
 
@@ -2273,9 +2398,9 @@ rm(site_post_ck,
 
 ```
 
-```{r join_dates_validate_names}
+```{r 26_join_dates_validate_names}
 
-# 1. bind partially cleaned data and munge a bit more====  
+# 1. bind partially cleaned data and munge a bit more====   
 site_list1 <- bind_rows(site_hist, site_post) %>%   
   mutate(site = case_when(  
     site == "WHR5" ~ "WHI5",  
@@ -2321,7 +2446,7 @@ site_list2 <- site_list %>%
     site == "CHR1" ~ "CHE1",  
     site == "CHR2" ~ "CHE2",  
     site == "LDC1" ~ "LOD1",  
-    site == "WDK4" ~ "WOK4",
+    site == "WDK4" ~ "WOK4",  
     site == "WTR3" ~ "WHI3",  
     site == "WTR4" ~ "WHI4",  
     site == "WHR5" ~ "WHI5",  
@@ -2348,7 +2473,7 @@ site_list2 <- site_list %>%
     id == "wok3r7" ~ "wok3r6",  
     id == "wdk4a6" ~ "wok4a6",  
     id == "wdk4b5" ~ "wok4b5",  
-    id == "wdk4d7" ~ "wok4d7",      
+    id == "wdk4d7" ~ "wok4d7",  
     id == "wtr4a8" ~ "whi4a8",  
     id == "wtr3p6" ~ "whi3p6",  
     id == "wtr3p6" ~ "whi3p6",  
@@ -2370,7 +2495,7 @@ site_list_ck2 <- anti_join(site_list2, site_list1,
                            by = c("site", "id"))  
 
 # 4. join the two datasets & check notes -- shouldnt have anything useful====  
-site_list_fin <- full_join(site_list1, site_list2, 
+site_list_fin <- full_join(site_list1, site_list2,  
                            by = c("site", "id")) %>%  
   select(date, site, id, watershed, ecoregion, notes.x, notes.y)  
 
@@ -2382,7 +2507,7 @@ rm(site_dates,
    site_dates_extra,  
    site_hist,  
    site_list,  
-#   site_list_check,  
+   dups_ck,  
    site_list_ck1,  
    site_list_ck2,  
    site_list1,  
@@ -2391,9 +2516,9 @@ rm(site_dates,
 
 ```
 
-```{r join_dates-macros}
+```{r 27_join_dates-macros}
 
-# 1. prepare for join -- create a bridge df====  
+# 1. prepare for join -- create a bridge df====   
 site_id <- macros_wide %>%  
   select(-c(class:genus)) %>%  
   names() %>%  
@@ -2423,7 +2548,7 @@ site_id <- macros_wide %>%
     id == "wok3r7" ~ "wok3r6",  
     id == "wdk4a6" ~ "wok4a6",  
     id == "wdk4b5" ~ "wok4b5",  
-    id == "wdk4d7" ~ "wok4d7",      
+    id == "wdk4d7" ~ "wok4d7",  
     id == "wtr4a8" ~ "whi4a8",  
     id == "wtr3p6" ~ "whi3p6",  
     id == "wtr3p6" ~ "whi3p6",  
@@ -2485,14 +2610,13 @@ macros_ck <- macros_fin %>%
 
 macros_ck2 <- macros_fin %>%  
   filter(is.na(id)) %>%  
-  filter(is.na(count)) 
+  filter(is.na(count))  
   
 macros_fin <- macros_fin %>%  
   filter(!is.na(id))  
 
 # clean up global environment  
-rm(dups_ck,  
-   macros,  
+rm(macros,  
    macros_ck,  
    macros_ck2,  
    macros_wide,  
@@ -2502,9 +2626,7 @@ rm(dups_ck,
 
 ```{r export_cleaned_data}
 export(site_list_fin, "data/station_id_list.csv")  
-export(macros_fin, "data/macros_tidy.csv")  
+export(macros_fin, "data/macros_tidy.csv")   
 
 ```
-
-
 
