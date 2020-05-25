@@ -1,0 +1,405 @@
+---
+subtitle: "Watershed storage parameters improve streamflow estimation accuracy for ungaged watersheds for a semiarid region of the Northern Great Plains, USA" 
+author:
+- "Charles Jason Tinant - STEM Department, Oglala Lakota College"
+- "Scott J. Kenner Department of Civil Engineering Dept, SD Mines"
+institute: 
+- "^1^"
+- "^2^."
+date: "`r Sys.Date()`"
+output: 
+  ioslides_presentation:
+    css: shiny-slides.css
+    logo: data/peec_meatball.png
+    self_contained: no
+    incremental: false 
+---
+
+<!--
+output: 
+  ioslides_presentation:
+    css: shiny-slides.css
+    logo: data/peec_meatball.png
+    self_contained: no
+    incremental: false 
+--> 
+
+```{r setup_&_library, message=FALSE, warning=FALSE, include=FALSE}  
+knitr::opts_chunk$set(echo = FALSE)   
+options(tibble.print_max = 70) # sets tibble output for printing       
+
+# Set up the library of packages----     
+library("conflicted")        # An alternative conflict resolution strategy  
+library("here")              # identifies where to save work  
+library("rio")               # more robust I/O - to import and clean data  
+library("cowplot")           # features for creating publication-quality figs
+library("magrittr")          # a forward-pipe operator for R 
+library("magick")            # advanced graphics and image-processing in R  
+library("tidyverse")         # harmonious data munging and visualization in R  
+library("kableExtra")  
+  
+# resolve conflicts among package====  
+conflict_prefer("filter", "dplyr")  
+  
+# cool tips====  
+# use this to convert from HTML to pdf (works sometimes)  
+pagedown::chrome_print(  
+  "/Users/cjtinant/index/Eco-drought/presentations/trs_2019/trs2019_tinant.html")  
+# switch among tabs using ctrl/alt/< or >  
+
+# another approach  
+library(webshot)  
+library(rmarkdown)  
+rmdshot(  
+  "/Users/cjtinant/index/Eco-drought/presentations/trs_2019/tinant_ioslides.Rmd", "/Users/cjtinant/index/Eco-drought/presentations/trs_2019/trs2019_tinant_ioslides.pdf")
+``` 
+
+## Research Motivation
+
+* **Better streamflow estimates** are needed for hydrologic studies on Tribal lands.  
+
+* **Watershed storages** may provide *useful metrics* to improve streamflow estimates.  
+
+* **Modeling** watershed storage is necessary because *storages vary in time and space*. 
+
+* **Top-down modeling approaches** may accurately *classify watersheds* for regional pooling and identify key hydrologic landscape parameters.  
+
+# Overview
+
+"Finding your bug is a process of confirming the many things that you believe are true — until you find one which is not true."
+
+-- Norm Matloff (describing computer programming)
+
+## Outline 
+- Study Area Description 
+- Methods 
+- Results 
+- Key Findings
+- Next Steps 
+
+## Study Area Description   
+- SW South Dakota and NW Nebraska - semi-arid mid-latitude climate (BSk) -- wet spring, hot summer, dry cold winter. 
+- USGS streamflow gages (N = 42) for water years 1980-2018 in non-karstic sedimentary watersheds without dams.
+
+```{r studyarea, fig.height=4}
+ 
+# import stream gage data====  
+wsd_summary <- import("data/wsd_summary.csv") %>% 
+  rename(sta = sta_id) 
+ 
+gage_full <- import("data/gage_mon_full.csv")  
+ 
+# identify complete stations for plotting====  
+gage_full <- semi_join(wsd_summary, gage_full,  
+                            by = "sta") %>%  
+  mutate(complete = "yes") %>%  
+  mutate(type = "gaged") %>%  
+  select(sta, type, complete)  
+ 
+wsd_summary <- full_join(wsd_summary, gage_full, 
+                          by = c("type", "sta") 
+                          ) %>% 
+  select(sta,  
+         type,  
+         complete,  
+         dec_lat,  
+         dec_lon, 
+         ecoreg 
+         ) %>%   
+  mutate(type2 = case_when(  
+    complete   == "yes" ~ "complete",  
+    type       == "gaged" ~ "incomplete", 
+    TRUE ~ type 
+    ))  %>% 
+  select(-c(complete, type)) %>% 
+  rename(type = type2) %>% 
+  mutate(ecoreg = case_when(  
+    ecoreg == "" ~ "ungaged",  
+    TRUE ~ ecoreg)  
+    ) %>% 
+  # remove ungaged stations 
+  filter(type != "ungaged") 
+ 
+rm(gage_full) 
+ 
+# prepare map elements----  
+ 
+# Define the study area using data from the 'maps' package-----   
+# import polygon data for maps====   
+usa            <- map_data("usa")    
+states         <- map_data("state")   
+counties       <- map_data("county")   
+   
+# filter counties for mapping====  
+#   need to filter counties for SD & NE separately because of duplicate vals   
+#   subset SD counties####   
+counties_sd <- subset(counties,  
+                      region %in%   
+                        c("south dakota"))  
+     
+counties_sd <- subset(counties_sd,  
+                      subregion %in%  
+                        c("butte",  
+                          "meade",  
+                          "lawrence",  
+                          "pennington",  
+                          "custer",  
+                          "fall river",  
+                          "shannon",  
+                          "jackson",  
+                          "bennett",  
+                          "haakon",    
+                          "todd",     
+                          "mellette",  
+                          "jones",  
+                          "stanley",  
+                          "lyman",  
+                          "tripp",  
+                          "hughes",  
+                          "ziebach",  
+                          "dewey",  
+                          "hughes",  
+                          "sully",   
+                          "potter"     
+                        )  
+)    
+   
+#   subset NE counties####  
+counties_ne <- subset(counties,   
+                      region %in%  
+                        c("nebraska"))  
+   
+counties_ne <- subset(counties_ne,   
+                      subregion %in%  
+                        c("sioux",   
+                          "dawes",   
+                          "sheridan",   
+                          "box butte",    
+                          "cherry",  
+                          "brown",   
+                          "keya paha",    
+                          "rock"        
+                        )   
+)   
+    
+#   join SD & NE counties####   
+counties <- bind_rows(counties_sd, counties_ne)  
+rm(counties_sd, counties_ne)   
+ 
+# create SD-NE & SD-WY lines====   
+ne_bound <- subset(counties,   
+                   subregion %in%     
+                     c("fall river",   
+                       "shannon",  
+                       "bennett",   
+                       "todd",   
+                       "tripp")) %>%  
+  filter(lat < 43.1)      
+  
+wy_bound <- subset(counties,   
+                   subregion %in%  
+                     c("butte",      
+                       "lawrence"  ,  
+                       "pennington" ,  
+                       "custer",      
+                       "fall river",  
+                       "sioux"  
+                     )) %>%  
+  filter(long < -104)  
+     
+# create Reservation counties==== 
+rez <- subset(counties,   
+                   subregion %in%  
+                     c("shannon",      
+                       "bennett"  ,  
+                       "jackson", 
+                       "mellette", 
+                       "todd", 
+                       "dewey", 
+                       "ziebach" 
+                     )) 
+ 
+ridge_bound <- subset(counties,   
+                   subregion %in%  
+                     c("shannon",      
+                       "bennett"  ,  
+                       "jackson") 
+                   )  
+
+rosebud_bound <- subset(counties,   
+                   subregion %in%  
+                     c("mellette", 
+                       "todd") 
+                       ) 
+
+# plot US map as a grob----   
+# create a bounding box -- order is SW, NW, NE, SE====    
+bbox <- tibble(lat = c(42.0, 45.0, 45.0, 42.0),  
+               long = c(-104.5, -104.5, -99.5, -99.5),  
+               group = c(1, 1, 1, 1)  
+)  
+  
+# plot US map====     
+usmap <- ggplot() +  
+  geom_polygon(data = usa,  
+               aes(x=long, y = lat, group = group),   
+               fill = "gray70",  
+               color = "gray70"  
+  ) +       
+  coord_fixed(1.3) +  
+  theme_nothing() +  
+  geom_polygon(data = bbox,  
+               aes(x=long, y = lat, group = group),  
+               fill = "gray30",  
+               color = "gray30") +   
+  xlab("") +   
+  ylab("")   
+     
+# change the US map into a grob####   
+usmap <- as_grob(usmap, device = NULL)  
+  
+rm(usa)  
+  
+# plot  station map====    
+# Legend.position can be a numeric vector c(x,y), where x and y are the   
+#   coordinates of the legend box between 0 and 1.  
+#     c(0,0) corresponds to the “bottom left” and   
+#     c(1,1) corresponds to the “top right” position.  
+  
+ggplot() +   
+  theme_classic() +  
+  coord_fixed(1.3) +  
+  xlab("") +    
+  ylab("") +      
+  theme(axis.line         = element_line(colour = "grey60")) +  
+  theme(axis.ticks        = element_line(colour = "grey60")) +  
+  theme(axis.text         = element_text(colour = "grey50")) +  
+  theme(legend.position   = c(1.1, 0.4)) +    
+  theme(legend.title      = element_text(size = 10)) +   
+  theme(legend.text       = element_text(size = 8)) +  
+  theme(legend.key.height =  unit(0.5, 'cm')) +  
+  guides(shape            = guide_legend(order = 1),  
+         color            = guide_legend(order = 2)  
+  ) +     
+  # add counties      
+  geom_polygon(data      = counties,   
+               aes(x     = long,  
+                   y     = lat,     
+                   group = group),   
+               color     = "gray80",  
+               fill      = "NA") +   
+  # add Reservation counties 
+  geom_polygon(data = rez,   
+               aes(x     = long,  
+                   y     = lat,    
+                   group = group),  
+               fill     = "gray90", 
+               alpha = 0.5
+  ) + 
+  # add Pine Ridge boundary 
+  geom_polygon(data = ridge_bound,   
+               aes(x     = long,  
+                   y     = lat,    
+                   group = group),  
+               color     = "gray50",  
+               fill     = "NA" 
+  ) + 
+  # add Pine Ridge boundary 
+  geom_polygon(data = rosebud_bound,   
+               aes(x     = long,  
+                   y     = lat,    
+                   group = group),  
+               color     = "gray50",  
+               fill     = "NA" 
+  ) + 
+  # add NE stateline boundary    
+  geom_line(data      = ne_bound,   
+            aes(x     = long,    
+                y     = lat,     
+                group = group),  
+            color     = "gray60"  
+  ) +   
+  #   # add WY stateline boundary    
+  geom_line(data = wy_bound,   
+            aes(x     = long,  
+                y     = lat,    
+                group = group),  
+            color     = "gray60"    
+  ) +    
+  # add stream gaging stations     
+  geom_point(data      = wsd_summary,  
+             aes(dec_lon,  
+                 dec_lat,   
+                 color = factor(wsd_summary$type),  
+                 shape = factor(wsd_summary$ecoreg),
+             ),   
+             size     = 2,    
+             stroke   = 0.8,  
+  ) +      
+  # create legend elements  
+  scale_shape_discrete(   
+    name       = 'Ecoregion type',   
+    guide      = 'legend'
+  ) +   
+scale_colour_hue(name    = 'Gage length',
+                 h.start = 180, # sets red as incomplete gage record
+                 guide   = 'legend') +   
+  # add the US map as a grob    
+  annotation_custom(grob = usmap,    
+                    xmin = -99.3,    
+                    xmax = -97.4,   
+                    ymin = 44.5,   
+                    ymax = 45.5)    
+ 
+# clean up global environment 
+rm(bbox,   
+   counties,   
+   states,   
+   wsd_summary,  
+   ne_bound,  
+   wy_bound, 
+   usmap,  
+   rez, 
+   ridge_bound, 
+   rosebud_bound
+)    
+ 
+```
+
+## Classification Methods 
+- Log-transformed daily (q1), 7-day (q7) and 30-day (q30) flow depths
+
+- Unsupervised classification using a finite mixture model (Fraley 2016).  
+
+- Bias-corrected and accelerated bootstrapping by ecoregion (DiCiccio, Thomas, and Bradley Efron, 1996).
+
+## Hydrologic landscape parameter development and hypothesis testing 
+- GIS‐derived metrics following the hydrologic landscape conceptual framework (Winter 2001, Epting et al. 2018).  
+
+- GLM inputs are watershed zonal statistics (N = 15), plus seasonality, trend, and ecoregion type. 
+
+- Generalized Linear Models (GLMs) trained with 80/20 splits and 5-fold cross-validation. **q1 are response variables**, and **hydrologic landscape metrics are explanatory variables**. 
+
+- Selected GLM model, fitted holdout data, and evaluated against null models of mean daily flow depths. 
+
+# Results and Discussion
+
+## Unsupervised Classification 
+<div class='left' style='float:left;width:48%'>
+- X-axis is hydrologic export and Y-axis is evenness (q30 - q1)
+- Classification algorithm classified by streamflow by type, where: 
+- Type 1 flow is a zero flow and type 9 flow is a high-flow
+- Note: orientation of types - low flows are relate to q1 & q7 and high flows relate to q30
+- *Lots of overlap among ecoregions*, but   
+</div>
+<div class='right' style='float:right;width:48%'>
+```{r mclust2, echo=FALSE,  out.width='100%'}
+
+knitr::include_graphics("data/mclust_plot.png")
+```
+</div>
+
+
+
+
+
